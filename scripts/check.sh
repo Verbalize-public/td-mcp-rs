@@ -12,4 +12,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 echo "== cargo test =="
 cargo test --workspace
 
+echo "== bridge python tests =="
+python3 -m unittest discover -s bridge/tests -p "test_*.py" -v
+
 echo "OK: check green"

@@ -1,0 +1,8 @@
+2026-07-29T23:00:43.088948Z  INFO tdmcp_daemon: starting tdmcp-daemon port=9860 data_dir=C:\Users\corbe\AppData\Local\tdmcp-rs bridge_dir=C:\Users\corbe\Documents\Derivative\Projects\td-mcp-rs\crates\tdmcp-daemon\../../bridge
+2026-07-29T23:00:43.092955Z  INFO tdmcp_daemon: loaded diagnostics catalog path=C:\Users\corbe\Documents\Derivative\Projects\td-mcp-rs\crates\tdmcp-daemon\../../diagnostics/catalog.yaml
+2026-07-29T23:00:43.097487Z  INFO tdmcp_daemon: listening (MCP rmcp /mcp/rpc + JSON fallback /mcp/* + admin /admin/*) addr=127.0.0.1:9860
+2026-07-29T23:00:43.101049Z  INFO tdmcp_ipc::listener: named pipe endpoint configured name=\\.\pipe\tdmcp-rs
+2026-07-29T23:00:43.101286Z  INFO tdmcp_daemon::bridge: ipc listener bound — waiting for TD bridges
+2026-07-29T23:00:43.101415Z DEBUG tdmcp_ipc::listener: waiting for named pipe client name=\\.\pipe\tdmcp-rs first=true
+2026-07-29T23:01:14.895163Z DEBUG tdmcp_ipc::listener: waiting for named pipe client name=\\.\pipe\tdmcp-rs first=false
+2026-07-29T23:01:14.895412Z  INFO tdmcp_daemon::bridge: bridge session started pid=27636

@@ -104,7 +104,10 @@ async fn initialize(client: &reqwest::Client, url: &str) -> SessionId {
         .await
         .unwrap();
     assert_eq!(response.status(), 200);
-    let session_id: SessionId = response.headers()["mcp-session-id"].to_str().unwrap().into();
+    let session_id: SessionId = response.headers()["mcp-session-id"]
+        .to_str()
+        .unwrap()
+        .into();
 
     let status = client
         .post(url)

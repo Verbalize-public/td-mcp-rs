@@ -6,10 +6,13 @@ owns the session + RPC (execute_python, capture, inspect helpers).
 
 from __future__ import annotations
 
+import ctypes
 import json
 import os
+import queue
 import struct
 import sys
+import threading
 import traceback
 from typing import Any, Callable
 
@@ -243,9 +246,6 @@ def _dial_uds(path: str):
 
 
 def _dial_named_pipe(name: str):
-    import ctypes
-    from ctypes import wintypes
-
     kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
     GENERIC_READ = 0x80000000
     GENERIC_WRITE = 0x40000000
@@ -270,7 +270,6 @@ class _NamedPipeStream:
     """Minimal file-like wrapper over a named pipe handle."""
 
     def __init__(self, handle: int) -> None:
-        import ctypes
         from ctypes import wintypes
 
         self._handle = handle
@@ -285,7 +284,7 @@ class _NamedPipeStream:
             read = self._wintypes.DWORD(0)
             ok = self._kernel32.ReadFile(
                 self._handle,
-                ctypes.byref(self._buf, want),
+                self._buf,
                 want,
                 ctypes.byref(read),
                 None,
@@ -343,7 +342,14 @@ def _td_pid() -> int:
 
 
 def serve(stream) -> None:
-    """Framed dispatch loop over a connected IPC stream."""
+    """Framed dispatch loop over a connected IPC stream — direct dispatch.
+
+    Runs `dispatch()` (and therefore any `td.*` call inside a handler)
+    **on the calling thread**. Only safe when the caller either *is* TD's
+    main thread and is fine blocking it (short-lived manual smoke tests), or
+    is guaranteed to never touch `op`/`td.project` (never true for our
+    handlers). Live TD sessions must use [`serve_queued`] instead.
+    """
     while True:
         try:
             msg = _read_frame(stream)
@@ -353,11 +359,72 @@ def serve(stream) -> None:
         _write_frame(stream, resp)
 
 
-def bootstrap(bridge_dir: str | None = None) -> None:
+# --- Main-thread-safe serving (worker thread enqueues, Execute DAT drains) --
+#
+# TD's Python API is only safe to call from the main/cook thread. The IPC
+# read is blocking, so it must live on a worker thread — but the worker must
+# never call `dispatch()` itself (that would run `td.*` off-thread). Instead
+# it enqueues a plain (msg, response_slot) pair and blocks on the response
+# slot; a per-frame pump on the main thread (an Execute DAT's `onFrameStart`,
+# same pattern as sibling project td-mcp's `tdmcp_tunnel.py`) drains the
+# queue, calls `dispatch()`, and unblocks the worker. Only plain dicts and
+# `queue.Queue` objects cross the thread boundary — never an `OP`.
+_pending_main: "queue.Queue[tuple[dict[str, Any], queue.Queue]]" = queue.Queue()
+
+
+def process_pending(max_items: int = 64) -> int:
+    """Drain the request queue and dispatch on the calling thread.
+
+    Call **only** from TD's main thread (an Execute DAT's `onFrameStart`).
+    Bounded per call so a burst of requests can't stall a frame indefinitely;
+    remaining items are picked up next frame.
+    """
+    n = 0
+    while n < max_items:
+        try:
+            msg, response_slot = _pending_main.get_nowait()
+        except queue.Empty:
+            break
+        try:
+            response_slot.put(dispatch(msg))
+        except Exception as exc:  # noqa: BLE001 — never let the pump die
+            response_slot.put(
+                {"type": "response", "id": msg.get("id"), "error": {"message": str(exc)}}
+            )
+        n += 1
+    return n
+
+
+def serve_queued(stream) -> None:
+    """Framed dispatch loop, worker-thread-safe: enqueue + wait, never dispatch here.
+
+    Intended to run on a background thread started by [`bootstrap_threaded`].
+    """
+    while True:
+        try:
+            msg = _read_frame(stream)
+        except EOFError:
+            break
+        if msg.get("type") != "request":
+            continue
+        response_slot: "queue.Queue[dict[str, Any]]" = queue.Queue(maxsize=1)
+        _pending_main.put((msg, response_slot))
+        resp = response_slot.get()
+        _write_frame(stream, resp)
+
+
+def bootstrap(bridge_dir: str | None = None) -> dict[str, Any]:
     """Dial the daemon, handshake, load the bridge package, and serve.
+
+    Blocks the calling thread for the lifetime of the connection and
+    dispatches directly (see [`serve`]) — do **not** call this from a live TD
+    session (use [`bootstrap_threaded`] there). Useful for manual/non-TD
+    smoke tests (e.g. a plain Python REPL, or a script talking to a stub
+    peer in tests).
 
     `bridge_dir` is where `tdmcp_bridge` lives; if omitted, the daemon's
     handshake response supplies it (advisory — reload from disk each connect).
+    Returns the handshake response.
     """
     stream = dial()
     resp = handshake(stream)
@@ -365,6 +432,59 @@ def bootstrap(bridge_dir: str | None = None) -> None:
     if pkg_dir and pkg_dir not in sys.path:
         sys.path.insert(0, pkg_dir)
     serve(stream)
+    return resp
+
+
+_active_stream: Any = None
+_active_thread: threading.Thread | None = None
+
+
+def bootstrap_threaded(bridge_dir: str | None = None) -> dict[str, Any]:
+    """Non-blocking variant of [`bootstrap`] for a live TD session.
+
+    Dials and handshakes synchronously (fast — a couple of IPC round trips)
+    so callers get an immediate handshake result / error, then hands the
+    framed read loop to a worker thread running [`serve_queued`] — the
+    worker only ever touches the stream and a `queue.Queue`, never `td.*`.
+
+    The caller (the bootstrap Text DAT's owning Execute DAT) **must** also
+    enable `Frame Start` and call [`process_pending`] from `onFrameStart`,
+    or requests will queue forever without a response.
+    """
+    global _active_stream, _active_thread
+    stream = dial()
+    resp = handshake(stream)
+    pkg_dir = bridge_dir or resp.get("bridgePackageDir")
+    if pkg_dir and pkg_dir not in sys.path:
+        sys.path.insert(0, pkg_dir)
+    thread = threading.Thread(target=serve_queued, args=(stream,), daemon=True)
+    thread.start()
+    _active_stream = stream
+    _active_thread = thread
+    return resp
+
+
+def disconnect() -> bool:
+    """Close the active bridge connection.
+
+    Main-thread only (closing a `_NamedPipeStream`/socket is plain I/O, not
+    an `OP` call, but keep it off the worker thread for symmetry with the
+    rest of this module). Lets the daemon observe a disconnect without
+    quitting TD — e.g. to exercise the resurrection path, or to force a
+    clean reconnect after changing the bridge package on disk. The worker
+    thread notices on its next blocking read and exits; call
+    `bootstrap_threaded()` again afterwards to reconnect.
+    """
+    global _active_stream, _active_thread
+    if _active_stream is None:
+        return False
+    try:
+        _active_stream.close()
+    except Exception:  # noqa: BLE001 — best-effort teardown
+        pass
+    _active_stream = None
+    _active_thread = None
+    return True
 
 
 if __name__ == "__main__":

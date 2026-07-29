@@ -916,10 +916,20 @@ by `pid` for bridges / queues — no sticky, no targetId.
   `tdmcp.perception.*`, `tdmcp.bridge.*`). Integration tests drive the real
   actor over a memory IPC pair (`tests/bridge_session.rs`): handshake, fleet,
   execute_python, capture, exclusive-while-busy, disconnect → resurrection →
-  first-success-clears-stack. **Still pending for P0 exit-green:** rmcp
-  Streamable HTTP (current surface is the JSON `/mcp/tools/list` +
-  `/mcp/tools/call` fallback), bootstrap `.tox` + bridge IPC dial, and the
-  live-TD run of `docs/E2E_CHECKLIST.md`.
+  first-success-clears-stack. **Real MCP transport wired:** `tdmcp-mcp::McpHandler`
+  implements `rmcp::ServerHandler` over the same `AppState`/`dispatch_tool`
+  path the JSON fallback uses; the daemon nests `rmcp`'s `StreamableHttpService`
+  (`LocalSessionManager`, legacy session mode) at `/mcp/rpc` alongside the
+  JSON `/mcp/tools/list` + `/mcp/tools/call` surface (kept as a low-ceremony
+  fallback for curl/tests). Tool schemas are hand-authored per tool
+  (`rmcp_handler.rs`); bridge failures map to `CallToolResult::structured_error`
+  with the same `tdmcp.*` diagnostics envelope. Integration tests
+  (`tests/rmcp_streamable_http.rs`) drive the real transport end-to-end over a
+  live TCP listener: `initialize` → `notifications/initialized` → `tools/call`
+  for `fleet` / `execute_python` (happy path, script failure, unknown tool).
+  **Still pending for P0 exit-green:** the live-TD run of
+  `docs/E2E_CHECKLIST.md` (bootstrap `.tox` + bridge IPC dial are code-complete
+  but not yet exercised against a running TouchDesigner instance).
 
 ---
 
