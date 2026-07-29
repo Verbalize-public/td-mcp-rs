@@ -1,25 +1,24 @@
-//! td-mcp-rs daemon — composition root.
+//! td-mcp-rs daemon — composition root (binary).
 
 #![allow(clippy::exit, reason = "process boundary")]
 
-mod admin;
-mod config;
-mod tracing_init;
-
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use axum::Router;
 use clap::{Parser, Subcommand};
+use tdmcp_core::PidRegistry;
+use tdmcp_ipc::BridgeEndpoint;
+use tokio::sync::Mutex;
 use tracing::{info, warn};
 
-use tdmcp_core::PidRegistry;
+use tdmcp_daemon::admin::build_admin_router;
+use tdmcp_daemon::bridge::{run_ipc_accept, BridgeSessions};
+use tdmcp_daemon::config::Config;
 use tdmcp_diagnostics::Catalog;
 use tdmcp_mcp::{build_mcp_router, AppState};
-
-use crate::admin::build_admin_router;
-use crate::config::Config;
 
 #[derive(Debug, Parser)]
 #[command(name = "tdmcp-daemon", version, about = "td-mcp-rs control plane")]
@@ -68,7 +67,7 @@ async fn main() -> Result<()> {
             catalog,
         } => {
             let cfg = Config::load(port, data_dir, bridge_dir, catalog)?;
-            tracing_init::init(&cfg)?;
+            tdmcp_daemon::tracing_init::init(&cfg)?;
             run_daemon(cfg).await
         }
         Commands::Status { port } => {
@@ -121,7 +120,10 @@ async fn run_daemon(cfg: Config) -> Result<()> {
         }
     };
 
-    let state = AppState::new(PidRegistry::new(), catalog);
+    let registry = Arc::new(Mutex::new(PidRegistry::new()));
+    let sessions = BridgeSessions::new(registry.clone());
+    let bridge: Arc<dyn tdmcp_mcp::BridgeRpc> = Arc::new(sessions.clone());
+    let state = AppState::new_shared(registry.clone(), catalog, bridge);
     let admin_state = state.clone();
 
     let app = Router::new()
@@ -138,10 +140,21 @@ async fn run_daemon(cfg: Config) -> Result<()> {
     std::fs::create_dir_all(&cfg.data_dir)?;
     std::fs::write(&lock_path, std::process::id().to_string())?;
 
+    // IPC accept loop: bind the local bridge endpoint and spawn a per-pid
+    // session actor for each handshaken TD peer.
+    let endpoint = BridgeEndpoint::default_endpoint(&cfg.data_dir);
+    let ipc_registry = registry.clone();
+    let ipc_sessions = sessions.clone();
+    let bridge_dir = cfg.bridge_dir.clone();
+    let ipc_handle = tokio::spawn(async move {
+        run_ipc_accept(endpoint, bridge_dir, ipc_registry, ipc_sessions).await;
+    });
+
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
         .await?;
 
+    ipc_handle.abort();
     let _ = std::fs::remove_file(&lock_path);
     Ok(())
 }

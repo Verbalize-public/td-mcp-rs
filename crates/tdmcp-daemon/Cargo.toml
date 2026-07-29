@@ -12,6 +12,7 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = { workspace = true }
+async-trait = { workspace = true }
 axum = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true }
@@ -27,6 +28,7 @@ tdmcp-core = { workspace = true }
 tdmcp-diagnostics = { workspace = true }
 tdmcp-ipc = { workspace = true }
 tdmcp-mcp = { workspace = true }
+uuid = { workspace = true }
 
 [dev-dependencies]
 tdmcp-test-support = { workspace = true }

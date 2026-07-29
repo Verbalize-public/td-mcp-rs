@@ -1,8 +1,7 @@
-//! Axum router for MCP-style JSON tool calls + rmcp-ready state.
+//! Axum router for MCP-style JSON tool calls.
 //!
-//! Streamable HTTP via `rmcp` is nested when the `rmcp` feature set is available;
-//! this module always exposes a simple `/mcp/tools/*` JSON surface for tests
-//! and as a fallback.
+//! A simple `/mcp/*` JSON surface for tests and as a fallback. The rmcp
+//! Streamable HTTP layer nests on top of the same [`AppState`].
 
 use std::sync::Arc;
 
@@ -15,6 +14,7 @@ use tdmcp_core::PidRegistry;
 use tdmcp_diagnostics::Catalog;
 use tokio::sync::Mutex;
 
+use crate::bridge_rpc::BridgeRpc;
 use crate::tools::{dispatch_tool, tool_descriptors, ToolCallError};
 
 /// Shared daemon state for MCP + admin handlers.
@@ -24,15 +24,33 @@ pub struct AppState {
     pub registry: Arc<Mutex<PidRegistry>>,
     /// Diagnostic catalog.
     pub catalog: Arc<Catalog>,
+    /// Live bridge transport (daemon-supplied).
+    pub bridge: Arc<dyn BridgeRpc>,
 }
 
 impl AppState {
-    /// Construct shared state.
+    /// Construct shared state from an owned registry.
     #[must_use]
-    pub fn new(registry: PidRegistry, catalog: Catalog) -> Self {
+    pub fn new(registry: PidRegistry, catalog: Catalog, bridge: Arc<dyn BridgeRpc>) -> Self {
         Self {
             registry: Arc::new(Mutex::new(registry)),
             catalog: Arc::new(catalog),
+            bridge,
+        }
+    }
+
+    /// Construct shared state from an already-shared registry (daemon composition
+    /// root shares one registry Arc across MCP + bridge sessions + admin).
+    #[must_use]
+    pub fn new_shared(
+        registry: Arc<Mutex<PidRegistry>>,
+        catalog: Catalog,
+        bridge: Arc<dyn BridgeRpc>,
+    ) -> Self {
+        Self {
+            registry,
+            catalog: Arc::new(catalog),
+            bridge,
         }
     }
 }
@@ -64,8 +82,15 @@ async fn call_tool(
     State(state): State<AppState>,
     Json(body): Json<CallBody>,
 ) -> Result<Json<Value>, axum::http::StatusCode> {
-    let mut registry = state.registry.lock().await;
-    match dispatch_tool(&mut registry, &state.catalog, &body.name, body.arguments) {
+    match dispatch_tool(
+        &state.registry,
+        &state.catalog,
+        state.bridge.as_ref(),
+        &body.name,
+        body.arguments,
+    )
+    .await
+    {
         Ok(v) => Ok(Json(serde_json::json!({ "ok": true, "data": v }))),
         Err(ToolCallError::Failed {
             summary,
@@ -75,7 +100,7 @@ async fn call_tool(
             "summary": summary,
             "diagnostics": diagnostics,
         }))),
-        Err(ToolCallError::UnknownTool(_)) | Err(ToolCallError::InvalidArgs(_)) => {
+        Err(ToolCallError::UnknownTool(_) | ToolCallError::InvalidArgs(_)) => {
             Err(axum::http::StatusCode::BAD_REQUEST)
         }
     }

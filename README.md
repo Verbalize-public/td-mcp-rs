@@ -904,9 +904,22 @@ by `pid` for bridges / queues — no sticky, no targetId.
   for the operator machine**, not “no Python in TD.”
 - **Implementation status:** Cargo workspace under `crates/` — see
   [`ARCHITECTURE.md`](ARCHITECTURE.md), [`CONSTITUTION.md`](CONSTITUTION.md),
-  [`AGENTS.md`](AGENTS.md). Local gate: `scripts/check.ps1`.
-  Interim MCP surface: JSON `/mcp/tools/list` + `/mcp/tools/call` (rmcp
-  Streamable HTTP nesting is the next transport wiring step).
+  [`AGENTS.md`](AGENTS.md). Local gate: `scripts/check.ps1` / `scripts/check.sh`
+  (`cargo fmt --check` + `cargo clippy -- -D warnings` + `cargo test`).
+  **P0 control plane wired:** daemon runs an `IpcListener` accept loop; each
+  handshaken TD peer gets a per-pid actor (`tdmcp-daemon/src/bridge.rs`) that
+  owns the `IpcStream`, drives queue progression (`start_next` / `complete_task`),
+  and answers `BridgeRpc::call`. `dispatch_tool` (async) enqueues eagerly
+  (exclusive-while-busy checked at enqueue) then calls the bridge with a 30s
+  wait budget; `execute_python` / `inspect` / `capture` map to the uniform
+  `diagnostics` envelope (`tdmcp.script.execution_failed`,
+  `tdmcp.perception.*`, `tdmcp.bridge.*`). Integration tests drive the real
+  actor over a memory IPC pair (`tests/bridge_session.rs`): handshake, fleet,
+  execute_python, capture, exclusive-while-busy, disconnect → resurrection →
+  first-success-clears-stack. **Still pending for P0 exit-green:** rmcp
+  Streamable HTTP (current surface is the JSON `/mcp/tools/list` +
+  `/mcp/tools/call` fallback), bootstrap `.tox` + bridge IPC dial, and the
+  live-TD run of `docs/E2E_CHECKLIST.md`.
 
 ---
 

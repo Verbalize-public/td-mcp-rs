@@ -3732,6 +3732,7 @@ name = "tdmcp-daemon"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "axum",
  "chrono",
  "clap",
@@ -3748,6 +3749,7 @@ dependencies = [
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]
@@ -3792,12 +3794,14 @@ dependencies = [
 name = "tdmcp-mcp"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "axum",
  "chrono",
  "serde",
  "serde_json",
  "tdmcp-core",
  "tdmcp-diagnostics",
+ "tdmcp-test-support",
  "thiserror 2.0.19",
  "tokio",
  "tracing",
@@ -4265,6 +4269,7 @@ version = "1.24.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bf3923a6f5c4c6382e0b653c4117f48d631ea17f38ed86e2a828e6f7412f5239"
 dependencies = [
+ "getrandom 0.4.3",
  "js-sys",
  "serde_core",
  "wasm-bindgen",

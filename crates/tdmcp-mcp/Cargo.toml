@@ -7,6 +7,7 @@ rust-version.workspace = true
 description = "MCP tool handlers (rmcp) for td-mcp-rs"
 
 [dependencies]
+async-trait = { workspace = true }
 axum = { workspace = true }
 chrono = { workspace = true }
 serde = { workspace = true }
@@ -16,6 +17,9 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 tdmcp-core = { workspace = true }
 tdmcp-diagnostics = { workspace = true }
+
+[dev-dependencies]
+tdmcp-test-support = { workspace = true }
 
 [lints]
 workspace = true
