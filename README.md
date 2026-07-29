@@ -927,9 +927,17 @@ by `pid` for bridges / queues — no sticky, no targetId.
   (`tests/rmcp_streamable_http.rs`) drive the real transport end-to-end over a
   live TCP listener: `initialize` → `notifications/initialized` → `tools/call`
   for `fleet` / `execute_python` (happy path, script failure, unknown tool).
-  **Still pending for P0 exit-green:** the live-TD run of
-  `docs/E2E_CHECKLIST.md` (bootstrap `.tox` + bridge IPC dial are code-complete
-  but not yet exercised against a running TouchDesigner instance).
+  **Gate P0 exit-green: live-TD E2E complete.** `docs/E2E_CHECKLIST.md`
+  ran clean against two real TouchDesigner 099.2025.33070 instances
+  (Windows) — all 12 rows pass, including exclusive-while-busy, disconnect →
+  resurrection → first-success-clears-stack, and pixel-verified
+  black-frame detection. That run found and fixed three bugs only a live
+  peer can expose (named-pipe read buffer offset, a `disconnect()` freeze
+  from closing a handle out from under a pending blocking read, and a
+  black-frame heuristic that never actually looked at pixels) — see
+  `docs/E2E_CHECKLIST.md` § "Bugs found and fixed during this run" for
+  detail; all three now have regression coverage in
+  `bridge/tests/test_bridge_queue.py`.
 
 ---
 
