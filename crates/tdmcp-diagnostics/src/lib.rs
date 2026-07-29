@@ -6,6 +6,7 @@
 #![warn(missing_docs)]
 
 mod catalog;
+pub mod codes;
 mod envelope;
 
 pub use catalog::{Catalog, CatalogEntry, CatalogError};

@@ -14,10 +14,45 @@ import struct
 import sys
 import threading
 import traceback
-from typing import Any, Callable
+from typing import Any, Callable, NotRequired, TypedDict
 
 __protocol_version__ = "1"
 __min_daemon__ = "0.1.0"
+
+# Wire method names — must match tdmcp_core::BridgeMethod::wire_str() exactly.
+# Parity gated by bridge/tests/test_bridge_methods.py + fixtures/bridge_methods.json.
+BRIDGE_METHODS: tuple[str, ...] = ("execute_python", "capture", "inspect", "ping")
+
+
+class ExecutePythonParams(TypedDict):
+    script: str
+    contextPath: NotRequired[str | None]
+
+
+class CaptureParams(TypedDict):
+    path: str
+    mode: NotRequired[str]
+    contextPath: NotRequired[str | None]
+
+
+class InspectParams(TypedDict):
+    path: str
+    contextPath: NotRequired[str | None]
+    include: NotRequired[list[str]]
+    detailLevel: NotRequired[str]
+
+
+class BridgeOkResult(TypedDict):
+    ok: bool
+    result: NotRequired[Any]
+
+
+class BridgeErrResult(TypedDict):
+    ok: bool
+    error: NotRequired[str]
+    message: NotRequired[str]
+    code: NotRequired[str]
+    traceback: NotRequired[str]
 
 
 def _read_frame(stream) -> dict[str, Any]:

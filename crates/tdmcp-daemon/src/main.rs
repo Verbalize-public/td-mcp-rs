@@ -16,7 +16,7 @@ use tdmcp_ipc::BridgeEndpoint;
 use tokio::sync::Mutex;
 use tracing::{info, warn};
 
-use tdmcp_daemon::admin::build_admin_router;
+use tdmcp_daemon::admin::{build_admin_router, RestartArgs};
 use tdmcp_daemon::bridge::{run_ipc_accept, BridgeSessions};
 use tdmcp_daemon::config::Config;
 use tdmcp_diagnostics::Catalog;
@@ -139,9 +139,17 @@ async fn run_daemon(cfg: Config) -> Result<()> {
             StreamableHttpServerConfig::default(),
         );
 
+    let restart = RestartArgs {
+        exe: std::env::current_exe().unwrap_or_else(|_| PathBuf::from("tdmcp-daemon")),
+        port: cfg.port,
+        data_dir: cfg.data_dir.clone(),
+        bridge_dir: cfg.bridge_dir.clone(),
+        catalog_path: cfg.catalog_path.clone(),
+    };
+
     let app = Router::new()
         .merge(build_mcp_router(state))
-        .merge(build_admin_router(admin_state))
+        .merge(build_admin_router(admin_state, restart))
         .nest_service("/mcp/rpc", streamable_http);
 
     let addr = SocketAddr::from(([127, 0, 0, 1], cfg.port));

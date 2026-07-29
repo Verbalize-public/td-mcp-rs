@@ -5,7 +5,10 @@
 //! bridge transport layers). Catalog-backed codes + mitigation only — no
 //! free-string-only failures on the MCP surface.
 
+use serde::Deserialize;
 use serde_json::Value;
+use tdmcp_core::{OpPath, Pid};
+use tdmcp_diagnostics::codes;
 use tdmcp_diagnostics::{
     Catalog, DiagnosticContext, DiagnosticItem, DiagnosticLayer, DiagnosticSeverity,
     DiagnosticSpan, Diagnostics,
@@ -13,6 +16,60 @@ use tdmcp_diagnostics::{
 
 use crate::bridge_rpc::BridgeRpcError;
 use crate::tools::{BridgeOutcome, ToolCallError};
+
+/// Typed soft-failure / success shell from the bridge (not transport errors).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BridgeResultEnvelope {
+    /// Whether the bridge handler succeeded.
+    #[serde(default)]
+    pub ok: Option<bool>,
+    /// Success payload.
+    #[serde(default)]
+    #[allow(dead_code, reason = "deserialized for typed shell completeness")]
+    pub result: Option<Value>,
+    /// Human error string (script failures).
+    #[serde(default)]
+    pub error: Option<String>,
+    /// Stable `tdmcp.*` code when the bridge supplied one.
+    #[serde(default)]
+    pub code: Option<String>,
+    /// Human message (perception / inspect failures).
+    #[serde(default)]
+    pub message: Option<String>,
+    /// Optional traceback.
+    #[serde(default)]
+    pub traceback: Option<String>,
+}
+
+impl BridgeResultEnvelope {
+    /// Parse a bridge JSON value into a typed envelope.
+    pub fn from_value(value: &Value) -> Self {
+        serde_json::from_value(value.clone()).unwrap_or(Self {
+            ok: None,
+            result: None,
+            error: None,
+            code: None,
+            message: None,
+            traceback: None,
+        })
+    }
+
+    /// True when the bridge reported a soft failure (`ok: false`).
+    #[must_use]
+    pub fn is_error(&self) -> bool {
+        self.ok == Some(false)
+    }
+
+    /// Best available human message.
+    #[must_use]
+    pub fn message_or(&self, fallback: &str) -> String {
+        self.message
+            .clone()
+            .or_else(|| self.error.clone())
+            .unwrap_or_else(|| fallback.to_owned())
+    }
+}
 
 /// Build a single-item `Failed` tool error.
 pub fn failed_one(item: DiagnosticItem) -> ToolCallError {
@@ -30,30 +87,23 @@ pub fn failed_one(item: DiagnosticItem) -> ToolCallError {
 /// Map a script (`execute_python`) outcome.
 pub fn map_script_outcome(
     catalog: &Catalog,
-    pid: u32,
+    pid: Pid,
     outcome: BridgeOutcome,
 ) -> Result<Value, ToolCallError> {
     let span = span("execute_python", None);
     match outcome {
         BridgeOutcome::Ok(value) => {
-            if is_bridge_error(&value) {
-                let msg = value
-                    .get("error")
-                    .and_then(Value::as_str)
-                    .unwrap_or("script execution failed")
-                    .to_owned();
-                let traceback = value
-                    .get("traceback")
-                    .and_then(Value::as_str)
-                    .map(str::to_owned);
+            let env = BridgeResultEnvelope::from_value(&value);
+            if env.is_error() {
+                let msg = env.message_or("script execution failed");
                 let mut item = build_diag(
                     catalog,
-                    "tdmcp.script.execution_failed",
+                    codes::SCRIPT_EXECUTION_FAILED,
                     span,
-                    Some(msg.clone()),
+                    Some(msg),
                     ctx(pid, None, None),
                 );
-                item.raw_traceback = traceback;
+                item.raw_traceback = env.traceback;
                 Err(failed_one(item))
             } else {
                 Ok(serde_json::json!({ "ok": true, "result": value.get("result") }))
@@ -67,30 +117,23 @@ pub fn map_script_outcome(
 /// Map a perception (`capture`) outcome.
 pub fn map_perception_outcome(
     catalog: &Catalog,
-    pid: u32,
-    path: String,
-    context_path: Option<String>,
+    pid: Pid,
+    path: OpPath,
+    context_path: Option<OpPath>,
     outcome: BridgeOutcome,
 ) -> Result<Value, ToolCallError> {
     let span = span("capture", Some("path".into()));
     match outcome {
         BridgeOutcome::Ok(value) => {
-            if is_bridge_error(&value) {
-                let code = value
-                    .get("code")
-                    .and_then(Value::as_str)
-                    .unwrap_or("tdmcp.perception.no_path");
-                let msg = value
-                    .get("message")
-                    .and_then(Value::as_str)
-                    .or_else(|| value.get("error").and_then(Value::as_str))
-                    .unwrap_or("perception capture failed")
-                    .to_owned();
+            let env = BridgeResultEnvelope::from_value(&value);
+            if env.is_error() {
+                let code = env.code.as_deref().unwrap_or(codes::PERCEPTION_NO_PATH);
+                let msg = env.message_or("perception capture failed");
                 let item = build_diag(
                     catalog,
                     code,
                     span,
-                    Some(msg.clone()),
+                    Some(msg),
                     ctx(pid, Some(path), context_path),
                 );
                 Err(failed_one(item))
@@ -106,30 +149,23 @@ pub fn map_perception_outcome(
 /// Map an `inspect` outcome.
 pub fn map_inspect_outcome(
     catalog: &Catalog,
-    pid: u32,
-    path: String,
-    context_path: Option<String>,
+    pid: Pid,
+    path: OpPath,
+    context_path: Option<OpPath>,
     outcome: BridgeOutcome,
 ) -> Result<Value, ToolCallError> {
     let span = span("inspect", Some("path".into()));
     match outcome {
         BridgeOutcome::Ok(value) => {
-            if is_bridge_error(&value) {
-                let code = value
-                    .get("code")
-                    .and_then(Value::as_str)
-                    .unwrap_or("tdmcp.op.not_found");
-                let msg = value
-                    .get("message")
-                    .and_then(Value::as_str)
-                    .or_else(|| value.get("error").and_then(Value::as_str))
-                    .unwrap_or("inspect failed")
-                    .to_owned();
+            let env = BridgeResultEnvelope::from_value(&value);
+            if env.is_error() {
+                let code = env.code.as_deref().unwrap_or(codes::OP_NOT_FOUND);
+                let msg = env.message_or("inspect failed");
                 let item = build_diag(
                     catalog,
                     code,
                     span,
-                    Some(msg.clone()),
+                    Some(msg),
                     ctx(pid, Some(path), context_path),
                 );
                 Err(failed_one(item))
@@ -140,13 +176,6 @@ pub fn map_inspect_outcome(
         BridgeOutcome::QueueBusy => Err(queue_busy(catalog, "inspect", pid)),
         BridgeOutcome::Transport(err) => Err(transport(catalog, "inspect", pid, err)),
     }
-}
-
-fn is_bridge_error(value: &Value) -> bool {
-    value
-        .get("ok")
-        .and_then(Value::as_bool)
-        .is_some_and(|ok| !ok)
 }
 
 fn span(tool: &str, field: Option<String>) -> DiagnosticSpan {
@@ -160,18 +189,18 @@ fn span(tool: &str, field: Option<String>) -> DiagnosticSpan {
     }
 }
 
-fn ctx(pid: u32, op_path: Option<String>, context_path: Option<String>) -> DiagnosticContext {
+fn ctx(pid: Pid, op_path: Option<OpPath>, context_path: Option<OpPath>) -> DiagnosticContext {
     DiagnosticContext {
-        pid: Some(pid),
-        op_path,
-        context_path,
+        pid: Some(pid.get()),
+        op_path: op_path.map(|p| p.0),
+        context_path: context_path.map(|p| p.0),
     }
 }
 
-fn queue_busy(catalog: &Catalog, tool: &str, pid: u32) -> ToolCallError {
+fn queue_busy(catalog: &Catalog, tool: &str, pid: Pid) -> ToolCallError {
     let item = build_diag(
         catalog,
-        "tdmcp.bridge.queue_busy",
+        codes::BRIDGE_QUEUE_BUSY,
         span(tool, None),
         Some(format!(
             "exclusive request rejected — queue non-empty (pid {pid})"
@@ -181,13 +210,13 @@ fn queue_busy(catalog: &Catalog, tool: &str, pid: u32) -> ToolCallError {
     failed_one(item)
 }
 
-fn transport(catalog: &Catalog, tool: &str, pid: u32, err: BridgeRpcError) -> ToolCallError {
+fn transport(catalog: &Catalog, tool: &str, pid: Pid, err: BridgeRpcError) -> ToolCallError {
     let code = match &err {
         BridgeRpcError::NotConnected { .. } | BridgeRpcError::Disconnected { .. } => {
-            "tdmcp.bridge.lost"
+            codes::BRIDGE_LOST
         }
-        BridgeRpcError::Timeout { .. } => "tdmcp.bridge.timeout",
-        BridgeRpcError::BridgeReturned { .. } => "tdmcp.bridge.lost",
+        BridgeRpcError::Timeout { .. } => codes::BRIDGE_TIMEOUT,
+        BridgeRpcError::BridgeReturned { .. } => codes::BRIDGE_LOST,
     };
     let item = build_diag(
         catalog,

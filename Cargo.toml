@@ -44,9 +44,12 @@ egui = "0.35"
 futures = "0.3"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 rmcp = { version = "3", default-features = false, features = ["server", "transport-streamable-http-server"] }
+schemars = { version = "1", features = ["chrono04"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml = "0.9"
+image = { version = "0.25", default-features = false, features = ["png"] }
+notify-rust = "4"
 thiserror = "2"
 tokio = { version = "1.53", features = ["rt-multi-thread", "macros", "net", "sync", "time", "signal", "fs", "io-util"] }
 tokio-util = "0.7"

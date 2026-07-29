@@ -1,22 +1,23 @@
 //! `fleet` tool — multi-process discovery (no sticky target).
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use tdmcp_core::{BridgeStatus, PidRegistry};
+use tdmcp_core::{BridgeStatus, Pid, PidRegistry};
 
 /// Optional filters for `fleet`.
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct FleetParams {
     /// Optional pid filter.
     #[serde(default)]
-    pub pids: Option<Vec<u32>>,
+    pub pids: Option<Vec<Pid>>,
     /// Include sections (default: process + bridge; cancelled always when non-empty).
     #[serde(default)]
     pub include: Vec<FleetInclude>,
 }
 
 /// Sections that may be included in the fleet response.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum FleetInclude {
     /// Process attrs.
@@ -36,7 +37,7 @@ pub enum FleetInclude {
 #[serde(rename_all = "camelCase")]
 pub struct FleetProcess {
     /// OS pid.
-    pub pid: u32,
+    pub pid: Pid,
     /// Window title.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
@@ -78,7 +79,7 @@ pub fn fleet_summary(registry: &PidRegistry, params: &FleetParams) -> FleetRespo
     let mut processes = Vec::new();
     for pid in registry.pids() {
         if let Some(filter) = filter {
-            if !filter.contains(&pid) {
+            if !filter.iter().any(|p| p.get() == pid) {
                 continue;
             }
         }
@@ -86,7 +87,7 @@ pub fn fleet_summary(registry: &PidRegistry, params: &FleetParams) -> FleetRespo
             continue;
         };
         processes.push(FleetProcess {
-            pid,
+            pid: Pid::new(pid),
             title: entry.process.title.clone(),
             window_status: entry.process.window_status.clone(),
             toe_path: entry.process.toe_path.clone(),

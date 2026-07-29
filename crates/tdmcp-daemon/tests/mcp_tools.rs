@@ -33,6 +33,55 @@ fn registry_with_pid() -> PidRegistry {
 }
 
 #[tokio::test]
+async fn tools_list_includes_derived_input_schema() {
+    let bridge: Arc<dyn BridgeRpc> = Arc::new(FakeBridgeRpc::responding(json!({})));
+    let state = AppState::new(registry_with_pid(), Catalog::fallback(), bridge);
+    let app = build_mcp_router(state);
+
+    let req = Request::builder()
+        .method("GET")
+        .uri("/mcp/tools/list")
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    let tools = v["tools"].as_array().expect("tools array");
+    let exec = tools
+        .iter()
+        .find(|t| t["name"] == "execute_python")
+        .expect("execute_python");
+    assert!(
+        exec["inputSchema"]["properties"]["pid"].is_object(),
+        "derived inputSchema must advertise pid: {exec}"
+    );
+    assert!(exec["inputSchema"]["properties"]["script"].is_object());
+}
+
+#[tokio::test]
+async fn unknown_field_rejected() {
+    let bridge: Arc<dyn BridgeRpc> =
+        Arc::new(FakeBridgeRpc::responding(json!({"ok": true, "result": 1})));
+    let state = AppState::new(registry_with_pid(), Catalog::fallback(), bridge);
+    let app = build_mcp_router(state);
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/mcp/tools/call")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            json!({"name":"execute_python","arguments":{"pid":34,"script":"result=1","nope":true}})
+                .to_string(),
+        ))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
 async fn execute_python_happy_path() {
     let bridge: Arc<dyn BridgeRpc> =
         Arc::new(FakeBridgeRpc::responding(json!({"ok": true, "result": 1})));

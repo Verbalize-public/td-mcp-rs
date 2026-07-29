@@ -75,6 +75,7 @@ pub fn build_mcp_router(state: AppState) -> Router {
 }
 
 async fn list_tools() -> Json<Value> {
+    // Same descriptors (including derived inputSchema) as the rmcp surface.
     Json(serde_json::json!({ "tools": tool_descriptors() }))
 }
 

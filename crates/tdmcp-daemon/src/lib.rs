@@ -9,4 +9,5 @@ pub mod bridge;
 pub mod config;
 pub mod tracing_init;
 
+pub use admin::RestartArgs;
 pub use bridge::{run_ipc_accept, BridgeSessions};

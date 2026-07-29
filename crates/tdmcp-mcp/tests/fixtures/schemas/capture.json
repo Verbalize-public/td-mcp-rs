@@ -1,0 +1,73 @@
+{
+  "$defs": {
+    "CaptureMode": {
+      "description": "Capture mode.",
+      "oneOf": [
+        {
+          "const": "top",
+          "description": "TOP → JPEG.",
+          "type": "string"
+        },
+        {
+          "const": "preview",
+          "description": "COMP face fallback chain.",
+          "type": "string"
+        },
+        {
+          "const": "auto",
+          "description": "TOP → top; COMP → preview.",
+          "type": "string"
+        },
+        {
+          "const": "chop_data",
+          "description": "CHOP → capped JSON (P1).",
+          "type": "string"
+        }
+      ]
+    },
+    "OpPath": {
+      "description": "Operator path string passed to TD for resolution via `td.op()`.",
+      "type": "string"
+    },
+    "Pid": {
+      "description": "OS process id — sole address for tools and queues.",
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Args for capture (perception).",
+  "properties": {
+    "contextPath": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/OpPath"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Resolution base for relative `path`."
+    },
+    "mode": {
+      "$ref": "#/$defs/CaptureMode",
+      "default": "auto",
+      "description": "Capture mode."
+    },
+    "path": {
+      "$ref": "#/$defs/OpPath",
+      "description": "Operator path (OpPath; relative to contextPath or /project1)."
+    },
+    "pid": {
+      "$ref": "#/$defs/Pid",
+      "description": "Target pid."
+    }
+  },
+  "required": [
+    "pid",
+    "path"
+  ],
+  "type": "object"
+}

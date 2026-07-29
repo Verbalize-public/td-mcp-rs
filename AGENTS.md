@@ -1,14 +1,15 @@
 # AGENTS.md — td-mcp-rs
 
 Agent entry for the Rust TouchDesigner MCP daemon. Design contract:
-[`README.md`](README.md). Layout: [`ARCHITECTURE.md`](ARCHITECTURE.md). Law:
-[`CONSTITUTION.md`](CONSTITUTION.md).
+[`docs/CONTRACT.md`](docs/CONTRACT.md). Layout: [`ARCHITECTURE.md`](ARCHITECTURE.md).
+Law: [`CONSTITUTION.md`](CONSTITUTION.md). User install/quickstart: [`README.md`](README.md).
 
 ## Route first
 
 | Need | Go to |
 | --- | --- |
-| v1 contract / tools / OpPath / diagnostics | [`README.md`](README.md) |
+| v1 contract / tools / OpPath / diagnostics | [`docs/CONTRACT.md`](docs/CONTRACT.md) |
+| Install / quickstart | [`README.md`](README.md) |
 | Crate boundaries / topology | [`ARCHITECTURE.md`](ARCHITECTURE.md) |
 | Never-panic / lints / DRY | [`CONSTITUTION.md`](CONSTITUTION.md) |
 | Accepted panic/unsafe exceptions | [`RISKS.md`](RISKS.md) |
@@ -16,12 +17,13 @@ Agent entry for the Rust TouchDesigner MCP daemon. Design contract:
 | Live TD verify | [`docs/E2E_CHECKLIST.md`](docs/E2E_CHECKLIST.md) |
 | Testing strategy | [`docs/TESTING.md`](docs/TESTING.md) |
 | Packaging | [`docs/DELIVERY.md`](docs/DELIVERY.md) |
+| Typing / schema policy | [`TODO_ENFORCE_TYPE.md`](TODO_ENFORCE_TYPE.md) |
 | Operate skill (after P0 green) | creative-operator `cop-*` — **do not update until P0 exits green** |
 
 ## Agent ops (when driving live TD via this daemon)
 
-1. Assert daemon listening (`http://127.0.0.1:9860/mcp`); spawn with
-   `tdmcp-rs --start` if connection refused.
+1. Assert daemon listening (`http://127.0.0.1:9860/mcp/health`); spawn with
+   `tdmcp-daemon start` if connection refused.
 2. `fleet` → pick connected `pid` → `inspect` → mutate → `inspect` errors →
    `capture` (perception) → perception-critic for look claims.
 3. Pass `pid` every process-scoped call. Use `contextPath` for relative
@@ -36,7 +38,7 @@ Agent entry for the Rust TouchDesigner MCP daemon. Design contract:
 | Mode | Examples |
 | --- | --- |
 | **Operate** | Implement crates, bridge Python, run check scripts, live TD checklist |
-| **Document** | Edit README contract, CONSTITUTION, ARCHITECTURE, catalog YAML, skills |
+| **Document** | Edit CONTRACT / README, CONSTITUTION, ARCHITECTURE, catalog YAML, skills |
 
 ## Hard rules
 

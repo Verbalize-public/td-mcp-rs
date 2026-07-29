@@ -10,13 +10,14 @@
 use std::sync::Arc;
 
 use rmcp::model::{
-    CallToolRequestParams, CallToolResponse, CallToolResult, Implementation, JsonObject,
-    ListToolsResult, PaginatedRequestParams, ServerCapabilities, ServerInfo, Tool,
+    CallToolRequestParams, CallToolResponse, CallToolResult, Implementation, ListToolsResult,
+    PaginatedRequestParams, ServerCapabilities, ServerInfo, Tool,
 };
 use rmcp::service::RequestContext;
 use rmcp::{ErrorData, RoleServer, ServerHandler};
 use serde_json::Value;
 
+use crate::schema::input_schema_for;
 use crate::tools::{dispatch_tool, tool_descriptors, ToolCallError};
 use crate::AppState;
 
@@ -102,63 +103,11 @@ impl ServerHandler for McpHandler {
 }
 
 fn tool_from_descriptor(d: crate::tools::ToolDescriptor) -> Tool {
-    Tool::new(
-        d.name.clone(),
-        d.description,
-        Arc::new(input_schema_for(&d.name)),
-    )
-}
-
-/// Minimal-but-accurate JSON Schema per tool (matches the `serde` param
-/// structs in [`crate::tools`] / [`crate::fleet`]). Provisional: hand-authored
-/// rather than derived, since v1 tool params are still settling.
-fn input_schema_for(tool_name: &str) -> JsonObject {
-    let schema = match tool_name {
-        "fleet" => serde_json::json!({
-            "type": "object",
-            "properties": {
-                "pids": { "type": "array", "items": { "type": "integer" } },
-                "include": {
-                    "type": "array",
-                    "items": {
-                        "type": "string",
-                        "enum": ["process", "bridge", "tasks", "cancelled", "popups"]
-                    }
-                }
-            }
-        }),
-        "execute_python" => serde_json::json!({
-            "type": "object",
-            "required": ["pid", "script"],
-            "properties": {
-                "pid": { "type": "integer" },
-                "script": { "type": "string" },
-                "exclusive": { "type": "boolean" },
-                "contextPath": { "type": "string" }
-            }
-        }),
-        "capture" => serde_json::json!({
-            "type": "object",
-            "required": ["pid", "path"],
-            "properties": {
-                "pid": { "type": "integer" },
-                "path": { "type": "string" },
-                "mode": { "type": "string", "enum": ["top", "preview", "auto"] },
-                "contextPath": { "type": "string" }
-            }
-        }),
-        "inspect" => serde_json::json!({
-            "type": "object",
-            "required": ["pid", "path"],
-            "properties": {
-                "pid": { "type": "integer" },
-                "path": { "type": "string" },
-                "contextPath": { "type": "string" },
-                "include": { "type": "array", "items": { "type": "string" } },
-                "detailLevel": { "type": "string", "enum": ["summary", "detailed"] }
-            }
-        }),
-        _ => serde_json::json!({ "type": "object" }),
+    // Prefer the schema already attached to the descriptor (same SSOT as JSON fallback).
+    let schema = if d.input_schema.is_empty() {
+        Arc::new(input_schema_for(&d.name))
+    } else {
+        Arc::new(d.input_schema)
     };
-    schema.as_object().cloned().unwrap_or_default()
+    Tool::new(d.name.clone(), d.description, schema)
 }

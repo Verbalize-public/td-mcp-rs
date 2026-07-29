@@ -8,8 +8,12 @@ description = "Domain logic for td-mcp-rs (pid registry, queues, resurrection)"
 
 [dependencies]
 chrono = { workspace = true }
+schemars = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
 
 [lints]
 workspace = true

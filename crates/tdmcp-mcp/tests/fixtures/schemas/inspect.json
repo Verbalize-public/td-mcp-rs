@@ -1,0 +1,91 @@
+{
+  "$defs": {
+    "DetailLevel": {
+      "description": "Structural detail level.",
+      "oneOf": [
+        {
+          "const": "summary",
+          "description": "Compact summary.",
+          "type": "string"
+        },
+        {
+          "const": "detailed",
+          "description": "Full detail.",
+          "type": "string"
+        }
+      ]
+    },
+    "InspectInclude": {
+      "description": "Sections to include in an inspect response.",
+      "oneOf": [
+        {
+          "const": "nodes",
+          "description": "Node tree.",
+          "type": "string"
+        },
+        {
+          "const": "params",
+          "description": "Parameters.",
+          "type": "string"
+        },
+        {
+          "const": "errors",
+          "description": "TD errors.",
+          "type": "string"
+        }
+      ]
+    },
+    "OpPath": {
+      "description": "Operator path string passed to TD for resolution via `td.op()`.",
+      "type": "string"
+    },
+    "Pid": {
+      "description": "OS process id — sole address for tools and queues.",
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Args for inspect.",
+  "properties": {
+    "contextPath": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/OpPath"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Resolution base for relative `path`."
+    },
+    "detailLevel": {
+      "$ref": "#/$defs/DetailLevel",
+      "default": "summary",
+      "description": "Structural detail level."
+    },
+    "include": {
+      "default": [],
+      "description": "Sections to include.",
+      "items": {
+        "$ref": "#/$defs/InspectInclude"
+      },
+      "type": "array"
+    },
+    "path": {
+      "$ref": "#/$defs/OpPath",
+      "description": "Operator path (OpPath)."
+    },
+    "pid": {
+      "$ref": "#/$defs/Pid",
+      "description": "Target pid."
+    }
+  },
+  "required": [
+    "pid",
+    "path"
+  ],
+  "type": "object"
+}

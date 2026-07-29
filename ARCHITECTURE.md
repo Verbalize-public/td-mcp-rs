@@ -1,8 +1,8 @@
 # Architecture
 
 Control-plane layout for **td-mcp-rs**. Contract source of truth for agent
-behaviour remains [`README.md`](README.md). This document owns crate boundaries
-and process topology.
+behaviour remains [`docs/CONTRACT.md`](docs/CONTRACT.md). This document owns
+crate boundaries and process topology.
 
 ## Topology
 
@@ -49,7 +49,7 @@ args into core calls and core results into the `diagnostics` envelope.
 
 | Surface | Bind | Role |
 | --- | --- | --- |
-| MCP Streamable HTTP | `127.0.0.1:9860/mcp` | Agent tools (interim: JSON `/mcp/tools/list` + `/mcp/tools/call`; `rmcp` StreamableHttp nest is the next wiring step) |
+| MCP Streamable HTTP | `127.0.0.1:9860/mcp/rpc` | Agent tools (`rmcp` Streamable HTTP); JSON fallback at `/mcp/tools/list` + `/mcp/tools/call` |
 | Admin HTTP | `127.0.0.1:9860/admin/*` | GUI status / kill / restart |
 | Bridge IPC | `\\.\pipe\tdmcp-rs` or `{dataDir}/bridge.sock` | TD peer |
 
@@ -61,7 +61,7 @@ args into core calls and core results into the `diagnostics` envelope.
 
 ## Global harnesses
 
-See [`README.md`](README.md):
+See [`docs/CONTRACT.md`](docs/CONTRACT.md):
 
 - **`OpPath` + `contextPath`** — TD-native path resolution on the bridge.
 - **`diagnostics`** — rustc-style envelope + `diagnostics/catalog.yaml`.
@@ -79,7 +79,8 @@ See [`README.md`](README.md):
 
 | Doc | Role |
 | --- | --- |
-| [`README.md`](README.md) | v1 contract, tool catalogue, challenge log |
+| [`README.md`](README.md) | Install / quickstart |
+| [`docs/CONTRACT.md`](docs/CONTRACT.md) | v1 contract, tool catalogue, phases |
 | [`CONSTITUTION.md`](CONSTITUTION.md) | Rust engineering law |
 | [`AGENTS.md`](AGENTS.md) | Agent route-first entry |
 | [`RISKS.md`](RISKS.md) | Accepted exceptions |

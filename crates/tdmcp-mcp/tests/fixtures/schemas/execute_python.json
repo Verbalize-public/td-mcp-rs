@@ -1,0 +1,48 @@
+{
+  "$defs": {
+    "OpPath": {
+      "description": "Operator path string passed to TD for resolution via `td.op()`.",
+      "type": "string"
+    },
+    "Pid": {
+      "description": "OS process id — sole address for tools and queues.",
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Args for execute_python.",
+  "properties": {
+    "contextPath": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/OpPath"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Optional context path (exposed to script as helper; not enforced)."
+    },
+    "exclusive": {
+      "default": false,
+      "description": "Exclusive enqueue.",
+      "type": "boolean"
+    },
+    "pid": {
+      "$ref": "#/$defs/Pid",
+      "description": "Target pid."
+    },
+    "script": {
+      "description": "Script body.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "pid",
+    "script"
+  ],
+  "type": "object"
+}

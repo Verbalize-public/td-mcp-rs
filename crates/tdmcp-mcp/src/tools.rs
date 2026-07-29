@@ -8,15 +8,17 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use tdmcp_core::{PidRegistry, TaskMode};
+use serde_json::{Map, Value};
+use tdmcp_core::{BridgeMethod, OpPath, Pid, PidRegistry, TaskMode};
 use thiserror::Error;
 use tokio::sync::Mutex;
 
 use crate::bridge_rpc::{BridgeRpc, BridgeRpcError};
 use crate::fleet::{fleet_summary, FleetParams};
 use crate::outcomes::{map_inspect_outcome, map_perception_outcome, map_script_outcome};
+use crate::schema::input_schema_for;
 
 /// Per-call bridge wait budget. A timeout fails the **wait** — it does not
 /// claim TD cancelled the work.
@@ -30,6 +32,8 @@ pub struct ToolDescriptor {
     pub name: String,
     /// One-line description.
     pub description: String,
+    /// JSON Schema for arguments (derived from param types).
+    pub input_schema: Map<String, Value>,
 }
 
 /// Tool call failures mapped to diagnostics.
@@ -51,39 +55,44 @@ pub enum ToolCallError {
     },
 }
 
-/// Catalogue of v1 tools (provisional names from README).
+/// Catalogue of v1 tools with derived schemas.
 #[must_use]
 pub fn tool_descriptors() -> Vec<ToolDescriptor> {
     vec![
         ToolDescriptor {
             name: "fleet".into(),
             description: "Fleet view — TD processes by pid, bridge, tasks, cancelled traces".into(),
+            input_schema: input_schema_for("fleet"),
         },
         ToolDescriptor {
             name: "execute_python".into(),
             description: "Run Python in TD; OpPath-exempt with tdmcp_resolve helper".into(),
+            input_schema: input_schema_for("execute_python"),
         },
         ToolDescriptor {
             name: "inspect".into(),
             description: "Structural subtree read (nodes/params/errors)".into(),
+            input_schema: input_schema_for("inspect"),
         },
         ToolDescriptor {
             name: "capture".into(),
             description: "Perception capture (top/preview/…)".into(),
+            input_schema: input_schema_for("capture"),
         },
         ToolDescriptor {
             name: "describe_tools".into(),
             description: "Manifest of available tools".into(),
+            input_schema: input_schema_for("describe_tools"),
         },
     ]
 }
 
 /// Args for execute_python.
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ExecutePythonParams {
     /// Target pid.
-    pub pid: u32,
+    pub pid: Pid,
     /// Script body.
     pub script: String,
     /// Exclusive enqueue.
@@ -91,50 +100,104 @@ pub struct ExecutePythonParams {
     pub exclusive: bool,
     /// Optional context path (exposed to script as helper; not enforced).
     #[serde(default)]
-    pub context_path: Option<String>,
+    pub context_path: Option<OpPath>,
+}
+
+/// Capture mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum CaptureMode {
+    /// TOP → JPEG.
+    Top,
+    /// COMP face fallback chain.
+    Preview,
+    /// TOP → top; COMP → preview.
+    #[default]
+    Auto,
+    /// CHOP → capped JSON (P1).
+    ChopData,
+}
+
+impl CaptureMode {
+    /// Wire string for the bridge.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Top => "top",
+            Self::Preview => "preview",
+            Self::Auto => "auto",
+            Self::ChopData => "chop_data",
+        }
+    }
 }
 
 /// Args for capture (perception).
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CaptureParams {
     /// Target pid.
-    pub pid: u32,
+    pub pid: Pid,
     /// Operator path (OpPath; relative to contextPath or /project1).
-    pub path: String,
-    /// Capture mode: `top` | `preview` | `auto`.
-    #[serde(default = "default_capture_mode")]
-    pub mode: String,
+    pub path: OpPath,
+    /// Capture mode.
+    #[serde(default)]
+    pub mode: CaptureMode,
     /// Resolution base for relative `path`.
     #[serde(default)]
-    pub context_path: Option<String>,
+    pub context_path: Option<OpPath>,
 }
 
-fn default_capture_mode() -> String {
-    "auto".into()
+/// Sections to include in an inspect response.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum InspectInclude {
+    /// Node tree.
+    Nodes,
+    /// Parameters.
+    Params,
+    /// TD errors.
+    Errors,
+}
+
+/// Structural detail level.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum DetailLevel {
+    /// Compact summary.
+    #[default]
+    Summary,
+    /// Full detail.
+    Detailed,
+}
+
+impl DetailLevel {
+    /// Wire string.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Summary => "summary",
+            Self::Detailed => "detailed",
+        }
+    }
 }
 
 /// Args for inspect.
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct InspectParams {
     /// Target pid.
-    pub pid: u32,
+    pub pid: Pid,
     /// Operator path (OpPath).
-    pub path: String,
+    pub path: OpPath,
     /// Resolution base for relative `path`.
     #[serde(default)]
-    pub context_path: Option<String>,
-    /// Sections to include: `nodes` | `params` | `errors`.
+    pub context_path: Option<OpPath>,
+    /// Sections to include.
     #[serde(default)]
-    pub include: Vec<String>,
-    /// Structural detail level: `summary` | `detailed`.
-    #[serde(default = "default_detail_level")]
-    pub detail_level: String,
-}
-
-fn default_detail_level() -> String {
-    "summary".into()
+    pub include: Vec<InspectInclude>,
+    /// Structural detail level.
+    #[serde(default)]
+    pub detail_level: DetailLevel,
 }
 
 /// Outcome of a bridge-driven tool call, as reported to the mapper.
@@ -170,13 +233,13 @@ pub async fn dispatch_tool(
         "execute_python" => {
             let params: ExecutePythonParams = serde_json::from_value(args)
                 .map_err(|e| ToolCallError::InvalidArgs(e.to_string()))?;
+            let method = BridgeMethod::ExecutePython;
             let outcome = enqueue_and_call(
                 registry,
                 bridge,
                 params.pid,
-                "PythonEval",
+                method,
                 mode_of(params.exclusive),
-                "execute_python",
                 serde_json::json!({
                     "script": params.script,
                     "contextPath": params.context_path,
@@ -188,16 +251,16 @@ pub async fn dispatch_tool(
         "capture" => {
             let params: CaptureParams = serde_json::from_value(args)
                 .map_err(|e| ToolCallError::InvalidArgs(e.to_string()))?;
+            let method = BridgeMethod::Capture;
             let outcome = enqueue_and_call(
                 registry,
                 bridge,
                 params.pid,
-                "Capture",
+                method,
                 TaskMode::Shared,
-                "capture",
                 serde_json::json!({
                     "path": params.path,
-                    "mode": params.mode,
+                    "mode": params.mode.as_str(),
                     "contextPath": params.context_path,
                 }),
             )
@@ -213,18 +276,27 @@ pub async fn dispatch_tool(
         "inspect" => {
             let params: InspectParams = serde_json::from_value(args)
                 .map_err(|e| ToolCallError::InvalidArgs(e.to_string()))?;
+            let method = BridgeMethod::Inspect;
+            let include: Vec<&str> = params
+                .include
+                .iter()
+                .map(|i| match i {
+                    InspectInclude::Nodes => "nodes",
+                    InspectInclude::Params => "params",
+                    InspectInclude::Errors => "errors",
+                })
+                .collect();
             let outcome = enqueue_and_call(
                 registry,
                 bridge,
                 params.pid,
-                "Inspect",
+                method,
                 TaskMode::Shared,
-                "inspect",
                 serde_json::json!({
                     "path": params.path,
                     "contextPath": params.context_path,
-                    "include": params.include,
-                    "detailLevel": params.detail_level,
+                    "include": include,
+                    "detailLevel": params.detail_level.as_str(),
                 }),
             )
             .await;
@@ -254,28 +326,28 @@ fn mode_of(exclusive: bool) -> TaskMode {
 async fn enqueue_and_call(
     registry: &Arc<Mutex<PidRegistry>>,
     bridge: &dyn BridgeRpc,
-    pid: u32,
-    task_name: &str,
+    pid: Pid,
+    method: BridgeMethod,
     mode: TaskMode,
-    method: &str,
     params: Value,
 ) -> BridgeOutcome {
+    let raw_pid = pid.get();
     {
         let mut reg = registry.lock().await;
-        if let Err(e) = reg.enqueue(pid, task_name, mode) {
+        if let Err(e) = reg.enqueue(raw_pid, method.queue_label(), mode) {
             return match &e {
                 tdmcp_core::EnqueueError::Queue(_) => BridgeOutcome::QueueBusy,
-                _ => BridgeOutcome::Transport(BridgeRpcError::NotConnected { pid }),
+                _ => BridgeOutcome::Transport(BridgeRpcError::NotConnected { pid: raw_pid }),
             };
         }
     }
 
-    let call = bridge.call(pid, method, params);
+    let call = bridge.call(raw_pid, method.wire_str(), params);
     match tokio::time::timeout(BRIDGE_TIMEOUT, call).await {
         Ok(Ok(value)) => BridgeOutcome::Ok(value),
         Ok(Err(err)) => BridgeOutcome::Transport(err),
         Err(_) => BridgeOutcome::Transport(BridgeRpcError::Timeout {
-            pid,
+            pid: raw_pid,
             budget_ms: BRIDGE_TIMEOUT.as_millis() as u64,
         }),
     }

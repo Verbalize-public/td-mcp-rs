@@ -24,8 +24,8 @@ Default MCP listen: `127.0.0.1:9860`. Data dir:
 
 ## Auto-upsert
 
-Cursor plugin registers `http://127.0.0.1:9860/mcp`. On connection refused,
-spawn `tdmcp-daemon --start` and retry. Stale lockfile (pid dead) → reclaim.
+Cursor plugin registers `http://127.0.0.1:9860/mcp/rpc`. On connection refused,
+spawn `tdmcp-daemon start` and retry. Stale lockfile (pid dead) → reclaim.
 
 ## Packaging (P2)
 

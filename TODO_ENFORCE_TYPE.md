@@ -14,7 +14,7 @@ four JSON surfaces: **MCP tools**, **bridge IPC**, **admin HTTP**, **diagnostics
 
 | Surface | Target |
 | --- | --- |
-| **MCP tool args** | One Rust type → deserialize **and** `inputSchema` (`schemars` / rmcp `Parameters<T>`). No hand-maintained parallel schema. |
+| **MCP tool args** | One Rust type → deserialize **and** `inputSchema` (`schemars` / rmcp). No hand-maintained parallel schema. |
 | **Bridge IPC** | Typed envelope + per-method params/results. Method is an enum, not a free string. |
 | **Admin HTTP** | Share the same fleet/status types as the GUI client — no untyped JSON bags. |
 | **Diagnostics** | Keep typed envelope + YAML catalog; CI: every emitted `tdmcp.*` ⊆ catalog. |
@@ -46,31 +46,35 @@ primary SSOT; fixtures-only without derived MCP schemas.
    rejects mismatch at handshake; breaking tool schema bumps daemon semver +
    goldens.
 4. **Queue labels ≠ wire methods** — task-queue display names may differ from
-   IPC `method`; both should hang off one enum (or an explicit map), never two
-   free strings.
-5. **Unknown fields** — prefer forbid on agent-facing MCP/bridge inputs;
-   loosen only with a protocol bump.
-6. **Response envelope** — JSON fallback and rmcp Streamable HTTP must not
-   silently diverge forever; unify or document as two intentional surfaces.
+   IPC `method`; both hang off `BridgeMethod` (`wire_str` / `queue_label`).
+5. **Unknown fields** — forbid on agent-facing MCP inputs
+   (`deny_unknown_fields`); loosen only with a protocol bump.
+6. **Response envelope** — JSON fallback and rmcp Streamable HTTP share the
+   same derived `inputSchema` via `tool_descriptors()` / `input_schema_for`.
 7. **Catalog is law** — soft-failure codes from Rust or Python must exist in
-   `diagnostics/catalog.yaml` in the same change.
+   `diagnostics/catalog.yaml` in the same change. Constants live in
+   `tdmcp_diagnostics::codes`.
 
 ---
 
-## Backlog (coarse)
+## Backlog
 
-- [ ] Enum-ify stringly MCP/bridge fields; introduce `Pid` / `OpPath` newtypes
-- [ ] Derive MCP schemas from param types; delete parallel hand schemas
-- [ ] Enforce bridge protocol / min-daemon at handshake
-- [ ] Typed `BridgeMethod` + per-method params/results (Rust + thin Python types)
-- [ ] Golden fixtures + CI drift gate; catalog completeness check
-- [ ] Typed admin/GUI fleet responses; typed IPC error object
-- [ ] Typed MCP success shells + optional `outputSchema`; align response wrappers
+- [x] Enum-ify stringly MCP fields (`CaptureMode`, `InspectInclude`, `DetailLevel`); introduce `Pid` / `OpPath` newtypes
+- [x] Derive MCP schemas from param types; delete parallel hand schemas
+- [ ] Enforce bridge protocol / min-daemon at handshake (reject mismatch)
+- [x] Typed `BridgeMethod` + thin Python TypedDicts + shared wire-string fixture
+- [x] Golden fixtures + drift gate (`UPDATE_GOLDEN=1` to regenerate); catalog completeness check
+- [ ] Typed admin/GUI fleet responses end-to-end (GUI still deserializes loosely)
+- [ ] Typed MCP success shells + optional `outputSchema`; align response wrappers further
+- [x] `BridgeResultEnvelope` for bridge soft-failure shells
 
 ---
 
-## Still open
+## Settled (was open)
 
-- Shared types crate vs keep payloads next to mcp/ipc
-- Queue PascalCase labels: keep as display-only, or rename to wire method
-- Unify MCP JSON-fallback wrapper with rmcp structured content?
+| Question | Decision |
+| --- | --- |
+| Shared types crate vs keep payloads next to mcp/ipc | Keep next to mcp/ipc for now — no extract until a third consumer appears |
+| Queue PascalCase labels | Display-only via `BridgeMethod::queue_label`; wire stays snake_case |
+| Unify MCP JSON-fallback wrapper with rmcp | Schemas unified; response wrappers remain two intentional surfaces (`{ok,data}` vs `CallToolResult`) |
+| Golden fixture location | Beside `tdmcp-mcp` under `tests/fixtures/schemas/` |

@@ -1,0 +1,64 @@
+{
+  "$defs": {
+    "FleetInclude": {
+      "description": "Sections that may be included in the fleet response.",
+      "oneOf": [
+        {
+          "const": "process",
+          "description": "Process attrs.",
+          "type": "string"
+        },
+        {
+          "const": "bridge",
+          "description": "Bridge status.",
+          "type": "string"
+        },
+        {
+          "const": "tasks",
+          "description": "Task queue snapshot.",
+          "type": "string"
+        },
+        {
+          "const": "cancelled",
+          "description": "Cancelled / resurrection traces.",
+          "type": "string"
+        },
+        {
+          "const": "popups",
+          "description": "OS dialogs (best-effort; empty until dialogs land).",
+          "type": "string"
+        }
+      ]
+    },
+    "Pid": {
+      "description": "OS process id — sole address for tools and queues.",
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Optional filters for `fleet`.",
+  "properties": {
+    "include": {
+      "default": [],
+      "description": "Include sections (default: process + bridge; cancelled always when non-empty).",
+      "items": {
+        "$ref": "#/$defs/FleetInclude"
+      },
+      "type": "array"
+    },
+    "pids": {
+      "default": null,
+      "description": "Optional pid filter.",
+      "items": {
+        "$ref": "#/$defs/Pid"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    }
+  },
+  "type": "object"
+}
