@@ -101,5 +101,103 @@ class QueuedServeTest(unittest.TestCase):
         self.assertIn("unknown method", resp["error"]["message"])
 
 
+@unittest.skipIf(
+    sys.platform.startswith("win"),
+    "Windows' socket.socketpair() emulation doesn't propagate shutdown() to a "
+    "concurrent blocking recv() the way real POSIX sockets do (verified "
+    "manually — recv() never unblocks); this path only ships on macOS/Linux, "
+    "where shutdown() is the documented, reliable cross-thread cancellation "
+    "primitive. See WindowsPipeDisconnectTest for the Windows equivalent.",
+)
+class DisconnectTest(unittest.TestCase):
+    """Regression for the close-while-blocked-read freeze (POSIX/UDS path).
+
+    `disconnect()` must not block: the worker thread is parked in a blocking
+    `read()` with nothing to read (no pending job), and `disconnect()` has to
+    unstick it (`cancel_pending_io` -> POSIX `shutdown`) rather than closing
+    the handle out from under it.
+    """
+
+    def setUp(self) -> None:
+        tdmcp_bridge._pending_main = tdmcp_bridge.queue.Queue()  # noqa: SLF001
+        bridge_sock, daemon_sock = socket.socketpair()
+        self.daemon_sock = daemon_sock
+        self.addCleanup(daemon_sock.close)
+
+        stream = tdmcp_bridge._UdsStream(bridge_sock)  # noqa: SLF001
+        thread = threading.Thread(target=tdmcp_bridge.serve_queued, args=(stream,), daemon=True)
+        thread.start()
+        # Let the worker actually enter its blocking read before we disconnect.
+        time.sleep(0.05)
+        tdmcp_bridge._active_stream = stream  # noqa: SLF001
+        tdmcp_bridge._active_thread = thread  # noqa: SLF001
+
+    def test_disconnect_does_not_hang_and_joins_worker(self) -> None:
+        thread = tdmcp_bridge._active_thread  # noqa: SLF001
+
+        started = time.monotonic()
+        ok = tdmcp_bridge.disconnect()
+        elapsed = time.monotonic() - started
+
+        self.assertTrue(ok)
+        self.assertLess(elapsed, 2.0, "disconnect() should not block on a pending read")
+        self.assertFalse(thread.is_alive(), "worker thread must exit after disconnect()")
+        self.assertIsNone(tdmcp_bridge._active_stream)  # noqa: SLF001
+        self.assertIsNone(tdmcp_bridge._active_thread)  # noqa: SLF001
+
+    def test_disconnect_on_idle_module_is_a_noop(self) -> None:
+        tdmcp_bridge.disconnect()  # drain the fixture's connection first
+        self.assertFalse(tdmcp_bridge.disconnect())
+
+
+@unittest.skipUnless(sys.platform.startswith("win"), "named-pipe path is Windows-only")
+class WindowsPipeDisconnectTest(unittest.TestCase):
+    """Regression for the CloseHandle-while-blocked-ReadFile freeze (named-pipe path).
+
+    This is the exact bug hit live against TouchDesigner: `disconnect()`
+    calling `CloseHandle` while the worker thread had a pending synchronous
+    `ReadFile` on the same handle froze the *calling* thread indefinitely —
+    which froze TD itself, since the call originated from a script running on
+    TD's main thread. Verified manually that `CancelSynchronousIo` targeting
+    the worker's OS thread id aborts the pending `ReadFile` with
+    `ERROR_OPERATION_ABORTED` immediately; this test locks that in.
+    """
+
+    PIPE_NAME = r"\\.\pipe\tdmcp-test-disconnect"
+
+    def setUp(self) -> None:
+        import ctypes
+
+        self.kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+        pipe_access_duplex = 0x3
+        server = self.kernel32.CreateNamedPipeW(
+            self.PIPE_NAME, pipe_access_duplex, 0, 1, 65536, 65536, 0, None
+        )
+        client_handle = self.kernel32.CreateFileW(
+            self.PIPE_NAME, 0x80000000 | 0x40000000, 0, None, 3, 0, None
+        )
+        self.kernel32.ConnectNamedPipe(server, None)
+        self.addCleanup(lambda: self.kernel32.CloseHandle(server))
+
+        tdmcp_bridge._pending_main = tdmcp_bridge.queue.Queue()  # noqa: SLF001
+        stream = tdmcp_bridge._NamedPipeStream(client_handle)  # noqa: SLF001
+        thread = threading.Thread(target=tdmcp_bridge.serve_queued, args=(stream,), daemon=True)
+        thread.start()
+        time.sleep(0.1)  # let the worker enter its blocking ReadFile
+        tdmcp_bridge._active_stream = stream  # noqa: SLF001
+        tdmcp_bridge._active_thread = thread  # noqa: SLF001
+
+    def test_disconnect_does_not_hang_and_joins_worker(self) -> None:
+        thread = tdmcp_bridge._active_thread  # noqa: SLF001
+
+        started = time.monotonic()
+        ok = tdmcp_bridge.disconnect()
+        elapsed = time.monotonic() - started
+
+        self.assertTrue(ok)
+        self.assertLess(elapsed, 2.0, "disconnect() should not block on a pending ReadFile")
+        self.assertFalse(thread.is_alive(), "worker thread must exit after disconnect()")
+
+
 if __name__ == "__main__":
     unittest.main()

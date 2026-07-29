@@ -1,1 +1,0 @@
-{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"execute_python","arguments":{"pid":27636,"script":"result = 21 * 2"}}}

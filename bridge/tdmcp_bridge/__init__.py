@@ -106,7 +106,7 @@ def handle_capture(params: dict[str, Any]) -> dict[str, Any]:
 
     try:
         data = target.saveByteArray(".jpg")
-        black = _is_black_jpeg(data)
+        black = _is_black_top(target, data)
         return {
             "ok": not black,
             "code": "tdmcp.perception.black_frame" if black else None,
@@ -117,10 +117,31 @@ def handle_capture(params: dict[str, Any]) -> dict[str, Any]:
         return {"ok": False, "error": str(exc), "traceback": traceback.format_exc()}
 
 
-def _is_black_jpeg(data: bytes | None) -> bool:
+_BLACK_MEAN_THRESHOLD = 1.0 / 255.0
+
+
+def _is_black_top(target, data: bytes | None) -> bool:
+    """Real pixel-based black check via `TOP.numpyArray`, byte-size as fallback.
+
+    `saveByteArray`'s encoded JPEG size is not a reliable black-frame signal —
+    solid colors of *any* value compress to a similarly tiny size (verified:
+    a solid-white and solid-black 256x256 Constant TOP both encode to the same
+    byte count). `numpyArray()` gives real RGB(A) samples; mean over the RGB
+    channels near zero is the actual "black" signal. Falls back to the old
+    tiny-file heuristic only when `numpyArray` isn't available on this target
+    (e.g. very old TD builds) or genuinely produced no bytes.
+    """
+    if hasattr(target, "numpyArray"):
+        try:
+            arr = target.numpyArray(delayed=False)
+            if arr is not None and arr.size:
+                channels = min(3, arr.shape[-1]) if arr.ndim >= 3 else 1
+                sample = arr[..., :channels] if arr.ndim >= 3 else arr
+                return bool(sample.mean() <= _BLACK_MEAN_THRESHOLD)
+        except Exception:  # noqa: BLE001 — fall through to byte-size heuristic
+            pass
     if not data:
         return True
-    # Heuristic: tiny JPEG often means empty/black; real check needs decode.
     return len(data) < 200
 
 
@@ -242,7 +263,56 @@ def _dial_uds(path: str):
 
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     sock.connect(path)
-    return sock.makefile("rwb")
+    return _UdsStream(sock)
+
+
+class _UdsStream:
+    """Minimal file-like wrapper over a UDS socket (mirrors `_NamedPipeStream`).
+
+    Unbuffered by design (manual length-prefixed framing already batches
+    reads/writes); avoids `makefile()`'s buffering surprises and gives us a
+    real socket reference for [`shutdown`], which is the POSIX-supported way
+    to unblock a concurrent `recv()` on another thread.
+    """
+
+    def __init__(self, sock) -> None:
+        self._sock = sock
+
+    def read(self, n: int) -> bytes:
+        out = bytearray()
+        while len(out) < n:
+            chunk = self._sock.recv(n - len(out))
+            if not chunk:
+                break
+            out += chunk
+        return bytes(out)
+
+    def write(self, data: bytes) -> int:
+        self._sock.sendall(data)
+        return len(data)
+
+    def flush(self) -> None:  # noqa: D401
+        return None
+
+    def close(self) -> None:
+        try:
+            self._sock.close()
+        except OSError:
+            pass
+
+    def cancel_pending_io(self, _thread_id: int | None) -> None:
+        """Unblock a concurrent `recv()` on another thread before `close()`.
+
+        The thread id is irrelevant on POSIX — `shutdown()` unblocks *any*
+        thread reading this socket, unlike Windows `CancelSynchronousIo`
+        which must target a specific thread.
+        """
+        import socket as _socket
+
+        try:
+            self._sock.shutdown(_socket.SHUT_RDWR)
+        except OSError:
+            pass
 
 
 def _dial_named_pipe(name: str):
@@ -312,6 +382,32 @@ class _NamedPipeStream:
 
     def close(self) -> None:
         self._kernel32.CloseHandle(self._handle)
+
+    def cancel_pending_io(self, thread_id: int | None) -> None:
+        """Unblock a concurrent synchronous `ReadFile` on `thread_id`.
+
+        **Must** be called before [`close`] whenever another thread might be
+        mid-blocking-read on this handle: closing a handle out from under a
+        pending synchronous `ReadFile` on a *different* thread is undefined
+        behavior on Windows (observed: freezes the whole caller thread,
+        which — if that thread is TD's main/cook thread reached indirectly
+        via a script waiting on `join()` — freezes TD itself). Targets the
+        specific thread via `OpenThread` + `CancelSynchronousIo`, which is
+        the documented, safe cross-thread cancellation primitive for
+        synchronous (non-overlapped) I/O.
+        """
+        if not thread_id:
+            return
+        thread_terminate = 0x0001
+        handle = self._kernel32.OpenThread(thread_terminate, False, thread_id)
+        if not handle:
+            return
+        try:
+            self._kernel32.CancelSynchronousIo(handle)
+        except OSError:  # noqa: BLE001 — best-effort; read loop will retry/exit
+            pass
+        finally:
+            self._kernel32.CloseHandle(handle)
 
 
 def handshake(
@@ -467,23 +563,41 @@ def bootstrap_threaded(bridge_dir: str | None = None) -> dict[str, Any]:
 def disconnect() -> bool:
     """Close the active bridge connection.
 
-    Main-thread only (closing a `_NamedPipeStream`/socket is plain I/O, not
-    an `OP` call, but keep it off the worker thread for symmetry with the
-    rest of this module). Lets the daemon observe a disconnect without
-    quitting TD — e.g. to exercise the resurrection path, or to force a
-    clean reconnect after changing the bridge package on disk. The worker
-    thread notices on its next blocking read and exits; call
-    `bootstrap_threaded()` again afterwards to reconnect.
+    Main-thread only. Lets the daemon observe a disconnect without quitting
+    TD — e.g. to exercise the resurrection path, or to force a clean
+    reconnect after changing the bridge package on disk.
+
+    The worker thread ([`serve_queued`]) is normally blocked in a
+    synchronous, non-overlapped read on the stream. Closing the handle out
+    from under that pending read from a different thread is undefined
+    behavior on Windows (and unsafe on POSIX) — it can hang the *closing*
+    thread instead of erroring the reader, which freezes TD if this is
+    called from a script running on TD's main thread. So: cancel the
+    worker's pending I/O first ([`_NamedPipeStream.cancel_pending_io`] /
+    [`_UdsStream.cancel_pending_io`]), join it, *then* close.
     """
     global _active_stream, _active_thread
     if _active_stream is None:
         return False
-    try:
-        _active_stream.close()
-    except Exception:  # noqa: BLE001 — best-effort teardown
-        pass
+    stream = _active_stream
+    thread = _active_thread
     _active_stream = None
     _active_thread = None
+
+    thread_id = getattr(thread, "native_id", None) if thread is not None else None
+    try:
+        if hasattr(stream, "cancel_pending_io"):
+            stream.cancel_pending_io(thread_id)
+    except Exception:  # noqa: BLE001 — best-effort; still try to join + close
+        pass
+
+    if thread is not None:
+        thread.join(timeout=2.0)
+
+    try:
+        stream.close()
+    except Exception:  # noqa: BLE001 — best-effort teardown
+        pass
     return True
 
 
