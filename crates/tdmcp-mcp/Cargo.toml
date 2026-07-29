@@ -10,6 +10,7 @@ description = "MCP tool handlers (rmcp) for td-mcp-rs"
 async-trait = { workspace = true }
 axum = { workspace = true }
 chrono = { workspace = true }
+rmcp = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

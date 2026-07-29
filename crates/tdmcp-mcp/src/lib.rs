@@ -8,12 +8,14 @@
 pub mod bridge_rpc;
 mod fleet;
 mod outcomes;
+mod rmcp_handler;
 mod server;
 pub mod testing;
 mod tools;
 
 pub use bridge_rpc::{BridgeRpc, BridgeRpcError};
 pub use fleet::{fleet_summary, FleetInclude, FleetParams, FleetProcess, FleetResponse};
+pub use rmcp_handler::McpHandler;
 pub use server::{build_mcp_router, AppState};
 pub use tools::{
     dispatch_tool, tool_descriptors, BridgeOutcome, CaptureParams, ExecutePythonParams,

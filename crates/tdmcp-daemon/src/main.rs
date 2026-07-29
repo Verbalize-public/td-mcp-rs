@@ -9,6 +9,8 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use axum::Router;
 use clap::{Parser, Subcommand};
+use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
+use rmcp::transport::streamable_http_server::{StreamableHttpServerConfig, StreamableHttpService};
 use tdmcp_core::PidRegistry;
 use tdmcp_ipc::BridgeEndpoint;
 use tokio::sync::Mutex;
@@ -18,7 +20,7 @@ use tdmcp_daemon::admin::build_admin_router;
 use tdmcp_daemon::bridge::{run_ipc_accept, BridgeSessions};
 use tdmcp_daemon::config::Config;
 use tdmcp_diagnostics::Catalog;
-use tdmcp_mcp::{build_mcp_router, AppState};
+use tdmcp_mcp::{build_mcp_router, AppState, McpHandler};
 
 #[derive(Debug, Parser)]
 #[command(name = "tdmcp-daemon", version, about = "td-mcp-rs control plane")]
@@ -125,16 +127,28 @@ async fn run_daemon(cfg: Config) -> Result<()> {
     let bridge: Arc<dyn tdmcp_mcp::BridgeRpc> = Arc::new(sessions.clone());
     let state = AppState::new_shared(registry.clone(), catalog, bridge);
     let admin_state = state.clone();
+    let mcp_handler_state = state.clone();
+
+    // Real MCP transport: rmcp Streamable HTTP over the same AppState the
+    // JSON fallback (`/mcp/tools/*`) uses. One `McpHandler` per session
+    // (legacy mode) — cheap, since `AppState` is Arc-backed.
+    let streamable_http: StreamableHttpService<McpHandler, LocalSessionManager> =
+        StreamableHttpService::new(
+            move || Ok(McpHandler::new(mcp_handler_state.clone())),
+            Default::default(),
+            StreamableHttpServerConfig::default(),
+        );
 
     let app = Router::new()
         .merge(build_mcp_router(state))
-        .merge(build_admin_router(admin_state));
+        .merge(build_admin_router(admin_state))
+        .nest_service("/mcp/rpc", streamable_http);
 
     let addr = SocketAddr::from(([127, 0, 0, 1], cfg.port));
     let listener = tokio::net::TcpListener::bind(addr)
         .await
         .with_context(|| format!("bind {addr}"))?;
-    info!(%addr, "listening (MCP /mcp/* + admin /admin/*)");
+    info!(%addr, "listening (MCP rmcp /mcp/rpc + JSON fallback /mcp/* + admin /admin/*)");
 
     let lock_path = cfg.data_dir.join("daemon.lock");
     std::fs::create_dir_all(&cfg.data_dir)?;
