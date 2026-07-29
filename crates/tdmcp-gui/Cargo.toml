@@ -1,0 +1,25 @@
+[package]
+name = "tdmcp-gui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "td-mcp-rs tray dashboard (egui)"
+
+[[bin]]
+name = "tdmcp-gui"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+eframe = { workspace = true }
+egui = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[lints]
+workspace = true

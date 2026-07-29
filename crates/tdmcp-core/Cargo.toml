@@ -1,0 +1,15 @@
+[package]
+name = "tdmcp-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Domain logic for td-mcp-rs (pid registry, queues, resurrection)"
+
+[dependencies]
+chrono = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

@@ -1,0 +1,6 @@
+{
+  "protocolVersion": "1",
+  "minDaemon": "0.1.0",
+  "entry": "tdmcp_bridge",
+  "checksum": null
+}

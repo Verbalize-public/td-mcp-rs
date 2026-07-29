@@ -1,0 +1,15 @@
+//! Domain logic for td-mcp-rs: pid registry, task queues, resurrection.
+//!
+//! This crate has **zero I/O** — no `rmcp`, `axum`, or IPC types.
+
+#![warn(missing_docs)]
+
+mod fingerprint;
+mod registry;
+mod resurrection;
+mod task_queue;
+
+pub use fingerprint::ProcessFingerprint;
+pub use registry::{BridgeStatus, EnqueueError, PidEntry, PidRegistry, ProcessAttrs};
+pub use resurrection::{CancelReason, CancelledTask, ResurrectionState};
+pub use task_queue::{QueueError, TaskInfo, TaskMode, TaskQueue, TaskResult};

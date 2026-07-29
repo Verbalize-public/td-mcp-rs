@@ -1,0 +1,71 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/tdmcp-core",
+    "crates/tdmcp-diagnostics",
+    "crates/tdmcp-ipc",
+    "crates/tdmcp-mcp",
+    "crates/tdmcp-daemon",
+    "crates/tdmcp-gui",
+    "crates/tdmcp-test-support",
+    "xtask",
+]
+default-members = [
+    "crates/tdmcp-core",
+    "crates/tdmcp-diagnostics",
+    "crates/tdmcp-ipc",
+    "crates/tdmcp-mcp",
+    "crates/tdmcp-daemon",
+    "crates/tdmcp-test-support",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+rust-version = "1.88"
+
+[workspace.dependencies]
+tdmcp-core = { path = "crates/tdmcp-core" }
+tdmcp-diagnostics = { path = "crates/tdmcp-diagnostics" }
+tdmcp-ipc = { path = "crates/tdmcp-ipc" }
+tdmcp-mcp = { path = "crates/tdmcp-mcp" }
+tdmcp-test-support = { path = "crates/tdmcp-test-support" }
+
+anyhow = "1"
+axum = "0.8"
+bytes = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde", "std"] }
+clap = { version = "4.6", features = ["derive", "env"] }
+dirs = "6"
+eframe = { version = "0.35", default-features = true }
+egui = "0.35"
+futures = "0.3"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+rmcp = { version = "3", default-features = false, features = ["server", "transport-streamable-http-server"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+thiserror = "2"
+tokio = { version = "1.53", features = ["rt-multi-thread", "macros", "net", "sync", "time", "signal", "fs", "io-util"] }
+tower = "0.5"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+tracing-appender = "0.2"
+tray-icon = "0.24"
+tempfile = "3"
+uuid = { version = "1", features = ["v4", "serde"] }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+unused_must_use = "deny"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+exit = "deny"
