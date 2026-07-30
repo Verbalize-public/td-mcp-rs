@@ -141,7 +141,7 @@ only — not bridge peer health.
 | --- | --- | --- |
 | `fleet` | Fleet view — processes by pid, bridge, tasks, cancelled traces | **Shipped** |
 | `execute_python` | Run Python in TD; `result = …`; optional `logs` (stdio capture) | **Shipped** |
-| `inspect` | Structural subtree read (nodes / params / errors); summary = direct-child roster | **Shipped** |
+| `inspect` | Structural subtree read (nodes / params / errors / warnings); summary = direct-child roster | **Shipped** |
 | `capture` | Perception — `top` / `preview` / `auto` | **Shipped** (P0 modes) |
 | `describe_tools` | Manifest of available tools | **Shipped** |
 | `mutate_nodes` | Ordered create / set / delete steps; sequential apply, stop on first hard error | **Shipped** |
@@ -157,10 +157,19 @@ only — not bridge peer health.
 | Layer | Tool | Answers |
 | --- | --- | --- |
 | Fleet | `fleet` | Which pid? Connected? Busy? Resurrection traces? |
-| Structure | `inspect` | Nodes, params, errors — no perception by default |
+| Structure | `inspect` | Nodes, params, errors, warnings — no perception by default |
 | Perception | `capture` | Pixels / basic signal — trigger keyword **perception** |
 
-Typical loop: `fleet` → pick connected `pid` → `inspect` → mutate → `inspect` errors → `capture` (when look is the claim) → perception-critic for look PASS/FAIL.
+Typical loop: `fleet` → pick connected `pid` → `inspect` → mutate → `inspect` errors/warnings → `capture` (when look is the claim) → perception-critic for look PASS/FAIL.
+
+### `inspect` / `include`
+
+| `include` | Sections |
+| --- | --- |
+| `[]` / omitted | `nodes` + `errors` + `warnings` |
+| non-empty | allowlist only (`nodes` / `params` / `errors` / `warnings`) |
+
+`params` is opt-in. `errors` / `warnings` are string arrays from `OP.errors()` / `OP.warnings()` (no recurse). Not gated by `detailLevel`.
 
 ### `inspect` / `detailLevel`
 
@@ -171,7 +180,7 @@ Typical loop: `fleet` → pick connected `pid` → `inspect` → mutate → `ins
 
 When `childrenReturned < childCount`, the node includes `childrenTruncated: true` and a `truncation` object (`field`, `limit`, `code: tdmcp.op.children_truncated`, `message`, `mitigation`). Soft limit — response stays `ok: true`. Mitigation: inspect a child COMP, or `execute_python` for a full name list — not `detailLevel: detailed`.
 
-`children` is always an array (never a bare count). `include: params` / `errors` are unchanged and not gated by `detailLevel`.
+`children` is always an array (never a bare count).
 
 ### `capture` modes
 

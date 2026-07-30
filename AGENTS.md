@@ -27,8 +27,8 @@ Law: [`CONSTITUTION.md`](CONSTITUTION.md). User install/quickstart: [`README.md`
    `tdmcp-daemon ensure` before probing. Health URL
    (`http://127.0.0.1:9860/mcp/health`) still valid. Stdio is only the MCP
    client shim — the HTTP daemon stays up across MCP restarts.
-2. `fleet` → pick connected `pid` → `inspect` → mutate → `inspect` errors →
-   `capture` (perception) → perception-critic for look claims.
+2. `fleet` → pick connected `pid` → `inspect` → mutate → `inspect` errors/warnings →
+ `capture` (perception) → perception-critic for look claims.
 3. Pass `pid` every process-scoped call. Use `contextPath` for relative
    `OpPath`s (default base = `/project1`).
 4. On failure, read **`diagnostics`** (codes, lints, mitigation) — not raw

@@ -86,7 +86,7 @@ assets only), `status`, `stop`.
 | --- | --- |
 | `fleet` | List TD processes by `pid`, bridge status, tasks, resurrection traces |
 | `execute_python` | Run Python in TD (`result = …`) |
-| `inspect` | Structural subtree read (nodes / params / errors) |
+| `inspect` | Structural subtree read (nodes / params / errors / warnings; empty include defaults to nodes+errors+warnings) |
 | `capture` | Perception (`top` / `preview` / `auto`) |
 | `describe_tools` | Tool manifest |
 

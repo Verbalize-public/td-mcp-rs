@@ -96,7 +96,7 @@ pub fn tool_descriptors() -> Vec<ToolDescriptor> {
         },
         ToolDescriptor {
             name: "inspect".into(),
-            description: "Structural subtree read (nodes/params/errors). Default summary includes a direct-child roster ({name, opType}); detailed adds path+family. Roster capped at 64 — when truncated see node.truncation (detailLevel does not raise the cap).".into(),
+            description: "Structural subtree read (nodes/params/errors/warnings). Empty include defaults to nodes+errors+warnings; params opt-in; non-empty include is an allowlist. Default summary includes a direct-child roster ({name, opType}); detailed adds path+family. Roster capped at 64 — when truncated see node.truncation (detailLevel does not raise the cap).".into(),
             input_schema: input_schema_for("inspect"),
         },
         ToolDescriptor {
@@ -205,6 +205,8 @@ pub enum InspectInclude {
     Params,
     /// TD errors.
     Errors,
+    /// TD warnings.
+    Warnings,
 }
 
 /// Structural detail level.
@@ -240,7 +242,7 @@ pub struct InspectParams {
     /// Resolution base for relative `path`.
     #[serde(default)]
     pub context_path: Option<OpPath>,
-    /// Sections to include.
+    /// Sections to include. Empty/omitted = nodes+errors+warnings; params opt-in; non-empty = allowlist.
     #[serde(default)]
     pub include: Vec<InspectInclude>,
     /// Structural detail level.
@@ -389,6 +391,7 @@ pub async fn dispatch_tool(
                     InspectInclude::Nodes => "nodes",
                     InspectInclude::Params => "params",
                     InspectInclude::Errors => "errors",
+                    InspectInclude::Warnings => "warnings",
                 })
                 .collect();
             let outcome = enqueue_and_call(

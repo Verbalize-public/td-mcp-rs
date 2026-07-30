@@ -6,6 +6,7 @@ import os
 import sys
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -21,14 +22,21 @@ def _fake_child(name: str, *, op_type: str = "nullTOP", family: str = "TOP") -> 
     )
 
 
-def _fake_node(children: list[SimpleNamespace]) -> SimpleNamespace:
+def _fake_node(
+    children: list[SimpleNamespace],
+    *,
+    errors: object = "",
+    warnings: object = "",
+) -> SimpleNamespace:
     return SimpleNamespace(
         path="/project1",
         family="COMP",
         opType="baseCOMP",
         children=children,
         pars=lambda: [],
-        errors=lambda: [],
+        errors=lambda: errors,
+        warnings=lambda: warnings,
+        valid=True,
     )
 
 
@@ -44,6 +52,8 @@ class InspectSummaryRosterTest(unittest.TestCase):
         self.assertEqual(out["childrenReturned"], 3)
         self.assertNotIn("childrenTruncated", out)
         self.assertNotIn("truncation", out)
+        self.assertNotIn("errors", out)
+        self.assertNotIn("warnings", out)
         self.assertEqual(
             out["children"],
             [
@@ -108,6 +118,68 @@ class InspectSummaryRosterTest(unittest.TestCase):
             _fake_node([child]), detail_level="summary"
         )
         self.assertEqual(out["children"][0]["name"], "fallback1")
+
+
+class InspectMessagesTest(unittest.TestCase):
+    def test_op_messages_string_and_empty(self) -> None:
+        self.assertEqual(tdmcp_bridge._op_messages(lambda: "one warn"), ["one warn"])
+        self.assertEqual(tdmcp_bridge._op_messages(lambda: ""), [])
+        self.assertEqual(tdmcp_bridge._op_messages(lambda: "a\nb\n"), ["a", "b"])
+        self.assertEqual(tdmcp_bridge._op_messages(lambda: ["x", "  ", "y"]), ["x", "y"])
+
+        def _boom() -> str:
+            raise RuntimeError("x")
+
+        self.assertEqual(tdmcp_bridge._op_messages(_boom), [])
+
+    def test_build_inspect_errors_warnings_strings(self) -> None:
+        node = _fake_node([], errors="cook failed", warnings="missing input")
+        out = tdmcp_bridge.build_inspect_node(
+            node, want_errors=True, want_warnings=True
+        )
+        self.assertEqual(out["errors"], ["cook failed"])
+        self.assertEqual(out["warnings"], ["missing input"])
+
+    def test_handle_inspect_empty_include_defaults(self) -> None:
+        node = _fake_node([], errors="err1", warnings="warn1")
+        with patch.dict(sys.modules, {"td": SimpleNamespace()}):
+            with patch.object(tdmcp_bridge, "tdmcp_resolve", return_value=node):
+                result = tdmcp_bridge.handle_inspect({
+                    "path": "/project1",
+                    "include": [],
+                })
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["node"]["errors"], ["err1"])
+        self.assertEqual(result["node"]["warnings"], ["warn1"])
+        self.assertIn("children", result["node"])
+        self.assertNotIn("params", result["node"])
+
+    def test_handle_inspect_allowlist_nodes_only(self) -> None:
+        node = _fake_node([], errors="err1", warnings="warn1")
+        with patch.dict(sys.modules, {"td": SimpleNamespace()}):
+            with patch.object(tdmcp_bridge, "tdmcp_resolve", return_value=node):
+                result = tdmcp_bridge.handle_inspect({
+                    "path": "/project1",
+                    "include": ["nodes"],
+                })
+        self.assertTrue(result["ok"])
+        self.assertNotIn("errors", result["node"])
+        self.assertNotIn("warnings", result["node"])
+        self.assertIn("children", result["node"])
+
+    def test_handle_inspect_allowlist_warnings_only(self) -> None:
+        node = _fake_node([], errors="err1", warnings="warn1")
+        with patch.dict(sys.modules, {"td": SimpleNamespace()}):
+            with patch.object(tdmcp_bridge, "tdmcp_resolve", return_value=node):
+                result = tdmcp_bridge.handle_inspect({
+                    "path": "/project1",
+                    "include": ["warnings"],
+                })
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["node"]["warnings"], ["warn1"])
+        self.assertNotIn("errors", result["node"])
+        self.assertEqual(result["node"]["children"], [])
+        self.assertEqual(result["node"]["childCount"], 0)
 
 
 if __name__ == "__main__":

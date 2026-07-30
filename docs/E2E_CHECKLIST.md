@@ -62,7 +62,7 @@ See [`DEV_ENV.md`](DEV_ENV.md) § Dev smoke. Does **not** replace rows 1–12 be
 | M7 | Mid-batch failure — `create` ok, then `set` on a nonexistent param → `failedAt:1`; `tdmcp.par.unknown`; later steps `tdmcp.batch.skipped_dependent` | ✅ |
 | M8 | First-step failure — `create` with bad `opType` → `failedAt:0, applied:0`; `tdmcp.op.unknown_type` | ✅ |
 | M9 | `delete` a previously created node → `ok:true`; re-`inspect` confirms gone | ✅ |
-| M10 | Structural errors clean after the whole pass (`inspect` errors / classic `get_td_node_errors`) | ✅ |
+| M10 | Structural errors/warnings clean after the whole pass (`inspect` default `errors`+`warnings` / classic `get_td_node_errors`); when a node warns, `node.warnings` is non-empty | ✅ |
 | M11 | `capture` top on a created TOP → non-black | ✅ |
 
 **Run record (P0):** 2026-07-29, TouchDesigner 099.2025.33070 (Windows), two

@@ -440,6 +440,29 @@ def _child_name(child: Any) -> str:
     return str(path).rsplit("/", 1)[-1]
 
 
+def _op_messages(fn: Any) -> list[str]:
+    """Normalize TD OP.errors()/warnings() (str) or list-like fakes to string[]."""
+    try:
+        raw = fn()
+    except Exception:  # noqa: BLE001
+        return []
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        return [line for line in raw.splitlines() if line.strip()]
+    out: list[str] = []
+    try:
+        items = list(raw)
+    except TypeError:
+        s = str(raw).strip()
+        return [s] if s else []
+    for item in items:
+        s = str(item).strip()
+        if s:
+            out.append(s)
+    return out
+
+
 def build_inspect_node(
     n: Any,
     *,
@@ -447,6 +470,7 @@ def build_inspect_node(
     want_nodes: bool = True,
     want_params: bool = False,
     want_errors: bool = False,
+    want_warnings: bool = False,
 ) -> dict[str, Any]:
     """Shape one inspect node payload (pure enough for unit tests without TD)."""
     children: list[dict[str, Any]] = []
@@ -500,17 +524,14 @@ def build_inspect_node(
                 pars.append({"name": p.name, "val": None})
         out["params"] = pars
     if want_errors:
-        errs = []
-        try:
-            errs = list(n.errors())
-        except Exception:  # noqa: BLE001
-            errs = []
-        out["errors"] = errs
+        out["errors"] = _op_messages(getattr(n, "errors", lambda: ""))
+    if want_warnings:
+        out["warnings"] = _op_messages(getattr(n, "warnings", lambda: ""))
     return out
 
 
 def handle_inspect(params: dict[str, Any]) -> dict[str, Any]:
-    """Structural subtree read (nodes/params/errors). Requires live TD."""
+    """Structural subtree read (nodes/params/errors/warnings). Requires live TD."""
     import td  # type: ignore  # noqa: F401 — ensure TD runtime is importable
 
     path = params.get("path") or ""
@@ -522,9 +543,14 @@ def handle_inspect(params: dict[str, Any]) -> dict[str, Any]:
     if node is None or not getattr(node, "valid", False):
         return {"ok": False, "code": "tdmcp.op.not_found", "path": path}
 
-    want_nodes = "nodes" in include or not include
-    want_params = "params" in include
-    want_errors = "errors" in include
+    if not include:
+        want_nodes = want_errors = want_warnings = True
+        want_params = False
+    else:
+        want_nodes = "nodes" in include
+        want_params = "params" in include
+        want_errors = "errors" in include
+        want_warnings = "warnings" in include
 
     try:
         return {
@@ -535,6 +561,7 @@ def handle_inspect(params: dict[str, Any]) -> dict[str, Any]:
                 want_nodes=want_nodes,
                 want_params=want_params,
                 want_errors=want_errors,
+                want_warnings=want_warnings,
             ),
         }
     except Exception as exc:  # noqa: BLE001
