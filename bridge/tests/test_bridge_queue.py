@@ -26,7 +26,7 @@ import tdmcp_bridge  # noqa: E402
 class QueuedServeTest(unittest.TestCase):
     def setUp(self) -> None:
         # Fresh module-level queue per test — tests run in one process.
-        tdmcp_bridge._pending_main = tdmcp_bridge.queue.Queue()  # noqa: SLF001
+        tdmcp_bridge._reset_pending_for_tests()  # noqa: SLF001
         bridge_sock, daemon_sock = socket.socketpair()
         self.bridge_stream = bridge_sock.makefile("rwb")
         self.daemon_stream = daemon_sock.makefile("rwb")
@@ -42,6 +42,11 @@ class QueuedServeTest(unittest.TestCase):
     def _recv_response(self) -> dict:
         return tdmcp_bridge._read_frame(self.daemon_stream)
 
+    def _wait_pending(self, n: int = 1, timeout: float = 1.0) -> None:
+        deadline = time.monotonic() + timeout
+        while tdmcp_bridge.pending_count() < n and time.monotonic() < deadline:
+            time.sleep(0.01)
+
     def test_worker_never_dispatches_directly(self) -> None:
         """A request sitting unprocessed must land in the queue, not a response."""
         worker = threading.Thread(
@@ -51,10 +56,8 @@ class QueuedServeTest(unittest.TestCase):
         self._send_request(1, "ping")
 
         # Give the worker time to read + enqueue; it must NOT answer on its own.
-        deadline = time.monotonic() + 1.0
-        while tdmcp_bridge._pending_main.qsize() == 0 and time.monotonic() < deadline:
-            time.sleep(0.01)
-        self.assertEqual(tdmcp_bridge._pending_main.qsize(), 1)
+        self._wait_pending(1)
+        self.assertEqual(tdmcp_bridge.pending_count(), 1)
 
         # Now simulate the main-thread pump (Execute DAT onFrameStart).
         drained = tdmcp_bridge.process_pending()
@@ -75,8 +78,9 @@ class QueuedServeTest(unittest.TestCase):
         """
         slots = [tdmcp_bridge.queue.Queue(maxsize=1) for _ in range(3)]
         for i, slot in enumerate(slots, start=1):
-            tdmcp_bridge._pending_main.put(  # noqa: SLF001
-                ({"type": "request", "id": i, "method": "ping", "params": {}}, slot)
+            tdmcp_bridge._enqueue_pending(  # noqa: SLF001
+                {"type": "request", "id": i, "method": "ping", "params": {}},
+                slot,
             )
 
         drained = tdmcp_bridge.process_pending()
@@ -91,14 +95,58 @@ class QueuedServeTest(unittest.TestCase):
         worker.start()
         self._send_request(7, "not_a_method")
 
-        deadline = time.monotonic() + 1.0
-        while tdmcp_bridge._pending_main.qsize() == 0 and time.monotonic() < deadline:
-            time.sleep(0.01)
+        self._wait_pending(1)
 
         tdmcp_bridge.process_pending()
         resp = self._recv_response()
         self.assertEqual(resp["id"], 7)
         self.assertIn("unknown method", resp["error"]["message"])
+
+    def test_task_snapshot_empty_then_fields(self) -> None:
+        self.assertEqual(tdmcp_bridge.task_snapshot(), [])
+        self.assertEqual(tdmcp_bridge.pending_count(), 0)
+        slot = tdmcp_bridge.queue.Queue(maxsize=1)
+        tdmcp_bridge._enqueue_pending(  # noqa: SLF001
+            {
+                "type": "request",
+                "id": 9,
+                "method": "inspect",
+                "params": {"path": "/project1/e2e_kit"},
+            },
+            slot,
+        )
+        snap = tdmcp_bridge.task_snapshot()
+        self.assertEqual(len(snap), 1)
+        self.assertEqual(snap[0]["state"], "queued")
+        self.assertEqual(snap[0]["method"], "inspect")
+        self.assertEqual(snap[0]["summarize"], "/project1/e2e_kit")
+        self.assertEqual(snap[0]["id"], 9)
+
+    def test_cancel_queued_clears_and_unblocks(self) -> None:
+        slots = [tdmcp_bridge.queue.Queue(maxsize=1) for _ in range(2)]
+        for i, slot in enumerate(slots, start=1):
+            tdmcp_bridge._enqueue_pending(  # noqa: SLF001
+                {"type": "request", "id": i, "method": "ping", "params": {}},
+                slot,
+            )
+        self.assertEqual(tdmcp_bridge.pending_count(), 2)
+        n = tdmcp_bridge.cancel_queued()
+        self.assertEqual(n, 2)
+        self.assertEqual(tdmcp_bridge.pending_count(), 0)
+        self.assertEqual(tdmcp_bridge.task_snapshot(), [])
+        for i, slot in enumerate(slots, start=1):
+            resp = slot.get_nowait()
+            self.assertEqual(resp["id"], i)
+            self.assertEqual(resp["error"]["code"], "tdmcp.bridge.cancelled")
+
+    def test_summarize_execute_python_first_line(self) -> None:
+        s = tdmcp_bridge.summarize_request(
+            {
+                "method": "execute_python",
+                "params": {"script": "\n# comment\nresult = 1\n"},
+            }
+        )
+        self.assertEqual(s, "# comment")
 
 
 @unittest.skipIf(
@@ -119,7 +167,7 @@ class DisconnectTest(unittest.TestCase):
     """
 
     def setUp(self) -> None:
-        tdmcp_bridge._pending_main = tdmcp_bridge.queue.Queue()  # noqa: SLF001
+        tdmcp_bridge._reset_pending_for_tests()  # noqa: SLF001
         bridge_sock, daemon_sock = socket.socketpair()
         self.daemon_sock = daemon_sock
         self.addCleanup(daemon_sock.close)
@@ -148,6 +196,18 @@ class DisconnectTest(unittest.TestCase):
     def test_disconnect_on_idle_module_is_a_noop(self) -> None:
         tdmcp_bridge.disconnect()  # drain the fixture's connection first
         self.assertFalse(tdmcp_bridge.disconnect())
+
+    def test_is_connected_true_while_worker_alive_false_after_disconnect(self) -> None:
+        self.assertTrue(tdmcp_bridge.is_connected())
+        tdmcp_bridge.disconnect()
+        self.assertFalse(tdmcp_bridge.is_connected())
+
+
+class IsConnectedIdleTest(unittest.TestCase):
+    def test_is_connected_false_when_idle(self) -> None:
+        tdmcp_bridge._active_stream = None  # noqa: SLF001
+        tdmcp_bridge._active_thread = None  # noqa: SLF001
+        self.assertFalse(tdmcp_bridge.is_connected())
 
 
 @unittest.skipUnless(sys.platform.startswith("win"), "named-pipe path is Windows-only")
@@ -179,7 +239,7 @@ class WindowsPipeDisconnectTest(unittest.TestCase):
         self.kernel32.ConnectNamedPipe(server, None)
         self.addCleanup(lambda: self.kernel32.CloseHandle(server))
 
-        tdmcp_bridge._pending_main = tdmcp_bridge.queue.Queue()  # noqa: SLF001
+        tdmcp_bridge._reset_pending_for_tests()  # noqa: SLF001
         stream = tdmcp_bridge._NamedPipeStream(client_handle)  # noqa: SLF001
         thread = threading.Thread(target=tdmcp_bridge.serve_queued, args=(stream,), daemon=True)
         thread.start()
@@ -189,6 +249,7 @@ class WindowsPipeDisconnectTest(unittest.TestCase):
 
     def test_disconnect_does_not_hang_and_joins_worker(self) -> None:
         thread = tdmcp_bridge._active_thread  # noqa: SLF001
+        self.assertTrue(tdmcp_bridge.is_connected())
 
         started = time.monotonic()
         ok = tdmcp_bridge.disconnect()
@@ -197,6 +258,7 @@ class WindowsPipeDisconnectTest(unittest.TestCase):
         self.assertTrue(ok)
         self.assertLess(elapsed, 2.0, "disconnect() should not block on a pending ReadFile")
         self.assertFalse(thread.is_alive(), "worker thread must exit after disconnect()")
+        self.assertFalse(tdmcp_bridge.is_connected())
 
 
 if __name__ == "__main__":

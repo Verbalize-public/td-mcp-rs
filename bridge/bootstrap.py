@@ -1,34 +1,26 @@
-"""td-mcp-rs bootstrap — drop into a Text DAT inside a TouchDesigner project.
+"""td-mcp-rs bootstrap — Text DAT body inside the bootstrap ``.tox``.
 
 Dials the local td-mcp-rs daemon over named pipe (Windows) / UDS (Unix),
-performs the handshake, loads the ``tdmcp_bridge`` package, and starts the
-framed read loop **on a background thread** so TD's main thread keeps
-cooking. The shipped ``.tox`` wraps this script in a Text DAT run once by an
-Execute DAT's ``onStart``.
+performs the handshake, loads the ``tdmcp_bridge`` package from the path the
+daemon returns, and starts the framed read loop **on a background thread**
+so TD's main thread keeps cooking.
 
-That same Execute DAT **must** also have ``Frame Start`` enabled and call
-``tdmcp_bridge.process_pending()`` from its ``onFrameStart`` — the worker
-thread only enqueues requests (never touches `td.*`); the per-frame pump on
-the main thread is what actually dispatches them. Without it, every request
-blocks the daemon side forever waiting on a response that's never produced.
-Minimal companion `onFrameStart`::
-
-    def onFrameStart(frame):
-        try:
-            import tdmcp_bridge
-            tdmcp_bridge.process_pending()
-        except Exception as e:
-            print("tdmcp bridge pump:", e)
-        return
+The shipped ``.tox`` wraps this script in a Text DAT run by the Execute DAT
+callbacks in ``tox_callbacks.py`` (``onStart`` / reconnect). That Execute DAT
+**must** also have ``Frame Start`` enabled and pump
+``tdmcp_bridge.process_pending()`` — see ``tox_callbacks.py``.
 
 IMPORTANT: this script is exec'd as a Text DAT's contents, not run from a
-file on disk — ``__file__`` is not meaningful here, so the bridge package
-directory is resolved from (in order):
-  1. ``TDMCP_BRIDGE_DIR`` env var,
-  2. the OS-conventional daemon data dir (``%LOCALAPPDATA%/tdmcp-rs/bridge``
-     on Windows, ``~/.local/share/tdmcp-rs/bridge`` on Linux/macOS),
-  3. the daemon's handshake response (advisory; reload from disk each connect
-     if the above two are absent/stale).
+file on disk — ``__file__`` is not meaningful here. Bridge package directory
+resolution (inside ``tdmcp_bridge.bootstrap_threaded``):
+
+  1. ``TDMCP_BRIDGE_DIR`` env var (override),
+  2. daemon handshake ``bridgePackageDir``,
+  3. OS-conventional data dir ``…/tdmcp-rs/bridge``.
+
+This dialer only needs a path to *import* ``tdmcp_bridge`` (env or
+conventional); the handshake path wins for the live session unless the env
+override is set.
 """
 
 from __future__ import annotations
@@ -51,13 +43,21 @@ def _default_data_dir() -> str:
     return os.path.join(base, "tdmcp-rs")
 
 
-def _resolve_bridge_dir() -> str | None:
+def _import_bridge_dir() -> str | None:
+    """Path used only to import the package before handshake."""
     env = os.environ.get("TDMCP_BRIDGE_DIR")
     if env and os.path.isfile(os.path.join(env, "tdmcp_bridge", "__init__.py")):
         return env
     candidate = os.path.join(_default_data_dir(), "bridge")
     if os.path.isfile(os.path.join(candidate, "tdmcp_bridge", "__init__.py")):
         return candidate
+    return None
+
+
+def _env_override() -> str | None:
+    env = os.environ.get("TDMCP_BRIDGE_DIR")
+    if env and os.path.isfile(os.path.join(env, "tdmcp_bridge", "__init__.py")):
+        return env
     return None
 
 
@@ -69,13 +69,13 @@ def main() -> None:
     this runs at project load, so a daemon that isn't up yet should print a
     one-line note in the textport, not throw a scary traceback.
     """
-    bridge_dir = _resolve_bridge_dir()
-    if bridge_dir and bridge_dir not in sys.path:
-        sys.path.insert(0, bridge_dir)
+    import_dir = _import_bridge_dir()
+    if import_dir and import_dir not in sys.path:
+        sys.path.insert(0, import_dir)
     try:
         import tdmcp_bridge  # noqa: E402  (path set above)
 
-        tdmcp_bridge.bootstrap_threaded(bridge_dir=bridge_dir)
+        tdmcp_bridge.bootstrap_threaded(bridge_dir=_env_override())
     except Exception as exc:  # noqa: BLE001 — never crash the caller
         print(f"tdmcp-rs bootstrap: could not connect to daemon ({exc})")
 

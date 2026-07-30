@@ -7,13 +7,16 @@ owns the session + RPC (execute_python, capture, inspect helpers).
 from __future__ import annotations
 
 import ctypes
+import importlib
 import json
 import os
 import queue
 import struct
 import sys
 import threading
+import time
 import traceback
+from dataclasses import dataclass, field
 from typing import Any, Callable, NotRequired, TypedDict
 
 __protocol_version__ = "1"
@@ -200,7 +203,7 @@ def handle_inspect(params: dict[str, Any]) -> dict[str, Any]:
     def summarize(n) -> dict[str, Any]:
         children = []
         if want_nodes:
-            for child in n.children():
+            for child in n.children:  # TD OP.children is a list property
                 children.append({
                     "path": child.path,
                     "family": getattr(child, "family", None),
@@ -495,12 +498,151 @@ def serve(stream) -> None:
 # TD's Python API is only safe to call from the main/cook thread. The IPC
 # read is blocking, so it must live on a worker thread — but the worker must
 # never call `dispatch()` itself (that would run `td.*` off-thread). Instead
-# it enqueues a plain (msg, response_slot) pair and blocks on the response
-# slot; a per-frame pump on the main thread (an Execute DAT's `onFrameStart`,
-# same pattern as sibling project td-mcp's `tdmcp_tunnel.py`) drains the
-# queue, calls `dispatch()`, and unblocks the worker. Only plain dicts and
-# `queue.Queue` objects cross the thread boundary — never an `OP`.
-_pending_main: "queue.Queue[tuple[dict[str, Any], queue.Queue]]" = queue.Queue()
+# it enqueues a pending item and blocks on the response slot; a per-frame pump
+# on the main thread drains the queue, calls `dispatch()`, and unblocks the
+# worker. Only plain dicts and `queue.Queue` objects cross the thread
+# boundary — never an `OP`.
+#
+# The pending list is inspectable for the bootstrap Operator Viewer face
+# (`task_snapshot` / `pending_count` / `cancel_queued`).
+
+
+_SUMMARY_MAX = 36
+_SNAPSHOT_MAX = 12
+
+
+@dataclass
+class _PendingItem:
+    msg: dict[str, Any]
+    response_slot: "queue.Queue[dict[str, Any]]"
+    method: str
+    summary: str
+    enqueued_at: float = field(default_factory=time.monotonic)
+    req_id: Any = None
+
+
+_pending_lock = threading.Lock()
+_pending: list[_PendingItem] = []
+_running: _PendingItem | None = None
+
+
+def _short_text(s: str, n: int = _SUMMARY_MAX) -> str:
+    s = str(s or "").replace("\n", " ").strip()
+    if len(s) <= n:
+        return s
+    return s[: n - 1] + "~"
+
+
+def summarize_request(msg: dict[str, Any]) -> str:
+    """Short human describe for a bridge IPC request (face / task table)."""
+    method = str(msg.get("method") or "")
+    params = msg.get("params") or {}
+    if not isinstance(params, dict):
+        params = {}
+    if method == "execute_python":
+        script = str(params.get("script") or "")
+        for line in script.splitlines():
+            line = line.strip()
+            if line:
+                return _short_text(line)
+        return "execute_python"
+    if method == "inspect":
+        return _short_text(str(params.get("path") or "inspect"))
+    if method == "capture":
+        path = str(params.get("path") or "capture")
+        mode = str(params.get("mode") or "auto")
+        if mode and mode != "auto":
+            return _short_text(f"{path} ({mode})")
+        return _short_text(path)
+    if method == "ping":
+        return "ping"
+    return _short_text(method or "unknown")
+
+
+def _enqueue_pending(
+    msg: dict[str, Any], response_slot: "queue.Queue[dict[str, Any]]"
+) -> _PendingItem:
+    item = _PendingItem(
+        msg=msg,
+        response_slot=response_slot,
+        method=str(msg.get("method") or ""),
+        summary=summarize_request(msg),
+        req_id=msg.get("id"),
+    )
+    with _pending_lock:
+        _pending.append(item)
+    return item
+
+
+def _reset_pending_for_tests() -> None:
+    """Clear pending/running state — test harness only."""
+    global _running
+    with _pending_lock:
+        _pending.clear()
+        _running = None
+
+
+def pending_count() -> int:
+    """Queued + in-flight items awaiting / receiving main-thread dispatch."""
+    with _pending_lock:
+        return len(_pending) + (1 if _running is not None else 0)
+
+
+def task_snapshot() -> list[dict[str, Any]]:
+    """Running (0..1) then FIFO queued rows for the Operator Viewer face.
+
+    Caps at ``_SNAPSHOT_MAX`` rows. Age is seconds since enqueue.
+    """
+    now = time.monotonic()
+    rows: list[dict[str, Any]] = []
+    with _pending_lock:
+        if _running is not None:
+            rows.append(
+                {
+                    "state": "running",
+                    "method": _running.method,
+                    "summarize": _running.summary,
+                    "age_s": round(max(0.0, now - _running.enqueued_at), 1),
+                    "id": _running.req_id,
+                }
+            )
+        for item in _pending:
+            rows.append(
+                {
+                    "state": "queued",
+                    "method": item.method,
+                    "summarize": item.summary,
+                    "age_s": round(max(0.0, now - item.enqueued_at), 1),
+                    "id": item.req_id,
+                }
+            )
+    return rows[:_SNAPSHOT_MAX]
+
+
+def cancel_queued() -> int:
+    """Fail every **queued** pending item; does not abort in-flight dispatch.
+
+    Returns the number of cancelled items. Each worker blocked on its
+    response slot receives an error response so the IPC loop can continue.
+    """
+    with _pending_lock:
+        items = list(_pending)
+        _pending.clear()
+    for item in items:
+        try:
+            item.response_slot.put(
+                {
+                    "type": "response",
+                    "id": item.req_id,
+                    "error": {
+                        "message": "cancelled",
+                        "code": "tdmcp.bridge.cancelled",
+                    },
+                }
+            )
+        except Exception:  # noqa: BLE001 — best-effort unblock
+            pass
+    return len(items)
 
 
 def process_pending(max_items: int = 64) -> int:
@@ -510,18 +652,28 @@ def process_pending(max_items: int = 64) -> int:
     Bounded per call so a burst of requests can't stall a frame indefinitely;
     remaining items are picked up next frame.
     """
+    global _running
     n = 0
     while n < max_items:
+        with _pending_lock:
+            if not _pending:
+                break
+            item = _pending.pop(0)
+            _running = item
         try:
-            msg, response_slot = _pending_main.get_nowait()
-        except queue.Empty:
-            break
-        try:
-            response_slot.put(dispatch(msg))
+            item.response_slot.put(dispatch(item.msg))
         except Exception as exc:  # noqa: BLE001 — never let the pump die
-            response_slot.put(
-                {"type": "response", "id": msg.get("id"), "error": {"message": str(exc)}}
+            item.response_slot.put(
+                {
+                    "type": "response",
+                    "id": item.req_id,
+                    "error": {"message": str(exc)},
+                }
             )
+        finally:
+            with _pending_lock:
+                if _running is item:
+                    _running = None
         n += 1
     return n
 
@@ -539,9 +691,65 @@ def serve_queued(stream) -> None:
         if msg.get("type") != "request":
             continue
         response_slot: "queue.Queue[dict[str, Any]]" = queue.Queue(maxsize=1)
-        _pending_main.put((msg, response_slot))
+        _enqueue_pending(msg, response_slot)
         resp = response_slot.get()
         _write_frame(stream, resp)
+
+
+def _env_bridge_dir() -> str | None:
+    env = os.environ.get("TDMCP_BRIDGE_DIR")
+    if env and os.path.isfile(os.path.join(env, "tdmcp_bridge", "__init__.py")):
+        return env
+    return None
+
+
+def _conventional_bridge_dir() -> str | None:
+    if sys.platform.startswith("win"):
+        base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+        data = os.path.join(base, "tdmcp-rs")
+    elif sys.platform == "darwin":
+        data = os.path.join(
+            os.path.expanduser("~"), "Library", "Application Support", "tdmcp-rs"
+        )
+    else:
+        base = os.environ.get("XDG_DATA_HOME") or os.path.join(
+            os.path.expanduser("~"), ".local", "share"
+        )
+        data = os.path.join(base, "tdmcp-rs")
+    candidate = os.path.join(data, "bridge")
+    if os.path.isfile(os.path.join(candidate, "tdmcp_bridge", "__init__.py")):
+        return candidate
+    return None
+
+
+def _resolve_bridge_package_dir(
+    bridge_dir: str | None, handshake_resp: dict[str, Any]
+) -> str | None:
+    """Path order: explicit/env override → handshake → conventional data dir."""
+    if bridge_dir and os.path.isfile(
+        os.path.join(bridge_dir, "tdmcp_bridge", "__init__.py")
+    ):
+        return bridge_dir
+    env = _env_bridge_dir()
+    if env:
+        return env
+    hs = handshake_resp.get("bridgePackageDir")
+    if isinstance(hs, str) and os.path.isfile(
+        os.path.join(hs, "tdmcp_bridge", "__init__.py")
+    ):
+        return hs
+    return _conventional_bridge_dir()
+
+
+def _load_bridge_package(pkg_dir: str | None) -> None:
+    """Put ``pkg_dir`` on ``sys.path`` and reload ``tdmcp_bridge`` from disk."""
+    if not pkg_dir:
+        return
+    if pkg_dir not in sys.path:
+        sys.path.insert(0, pkg_dir)
+    mod = sys.modules.get("tdmcp_bridge")
+    if mod is not None:
+        importlib.reload(mod)
 
 
 def bootstrap(bridge_dir: str | None = None) -> dict[str, Any]:
@@ -553,21 +761,26 @@ def bootstrap(bridge_dir: str | None = None) -> dict[str, Any]:
     smoke tests (e.g. a plain Python REPL, or a script talking to a stub
     peer in tests).
 
-    `bridge_dir` is where `tdmcp_bridge` lives; if omitted, the daemon's
-    handshake response supplies it (advisory — reload from disk each connect).
+    Path resolution: ``bridge_dir`` / ``TDMCP_BRIDGE_DIR`` → handshake
+    ``bridgePackageDir`` → conventional data-dir ``bridge/``. Reloads the
+    package from disk on every connect.
     Returns the handshake response.
     """
     stream = dial()
     resp = handshake(stream)
-    pkg_dir = bridge_dir or resp.get("bridgePackageDir")
-    if pkg_dir and pkg_dir not in sys.path:
-        sys.path.insert(0, pkg_dir)
+    pkg_dir = _resolve_bridge_package_dir(bridge_dir, resp)
+    _load_bridge_package(pkg_dir)
     serve(stream)
     return resp
 
 
 _active_stream: Any = None
 _active_thread: threading.Thread | None = None
+
+
+def is_connected() -> bool:
+    """True while the IPC worker thread is alive after a successful bootstrap."""
+    return _active_thread is not None and _active_thread.is_alive()
 
 
 def bootstrap_threaded(bridge_dir: str | None = None) -> dict[str, Any]:
@@ -578,17 +791,25 @@ def bootstrap_threaded(bridge_dir: str | None = None) -> dict[str, Any]:
     framed read loop to a worker thread running [`serve_queued`] — the
     worker only ever touches the stream and a `queue.Queue`, never `td.*`.
 
+    Path resolution: ``bridge_dir`` / ``TDMCP_BRIDGE_DIR`` → handshake
+    ``bridgePackageDir`` → conventional data-dir ``bridge/``. Reloads the
+    package from disk on every connect (version bumps without re-baking the tox).
+
     The caller (the bootstrap Text DAT's owning Execute DAT) **must** also
     enable `Frame Start` and call [`process_pending`] from `onFrameStart`,
-    or requests will queue forever without a response.
+    or requests will queue forever without a response. Safe to call again
+    after disconnect / dead worker (explicit resurrection).
     """
     global _active_stream, _active_thread
+    if _active_stream is not None or _active_thread is not None:
+        disconnect()
     stream = dial()
     resp = handshake(stream)
-    pkg_dir = bridge_dir or resp.get("bridgePackageDir")
-    if pkg_dir and pkg_dir not in sys.path:
-        sys.path.insert(0, pkg_dir)
-    thread = threading.Thread(target=serve_queued, args=(stream,), daemon=True)
+    pkg_dir = _resolve_bridge_package_dir(bridge_dir, resp)
+    _load_bridge_package(pkg_dir)
+    # Bind serve_queued from the (possibly reloaded) module object.
+    serve_fn = sys.modules[__name__].serve_queued
+    thread = threading.Thread(target=serve_fn, args=(stream,), daemon=True)
     thread.start()
     _active_stream = stream
     _active_thread = thread

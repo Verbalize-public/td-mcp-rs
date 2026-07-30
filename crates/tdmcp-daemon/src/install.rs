@@ -15,7 +15,7 @@ static BRIDGE: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../../bridge");
 /// Embedded diagnostics catalog.
 const CATALOG_YAML: &str = include_str!("../../../diagnostics/catalog.yaml");
 
-/// Placeholder bootstrap tox until real TD packaging ships.
+/// Shipped bootstrap tox (thin dialer — handshake → FS load of `bridge/`).
 const BOOTSTRAP_TOX: &[u8] = include_bytes!("../embedded/bootstrap.tox");
 
 const STAMP_NAME: &str = "install.version";

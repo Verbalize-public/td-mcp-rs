@@ -7,7 +7,7 @@
 | `tdmcp-daemon` binary | Control plane + MCP + admin API + (default) in-process tray UI |
 | `bridge/` | Python package + `manifest.json` beside install/data dir |
 | `diagnostics/catalog.yaml` | Diagnostic catalog |
-| bootstrap `.tox` | Tiny TD dialer (handshake → FS load) |
+| bootstrap `.tox` | Tiny TD dialer COMP `tdmcp_rs` (handshake → FS load of `bridge/`). Embedded in the daemon; extracted to `{dataDir}/bootstrap.tox`. Rebuild recipe: [`scripts/pack_bootstrap_tox.md`](../scripts/pack_bootstrap_tox.md) |
 
 The tray dashboard lives in the `tdmcp-gui` **library** crate, linked into
 `tdmcp-daemon` when the default `gui` Cargo feature is enabled. There is no

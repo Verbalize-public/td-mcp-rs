@@ -52,9 +52,15 @@ Bridge package and diagnostic catalog ship beside the repo (`bridge/`,
    `%LOCALAPPDATA%/tdmcp-rs/` (Windows), Application Support (macOS), or XDG
    (Linux).
 
-3. Drop the bootstrap tox into a TouchDesigner project (or load
-   `bridge/bootstrap.py`). TD dials the local IPC endpoint, handshakes, and
-   loads the bridge package from the path the daemon returns.
+3. Drop the extracted bootstrap tox into a TouchDesigner project
+   (`%LOCALAPPDATA%/tdmcp-rs/bootstrap.tox` on Windows — thin dialer COMP
+   `tdmcp_rs`). TD dials the local IPC endpoint, handshakes, and loads the
+   bridge package from the path the daemon returns. The COMP Operator Viewer
+   shows a color-banded status face + live task list; Bridge page pars are
+   `Connect`, `Autoconnect`, `Status`, and `Cancelqueued`. For debug only, you
+   can still paste `bridge/bootstrap.py` into a Text DAT (see
+   `bridge/tox_callbacks.py` for the Execute DAT pump / reconnect).
+   Regenerate the embedded tox via [`scripts/pack_bootstrap_tox.md`](scripts/pack_bootstrap_tox.md).
 
 ### Power users
 

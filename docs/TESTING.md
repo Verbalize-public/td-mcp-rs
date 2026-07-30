@@ -10,6 +10,7 @@ before declaring a gate green.
 | Unit | each crate `src/**` / `tests/` | no |
 | Integration | `crates/tdmcp-daemon/tests/` + `tdmcp-test-support` | no |
 | Bridge pytest | `bridge/tests/` (fake `td` module) | no |
+| Dev env (interactive) | [`DEV_ENV.md`](DEV_ENV.md) + [`fixtures/dev/`](../fixtures/dev/) | yes |
 | Manual E2E | [`E2E_CHECKLIST.md`](E2E_CHECKLIST.md) | yes |
 
 ## Deep tests (must stay green)

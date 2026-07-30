@@ -3,11 +3,27 @@
 Run against a real TouchDesigner instance after Gate P0 builds green.
 Record date / TD version / pass-fail in a short note when you execute this.
 
+For day-to-day interactive work (baseline kit, session tox resume, dual-MCP
+smoke), use [`DEV_ENV.md`](DEV_ENV.md) instead of this full gate.
+
+## Dev smoke (shortcut)
+
+Owned host `_agent_tdmcprs_dev` + `fixtures/dev/e2e_kit.tox` + bootstrap drop.
+See [`DEV_ENV.md`](DEV_ENV.md) § Dev smoke. Does **not** replace rows 1–12 below.
+
+| # | Check |
+| --- | --- |
+| S1 | Classic: `get_td_node_errors` on `/project1/e2e_kit` clean |
+| S2 | rs `fleet`: bridge `connected` |
+| S3 | rs `execute_python` → `result = 1` |
+| S4 | rs `capture` top on `/project1/e2e_kit/probe` — non-black |
+| S5 | rs `inspect` summary on `/project1/e2e_kit` |
+
 ## Prerequisites
 
 1. `cargo build -p tdmcp-daemon --release`
 2. Bridge package available (`bridge/` + `manifest.json`)
-3. Bootstrap tox dropped into a TD project (or manual IPC client for smoke)
+3. Real bootstrap tox dropped into a TD project (`{dataDir}/bootstrap.tox` after `install` / `ensure`; Text-DAT `bridge/bootstrap.py` only as a debug fallback)
 4. Daemon: `tdmcp-daemon start --port 9860`
 
 ## Checklist

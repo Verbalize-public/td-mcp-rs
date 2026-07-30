@@ -15,6 +15,7 @@ Law: [`CONSTITUTION.md`](CONSTITUTION.md). User install/quickstart: [`README.md`
 | Accepted panic/unsafe exceptions | [`RISKS.md`](RISKS.md) |
 | Local quality gate | `scripts/check.ps1` or `scripts/check.sh` |
 | Live TD verify | [`docs/E2E_CHECKLIST.md`](docs/E2E_CHECKLIST.md) |
+| Interactive TD harness | [`docs/DEV_ENV.md`](docs/DEV_ENV.md) |
 | Testing strategy | [`docs/TESTING.md`](docs/TESTING.md) |
 | Packaging | [`docs/DELIVERY.md`](docs/DELIVERY.md) |
 | Typing / schema policy | [`TODO_ENFORCE_TYPE.md`](TODO_ENFORCE_TYPE.md) |
