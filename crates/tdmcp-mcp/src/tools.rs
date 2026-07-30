@@ -52,6 +52,9 @@ pub enum ToolCallError {
         summary: String,
         /// Structured diagnostics.
         diagnostics: tdmcp_diagnostics::Diagnostics,
+        /// Optional JPEG (base64) when perception failed but a frame was captured
+        /// (e.g. black-frame) — agents still need to see the pixels.
+        image_jpeg_base64: Option<String>,
     },
 }
 
@@ -131,6 +134,9 @@ impl CaptureMode {
     }
 }
 
+/// Default longer-side cap for perception JPEGs (token / wire discipline).
+pub const CAPTURE_DEFAULT_MAX_SIZE: u32 = 256;
+
 /// Args for capture (perception).
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -145,6 +151,14 @@ pub struct CaptureParams {
     /// Resolution base for relative `path`.
     #[serde(default)]
     pub context_path: Option<OpPath>,
+    /// Longer-side pixel cap before JPEG encode. `null` = native resolution.
+    /// Defaults to 256.
+    #[serde(default = "default_capture_max_size")]
+    pub max_size: Option<u32>,
+}
+
+fn default_capture_max_size() -> Option<u32> {
+    Some(CAPTURE_DEFAULT_MAX_SIZE)
 }
 
 /// Sections to include in an inspect response.
@@ -262,6 +276,7 @@ pub async fn dispatch_tool(
                     "path": params.path,
                     "mode": params.mode.as_str(),
                     "contextPath": params.context_path,
+                    "maxSize": params.max_size,
                 }),
             )
             .await;

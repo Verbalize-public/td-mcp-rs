@@ -10,12 +10,12 @@
 use std::sync::Arc;
 
 use rmcp::model::{
-    CallToolRequestParams, CallToolResponse, CallToolResult, Implementation, ListToolsResult,
-    PaginatedRequestParams, ServerCapabilities, ServerInfo, Tool,
+    CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, Implementation,
+    ListToolsResult, PaginatedRequestParams, ServerCapabilities, ServerInfo, Tool,
 };
 use rmcp::service::RequestContext;
 use rmcp::{ErrorData, RoleServer, ServerHandler};
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use crate::schema::input_schema_for;
 use crate::tools::{dispatch_tool, tool_descriptors, ToolCallError};
@@ -84,7 +84,7 @@ impl ServerHandler for McpHandler {
         )
         .await
         {
-            Ok(value) => Ok(CallToolResult::structured(value).into()),
+            Ok(value) => Ok(call_tool_result_from_value(&name, value).into()),
             Err(ToolCallError::UnknownTool(name)) => Err(ErrorData::invalid_params(
                 format!("unknown tool: {name}"),
                 None,
@@ -93,10 +93,11 @@ impl ServerHandler for McpHandler {
             Err(ToolCallError::Failed {
                 summary,
                 diagnostics,
+                image_jpeg_base64,
             }) => {
                 let payload = serde_json::to_value(&diagnostics)
-                    .unwrap_or_else(|_| serde_json::json!({ "summary": summary }));
-                Ok(CallToolResult::structured_error(payload).into())
+                    .unwrap_or_else(|_| json!({ "summary": summary }));
+                Ok(call_tool_error_result(payload, image_jpeg_base64).into())
             }
         }
     }
@@ -110,4 +111,93 @@ fn tool_from_descriptor(d: crate::tools::ToolDescriptor) -> Tool {
         Arc::new(d.input_schema)
     };
     Tool::new(d.name.clone(), d.description, schema)
+}
+
+/// Build an MCP tool result, promoting `capture.jpegBase64` to an image block.
+fn call_tool_result_from_value(tool: &str, value: Value) -> CallToolResult {
+    if tool == "capture" {
+        return match try_perception_image_result(value) {
+            Ok(result) => result,
+            Err(value) => CallToolResult::structured(value),
+        };
+    }
+    CallToolResult::structured(value)
+}
+
+fn call_tool_error_result(payload: Value, image_jpeg_base64: Option<String>) -> CallToolResult {
+    if let Some(b64) = image_jpeg_base64.filter(|s| !s.is_empty()) {
+        let mut result = CallToolResult::error(vec![
+            ContentBlock::image(b64, "image/jpeg"),
+            ContentBlock::text(payload.to_string()),
+        ]);
+        result.structured_content = Some(payload);
+        return result;
+    }
+    CallToolResult::structured_error(payload)
+}
+
+/// Promote JPEG payload to an image content block, or return the value unchanged.
+fn try_perception_image_result(mut value: Value) -> Result<CallToolResult, Value> {
+    let Some(capture) = value.get_mut("capture").and_then(|c| c.as_object_mut()) else {
+        return Err(value);
+    };
+    let b64 = match capture.remove("jpegBase64") {
+        Some(Value::String(s)) if !s.is_empty() => s,
+        other => {
+            if let Some(v) = other {
+                capture.insert("jpegBase64".into(), v);
+            }
+            return Err(value);
+        }
+    };
+    let path = capture
+        .get("path")
+        .and_then(|v| v.as_str())
+        .unwrap_or("capture")
+        .to_owned();
+    let bytes = capture.get("bytes").and_then(|v| v.as_u64()).unwrap_or(0);
+    let note = format!("Captured TOP JPEG from {path} ({bytes} bytes).");
+    let mut result = CallToolResult::success(vec![
+        ContentBlock::image(b64, "image/jpeg"),
+        ContentBlock::text(note),
+    ]);
+    result.structured_content = Some(value);
+    Ok(result)
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, reason = "unit tests")]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn capture_promotes_jpeg_to_image_content() {
+        let value = json!({
+            "ok": true,
+            "capture": {
+                "ok": true,
+                "path": "/project1/out1",
+                "bytes": 12,
+                "mimeType": "image/jpeg",
+                "jpegBase64": "AAAA",
+            }
+        });
+        let result = call_tool_result_from_value("capture", value);
+        assert_eq!(result.is_error, Some(false));
+        assert_eq!(result.content.len(), 2);
+        assert!(result.content[0].as_image().is_some());
+        let structured = result.structured_content.expect("structured");
+        assert!(structured.pointer("/capture/jpegBase64").is_none());
+        assert_eq!(
+            structured.pointer("/capture/path").and_then(|v| v.as_str()),
+            Some("/project1/out1")
+        );
+    }
+
+    #[test]
+    fn non_capture_stays_structured_only() {
+        let value = json!({"ok": true, "inspect": {"node": {"path": "/project1"}}});
+        let result = call_tool_result_from_value("inspect", value);
+        assert!(result.content.iter().all(|c| c.as_image().is_none()));
+    }
 }

@@ -51,6 +51,16 @@
       "default": null,
       "description": "Resolution base for relative `path`."
     },
+    "maxSize": {
+      "default": 256,
+      "description": "Longer-side pixel cap before JPEG encode. `null` = native resolution.\nDefaults to 256.",
+      "format": "uint32",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
     "mode": {
       "$ref": "#/$defs/CaptureMode",
       "default": "auto",

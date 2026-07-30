@@ -43,6 +43,7 @@ class CaptureParams(TypedDict):
     path: str
     mode: NotRequired[str]
     contextPath: NotRequired[str | None]
+    maxSize: NotRequired[int | None]
 
 
 class InspectParams(TypedDict):
@@ -134,12 +135,19 @@ def handle_execute_python(params: dict[str, Any]) -> dict[str, Any]:
 
 
 def handle_capture(params: dict[str, Any]) -> dict[str, Any]:
-    """P0 capture: top / preview — requires live TD."""
+    """P0 capture: top / preview — requires live TD.
+
+    Returns JPEG as ``jpegBase64`` so the MCP layer can emit an image content
+    block. Optional ``maxSize`` (default 256) downscales via a temp
+    ``resolutionTOP`` that is always destroyed.
+    """
+    import base64
     import td  # type: ignore
 
     path = params.get("path") or ""
     mode = params.get("mode") or "auto"
     context_path = params.get("contextPath")
+    max_size = params.get("maxSize", 256)
     node = tdmcp_resolve(path, context_path)
     if node is None or not getattr(node, "valid", False):
         return {"ok": False, "code": "tdmcp.op.not_found", "path": path}
@@ -170,20 +178,62 @@ def handle_capture(params: dict[str, Any]) -> dict[str, Any]:
             "path": getattr(target, "path", path),
         }
 
+    tmp_top = None
+    source = target
     try:
-        data = target.saveByteArray(".jpg")
-        black = _is_black_top(target, data)
+        if max_size is not None:
+            source, tmp_top = _maybe_downscale_top(td, target, int(max_size))
+        data = source.saveByteArray(".jpg")
+        raw = bytes(data) if data is not None else b""
+        black = _is_black_top(source, raw)
         return {
             "ok": not black,
             "code": "tdmcp.perception.black_frame" if black else None,
-            "bytes": len(data) if data is not None else 0,
+            "bytes": len(raw),
             "path": getattr(target, "path", path),
+            "mimeType": "image/jpeg",
+            "jpegBase64": base64.b64encode(raw).decode("ascii") if raw else None,
+            "maxSize": max_size,
         }
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": str(exc), "traceback": traceback.format_exc()}
+    finally:
+        if tmp_top is not None:
+            try:
+                tmp_top.destroy()
+            except Exception:  # noqa: BLE001
+                pass
 
 
 _BLACK_MEAN_THRESHOLD = 1.0 / 255.0
+
+
+def _maybe_downscale_top(td_mod, target, max_size: int):
+    """Return ``(source_top, tmp_top|None)``; tmp must be destroyed by caller."""
+    width = int(getattr(target, "width", 0) or 0)
+    height = int(getattr(target, "height", 0) or 0)
+    longest = max(width, height)
+    if longest <= 0 or longest <= max_size:
+        return target, None
+
+    if width >= height:
+        new_w = max_size
+        new_h = max(1, round(height * max_size / width))
+    else:
+        new_h = max_size
+        new_w = max(1, round(width * max_size / height))
+
+    parent = target.parent()
+    tmp_name = "__tdmcp_tmp_res__" + target.name
+    existing = parent.op(tmp_name) if parent is not None else None
+    if existing is not None:
+        existing.destroy()
+    tmp_top = parent.create(td_mod.resolutionTOP, tmp_name)
+    tmp_top.inputConnectors[0].connect(target)
+    tmp_top.par.outputresolution = "custom"
+    tmp_top.par.resolutionw = new_w
+    tmp_top.par.resolutionh = new_h
+    return tmp_top, tmp_top
 
 
 def _is_black_top(target, data: bytes | None) -> bool:

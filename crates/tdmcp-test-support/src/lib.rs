@@ -91,7 +91,14 @@ impl FakeTdPeer {
                     "ping" => serde_json::json!({"ok": true, "pong": true}),
                     "execute_python" => serde_json::json!({"ok": true, "result": 1}),
                     "capture" => {
-                        serde_json::json!({"ok": true, "bytes": 1024, "path": "/project1/out1"})
+                        serde_json::json!({
+                            "ok": true,
+                            "bytes": 1024,
+                            "path": "/project1/out1",
+                            "mimeType": "image/jpeg",
+                            // Minimal valid-looking base64 stub (not a real JPEG).
+                            "jpegBase64": "/9j/4AAQ",
+                        })
                     }
                     "inspect" => serde_json::json!({"ok": true, "node": {"path": "/project1"}}),
                     _ => serde_json::json!({"ok": true}),

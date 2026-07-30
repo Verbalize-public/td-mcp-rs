@@ -73,6 +73,14 @@ impl BridgeResultEnvelope {
 
 /// Build a single-item `Failed` tool error.
 pub fn failed_one(item: DiagnosticItem) -> ToolCallError {
+    failed_one_with_image(item, None)
+}
+
+/// Build a single-item `Failed` tool error, optionally attaching a JPEG frame.
+pub fn failed_one_with_image(
+    item: DiagnosticItem,
+    image_jpeg_base64: Option<String>,
+) -> ToolCallError {
     let summary = item.message.clone();
     let diagnostics = Diagnostics {
         summary,
@@ -81,6 +89,7 @@ pub fn failed_one(item: DiagnosticItem) -> ToolCallError {
     ToolCallError::Failed {
         summary: diagnostics.recount_summary(),
         diagnostics,
+        image_jpeg_base64,
     }
 }
 
@@ -136,7 +145,12 @@ pub fn map_perception_outcome(
                     Some(msg),
                     ctx(pid, Some(path), context_path),
                 );
-                Err(failed_one(item))
+                let jpeg = value
+                    .get("jpegBase64")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_owned);
+                Err(failed_one_with_image(item, jpeg))
             } else {
                 Ok(serde_json::json!({ "ok": true, "capture": value }))
             }

@@ -80,6 +80,13 @@ in `bridge/tdmcp_bridge/__init__.py` and covered by `bridge/tests/test_bridge_qu
    data via `TOP.numpyArray()` and checking mean RGB near zero, with the old
    byte-size check retained only as a last-resort fallback when
    `numpyArray` is unavailable.
+4. **`capture` returned only a JPEG byte *count*, not pixels.** Agents got
+   `{ bytes, path }` with no MCP image content block. Fixed by base64-encoding
+   `saveByteArray(".jpg")` as `jpegBase64` and promoting it to an MCP
+   `image/jpeg` content block (stripped from structured content to avoid
+   double-payload). Optional `maxSize` (default 256) downscales via a temp
+   `resolutionTOP`. Black-frame failures still attach the JPEG so critics
+   can see the frame.
 
 ## Notes
 

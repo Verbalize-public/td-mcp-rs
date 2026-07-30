@@ -73,7 +73,13 @@ async fn drive_peer(mut peer: FakeTdPeer, n: usize) {
         };
         let result: Value = match method.as_str() {
             "execute_python" => json!({"ok": true, "result": 1}),
-            "capture" => json!({"ok": true, "bytes": 1024, "path": "/project1/out1"}),
+            "capture" => json!({
+                "ok": true,
+                "bytes": 1024,
+                "path": "/project1/out1",
+                "mimeType": "image/jpeg",
+                "jpegBase64": "/9j/4AAQ",
+            }),
             "inspect" => json!({"ok": true, "node": {"path": "/project1"}}),
             "ping" => json!({"ok": true, "pong": true}),
             _ => json!({"ok": true}),

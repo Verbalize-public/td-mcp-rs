@@ -96,10 +96,12 @@ async fn call_tool(
         Err(ToolCallError::Failed {
             summary,
             diagnostics,
+            image_jpeg_base64,
         }) => Ok(Json(serde_json::json!({
             "ok": false,
             "summary": summary,
             "diagnostics": diagnostics,
+            "jpegBase64": image_jpeg_base64,
         }))),
         Err(ToolCallError::UnknownTool(_) | ToolCallError::InvalidArgs(_)) => {
             Err(axum::http::StatusCode::BAD_REQUEST)

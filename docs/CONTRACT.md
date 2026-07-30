@@ -162,7 +162,7 @@ Typical loop: `fleet` → pick connected `pid` → `inspect` → mutate → `ins
 
 | Mode | Status | Behavior |
 | --- | --- | --- |
-| `top` | **Shipped** | TOP → JPEG; black frame = perception fail |
+| `top` | **Shipped** | TOP → JPEG (`jpegBase64` + MCP image content); optional `maxSize` (default 256); black frame = perception fail (image still returned) |
 | `preview` | **Shipped** | COMP face: `opviewer` → `./out1` → TOP child → error |
 | `auto` | **Shipped** | TOP → `top`; COMP → `preview` |
 | `chop_data` | **Planned** | CHOP → capped JSON |
