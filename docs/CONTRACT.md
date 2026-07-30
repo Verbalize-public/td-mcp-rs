@@ -136,7 +136,7 @@ only — not bridge peer health.
 | --- | --- | --- |
 | `fleet` | Fleet view — processes by pid, bridge, tasks, cancelled traces | **Shipped** |
 | `execute_python` | Run Python in TD; `result = …` | **Shipped** |
-| `inspect` | Structural subtree read (nodes / params / errors) | **Shipped** |
+| `inspect` | Structural subtree read (nodes / params / errors); summary = direct-child roster | **Shipped** |
 | `capture` | Perception — `top` / `preview` / `auto` | **Shipped** (P0 modes) |
 | `describe_tools` | Manifest of available tools | **Shipped** |
 | `mutate_nodes` | Batched create / set / delete | **Planned** (P1) |
@@ -157,6 +157,17 @@ only — not bridge peer health.
 | Perception | `capture` | Pixels / basic signal — trigger keyword **perception** |
 
 Typical loop: `fleet` → pick connected `pid` → `inspect` → mutate → `inspect` errors → `capture` (when look is the claim) → perception-critic for look PASS/FAIL.
+
+### `inspect` / `detailLevel`
+
+| Level | Direct `children` entries | Counts / truncation |
+| --- | --- | --- |
+| `summary` (default) | `{name, opType}` | Always `childCount` + `childrenReturned`; roster capped at **64** |
+| `detailed` | `{path, family, opType}` | Same cap — **does not** raise the limit |
+
+When `childrenReturned < childCount`, the node includes `childrenTruncated: true` and a `truncation` object (`field`, `limit`, `code: tdmcp.op.children_truncated`, `message`, `mitigation`). Soft limit — response stays `ok: true`. Mitigation: inspect a child COMP, or `execute_python` for a full name list — not `detailLevel: detailed`.
+
+`children` is always an array (never a bare count). `include: params` / `errors` are unchanged and not gated by `detailLevel`.
 
 ### `capture` modes
 

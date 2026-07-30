@@ -261,9 +261,91 @@ def _is_black_top(target, data: bytes | None) -> bool:
     return len(data) < 200
 
 
+# Direct-child roster cap for inspect (summary and detailed).
+CHILDREN_ROSTER_LIMIT = 64
+
+
+def _child_name(child: Any) -> str:
+    """Best-effort operator name; fall back to last path segment."""
+    name = getattr(child, "name", None)
+    if name:
+        return str(name)
+    path = getattr(child, "path", "") or ""
+    return str(path).rsplit("/", 1)[-1]
+
+
+def build_inspect_node(
+    n: Any,
+    *,
+    detail_level: str = "summary",
+    want_nodes: bool = True,
+    want_params: bool = False,
+    want_errors: bool = False,
+) -> dict[str, Any]:
+    """Shape one inspect node payload (pure enough for unit tests without TD)."""
+    children: list[dict[str, Any]] = []
+    child_count = 0
+    if want_nodes:
+        raw_children = list(n.children)  # TD OP.children is a list property
+        child_count = len(raw_children)
+        detailed = detail_level == "detailed"
+        for child in raw_children[:CHILDREN_ROSTER_LIMIT]:
+            if detailed:
+                children.append({
+                    "path": getattr(child, "path", None),
+                    "family": getattr(child, "family", None),
+                    "opType": getattr(child, "opType", None),
+                })
+            else:
+                children.append({
+                    "name": _child_name(child),
+                    "opType": getattr(child, "opType", None),
+                })
+
+    out: dict[str, Any] = {
+        "path": getattr(n, "path", None),
+        "family": getattr(n, "family", None),
+        "opType": getattr(n, "opType", None),
+        "childCount": child_count,
+        "childrenReturned": len(children),
+        "children": children,
+    }
+    if want_nodes and len(children) < child_count:
+        out["childrenTruncated"] = True
+        out["truncation"] = {
+            "field": "children",
+            "limit": CHILDREN_ROSTER_LIMIT,
+            "code": "tdmcp.op.children_truncated",
+            "message": (
+                f"Direct-child roster capped at {CHILDREN_ROSTER_LIMIT} of {child_count}"
+            ),
+            "mitigation": [
+                "Inspect a child COMP path for nested overview",
+                "detailLevel does not raise this cap",
+                "Use execute_python if you need the full name list",
+            ],
+        }
+    if want_params:
+        pars = []
+        for p in n.pars():
+            try:
+                pars.append({"name": p.name, "val": p.eval()})
+            except Exception:  # noqa: BLE001
+                pars.append({"name": p.name, "val": None})
+        out["params"] = pars
+    if want_errors:
+        errs = []
+        try:
+            errs = list(n.errors())
+        except Exception:  # noqa: BLE001
+            errs = []
+        out["errors"] = errs
+    return out
+
+
 def handle_inspect(params: dict[str, Any]) -> dict[str, Any]:
     """Structural subtree read (nodes/params/errors). Requires live TD."""
-    import td  # type: ignore
+    import td  # type: ignore  # noqa: F401 — ensure TD runtime is importable
 
     path = params.get("path") or ""
     context_path = params.get("contextPath")
@@ -278,40 +360,17 @@ def handle_inspect(params: dict[str, Any]) -> dict[str, Any]:
     want_params = "params" in include
     want_errors = "errors" in include
 
-    def summarize(n) -> dict[str, Any]:
-        children = []
-        if want_nodes:
-            for child in n.children:  # TD OP.children is a list property
-                children.append({
-                    "path": child.path,
-                    "family": getattr(child, "family", None),
-                    "opType": getattr(child, "opType", None),
-                })
-        out: dict[str, Any] = {
-            "path": n.path,
-            "family": getattr(n, "family", None),
-            "opType": getattr(n, "opType", None),
-            "children": children if detail_level == "detailed" else len(children),
-        }
-        if want_params:
-            pars = []
-            for p in n.pars():
-                try:
-                    pars.append({"name": p.name, "val": p.eval()})
-                except Exception:  # noqa: BLE001
-                    pars.append({"name": p.name, "val": None})
-            out["params"] = pars
-        if want_errors:
-            errs = []
-            try:
-                errs = list(n.errors())
-            except Exception:  # noqa: BLE001
-                errs = []
-            out["errors"] = errs
-        return out
-
     try:
-        return {"ok": True, "node": summarize(node)}
+        return {
+            "ok": True,
+            "node": build_inspect_node(
+                node,
+                detail_level=detail_level,
+                want_nodes=want_nodes,
+                want_params=want_params,
+                want_errors=want_errors,
+            ),
+        }
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": str(exc), "traceback": traceback.format_exc()}
 

@@ -21,6 +21,8 @@ pub const OP_NOT_FOUND: &str = "tdmcp.op.not_found";
 pub const OP_SIMILAR_NAME: &str = "tdmcp.op.similar_name";
 /// Path outside authorized mutation zone.
 pub const OP_OUTSIDE_ZONE: &str = "tdmcp.op.outside_zone";
+/// Inspect direct-child roster capped (soft; payload `truncation` block).
+pub const OP_CHILDREN_TRUNCATED: &str = "tdmcp.op.children_truncated";
 
 /// Later batch step skipped after prior failure.
 pub const BATCH_SKIPPED_DEPENDENT: &str = "tdmcp.batch.skipped_dependent";
@@ -49,6 +51,7 @@ pub const ALL: &[&str] = &[
     OP_NOT_FOUND,
     OP_SIMILAR_NAME,
     OP_OUTSIDE_ZONE,
+    OP_CHILDREN_TRUNCATED,
     BATCH_SKIPPED_DEPENDENT,
     PAR_UNKNOWN,
     SCRIPT_EXECUTION_FAILED,

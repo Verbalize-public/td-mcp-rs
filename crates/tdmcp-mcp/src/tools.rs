@@ -74,7 +74,7 @@ pub fn tool_descriptors() -> Vec<ToolDescriptor> {
         },
         ToolDescriptor {
             name: "inspect".into(),
-            description: "Structural subtree read (nodes/params/errors)".into(),
+            description: "Structural subtree read (nodes/params/errors). Default summary includes a direct-child roster ({name, opType}); detailed adds path+family. Roster capped at 64 — when truncated see node.truncation (detailLevel does not raise the cap).".into(),
             input_schema: input_schema_for("inspect"),
         },
         ToolDescriptor {
@@ -177,10 +177,10 @@ pub enum InspectInclude {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum DetailLevel {
-    /// Compact summary.
+    /// Direct-child roster as `{name, opType}` (capped at 64; see `node.truncation`).
     #[default]
     Summary,
-    /// Full detail.
+    /// Direct-child roster as `{path, family, opType}` (same 64 cap — does not uncap).
     Detailed,
 }
 

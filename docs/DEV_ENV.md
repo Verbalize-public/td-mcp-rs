@@ -115,7 +115,7 @@ Cheapest probes before interactive work. Does **not** replace the 12-row E2E gat
 | 2 | rs | `fleet`: bridge `connected` for host pid |
 | 3 | rs | `execute_python` with `result = 1` (scripts get `tdmcp_resolve`, not bare `op`) |
 | 4 | rs | `capture` mode `top` on `/project1/e2e_kit/probe` — non-black |
-| 5 | rs | `inspect` summary on `/project1/e2e_kit` — structure present |
+| 5 | rs | `inspect` summary on `/project1/e2e_kit` — child `{name, opType}` roster present |
 
 ## Interactive session
 

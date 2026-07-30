@@ -5,12 +5,12 @@
       "oneOf": [
         {
           "const": "summary",
-          "description": "Compact summary.",
+          "description": "Direct-child roster as `{name, opType}` (capped at 64; see `node.truncation`).",
           "type": "string"
         },
         {
           "const": "detailed",
-          "description": "Full detail.",
+          "description": "Direct-child roster as `{path, family, opType}` (same 64 cap — does not uncap).",
           "type": "string"
         }
       ]

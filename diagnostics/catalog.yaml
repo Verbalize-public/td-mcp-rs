@@ -79,6 +79,17 @@ entries:
       - kind: doc
         id: mutation_zones
 
+  - code: tdmcp.op.children_truncated
+    layer: structure
+    message: "Inspect direct-child roster capped"
+    mitigation:
+      - "Inspect a child COMP path for nested overview"
+      - "detailLevel does not raise this cap"
+      - "Use execute_python if you need the full name list"
+    references:
+      - kind: doc
+        id: inspect
+
   - code: tdmcp.batch.skipped_dependent
     layer: mutate
     message: "Later batch step skipped because a prior step failed"

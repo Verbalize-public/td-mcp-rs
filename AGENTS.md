@@ -34,7 +34,8 @@ Law: [`CONSTITUTION.md`](CONSTITUTION.md). User install/quickstart: [`README.md`
 4. On failure, read **`diagnostics`** (codes, lints, mitigation) — not raw
    strings alone.
 5. Prefer `detailLevel: summary` / `diagnosticLevel: summary`; store-first for
-   `capture`.
+   `capture`. Summary `inspect` includes a direct-child roster (capped at 64;
+   when truncated see `node.truncation` — `detailed` does not raise the cap).
 
 ## Operate vs Document
 

@@ -90,8 +90,10 @@ assets only), `status`, `stop`.
 | `capture` | Perception (`top` / `preview` / `auto`) |
 | `describe_tools` | Tool manifest |
 
-Process-scoped tools require `pid`. Prefer `detailLevel: summary`. Use
-`capture` when look is the claim; builders never self-grade perception.
+Process-scoped tools require `pid`. Prefer `detailLevel: summary` — `inspect`
+summary returns a direct-child roster (`name` + `opType`, capped at 64; see
+`node.truncation` when truncated). Use `capture` when look is the claim;
+builders never self-grade perception.
 
 ## Docs
 

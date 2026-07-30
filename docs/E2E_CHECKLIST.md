@@ -17,7 +17,7 @@ See [`DEV_ENV.md`](DEV_ENV.md) § Dev smoke. Does **not** replace rows 1–12 be
 | S2 | rs `fleet`: bridge `connected`; connected pid has non-empty `title` (`project.name`) and `toePath` when folder+name known |
 | S3 | rs `execute_python` → `result = 1` |
 | S4 | rs `capture` top on `/project1/e2e_kit/probe` — non-black |
-| S5 | rs `inspect` summary on `/project1/e2e_kit` |
+| S5 | rs `inspect` summary on `/project1/e2e_kit` — `children` is an array of `{name, opType}` (not a count); `childCount` present |
 
 ## Prerequisites
 
