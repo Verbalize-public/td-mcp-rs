@@ -31,6 +31,11 @@
       "description": "Exclusive enqueue.",
       "type": "boolean"
     },
+    "includeLogs": {
+      "default": true,
+      "description": "When true (default), capture stdout/stderr during exec and return as `logs`.",
+      "type": "boolean"
+    },
     "pid": {
       "$ref": "#/$defs/Pid",
       "description": "Target pid."

@@ -47,7 +47,7 @@ the bridge worker thread and does **not** appear in `task_table`. If the daemon
 dies or stops probing, Autoconnect moves Status to `Re-connecting` after the
 bridge idle-dead timeout.
 
-Face: color-banded Composite `status_face` (Operator Viewer) + `task_table` DAT with short describes. Provoke rows with rs `execute_python` / `inspect` / `capture` under load. See [`scripts/pack_bootstrap_tox.md`](../scripts/pack_bootstrap_tox.md).
+Face: color-banded Text TOP `status_top` (Operator Viewer) + ASCII panel in `status_text` (TASKS + **LOGS**). Children include `task_table` and `debug` (stdio ring buffer; Global OP Shortcut **`Debug`** on the COMP → `op.Debug.op('debug')`). Provoke rows with rs `execute_python` / `inspect` / `capture` under load. See [`scripts/pack_bootstrap_tox.md`](../scripts/pack_bootstrap_tox.md).
 
 ## Cold start
 

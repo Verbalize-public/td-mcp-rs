@@ -69,7 +69,7 @@ pub fn tool_descriptors() -> Vec<ToolDescriptor> {
         },
         ToolDescriptor {
             name: "execute_python".into(),
-            description: "Run Python in TD; OpPath-exempt with tdmcp_resolve helper".into(),
+            description: "Run Python in TD; prints tee to op.Debug.op('debug') and the COMP face LOGS section; response includes logs (disable with includeLogs: false). OpPath-exempt with tdmcp_resolve helper.".into(),
             input_schema: input_schema_for("execute_python"),
         },
         ToolDescriptor {
@@ -104,6 +104,13 @@ pub struct ExecutePythonParams {
     /// Optional context path (exposed to script as helper; not enforced).
     #[serde(default)]
     pub context_path: Option<OpPath>,
+    /// When true (default), capture stdout/stderr during exec and return as `logs`.
+    #[serde(default = "default_true")]
+    pub include_logs: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 /// Capture mode.
@@ -257,6 +264,7 @@ pub async fn dispatch_tool(
                 serde_json::json!({
                     "script": params.script,
                     "contextPath": params.context_path,
+                    "includeLogs": params.include_logs,
                 }),
             )
             .await;

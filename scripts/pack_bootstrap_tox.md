@@ -21,6 +21,9 @@ Runtime face (created by `ensure_ui` on Start — not required pre-baked):
 | `status_top` | Text TOP | Renders `status_text` |
 | `status_face` | Composite TOP | bg under text — COMP Operator Viewer |
 | `task_table` | Table DAT | `state \| method \| summarize \| age_s \| id` |
+| `debug` | Text DAT | execute_python stdout/stderr ring buffer; face LOGS section; `op.Debug.op('debug')` |
+
+Global OP Shortcut **`Debug`** is claimed on the `tdmcp_rs` COMP by `ensure_ui` (skipped if another COMP already owns it).
 
 Custom page **Bridge** (also created by `ensure_ui`):
 

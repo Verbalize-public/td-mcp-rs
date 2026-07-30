@@ -33,6 +33,9 @@ _FACE_H = 560
 _PANEL_WIDTH = 74
 _FONT_SIZE = 10
 _TEXT_PAD = 4
+# Face LOGS section — tail of ./debug Text DAT.
+_LOG_PANEL_LINES = 14
+_shortcut_warn_done = False
 
 # Phase → Constant TOP RGB (status_bg)
 _PHASE_COLORS = {
@@ -92,6 +95,62 @@ def _append_par(page, kind: str, name: str, label: str, default=None):
 	return par
 
 
+def _claim_debug_shortcut(comp) -> None:
+	"""Idempotent Global OP Shortcut ``Debug`` on the bridge COMP (never steal)."""
+	global _shortcut_warn_done
+	try:
+		import td  # type: ignore
+
+		try:
+			other = td.op.Debug
+		except Exception:  # noqa: BLE001 — missing shortcut raises
+			other = None
+		if other is not None:
+			try:
+				if other.path != comp.path:
+					if not _shortcut_warn_done:
+						print(
+							"tdmcp-rs: Global OP Shortcut 'Debug' already taken by",
+							other.path,
+						)
+						_shortcut_warn_done = True
+					return
+			except Exception:  # noqa: BLE001
+				pass
+		comp.par.opshortcut = "Debug"
+	except Exception as exc:  # noqa: BLE001
+		if not _shortcut_warn_done:
+			print("tdmcp-rs: could not set Global OP Shortcut Debug:", exc)
+			_shortcut_warn_done = True
+
+
+def _register_bridge_host(comp) -> None:
+	"""Tell the bridge package where ./debug lives (relative append path)."""
+	try:
+		import tdmcp_bridge
+
+		fn = getattr(tdmcp_bridge, "set_bridge_host", None)
+		if callable(fn):
+			fn(comp)
+	except Exception:  # noqa: BLE001
+		pass
+
+
+def _debug_log_lines(comp, max_lines: int = _LOG_PANEL_LINES) -> list[str]:
+	"""Tail of ./debug for the face LOGS section (relative path, not op.Debug)."""
+	dat = comp.op("debug")
+	if dat is None:
+		return []
+	try:
+		text = dat.text or ""
+	except Exception:  # noqa: BLE001
+		return []
+	raw = [ln.rstrip("\r") for ln in text.splitlines() if ln.strip()]
+	if not raw:
+		return []
+	return raw[-max_lines:]
+
+
 def ensure_ui(comp=None) -> bool:
 	"""Idempotent: Bridge custom pars + color-banded Operator Viewer face."""
 	global _ui_ready
@@ -148,6 +207,7 @@ def ensure_ui(comp=None) -> bool:
 		top = _ensure_child(comp, "status_top", _tt)
 		face = _ensure_child(comp, "status_face", _co)
 		table = _ensure_child(comp, "task_table", _tb)
+		debug = _ensure_child(comp, "debug", _td)
 	except Exception as exc:  # noqa: BLE001
 		print("tdmcp-rs: ensure_ui create failed:", exc)
 		return False
@@ -157,6 +217,16 @@ def ensure_ui(comp=None) -> bool:
 	top.nodeX, top.nodeY = 0, 200
 	face.nodeX, face.nodeY = 200, 200
 	table.nodeX, table.nodeY = -200, 0
+	debug.nodeX, debug.nodeY = 0, 0
+
+	try:
+		if not (debug.text or "").strip():
+			debug.text = ""
+	except Exception:  # noqa: BLE001
+		pass
+
+	_claim_debug_shortcut(comp)
+	_register_bridge_host(comp)
 
 	for node in (bg, top, face):
 		_set_par(node, ("outputresolution", "Outputresolution"), "custom")
@@ -253,6 +323,7 @@ def _build_panel(
 	autoconnect: bool,
 	tasks: list,
 	cancel_note: str,
+	log_lines: list | None = None,
 ) -> str:
 	"""ASCII operator panel — full-width box; footer only for transient notes."""
 	width = _PANEL_WIDTH
@@ -290,6 +361,16 @@ def _build_panel(
 				age_s = "0.0s"
 			row = f" {marker} {label} {method} {summary} {age_s:>5}"
 			lines.append(_line(row, width))
+	lines.append(_rule(width, heavy=False))
+	lines.append(_line(".~ LOGS " + "~" * (width - 8), width))
+	logs = list(log_lines or [])
+	if not logs:
+		idle_l = "( no logs )"
+		pad_l = max(0, (width - len(idle_l)) // 2)
+		lines.append(_line((" " * pad_l) + idle_l, width))
+	else:
+		for ln in logs[:_LOG_PANEL_LINES]:
+			lines.append(_line(ln[:width], width))
 	lines.append(_rule(width, heavy=False))
 	# Footer: only real transient status (e.g. cancel note) — never fake buttons
 	if cancel_note:
@@ -361,7 +442,11 @@ def _refresh_face(comp, tasks: list, autoconnect: bool, pending_n: int) -> None:
 	note = ""
 	if _cancel_note and time.monotonic() < _cancel_note_until:
 		note = _cancel_note
-	panel = _build_panel(status, phase, autoconnect, tasks, note)
+	# Keep bridge package pointed at this COMP (reload / late import).
+	_register_bridge_host(comp)
+	panel = _build_panel(
+		status, phase, autoconnect, tasks, note, log_lines=_debug_log_lines(comp)
+	)
 	txt = comp.op("status_text")
 	if txt is not None:
 		try:

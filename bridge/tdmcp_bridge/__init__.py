@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import ctypes
 import importlib
+import io
 import json
 import os
 import queue
@@ -37,6 +38,15 @@ BRIDGE_METHODS: tuple[str, ...] = ("execute_python", "capture", "inspect", "ping
 class ExecutePythonParams(TypedDict):
     script: str
     contextPath: NotRequired[str | None]
+    includeLogs: NotRequired[bool]
+
+
+# execute_python log capture — MCP payload / DAT ring sizes.
+_LOGS_RETURN_MAX = 32 * 1024
+_DEBUG_DAT_RING_MAX = 64 * 1024
+_TRUNC_MARK = "\n…[truncated]\n"
+_capture_depth = 0
+_bridge_host_path: str | None = None
 
 
 class CaptureParams(TypedDict):
@@ -115,23 +125,167 @@ def tdmcp_resolve(path: str, context_path: str | None = None):
     return td.op(base).op(path) if td.op(base) is not None else td.op(path)
 
 
+def set_bridge_host(comp) -> None:
+    """Record the bootstrap COMP path so ``./debug`` can be resolved without op.Debug."""
+    global _bridge_host_path
+    try:
+        path = getattr(comp, "path", None)
+        if isinstance(path, str) and path:
+            _bridge_host_path = path
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _truncate_logs(text: str, limit: int = _LOGS_RETURN_MAX) -> str:
+    if len(text) <= limit:
+        return text
+    keep = max(0, limit - len(_TRUNC_MARK))
+    return _TRUNC_MARK + text[-keep:]
+
+
+def _ring_append_text(existing: str, chunk: str, limit: int = _DEBUG_DAT_RING_MAX) -> str:
+    if not chunk:
+        return existing
+    merged = (existing or "") + chunk
+    if len(merged) <= limit:
+        return merged
+    return merged[-limit:]
+
+
+class _TeeStream:
+    """Write to a buffer and the previous stream (Textport / TD StdoutCatcher)."""
+
+    def __init__(self, buf: io.StringIO, previous: Any) -> None:
+        self._buf = buf
+        self._previous = previous
+
+    def write(self, s: Any) -> int:
+        text = s if isinstance(s, str) else str(s)
+        self._buf.write(text)
+        try:
+            self._previous.write(text)
+        except Exception:  # noqa: BLE001 — never fail the script for textport
+            pass
+        return len(text)
+
+    def flush(self) -> None:
+        try:
+            self._buf.flush()
+        except Exception:  # noqa: BLE001
+            pass
+        flush = getattr(self._previous, "flush", None)
+        if callable(flush):
+            try:
+                flush()
+            except Exception:  # noqa: BLE001
+                pass
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._previous, name)
+
+
+def _resolve_debug_dat():
+    """Best-effort Text DAT ``debug`` under the bridge COMP (relative preferred)."""
+    try:
+        import td  # type: ignore
+    except Exception:  # noqa: BLE001
+        return None
+    if _bridge_host_path:
+        try:
+            host = td.op(_bridge_host_path)
+            if host is not None:
+                dat = host.op("debug")
+                if dat is not None:
+                    return dat
+        except Exception:  # noqa: BLE001
+            pass
+    try:
+        host = td.op.Debug
+        if host is not None:
+            return host.op("debug")
+    except Exception:  # noqa: BLE001
+        pass
+    return None
+
+
+def _append_debug_dat(logs: str) -> None:
+    if not logs:
+        return
+    dat = _resolve_debug_dat()
+    if dat is None:
+        return
+    try:
+        existing = dat.text or ""
+    except Exception:  # noqa: BLE001
+        existing = ""
+    try:
+        dat.text = _ring_append_text(existing, logs)
+    except Exception:  # noqa: BLE001
+        try:
+            dat.write(logs)
+        except Exception:  # noqa: BLE001
+            pass
+
+
 def handle_execute_python(params: dict[str, Any]) -> dict[str, Any]:
+    global _capture_depth
     script = params.get("script") or ""
     context_path = params.get("contextPath")
+    include_logs = params.get("includeLogs")
+    if include_logs is None:
+        include_logs = True
+    else:
+        include_logs = bool(include_logs)
+
     local_vars: dict[str, Any] = {
         "__tdmcp_context_path__": context_path,
         "tdmcp_resolve": lambda p: tdmcp_resolve(p, context_path),
         "result": None,
     }
+
+    buf: io.StringIO | None = None
+    prev_out = prev_err = None
+    installed = False
+    if include_logs:
+        if _capture_depth == 0:
+            buf = io.StringIO()
+            prev_out, prev_err = sys.stdout, sys.stderr
+            sys.stdout = _TeeStream(buf, prev_out)
+            sys.stderr = _TeeStream(buf, prev_err)
+            installed = True
+        _capture_depth += 1
+
     try:
-        exec(script, local_vars, local_vars)  # noqa: S102 — intentional TD script surface
-        return {"result": local_vars.get("result"), "ok": True}
-    except Exception as exc:  # noqa: BLE001 — surface to diagnostics
-        return {
-            "ok": False,
-            "error": str(exc),
-            "traceback": traceback.format_exc(),
-        }
+        try:
+            exec(script, local_vars, local_vars)  # noqa: S102 — intentional TD script surface
+            out: dict[str, Any] = {
+                "result": local_vars.get("result"),
+                "ok": True,
+            }
+        except Exception as exc:  # noqa: BLE001 — surface to diagnostics
+            out = {
+                "ok": False,
+                "error": str(exc),
+                "traceback": traceback.format_exc(),
+            }
+    finally:
+        if include_logs:
+            logs = ""
+            if installed and buf is not None:
+                try:
+                    logs = _truncate_logs(buf.getvalue())
+                except Exception:  # noqa: BLE001
+                    logs = ""
+                sys.stdout = prev_out
+                sys.stderr = prev_err
+                try:
+                    _append_debug_dat(logs)
+                except Exception:  # noqa: BLE001
+                    pass
+            _capture_depth = max(0, _capture_depth - 1)
+            out["logs"] = logs
+
+    return out
 
 
 def handle_capture(params: dict[str, Any]) -> dict[str, Any]:

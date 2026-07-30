@@ -16,6 +16,8 @@ See [`DEV_ENV.md`](DEV_ENV.md) § Dev smoke. Does **not** replace rows 1–12 be
 | S1 | Classic: `get_td_node_errors` on `/project1/e2e_kit` clean |
 | S2 | rs `fleet`: bridge `connected`; connected pid has non-empty `title` (`project.name`) and `toePath` when folder+name known |
 | S3 | rs `execute_python` → `result = 1` |
+| S3b | rs `execute_python` `print('hi'); result = 1` → response `logs` contains `hi`; COMP face LOGS section shows it; `op.Debug.op('debug')` resolves (or shortcut-conflict warn) |
+| S3c | rs `execute_python` with `includeLogs: false` → no `logs` field |
 | S4 | rs `capture` top on `/project1/e2e_kit/probe` — non-black |
 | S5 | rs `inspect` summary on `/project1/e2e_kit` — `children` is an array of `{name, opType}` (not a count); `childCount` present |
 
@@ -39,7 +41,10 @@ See [`DEV_ENV.md`](DEV_ENV.md) § Dev smoke. Does **not** replace rows 1–12 be
 | 6 | Same pid re-handshake → `resurrected: true`; first failed task keeps stack | ✅ |
 | 7 | Successful task clears resurrection stack | ✅ |
 | 8 | `execute_python` with `result = 1` returns structured result | ✅ |
+| 8b | `execute_python` `print('hi'); result = 1` → `logs` contains `hi`; face LOGS / `./debug` updated; `op.Debug.op('debug')` when shortcut free | |
+| 8c | `execute_python` with `includeLogs: false` omits `logs` | |
 | 9 | Script failure returns `diagnostics` with `tdmcp.script.execution_failed` | ✅ |
+| 9b | Script failure after `print` includes `diagnostics.context.logs` | |
 | 10 | `capture` mode `top` on a non-black TOP → ok | ✅ |
 | 11 | `capture` mode `preview` on zone COMP with `out1` → non-black | ✅ |
 | 12 | Black TOP → `tdmcp.perception.black_frame` | ✅ |

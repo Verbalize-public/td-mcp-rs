@@ -79,6 +79,9 @@ pub struct DiagnosticContext {
     /// Process id when relevant.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pid: Option<u32>,
+    /// Captured stdout/stderr from execute_python (when includeLogs was on).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub logs: Option<String>,
 }
 
 /// Suggested fix (never auto-applied).
@@ -158,7 +161,10 @@ pub struct DiagnosticItem {
 
 impl DiagnosticContext {
     fn is_empty(&self) -> bool {
-        self.op_path.is_none() && self.context_path.is_none() && self.pid.is_none()
+        self.op_path.is_none()
+            && self.context_path.is_none()
+            && self.pid.is_none()
+            && self.logs.is_none()
     }
 }
 

@@ -19,7 +19,7 @@ before declaring a gate green.
 2. Resurrection stack persists when first post-reconnect task fails; clears only on success.
 3. Pid-reuse fingerprint mismatch clears that pid's state only.
 4. OpPath similar-name lint (bounded) — when implemented (P1).
-5. `mutate_nodes` preflight aggregation — when implemented (P1).
+5. `mutate_nodes` sequential apply — stops at first hard failure (`failedAt`); later steps emit `tdmcp.batch.skipped_dependent`; pure `apply_step` seam unit-covered without TD (when implemented, P1).
 6. Diagnostics catalog completeness — every emitted `code` has a catalog entry.
 
 ## Running

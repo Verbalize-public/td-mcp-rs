@@ -52,11 +52,11 @@ entries:
 
   - code: tdmcp.op.not_found
     layer: mutate
-    message: "Could not resolve OpPath"
+    message: "Could not resolve OpPath for a mutate step"
     mitigation:
       - "Re-inspect the zone with include: nodes"
       - "Fix contextPath or use lint suggestions"
-      - "Do not replay the whole batch — fix from failedAt only"
+      - "Fix the failedAt step only; later steps are skipped, not replayed"
     references:
       - kind: doc
         id: op_path_harness
@@ -74,7 +74,8 @@ entries:
     layer: mutate
     message: "Path is outside the authorized mutation zone"
     mitigation:
-      - "Use an authorized subtree or widen the mutation zone"
+      - "Reserved for future per-pid zone enforcement (P2). v1 daemon is zone-agnostic"
+      - "Zone discipline lives in the agent layer (creative-operator)"
     references:
       - kind: doc
         id: mutation_zones
@@ -92,10 +93,11 @@ entries:
 
   - code: tdmcp.batch.skipped_dependent
     layer: mutate
-    message: "Later batch step skipped because a prior step failed"
+    message: "Later mutate step skipped because a prior step failed"
     mitigation:
       - "Fix the failedAt step only"
       - "Do not replay successful create steps"
+      - "Steps after failedAt are skipped, never replayed"
     references:
       - kind: doc
         id: mutate_nodes

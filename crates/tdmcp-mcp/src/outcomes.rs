@@ -40,6 +40,9 @@ pub struct BridgeResultEnvelope {
     /// Optional traceback.
     #[serde(default)]
     pub traceback: Option<String>,
+    /// Captured stdout/stderr when includeLogs was enabled.
+    #[serde(default)]
+    pub logs: Option<String>,
 }
 
 impl BridgeResultEnvelope {
@@ -52,6 +55,7 @@ impl BridgeResultEnvelope {
             code: None,
             message: None,
             traceback: None,
+            logs: None,
         })
     }
 
@@ -105,17 +109,25 @@ pub fn map_script_outcome(
             let env = BridgeResultEnvelope::from_value(&value);
             if env.is_error() {
                 let msg = env.message_or("script execution failed");
+                let mut context = ctx(pid, None, None);
+                context.logs = env.logs.clone();
                 let mut item = build_diag(
                     catalog,
                     codes::SCRIPT_EXECUTION_FAILED,
                     span,
                     Some(msg),
-                    ctx(pid, None, None),
+                    context,
                 );
                 item.raw_traceback = env.traceback;
                 Err(failed_one(item))
             } else {
-                Ok(serde_json::json!({ "ok": true, "result": value.get("result") }))
+                let mut body = serde_json::json!({ "ok": true, "result": value.get("result") });
+                if let Some(logs) = env.logs {
+                    body["logs"] = Value::String(logs);
+                } else if let Some(logs) = value.get("logs") {
+                    body["logs"] = logs.clone();
+                }
+                Ok(body)
             }
         }
         BridgeOutcome::QueueBusy => Err(queue_busy(catalog, "execute_python", pid)),
@@ -208,6 +220,7 @@ fn ctx(pid: Pid, op_path: Option<OpPath>, context_path: Option<OpPath>) -> Diagn
         pid: Some(pid.get()),
         op_path: op_path.map(|p| p.0),
         context_path: context_path.map(|p| p.0),
+        logs: None,
     }
 }
 

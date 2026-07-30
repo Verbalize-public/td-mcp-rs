@@ -140,18 +140,17 @@ only — not bridge peer health.
 | Tool | Job | Status |
 | --- | --- | --- |
 | `fleet` | Fleet view — processes by pid, bridge, tasks, cancelled traces | **Shipped** |
-| `execute_python` | Run Python in TD; `result = …` | **Shipped** |
+| `execute_python` | Run Python in TD; `result = …`; optional `logs` (stdio capture) | **Shipped** |
 | `inspect` | Structural subtree read (nodes / params / errors); summary = direct-child roster | **Shipped** |
 | `capture` | Perception — `top` / `preview` / `auto` | **Shipped** (P0 modes) |
 | `describe_tools` | Manifest of available tools | **Shipped** |
-| `mutate_nodes` | Batched create / set / delete | **Planned** (P1) |
-| `call_node` | Call a method on a node | **Planned** (P1) |
+| `mutate_nodes` | Ordered create / set / delete steps; sequential apply, stop on first hard error | **Planned** (P1) |
 | `dialogs` | List / dismiss OS dialogs | **Planned** (P1, Win) |
 | `api_help` | Live TD Python API introspection | **Planned** (P1) |
 | `capture` `chop_data` / `pop` / `chop_image` | Extra perception modes | **Planned** (P1 / P1.x) |
 | Lifecycle create/start/stop | Return new `pid` | **Planned** (P2) |
 
-**Not planned (v1):** sticky / `select_target` / `targetId` / ToeDigest / inject.
+**Not planned (v1):** sticky / `select_target` / `targetId` / ToeDigest / inject / `call_node` (use `execute_python` for node method calls).
 
 ### Three layers
 
@@ -184,6 +183,43 @@ When `childrenReturned < childCount`, the node includes `childrenTruncated: true
 | `chop_data` | **Planned** | CHOP → capped JSON |
 | `pop` / `chop_image` | **Planned** | Temp converter → TOP → `top` |
 
+### `mutate_nodes` — Planned (P1)
+
+One tool. Ordered `steps[]`. **Sequential apply, stop on first hard error, never roll back.** No separate preflight pass — the live network can change between passes and a single-caller local daemon does not need two-phase commit. "Aggregate bad paths" is met by *returning* every path/param error seen up to the stop point, not by a resolve-all-then-apply phase.
+
+| Field | Content |
+| --- | --- |
+| `pid` | Target process (process-scoped) |
+| `steps[]` | Ordered; each is `{op, ...}` below |
+| `contextPath?` | Anchor for relative `path` (default `/project1`) |
+| `exclusive?` | Exclusive enqueue (default false) |
+| `detailLevel` | `summary` (default) = per-step `{ok, path?}`; `detailed` adds echoed params |
+
+Step shapes:
+
+| `op` | Fields | Notes |
+| --- | --- | --- |
+| `create` | `path`, `opType`, `values?` | Parent derived from path resolution; `values` is a convenience (agent may follow with `set`) |
+| `set` | `path`, `values?`, `expressions?`, `pulse?` | Explicit modes — no silent guessing. `values: {name: val}`, `expressions: {name: expr}`, `pulse: [name]` |
+| `delete` | `path` | |
+
+Result (summary):
+
+```json
+{ "ok": true|false, "applied": N, "failedAt": <index|null>,
+  "steps": [{"ok": true, "path": "/project1/..."} | {"ok": false, "code": "tdmcp.*", "path": "..."}],
+  "diagnostics": {...} }
+```
+
+- `applied` = count of steps that succeeded before any stop.
+- `failedAt` = index of the first hard failure, or `null` if all applied.
+- Steps after `failedAt` are marked `skipped` with `tdmcp.batch.skipped_dependent` — they are **not** replayed; the agent fixes from `failedAt` only.
+- Canonical absolute `path` is echoed per step so the agent can re-`inspect` without re-resolving.
+
+**Mutation zones are not enforced by the daemon in v1.** Zone discipline lives in the agent layer (`creative-operator` → `cop-touchdesigner-mcp` → `reference/mutation-zones.md`): the agent only passes paths under a self-created named COMP or an authorized subtree. `tdmcp.op.outside_zone` stays **reserved** in the catalog, not emitted by the daemon. A future P2 may add per-pid zone registration if operate experience demands it.
+
+**Testability seam:** the bridge exposes a pure `apply_step(node, step) -> StepResult` function (no `td` import at the seam) so `bridge/tests/test_mutate.py` mirrors `test_inspect_summary.py` — no live TD required for shaping/parity. The `handle_mutate` wrapper does the `td.op()` resolution + calls `apply_step` per step.
+
 ---
 
 ## Global harnesses
@@ -198,6 +234,18 @@ All network-scoped tools share one reference system resolved by TouchDesigner vi
 | `contextPath?` | Anchor for relative paths; default base = project root (`/project1`) |
 
 Canonical output echoes TD’s absolute `node.path`. `execute_python` is OpPath-exempt by default; `contextPath` is exposed as `__tdmcp_context_path__` + optional `tdmcp_resolve()` helper.
+
+### `execute_python` logs / Debug DAT — Shipped
+
+| Piece | Behavior |
+| --- | --- |
+| Global OP Shortcut | Bridge COMP claims **`Debug`** (`ensure_ui`; skipped if already taken) |
+| Text DAT | `./debug` under the bridge → `op.Debug.op('debug')` when the shortcut is ours |
+| Face | Operator Viewer ASCII panel includes a **LOGS** section (tail of `./debug`) |
+| `includeLogs` | Default **true**. When true, stdout/stderr during `exec` are teed (Textport still receives them), ring-appended to `./debug` (64 KiB), and returned as `logs` (capped 32 KiB) |
+| Success | `{ ok: true, result, logs? }` — `logs` omitted when `includeLogs: false` |
+| Failure | `diagnostics.context.logs` carries the same capture; `rawTraceback` unchanged |
+| Scope | Only stdio (`print` / writes to stdout/stderr). TD `debug()` may bypass stdio |
 
 ### Diagnostics — Shipped
 
@@ -236,7 +284,7 @@ Daemon CLI: `start` (foreground; tray + toast by default, dashboard hidden until
 | Phase | Ship | Exit green | Status |
 | --- | --- | --- | --- |
 | **P0** | Daemon + IPC + bootstrap + Streamable HTTP: `fleet` + script/errors + `capture` (`top`/`preview`) + diagnostics + per-pid queue + exclusive fail + resurrection | Two connected pids; exclusive fails while busy; perception non-black; structured script failure | **Shipped** (see [`E2E_CHECKLIST.md`](E2E_CHECKLIST.md)) |
-| **P1** | `mutate_nodes`, `capture` `chop_data`, dialogs (Win), op lint engine | Preflight aggregates bad paths + lint; partial apply emits `skipped_dependent` | **Planned** |
+| **P1** | `mutate_nodes`, `capture` `chop_data`, dialogs (Win), op lint engine | `mutate_nodes` sequential apply stops at first bad path with `failedAt`; later steps emit `tdmcp.batch.skipped_dependent`; pure `apply_step` seam unit-covered without TD | **Planned** |
 | **P1.x** | `capture` `pop`, `chop_image` | Non-TOP heroes via temp converters | **Planned** |
 | **P2** | Lifecycle create/start/stop (tray already shipped) | Operator create/start/stop; new project by pid | Partial (tray **Shipped**; lifecycle **Planned**) |
 | **P3** | WebSocket / remote RFC | Separate design review | **Planned** |
