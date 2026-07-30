@@ -69,26 +69,6 @@ fn release_binary_path(workspace: &Path, base: &str) -> PathBuf {
         .join(release_binary_name(base))
 }
 
-fn ensure_release_binary(workspace: &Path, package: &str, base: &str) -> Result<PathBuf> {
-    let src = release_binary_path(workspace, base);
-    if src.is_file() {
-        return Ok(src);
-    }
-
-    let status = Command::new("cargo")
-        .args(["build", "--release", "-p", package])
-        .current_dir(workspace)
-        .status()
-        .with_context(|| format!("cargo build --release -p {package}"))?;
-    if !status.success() {
-        bail!("cargo build --release -p {package} failed");
-    }
-    if !src.is_file() {
-        bail!("release binary missing after build: {}", src.display());
-    }
-    Ok(src)
-}
-
 fn copy_binary(src: &Path, out_dir: &Path) -> Result<PathBuf> {
     fs::create_dir_all(out_dir).with_context(|| format!("create {}", out_dir.display()))?;
     let file_name = src
@@ -99,6 +79,31 @@ fn copy_binary(src: &Path, out_dir: &Path) -> Result<PathBuf> {
     Ok(dest)
 }
 
+/// Always rebuild release `tdmcp-daemon` with the `gui` feature so `dist` never
+/// ships a stale headless binary left over from `--no-default-features`.
+fn build_release_daemon_with_gui(workspace: &Path) -> Result<PathBuf> {
+    let status = Command::new("cargo")
+        .args([
+            "build",
+            "--release",
+            "-p",
+            "tdmcp-daemon",
+            "--features",
+            "gui",
+        ])
+        .current_dir(workspace)
+        .status()
+        .context("cargo build --release -p tdmcp-daemon --features gui")?;
+    if !status.success() {
+        bail!("cargo build --release -p tdmcp-daemon --features gui failed");
+    }
+    let src = release_binary_path(workspace, "tdmcp-daemon");
+    if !src.is_file() {
+        bail!("release binary missing after build: {}", src.display());
+    }
+    Ok(src)
+}
+
 fn dist(out: PathBuf) -> Result<()> {
     let workspace = workspace_root()?;
     let out_dir = if out.is_absolute() {
@@ -107,15 +112,8 @@ fn dist(out: PathBuf) -> Result<()> {
         workspace.join(out)
     };
 
-    let daemon_src = ensure_release_binary(&workspace, "tdmcp-daemon", "tdmcp-daemon")?;
+    let daemon_src = build_release_daemon_with_gui(&workspace)?;
     let daemon_dest = copy_binary(&daemon_src, &out_dir)?;
     println!("{}", daemon_dest.display());
-
-    let gui_src = release_binary_path(&workspace, "tdmcp-gui");
-    if gui_src.is_file() {
-        let gui_dest = copy_binary(&gui_src, &out_dir)?;
-        println!("{}", gui_dest.display());
-    }
-
     Ok(())
 }

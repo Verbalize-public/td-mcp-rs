@@ -26,6 +26,8 @@ pub struct EnsureOptions {
     pub timeout: Duration,
     /// When true, never spawn — only poll health.
     pub poll_only: bool,
+    /// When true, spawn with `--no-gui` (headless; used by tests / CI).
+    pub no_gui: bool,
 }
 
 impl Default for EnsureOptions {
@@ -36,6 +38,7 @@ impl Default for EnsureOptions {
             exe: None,
             timeout: Duration::from_secs(15),
             poll_only: false,
+            no_gui: false,
         }
     }
 }
@@ -93,7 +96,7 @@ pub async fn ensure_daemon(opts: EnsureOptions) -> Result<EnsureResult> {
                         spawned: false,
                     });
                 }
-                spawn_detached(&exe, opts.port, &opts.data_dir)?;
+                spawn_detached(&exe, opts.port, &opts.data_dir, opts.no_gui)?;
                 spawned = true;
                 drop(guard);
             }
@@ -153,11 +156,12 @@ fn resolve_exe(override_exe: Option<&PathBuf>) -> Result<PathBuf> {
     std::env::current_exe().context("resolve current_exe for ensure spawn")
 }
 
-fn spawn_detached(exe: &Path, port: u16, data_dir: &Path) -> Result<()> {
+fn spawn_detached(exe: &Path, port: u16, data_dir: &Path, no_gui: bool) -> Result<()> {
     info!(
         exe = %exe.display(),
         port,
         data_dir = %data_dir.display(),
+        no_gui,
         "ensure: spawning detached daemon"
     );
     let mut cmd = Command::new(exe);
@@ -165,17 +169,27 @@ fn spawn_detached(exe: &Path, port: u16, data_dir: &Path) -> Result<()> {
         .arg("--port")
         .arg(port.to_string())
         .arg("--data-dir")
-        .arg(data_dir)
-        .stdin(Stdio::null())
+        .arg(data_dir);
+    if no_gui {
+        cmd.arg("--no-gui");
+    }
+    cmd.stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
 
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
-        // CREATE_NO_WINDOW | DETACHED_PROCESS
-        const FLAGS: u32 = 0x0800_0000 | 0x0000_0008;
-        cmd.creation_flags(FLAGS);
+        // DETACHED_PROCESS always. CREATE_NO_WINDOW only when headless — tray needs a
+        // normal process (CREATE_NO_WINDOW suppresses the notification-area icon).
+        const DETACHED_PROCESS: u32 = 0x0000_0008;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let flags = if no_gui {
+            DETACHED_PROCESS | CREATE_NO_WINDOW
+        } else {
+            DETACHED_PROCESS
+        };
+        cmd.creation_flags(flags);
     }
     let child = cmd
         .spawn()
@@ -224,9 +238,20 @@ fn try_acquire_lock(data_dir: &Path) -> Result<Option<LockGuard>> {
     }
 }
 
+/// Path to the long-lived owner pid file.
+pub fn daemon_lock_path(data_dir: &Path) -> PathBuf {
+    data_dir.join("daemon.lock")
+}
+
+/// Read the pid stored in `daemon.lock`, if any.
+pub fn read_daemon_lock_pid(data_dir: &Path) -> Option<u32> {
+    let text = fs::read_to_string(daemon_lock_path(data_dir)).ok()?;
+    text.trim().parse().ok()
+}
+
 /// If `daemon.lock` names a dead pid, remove it.
-fn reclaim_stale_daemon_lock(data_dir: &Path) {
-    let path = data_dir.join("daemon.lock");
+pub fn reclaim_stale_daemon_lock(data_dir: &Path) {
+    let path = daemon_lock_path(data_dir);
     let Ok(text) = fs::read_to_string(&path) else {
         return;
     };
@@ -240,7 +265,29 @@ fn reclaim_stale_daemon_lock(data_dir: &Path) {
     }
 }
 
-fn pid_alive(pid: u32) -> bool {
+/// Refuse to start when another live, healthy owner already holds the port.
+///
+/// Stale locks are reclaimed first. A live pid with a healthy listener is an
+/// exclusive conflict; a live pid without health (e.g. restart handoff after
+/// the lock was cleared) is left for the bind-retry loop.
+pub async fn refuse_if_daemon_owned(data_dir: &Path, port: u16) -> Result<()> {
+    reclaim_stale_daemon_lock(data_dir);
+    let Some(pid) = read_daemon_lock_pid(data_dir) else {
+        return Ok(());
+    };
+    if pid == std::process::id() {
+        return Ok(());
+    }
+    if pid_alive(pid) && health_ok(port).await {
+        bail!(
+            "daemon already running at pid {pid} on port {port}; use `tdmcp-daemon stop` or `/admin/restart`"
+        );
+    }
+    Ok(())
+}
+
+/// Whether `pid` appears to be alive on this OS.
+pub fn pid_alive(pid: u32) -> bool {
     #[cfg(windows)]
     {
         // Avoid unsafe OpenProcess; tasklist is good enough for lock reclaim.

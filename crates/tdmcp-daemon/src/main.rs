@@ -5,8 +5,9 @@
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use axum::Router;
 use clap::{Parser, Subcommand};
 use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
@@ -19,7 +20,9 @@ use tracing::{info, warn};
 use tdmcp_daemon::admin::{build_admin_router, RestartArgs};
 use tdmcp_daemon::bridge::{run_ipc_accept, BridgeSessions};
 use tdmcp_daemon::config::Config;
-use tdmcp_daemon::ensure::{ensure_daemon, EnsureOptions};
+use tdmcp_daemon::ensure::{
+    daemon_lock_path, ensure_daemon, refuse_if_daemon_owned, EnsureOptions,
+};
 use tdmcp_daemon::install::{self, InstallOutcome};
 use tdmcp_diagnostics::Catalog;
 use tdmcp_mcp::{build_mcp_router, AppState, McpHandler};
@@ -47,6 +50,9 @@ enum Commands {
         /// Path to diagnostics catalog YAML.
         #[arg(long, env = "TDMCP_CATALOG")]
         catalog: Option<PathBuf>,
+        /// Disable the in-process tray dashboard (headless).
+        #[arg(long, env = "TDMCP_NO_GUI", default_value_t = false)]
+        no_gui: bool,
     },
     /// Print status of a running daemon (HTTP health).
     Status {
@@ -75,6 +81,9 @@ enum Commands {
         /// Max wait for health after spawn (ms).
         #[arg(long, default_value_t = 15_000)]
         timeout_ms: u64,
+        /// Spawn the daemon with `--no-gui`.
+        #[arg(long, env = "TDMCP_NO_GUI", default_value_t = false)]
+        no_gui: bool,
     },
     /// Cursor/IDE entrypoint: ensure daemon, then speak MCP over stdio (proxy).
     Mcp {
@@ -87,11 +96,13 @@ enum Commands {
         /// Max wait for health after spawn (ms).
         #[arg(long, default_value_t = 15_000)]
         timeout_ms: u64,
+        /// Spawn the daemon with `--no-gui` when ensure needs to start it.
+        #[arg(long, env = "TDMCP_NO_GUI", default_value_t = false)]
+        no_gui: bool,
     },
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Commands::Start {
@@ -99,12 +110,13 @@ async fn main() -> Result<()> {
             data_dir,
             bridge_dir,
             catalog,
+            no_gui,
         } => {
             let cfg = Config::load(port, data_dir, bridge_dir, catalog)?;
             // Ensure embedded assets exist under data_dir (no-op when current).
             let _ = install::ensure_installed(&cfg.data_dir)?;
             tdmcp_daemon::tracing_init::init(&cfg)?;
-            run_daemon(cfg).await
+            start_daemon(cfg, no_gui)
         }
         Commands::Install { data_dir } => {
             let data_dir = data_dir.unwrap_or_else(install::default_data_dir);
@@ -130,80 +142,144 @@ async fn main() -> Result<()> {
             port,
             data_dir,
             timeout_ms,
+            no_gui,
         } => {
-            let opts = EnsureOptions {
-                port: port.unwrap_or(9860),
-                data_dir: data_dir.unwrap_or_else(install::default_data_dir),
-                exe: None,
-                timeout: std::time::Duration::from_millis(timeout_ms),
-                poll_only: false,
-            };
-            let result = ensure_daemon(opts).await?;
-            println!(
-                "ok url={} already_running={} spawned={}",
-                result.base_url, result.already_running, result.spawned
-            );
-            Ok(())
+            let rt = tokio::runtime::Runtime::new().context("tokio runtime")?;
+            rt.block_on(async {
+                let opts = EnsureOptions {
+                    port: port.unwrap_or(9860),
+                    data_dir: data_dir.unwrap_or_else(install::default_data_dir),
+                    exe: None,
+                    timeout: Duration::from_millis(timeout_ms),
+                    poll_only: false,
+                    no_gui,
+                };
+                let result = ensure_daemon(opts).await?;
+                println!(
+                    "ok url={} already_running={} spawned={}",
+                    result.base_url, result.already_running, result.spawned
+                );
+                Ok(())
+            })
         }
         Commands::Mcp {
             port,
             data_dir,
             timeout_ms,
+            no_gui,
         } => {
-            let port = port.unwrap_or(9860);
-            let opts = EnsureOptions {
-                port,
-                data_dir: data_dir.unwrap_or_else(install::default_data_dir),
-                exe: None,
-                timeout: std::time::Duration::from_millis(timeout_ms),
-                poll_only: false,
-            };
-            let result = ensure_daemon(opts).await?;
-            let daemon_url = format!("{}/mcp/rpc", result.base_url);
-            // Stdio MCP: do not print to stdout (JSON-RPC). Logs go via tracing/stderr.
-            tdmcp_mcp::run_stdio_proxy(&daemon_url)
-                .await
-                .map_err(|e| anyhow::anyhow!(e))?;
-            Ok(())
+            let rt = tokio::runtime::Runtime::new().context("tokio runtime")?;
+            rt.block_on(async {
+                let port = port.unwrap_or(9860);
+                let opts = EnsureOptions {
+                    port,
+                    data_dir: data_dir.unwrap_or_else(install::default_data_dir),
+                    exe: None,
+                    timeout: Duration::from_millis(timeout_ms),
+                    poll_only: false,
+                    no_gui,
+                };
+                let result = ensure_daemon(opts).await?;
+                let daemon_url = format!("{}/mcp/rpc", result.base_url);
+                // Stdio MCP: do not print to stdout (JSON-RPC). Logs go via tracing/stderr.
+                tdmcp_mcp::run_stdio_proxy(&daemon_url)
+                    .await
+                    .map_err(|e| anyhow::anyhow!(e))?;
+                Ok(())
+            })
         }
         Commands::Status { port } => {
-            let port = port.unwrap_or(9860);
-            let url = format!("http://127.0.0.1:{port}/mcp/health");
-            match http_get(&url).await {
-                Ok(body) => {
-                    println!("ok {body}");
-                    Ok(())
+            let rt = tokio::runtime::Runtime::new().context("tokio runtime")?;
+            rt.block_on(async {
+                let port = port.unwrap_or(9860);
+                let url = format!("http://127.0.0.1:{port}/mcp/health");
+                match http_get(&url).await {
+                    Ok(body) => {
+                        println!("ok {body}");
+                        Ok(())
+                    }
+                    Err(e) => {
+                        eprintln!("daemon not reachable: {e}");
+                        std::process::exit(1);
+                    }
                 }
-                Err(e) => {
-                    eprintln!("daemon not reachable: {e}");
-                    std::process::exit(1);
-                }
-            }
+            })
         }
         Commands::Stop { port } => {
-            let port = port.unwrap_or(9860);
-            let url = format!("http://127.0.0.1:{port}/admin/shutdown");
-            match http_post_empty(&url).await {
-                Ok(()) => {
-                    println!("shutdown requested");
-                    Ok(())
+            let rt = tokio::runtime::Runtime::new().context("tokio runtime")?;
+            rt.block_on(async {
+                let port = port.unwrap_or(9860);
+                let url = format!("http://127.0.0.1:{port}/admin/shutdown");
+                match http_post_empty(&url).await {
+                    Ok(()) => {
+                        println!("shutdown requested");
+                        Ok(())
+                    }
+                    Err(e) => {
+                        eprintln!("stop failed: {e}");
+                        std::process::exit(1);
+                    }
                 }
-                Err(e) => {
-                    eprintln!("stop failed: {e}");
-                    std::process::exit(1);
-                }
-            }
+            })
         }
     }
 }
 
-async fn run_daemon(cfg: Config) -> Result<()> {
+fn start_daemon(cfg: Config, no_gui: bool) -> Result<()> {
+    #[cfg(feature = "gui")]
+    {
+        if !no_gui {
+            let admin_base = format!("http://127.0.0.1:{}", cfg.port);
+            let daemon_cfg = cfg;
+            let handle = std::thread::Builder::new()
+                .name("tdmcp-daemon".into())
+                .spawn(move || {
+                    let rt = match tokio::runtime::Runtime::new() {
+                        Ok(rt) => rt,
+                        Err(e) => {
+                            eprintln!("tokio runtime failed: {e}");
+                            return Err(anyhow::anyhow!(e));
+                        }
+                    };
+                    // no_gui=false: restart must respawn with the tray again.
+                    rt.block_on(run_daemon(daemon_cfg, false))
+                })
+                .context("spawn daemon background thread")?;
+
+            // eframe/winit require the real main thread.
+            let gui_result = tdmcp_gui::run(admin_base);
+            match handle.join() {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => {
+                    warn!(error = %e, "daemon thread exited with error");
+                    if gui_result.is_ok() {
+                        return Err(e);
+                    }
+                }
+                Err(_) => warn!("daemon thread panicked"),
+            }
+            return gui_result;
+        }
+    }
+    #[cfg(not(feature = "gui"))]
+    {
+        let _ = no_gui;
+    }
+
+    let rt = tokio::runtime::Runtime::new().context("tokio runtime")?;
+    rt.block_on(run_daemon(cfg, no_gui))
+}
+
+async fn run_daemon(cfg: Config, no_gui: bool) -> Result<()> {
     info!(
         port = cfg.port,
         data_dir = %cfg.data_dir.display(),
         bridge_dir = %cfg.bridge_dir.display(),
+        no_gui,
         "starting tdmcp-daemon"
     );
+
+    refuse_if_daemon_owned(&cfg.data_dir, cfg.port).await?;
 
     let catalog = match Catalog::load_path(&cfg.catalog_path) {
         Ok(c) => {
@@ -239,6 +315,7 @@ async fn run_daemon(cfg: Config) -> Result<()> {
         data_dir: cfg.data_dir.clone(),
         bridge_dir: cfg.bridge_dir.clone(),
         catalog_path: cfg.catalog_path.clone(),
+        no_gui,
     };
 
     let app = Router::new()
@@ -247,12 +324,10 @@ async fn run_daemon(cfg: Config) -> Result<()> {
         .nest_service("/mcp/rpc", streamable_http);
 
     let addr = SocketAddr::from(([127, 0, 0, 1], cfg.port));
-    let listener = tokio::net::TcpListener::bind(addr)
-        .await
-        .with_context(|| format!("bind {addr}"))?;
+    let listener = bind_with_retry(addr).await?;
     info!(%addr, "listening (MCP rmcp /mcp/rpc + JSON fallback /mcp/* + admin /admin/*)");
 
-    let lock_path = cfg.data_dir.join("daemon.lock");
+    let lock_path = daemon_lock_path(&cfg.data_dir);
     std::fs::create_dir_all(&cfg.data_dir)?;
     std::fs::write(&lock_path, std::process::id().to_string())?;
 
@@ -273,6 +348,25 @@ async fn run_daemon(cfg: Config) -> Result<()> {
     ipc_handle.abort();
     let _ = std::fs::remove_file(&lock_path);
     Ok(())
+}
+
+/// Retry bind briefly to absorb `/admin/restart` spawn-then-exit port overlap.
+async fn bind_with_retry(addr: SocketAddr) -> Result<tokio::net::TcpListener> {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut last_err = None;
+    while Instant::now() < deadline {
+        match tokio::net::TcpListener::bind(addr).await {
+            Ok(listener) => return Ok(listener),
+            Err(e) => {
+                last_err = Some(e);
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        }
+    }
+    match last_err {
+        Some(e) => Err(e).with_context(|| format!("bind {addr} (retried ~5s)")),
+        None => bail!("bind {addr} failed with no error"),
+    }
 }
 
 async fn shutdown_signal() {

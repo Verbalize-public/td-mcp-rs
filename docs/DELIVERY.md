@@ -4,11 +4,14 @@
 
 | Artifact | Role |
 | --- | --- |
-| `tdmcp-daemon` binary | Control plane + MCP + admin API |
-| `tdmcp-gui` binary | Tray + dashboard |
+| `tdmcp-daemon` binary | Control plane + MCP + admin API + (default) in-process tray UI |
 | `bridge/` | Python package + `manifest.json` beside install/data dir |
 | `diagnostics/catalog.yaml` | Diagnostic catalog |
 | bootstrap `.tox` | Tiny TD dialer (handshake → FS load) |
+
+The tray dashboard lives in the `tdmcp-gui` **library** crate, linked into
+`tdmcp-daemon` when the default `gui` Cargo feature is enabled. There is no
+separate `tdmcp-gui` binary.
 
 ## Config precedence
 
@@ -22,6 +25,14 @@ Default MCP listen: `127.0.0.1:9860`. Data dir:
 | macOS | `~/Library/Application Support/tdmcp-rs/` |
 | Linux | `$XDG_DATA_HOME/tdmcp-rs/` or `~/.local/share/tdmcp-rs/` |
 
+## GUI feature
+
+| Build / runtime | Behavior |
+| --- | --- |
+| Default (`cargo build -p tdmcp-daemon`) | `gui` feature on; `start` shows tray + toast (dashboard hidden until opened) |
+| `--no-default-features` | Headless binary (no egui/tray linked) |
+| `--no-gui` / `TDMCP_NO_GUI=1` on `start` / `ensure` / `mcp` | Headless even when `gui` is compiled in |
+
 ## Auto-upsert — Shipped
 
 Cursor registers `tdmcp-daemon` with `args: ["mcp"]`. On MCP connect:
@@ -30,9 +41,16 @@ Cursor registers `tdmcp-daemon` with `args: ["mcp"]`. On MCP connect:
    until healthy.
 2. Stdio MCP proxy forwards tool requests to `http://127.0.0.1:{port}/mcp/rpc`.
 3. Stale lockfile (pid dead) → reclaim.
+4. Detached `start` (default) brings up the in-process tray with the daemon.
 
 The long-lived HTTP daemon survives MCP client restarts; only the stdio proxy
 process is respawned.
+
+## Singleton
+
+One owner per port: `daemon.lock` + TCP bind. Second healthy `start` refuses.
+`/admin/restart` clears the lock, spawns a replacement, then exits; the new
+process retries bind for a few seconds.
 
 ## Assets
 
@@ -43,6 +61,7 @@ builds).
 
 ## Packaging
 
-`cargo run -p xtask -- dist` copies the release `tdmcp-daemon` binary into
-`target/dist/` (bridge, catalog, and bootstrap `.tox` are embedded in the
-binary). If a release `tdmcp-gui` binary already exists, it is copied too.
+`cargo run -p xtask -- dist` always rebuilds `tdmcp-daemon` with
+`--features gui`, then copies it into `target/dist/` (bridge, catalog, and
+bootstrap `.tox` are embedded in the binary). This avoids shipping a stale
+headless binary from a prior `--no-default-features` build.

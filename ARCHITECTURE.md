@@ -11,14 +11,13 @@ crate boundaries and process topology.
                      │  MCP Streamable HTTP  http://127.0.0.1:9860/mcp
  Other MCP callers ──┤
                      ▼
- ┌────────────────── Daemon (tdmcp-daemon) ─────────────────────────────┐
- │  axum + rmcp  │  admin /admin/*  │  PidRegistry  │  per-pid queues   │
- └──────────┬────────────────────────────────────────────────────────────┘
+ ┌────────── Daemon process (tdmcp-daemon) ─────────────────────────────┐
+ │  bg thread: axum + rmcp │ admin │ PidRegistry │ per-pid queues         │
+ │  main thread (gui feature, default): tray + egui → loopback /admin/* │
+ └──────────┬───────────────────────────────────────────────────────────┘
             │  local IPC (Win named pipe / Unix UDS)
             ▼
    TD process(es)  ←── bootstrap .tox → handshake → FS load bridge/
-
- GUI (tdmcp-gui) ──► admin HTTP (loopback) ──► daemon
 ```
 
 ## Crate graph
@@ -29,7 +28,8 @@ tdmcp-diagnostics   catalog types, YAML loader, envelope builders
 tdmcp-ipc           named pipe / UDS + framing + handshake
 tdmcp-mcp           rmcp tool handlers → core calls → diagnostics envelope
 tdmcp-daemon        bin: clap, tracing, axum wiring, admin API (composition root)
-tdmcp-gui           bin: egui + eframe + tray-icon → admin client
+                    optional dep on tdmcp-gui via default `gui` feature
+tdmcp-gui           lib: egui + eframe + tray-icon → admin HTTP client
 tdmcp-test-support  fake TD bridge peer (dev / tests)
 xtask               release / packaging helpers
 bridge/             Python package (not a crate) loaded by TD after handshake
@@ -50,7 +50,7 @@ args into core calls and core results into the `diagnostics` envelope.
 | Surface | Bind | Role |
 | --- | --- | --- |
 | MCP Streamable HTTP | `127.0.0.1:9860/mcp/rpc` | Agent tools (`rmcp` Streamable HTTP); JSON fallback at `/mcp/tools/list` + `/mcp/tools/call` |
-| Admin HTTP | `127.0.0.1:9860/admin/*` | GUI status / kill / restart |
+| Admin HTTP | `127.0.0.1:9860/admin/*` | In-process GUI + status / kill / restart |
 | Bridge IPC | `\\.\pipe\tdmcp-rs` or `{dataDir}/bridge.sock` | TD peer |
 
 ## Identity and queues

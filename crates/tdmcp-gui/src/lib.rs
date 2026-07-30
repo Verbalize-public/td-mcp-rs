@@ -1,16 +1,22 @@
 //! td-mcp-rs tray dashboard (egui 0.35 + tray-icon + notify-rust).
-
-#![allow(clippy::exit, reason = "process boundary")]
+//!
+//! Consumed in-process by `tdmcp-daemon` when the `gui` feature is enabled.
+//! Closing the window or choosing Hide only hides the UI — it does not stop
+//! the daemon. Use Stop / `/admin/shutdown` to end the process.
 
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use eframe::egui;
 use serde::Deserialize;
+use tracing::warn;
 use tray_icon::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tray_icon::{Icon, TrayIcon, TrayIconBuilder, TrayIconEvent};
 
-fn main() -> Result<()> {
+/// Run the tray dashboard on the calling thread (must be the process main thread).
+///
+/// Polls `admin_base` (e.g. `http://127.0.0.1:9860`) for status/fleet.
+pub fn run(admin_base: String) -> Result<()> {
     let icon_normal_full = load_rgba(include_bytes!("../assets/icon-normal.png"), None)?;
     let icon_normal = load_rgba(include_bytes!("../assets/icon-normal.png"), Some(32))?;
     let icon_attention = load_rgba(include_bytes!("../assets/icon-attention.png"), Some(32))?;
@@ -24,13 +30,21 @@ fn main() -> Result<()> {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([720.0, 480.0])
             .with_title("td-mcp-rs")
-            .with_icon(window_icon),
+            .with_icon(window_icon)
+            // Tray + toast only at startup; user opens the dashboard via the tray.
+            .with_visible(false),
         ..Default::default()
     };
     eframe::run_native(
         "td-mcp-rs",
         options,
-        Box::new(move |_cc| Ok(Box::new(DashboardApp::new(icon_normal, icon_attention)?))),
+        Box::new(move |_cc| {
+            Ok(Box::new(DashboardApp::new(
+                admin_base,
+                icon_normal,
+                icon_attention,
+            )?))
+        }),
     )
     .map_err(|e| anyhow::anyhow!("eframe: {e}"))
 }
@@ -81,12 +95,20 @@ struct DashboardApp {
     menu_hide: MenuItem,
     menu_restart: MenuItem,
     menu_stop: MenuItem,
-    menu_quit: MenuItem,
     icon_normal: RgbaIcon,
     icon_attention: RgbaIcon,
     attention: bool,
     prev_snapshot: FleetSnapshot,
     visible: bool,
+    /// Apply `Visible(false)` once after the first frame (some platforms ignore
+    /// `with_visible(false)` until the event loop is running).
+    pending_initial_hide: bool,
+    /// Fired once after the first successful `/admin/status` poll.
+    startup_notified: bool,
+    /// Fired once when polls fail before any success (daemon thread died / bind fail).
+    startup_fail_notified: bool,
+    /// Consecutive failed status polls before the first success.
+    fail_polls: u32,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -102,20 +124,21 @@ struct FleetSnapshot {
 }
 
 impl DashboardApp {
-    fn new(icon_normal: RgbaIcon, icon_attention: RgbaIcon) -> Result<Self> {
+    fn new(
+        admin_base: String,
+        icon_normal: RgbaIcon,
+        icon_attention: RgbaIcon,
+    ) -> Result<Self> {
         let menu = Menu::new();
         let menu_show = MenuItem::new("Show dashboard", true, None);
         let menu_hide = MenuItem::new("Hide dashboard", true, None);
         let menu_restart = MenuItem::new("Restart daemon", true, None);
         let menu_stop = MenuItem::new("Stop daemon", true, None);
-        let menu_quit = MenuItem::new("Quit", true, None);
         menu.append(&menu_show)?;
         menu.append(&menu_hide)?;
         menu.append(&PredefinedMenuItem::separator())?;
         menu.append(&menu_restart)?;
         menu.append(&menu_stop)?;
-        menu.append(&PredefinedMenuItem::separator())?;
-        menu.append(&menu_quit)?;
 
         let tray = TrayIconBuilder::new()
             .with_menu(Box::new(menu))
@@ -125,7 +148,7 @@ impl DashboardApp {
             .map_err(|e| anyhow::anyhow!("tray: {e}"))?;
 
         Ok(Self {
-            admin_base: "http://127.0.0.1:9860".into(),
+            admin_base,
             status_text: String::new(),
             fleet_json: String::new(),
             last_poll: None,
@@ -135,12 +158,15 @@ impl DashboardApp {
             menu_hide,
             menu_restart,
             menu_stop,
-            menu_quit,
             icon_normal,
             icon_attention,
             attention: false,
             prev_snapshot: FleetSnapshot::default(),
-            visible: true,
+            visible: false,
+            pending_initial_hide: true,
+            startup_notified: false,
+            startup_fail_notified: false,
+            fail_polls: 0,
         })
     }
 
@@ -150,18 +176,31 @@ impl DashboardApp {
         }
     }
 
+    fn hide_window(&mut self, ctx: &egui::Context) {
+        self.visible = false;
+        ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+    }
+
+    fn show_window(&mut self, ctx: &egui::Context) {
+        self.visible = true;
+        ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+        ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+    }
+
     fn poll(&mut self) {
         self.ensure_base();
-        match http_get_blocking(&format!("{}/admin/status", self.admin_base)) {
+        let status_ok = match http_get_blocking(&format!("{}/admin/status", self.admin_base)) {
             Ok(body) => {
                 self.status_text = body;
                 self.error = None;
+                true
             }
             Err(e) => {
                 self.status_text.clear();
                 self.error = Some(e);
+                false
             }
-        }
+        };
         match http_get_blocking(&format!("{}/admin/fleet", self.admin_base)) {
             Ok(body) => {
                 self.fleet_json = body;
@@ -169,6 +208,28 @@ impl DashboardApp {
             }
             Err(e) => self.error = Some(e),
         }
+
+        if status_ok {
+            self.fail_polls = 0;
+            if !self.startup_notified {
+                self.startup_notified = true;
+                notify(
+                    "td-mcp-rs",
+                    &format!("listening on {}", self.admin_base.trim_end_matches('/')),
+                );
+            }
+        } else if !self.startup_notified {
+            self.fail_polls = self.fail_polls.saturating_add(1);
+            // Two failed polls (~2s apart) before any success ⇒ daemon thread likely dead.
+            if self.fail_polls >= 2 && !self.startup_fail_notified {
+                self.startup_fail_notified = true;
+                notify(
+                    "td-mcp-rs",
+                    "daemon not reachable — check bind / already running",
+                );
+            }
+        }
+
         self.last_poll = Some(Instant::now());
     }
 
@@ -196,7 +257,7 @@ impl DashboardApp {
         snap.cancelled_total = snap.cancelled;
 
         // Edge-triggered toasts.
-        if self.last_poll.is_some() {
+        if self.startup_notified {
             for pid in &snap.resurrected_pids {
                 if !self.prev_snapshot.resurrected_pids.contains(pid) {
                     notify(
@@ -265,32 +326,37 @@ impl DashboardApp {
     fn handle_tray_events(&mut self, ctx: &egui::Context) {
         while let Ok(event) = TrayIconEvent::receiver().try_recv() {
             if let TrayIconEvent::DoubleClick { .. } | TrayIconEvent::Click { .. } = event {
-                self.visible = true;
-                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
-                ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                self.show_window(ctx);
             }
         }
         while let Ok(event) = MenuEvent::receiver().try_recv() {
             if event.id == self.menu_show.id() {
-                self.visible = true;
-                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
-                ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                self.show_window(ctx);
             } else if event.id == self.menu_hide.id() {
-                self.visible = false;
-                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+                self.hide_window(ctx);
             } else if event.id == self.menu_restart.id() {
                 self.restart_daemon();
             } else if event.id == self.menu_stop.id() {
                 self.shutdown_daemon();
-            } else if event.id == self.menu_quit.id() {
-                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
+        }
+    }
+
+    fn handle_close_request(&mut self, ctx: &egui::Context) {
+        if ctx.input(|i| i.viewport().close_requested()) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            self.hide_window(ctx);
         }
     }
 }
 
 impl eframe::App for DashboardApp {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        if self.pending_initial_hide {
+            self.pending_initial_hide = false;
+            self.hide_window(ctx);
+        }
+        self.handle_close_request(ctx);
         self.handle_tray_events(ctx);
         let due = self
             .last_poll
@@ -354,17 +420,23 @@ impl eframe::App for DashboardApp {
                 ui.monospace(&self.fleet_json);
             }
             ui.separator();
-            ui.label("Tray: Show / Hide · Restart · Stop · Quit. Icon turns amber on attention.");
+            ui.label(
+                "Starts hidden (tray + toast only). Tray: Show / Hide · Restart · Stop. Hide does not stop the daemon; Stop ends the process. Icon turns amber on attention.",
+            );
         });
     }
 }
 
 fn notify(summary: &str, body: &str) {
-    let _ = notify_rust::Notification::new()
+    match notify_rust::Notification::new()
         .summary(summary)
         .body(body)
         .appname("td-mcp-rs")
-        .show();
+        .show()
+    {
+        Ok(_) => {}
+        Err(e) => warn!(error = %e, summary, "OS toast failed"),
+    }
 }
 
 #[derive(Debug, Deserialize)]

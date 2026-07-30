@@ -10,6 +10,10 @@ description = "td-mcp-rs daemon binary (composition root)"
 name = "tdmcp-daemon"
 path = "src/main.rs"
 
+[features]
+default = ["gui"]
+gui = ["dep:tdmcp-gui"]
+
 [dependencies]
 anyhow = { workspace = true }
 async-trait = { workspace = true }
@@ -30,6 +34,7 @@ tdmcp-core = { workspace = true }
 tdmcp-diagnostics = { workspace = true }
 tdmcp-ipc = { workspace = true }
 tdmcp-mcp = { workspace = true }
+tdmcp-gui = { path = "../tdmcp-gui", optional = true }
 uuid = { workspace = true }
 
 [dev-dependencies]

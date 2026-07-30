@@ -12,6 +12,8 @@ use tracing::{info, warn};
 
 use tdmcp_mcp::{fleet_summary, AppState, FleetInclude, FleetParams};
 
+use crate::ensure::daemon_lock_path;
+
 /// Arguments needed to respawn the daemon after `/admin/restart`.
 #[derive(Debug, Clone)]
 pub struct RestartArgs {
@@ -25,6 +27,8 @@ pub struct RestartArgs {
     pub bridge_dir: PathBuf,
     /// Catalog path.
     pub catalog_path: PathBuf,
+    /// When true, respawn with `--no-gui`.
+    pub no_gui: bool,
 }
 
 /// Admin router state: shared MCP state + restart args.
@@ -97,10 +101,13 @@ async fn shutdown() -> Json<Value> {
 async fn restart_daemon(State(state): State<AdminState>) -> Json<Value> {
     let args = state.restart.clone();
     info!(exe = %args.exe.display(), port = args.port, "admin restart requested");
+    // Drop the owner lock before spawning so the replacement does not refuse
+    // as "already running" while we are still alive (spawn-then-exit handoff).
+    let _ = std::fs::remove_file(daemon_lock_path(&args.data_dir));
     tokio::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-        let spawn = Command::new(&args.exe)
-            .arg("start")
+        let mut cmd = Command::new(&args.exe);
+        cmd.arg("start")
             .arg("--port")
             .arg(args.port.to_string())
             .arg("--data-dir")
@@ -108,9 +115,11 @@ async fn restart_daemon(State(state): State<AdminState>) -> Json<Value> {
             .arg("--bridge-dir")
             .arg(&args.bridge_dir)
             .arg("--catalog")
-            .arg(&args.catalog_path)
-            .spawn();
-        match spawn {
+            .arg(&args.catalog_path);
+        if args.no_gui {
+            cmd.arg("--no-gui");
+        }
+        match cmd.spawn() {
             Ok(child) => {
                 info!(child_pid = child.id(), "spawned replacement daemon");
             }

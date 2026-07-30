@@ -8,10 +8,12 @@ addresses a TD process by OS `pid`. No sticky target, no offline `.toe` editing.
 Build from source (release packaging lands later):
 
 ```text
-cargo build --release -p tdmcp-daemon -p tdmcp-gui
+cargo build --release -p tdmcp-daemon
 ```
 
-Binaries: `target/release/tdmcp-daemon`, `target/release/tdmcp-gui`.
+Binary: `target/release/tdmcp-daemon` (includes the tray dashboard by default
+via the `gui` Cargo feature). Headless build:
+`cargo build --release -p tdmcp-daemon --no-default-features`.
 Bridge package and diagnostic catalog ship beside the repo (`bridge/`,
 `diagnostics/catalog.yaml`).
 
@@ -40,7 +42,10 @@ Bridge package and diagnostic catalog ship beside the repo (`bridge/`,
    Cursor spawns `tdmcp-daemon mcp`, which runs `ensure` (health → lock →
    detached spawn → poll), then serves a stdio MCP proxy to
    `http://127.0.0.1:9860/mcp/rpc`. The HTTP daemon stays up across MCP client
-   restarts.
+   restarts. By default the detached daemon also shows a system-tray icon and
+   a startup toast (dashboard window stays hidden until you open it from the
+   tray; **Stop** ends the process). Use `--no-gui` or `TDMCP_NO_GUI=1` for
+   headless.
 
    First run extracts embedded bridge, catalog, and bootstrap `.tox` into the
    data dir (`install` / `ensure` / `start` / `mcp` all do this). Default:
@@ -51,23 +56,20 @@ Bridge package and diagnostic catalog ship beside the repo (`bridge/`,
    `bridge/bootstrap.py`). TD dials the local IPC endpoint, handshakes, and
    loads the bridge package from the path the daemon returns.
 
-4. Optional operator UI:
-
-   ```text
-   tdmcp-gui
-   ```
-
-   Tray menu: show/hide dashboard, restart/stop daemon, quit.
-
 ### Power users
 
 Manual daemon + direct Streamable HTTP (no stdio shim):
 
 ```text
 tdmcp-daemon start --port 9860
+# Headless: tdmcp-daemon start --port 9860 --no-gui
 # MCP client URL: http://127.0.0.1:9860/mcp/rpc
 # Health: GET http://127.0.0.1:9860/mcp/health → {"ok":true}
 ```
+
+Tray (default): icon + toast on start; open the dashboard yourself via Show /
+tray click. Closing the window only hides it — use **Stop** /
+`tdmcp-daemon stop` to end the process.
 
 Other CLI helpers: `tdmcp-daemon ensure` (spawn if down), `install` (extract
 assets only), `status`, `stop`.

@@ -41,14 +41,13 @@ Crate layout: [`ARCHITECTURE.md`](../ARCHITECTURE.md). Engineering law: [`CONSTI
  IDE (Cursor)  ── stdio ──► tdmcp-daemon mcp ──► HTTP MCP proxy ──┐
  Other MCP callers ── Streamable HTTP http://127.0.0.1:9860/mcp ──┤
                                                                   ▼
- ┌────────────────── Daemon (tdmcp-daemon) ─────────────────────────────┐
- │  axum + rmcp  │  admin /admin/*  │  PidRegistry  │  per-pid queues   │
- └──────────┬────────────────────────────────────────────────────────────┘
+ ┌────────────── Daemon process (tdmcp-daemon, single binary) ──────────┐
+ │  background: axum + rmcp │ admin │ PidRegistry │ per-pid queues      │
+ │  main thread (default): tray + toast; dashboard on demand (gui)      │
+ └──────────┬───────────────────────────────────────────────────────────┘
             │  local IPC (Win named pipe / Unix UDS)
             ▼
    TD process(es)  ←── bootstrap .tox → handshake → FS load bridge/
-
- GUI (tdmcp-gui) ──► admin HTTP (loopback) ──► daemon
 ```
 
 ### Surfaces
@@ -58,8 +57,10 @@ Crate layout: [`ARCHITECTURE.md`](../ARCHITECTURE.md). Engineering law: [`CONSTI
 | IDE → daemon | Streamable HTTP MCP (`/mcp/rpc`) + JSON fallback (`/mcp/tools/*`) | Tool calls (direct HTTP clients) | **Shipped** |
 | IDE → daemon | stdio (`tdmcp-daemon mcp` → stdio proxy → HTTP `/mcp/rpc`) | Cursor entrypoint | **Shipped** |
 | TD → daemon | Local IPC | Bridge | **Shipped** |
-| Operator → daemon | Tray + admin HTTP + OS toasts | Human monitor | **Shipped** |
+| Operator → daemon | In-process tray + admin HTTP + OS toasts (`gui` feature, default on) | Human monitor | **Shipped** |
 | IDE → daemon | WebSocket | — | **Planned** |
+
+**Singleton:** one owner per listen port. Exclusivity = `daemon.lock` (pid) + TCP bind on `127.0.0.1:{port}`. Stale locks (dead pid) are reclaimed on `start` / `ensure`. A second `start` while healthy refuses with a clear error. `/admin/restart` clears the lock then spawn-then-exit; the replacement retries bind briefly. No distributed leader election — localhost only.
 
 **Listen:** `127.0.0.1:9860` (override via CLI / env / RC); loopback only; no auth.
 
@@ -195,9 +196,9 @@ Code families in use today: `tdmcp.bridge.*`, `tdmcp.script.*`, `tdmcp.perceptio
 
 Config precedence: **CLI args > env (`TDMCP_*`) > RC file > defaults**.
 
-Artifacts: `tdmcp-daemon`, `tdmcp-gui`, `bridge/`, `diagnostics/catalog.yaml`, bootstrap `.tox`. Bridge, catalog, and bootstrap ship embedded in the daemon binary; `install` / `ensure` / `start` / `mcp` extract into the data dir. Packaging via `cargo xtask dist` is **Planned** (P2); until then build with `cargo build --release -p tdmcp-daemon -p tdmcp-gui`.
+Artifacts: `tdmcp-daemon` (embeds tray UI when built with default `gui` feature), `bridge/`, `diagnostics/catalog.yaml`, bootstrap `.tox`. Bridge, catalog, and bootstrap ship embedded in the daemon binary; `install` / `ensure` / `start` / `mcp` extract into the data dir. Packaging via `cargo xtask dist` is **Planned** (P2); until then build with `cargo build --release -p tdmcp-daemon`. Headless: `cargo build --release -p tdmcp-daemon --no-default-features`, or runtime `--no-gui` / `TDMCP_NO_GUI=1`.
 
-Daemon CLI: `start` (foreground), `stop`, `status`, `install`, `ensure`, `mcp` (Cursor entrypoint — `ensure` then stdio proxy). Manual `start` for debugging; Cursor uses `mcp`.
+Daemon CLI: `start` (foreground; tray + toast by default, dashboard hidden until opened), `stop`, `status`, `install`, `ensure`, `mcp` (Cursor entrypoint — `ensure` then stdio proxy). Manual `start` for debugging; Cursor uses `mcp`.
 
 ---
 

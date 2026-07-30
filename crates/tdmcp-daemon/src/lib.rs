@@ -13,5 +13,8 @@ pub mod tracing_init;
 
 pub use admin::RestartArgs;
 pub use bridge::{run_ipc_accept, BridgeSessions};
-pub use ensure::{ensure_daemon, health_ok, EnsureOptions, EnsureResult};
+pub use ensure::{
+    daemon_lock_path, ensure_daemon, health_ok, pid_alive, read_daemon_lock_pid,
+    reclaim_stale_daemon_lock, refuse_if_daemon_owned, EnsureOptions, EnsureResult,
+};
 pub use install::{default_data_dir, ensure_installed, InstallOutcome};

@@ -4464,6 +4464,7 @@ dependencies = [
  "serde_json",
  "tdmcp-core",
  "tdmcp-diagnostics",
+ "tdmcp-gui",
  "tdmcp-ipc",
  "tdmcp-mcp",
  "tdmcp-test-support",
@@ -4502,7 +4503,6 @@ dependencies = [
  "serde_json",
  "tokio",
  "tracing",
- "tracing-subscriber",
  "tray-icon",
 ]
 

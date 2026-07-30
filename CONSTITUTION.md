@@ -30,7 +30,7 @@ Enforcement: root `Cargo.toml` `[workspace.lints]` inherited by every crate via
 - No `unwrap` / `expect` / `panic!` / `todo!` / `unimplemented!` in library
   code on release paths (exceptions only via `RISKS.md`).
 - Prefer `?` and typed errors: **`thiserror` in libs**; **`anyhow` only in
-  binaries** (`tdmcp-daemon`, `tdmcp-gui`, `xtask`).
+  binaries** (`tdmcp-daemon`, `xtask`).
 - `unused_must_use` is deny.
 
 ## Crate boundaries
@@ -41,8 +41,8 @@ Enforcement: root `Cargo.toml` `[workspace.lints]` inherited by every crate via
 | `tdmcp-diagnostics` | catalog YAML, envelope types | MCP / IPC / axum |
 | `tdmcp-ipc` | framing, named pipe / UDS | MCP tool schemas, egui |
 | `tdmcp-mcp` | `rmcp`, core + diagnostics | egui, OS tray |
-| `tdmcp-daemon` | composition root | business logic (thin wiring only) |
-| `tdmcp-gui` | admin HTTP client, egui | core queue internals, IPC wire |
+| `tdmcp-daemon` | composition root; optional `tdmcp-gui` under `gui` feature | business logic (thin wiring only) |
+| `tdmcp-gui` | admin HTTP client, egui (lib consumed by daemon) | core queue internals, IPC wire |
 | `tdmcp-test-support` | fake peer speaking real wire protocol | production binary paths |
 
 ## API guidelines
