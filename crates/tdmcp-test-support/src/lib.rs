@@ -34,11 +34,20 @@ impl FakeTdPeer {
         &mut self,
         title: impl Into<String>,
     ) -> Result<HandshakeResponse, IpcError> {
+        self.handshake_with(title, None).await
+    }
+
+    /// Send handshake with optional toe path (project identity).
+    pub async fn handshake_with(
+        &mut self,
+        title: impl Into<String>,
+        toe_path: Option<String>,
+    ) -> Result<HandshakeResponse, IpcError> {
         let req = HandshakeRequest {
             pid: self.pid,
             protocol_version: "1".into(),
             title: Some(title.into()),
-            toe_path: None,
+            toe_path,
             image: Some("TouchDesigner.exe".into()),
             start_time: Some("t0".into()),
         };
@@ -63,6 +72,35 @@ impl FakeTdPeer {
     /// Read next framed message.
     pub async fn recv_message(&mut self) -> Result<Message, IpcError> {
         read_msg(&mut self.stream).await
+    }
+
+    /// Answer `ping` (and optionally other methods) until the peer drops.
+    ///
+    /// Spawns a background task; returns a [`JoinHandle`](tokio::task::JoinHandle).
+    pub fn spawn_auto_pong(mut self) -> tokio::task::JoinHandle<()> {
+        tokio::spawn(async move {
+            loop {
+                let msg = match self.recv_message().await {
+                    Ok(m) => m,
+                    Err(_) => break,
+                };
+                let Message::Request { id, method, .. } = msg else {
+                    continue;
+                };
+                let result = match method.as_str() {
+                    "ping" => serde_json::json!({"ok": true, "pong": true}),
+                    "execute_python" => serde_json::json!({"ok": true, "result": 1}),
+                    "capture" => {
+                        serde_json::json!({"ok": true, "bytes": 1024, "path": "/project1/out1"})
+                    }
+                    "inspect" => serde_json::json!({"ok": true, "node": {"path": "/project1"}}),
+                    _ => serde_json::json!({"ok": true}),
+                };
+                if self.send_response(id, result).await.is_err() {
+                    break;
+                }
+            }
+        })
     }
 }
 
@@ -95,9 +133,17 @@ mod tests {
                 .await
                 .unwrap()
         });
-        let resp = peer.handshake("test").await.unwrap();
+        let resp = peer
+            .handshake_with("demo.toe", Some("/data/demo.toe".into()))
+            .await
+            .unwrap();
         assert_eq!(resp.bridge_package_dir, "/tmp/bridge");
         let stream = server_task.await.unwrap();
         assert_eq!(stream.pid, 42);
+        assert_eq!(stream.handshake.title.as_deref(), Some("demo.toe"));
+        assert_eq!(
+            stream.handshake.toe_path.as_deref(),
+            Some("/data/demo.toe")
+        );
     }
 }

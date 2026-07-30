@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProcessFingerprint {
-    /// Window / app title hint.
+    /// Project identity hint (`project.name`).
     pub title: Option<String>,
     /// Process image / exe path.
     pub image: Option<String>,

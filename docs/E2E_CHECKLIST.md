@@ -14,7 +14,7 @@ See [`DEV_ENV.md`](DEV_ENV.md) § Dev smoke. Does **not** replace rows 1–12 be
 | # | Check |
 | --- | --- |
 | S1 | Classic: `get_td_node_errors` on `/project1/e2e_kit` clean |
-| S2 | rs `fleet`: bridge `connected` |
+| S2 | rs `fleet`: bridge `connected`; connected pid has non-empty `title` (`project.name`) and `toePath` when folder+name known |
 | S3 | rs `execute_python` → `result = 1` |
 | S4 | rs `capture` top on `/project1/e2e_kit/probe` — non-black |
 | S5 | rs `inspect` summary on `/project1/e2e_kit` |
@@ -32,9 +32,10 @@ See [`DEV_ENV.md`](DEV_ENV.md) § Dev smoke. Does **not** replace rows 1–12 be
 | --- | --- | --- |
 | 1 | `GET http://127.0.0.1:9860/mcp/health` → `{"ok":true}` | ✅ |
 | 2 | Two TD instances dial IPC and complete handshake | ✅ |
-| 3 | `fleet` lists both pids with `bridge: connected` | ✅ |
+| 3 | `fleet` lists both pids with `bridge: connected`, non-empty `title`, and `toePath` when project folder+name known | ✅ |
 | 4 | Enqueue shared task on pid A; exclusive on A fails (`queue_busy`) | ✅ |
 | 5 | Kill tox / drop IPC → `bridge: disconnected` + `cancelledTasks` | ✅ |
+| 5b | Kill TD / drop IPC **while idle** (no tool call) → `fleet` shows `disconnected` within ~15s | |
 | 6 | Same pid re-handshake → `resurrected: true`; first failed task keeps stack | ✅ |
 | 7 | Successful task clears resurrection stack | ✅ |
 | 8 | `execute_python` with `result = 1` returns structured result | ✅ |
@@ -85,7 +86,7 @@ in `bridge/tdmcp_bridge/__init__.py` and covered by `bridge/tests/test_bridge_qu
 - Lab port conventions from creative-operator still apply for corpus verify;
   this daemon uses **pid**, not sticky ports.
 - Do not claim Gate P0 green without rows 1–9 at minimum.
-- "Disconnect is detected on the next call attempt" is a known P0 scope cut
-  (see `crates/tdmcp-daemon/src/bridge.rs` module docs) — there is no idle
-  liveness probe yet, so `fleet` won't show `disconnected` for a dead peer
-  until something tries to enqueue work against it.
+- Idle liveness: daemon heartbeats with wire `ping` every 5s; either side
+  treats the bridge as dead after 15s inbound silence (see CONTRACT
+  Disconnect / resurrection). Row **5b** verifies detection without an
+  intervening tool call.

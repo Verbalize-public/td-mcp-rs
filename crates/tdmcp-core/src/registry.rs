@@ -23,11 +23,11 @@ pub enum BridgeStatus {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProcessAttrs {
-    /// Window title.
+    /// Project identity (`project.name` from handshake); not OS window title.
     pub title: Option<String>,
-    /// Opened `.toe` path when known.
+    /// Opened `.toe` path when known (`folder` + `name`).
     pub toe_path: Option<String>,
-    /// Responsive / frozen hint.
+    /// Responsive / frozen hint — empty until P1 dialogs / hang probe.
     pub window_status: Option<String>,
     /// Fingerprint for pid-reuse checks.
     pub fingerprint: ProcessFingerprint,

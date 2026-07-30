@@ -12,7 +12,9 @@ pub mod install;
 pub mod tracing_init;
 
 pub use admin::RestartArgs;
-pub use bridge::{run_ipc_accept, BridgeSessions};
+pub use bridge::{
+    run_ipc_accept, BridgeSessions, HeartbeatConfig, HEARTBEAT_INTERVAL, IDLE_DEAD, PONG_TIMEOUT,
+};
 pub use ensure::{
     daemon_lock_path, ensure_daemon, health_ok, pid_alive, read_daemon_lock_pid,
     reclaim_stale_daemon_lock, refuse_if_daemon_owned, EnsureOptions, EnsureResult,

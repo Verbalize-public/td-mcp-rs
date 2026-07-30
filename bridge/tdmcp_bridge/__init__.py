@@ -22,6 +22,13 @@ from typing import Any, Callable, NotRequired, TypedDict
 __protocol_version__ = "1"
 __min_daemon__ = "0.1.0"
 
+# Idle liveness — must match tdmcp-daemon HeartbeatConfig::production.
+HEARTBEAT_INTERVAL_S = 5.0
+PONG_TIMEOUT_S = 5.0
+IDLE_DEAD_S = 15.0
+# Short poll so serve_queued can notice IDLE_DEAD without blocking forever.
+_READ_POLL_S = 1.0
+
 # Wire method names — must match tdmcp_core::BridgeMethod::wire_str() exactly.
 # Parity gated by bridge/tests/test_bridge_methods.py + fixtures/bridge_methods.json.
 BRIDGE_METHODS: tuple[str, ...] = ("execute_python", "capture", "inspect", "ping")
@@ -59,14 +66,35 @@ class BridgeErrResult(TypedDict):
 
 
 def _read_frame(stream) -> dict[str, Any]:
-    header = stream.read(4)
+    """Read one length-prefixed JSON frame.
+
+    Raises:
+        EOFError: peer closed / short read that is not a timeout.
+        TimeoutError: underlying stream read timed out (idle poll).
+    """
+    try:
+        header = stream.read(4)
+    except TimeoutError:
+        raise
     if len(header) < 4:
+        if len(header) == 0:
+            raise EOFError("short header")
         raise EOFError("short header")
     (length,) = struct.unpack("<I", header)
-    body = stream.read(length)
+    try:
+        body = stream.read(length)
+    except TimeoutError as exc:
+        raise TimeoutError("timed out mid-frame") from exc
     if len(body) < length:
         raise EOFError("short body")
     return json.loads(body.decode("utf-8"))
+
+
+def _apply_read_timeout(stream, seconds: float) -> None:
+    """Best-effort read timeout for idle polling (UDS / named pipe wrappers)."""
+    setter = getattr(stream, "set_read_timeout", None)
+    if callable(setter):
+        setter(seconds)
 
 
 def _write_frame(stream, msg: dict[str, Any]) -> None:
@@ -316,10 +344,21 @@ class _UdsStream:
     def __init__(self, sock) -> None:
         self._sock = sock
 
+    def set_read_timeout(self, seconds: float | None) -> None:
+        """Socket-level recv timeout for idle polling (`None` = block forever)."""
+        self._sock.settimeout(seconds)
+
     def read(self, n: int) -> bytes:
+        import socket as _socket
+
         out = bytearray()
         while len(out) < n:
-            chunk = self._sock.recv(n - len(out))
+            try:
+                chunk = self._sock.recv(n - len(out))
+            except _socket.timeout as exc:
+                if not out:
+                    raise TimeoutError("uds read timed out") from exc
+                raise TimeoutError("uds read timed out mid-frame") from exc
             if not chunk:
                 break
             out += chunk
@@ -377,6 +416,10 @@ def _dial_named_pipe(name: str):
 class _NamedPipeStream:
     """Minimal file-like wrapper over a named pipe handle."""
 
+    _ERROR_TIMEOUT = 1460
+    _ERROR_SEM_TIMEOUT = 121
+    _ERROR_IO_INCOMPLETE = 996
+
     def __init__(self, handle: int) -> None:
         from ctypes import wintypes
 
@@ -384,6 +427,40 @@ class _NamedPipeStream:
         self._kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
         self._buf = (ctypes.c_ubyte * 65536)()
         self._wintypes = wintypes
+        self._read_timeout_ms: int | None = None
+
+    def set_read_timeout(self, seconds: float | None) -> None:
+        """Apply ``SetCommTimeouts`` so ``ReadFile`` can return on idle polls."""
+        from ctypes import wintypes
+
+        class _CommTimeouts(ctypes.Structure):
+            _fields_ = [
+                ("ReadIntervalTimeout", wintypes.DWORD),
+                ("ReadTotalTimeoutMultiplier", wintypes.DWORD),
+                ("ReadTotalTimeoutConstant", wintypes.DWORD),
+                ("WriteTotalTimeoutMultiplier", wintypes.DWORD),
+                ("WriteTotalTimeoutConstant", wintypes.DWORD),
+            ]
+
+        timeouts = _CommTimeouts()
+        if seconds is None:
+            self._read_timeout_ms = None
+            # Restore blocking defaults (all zero).
+            timeouts.ReadIntervalTimeout = 0
+            timeouts.ReadTotalTimeoutMultiplier = 0
+            timeouts.ReadTotalTimeoutConstant = 0
+        else:
+            ms = max(1, int(seconds * 1000))
+            self._read_timeout_ms = ms
+            # Total timeout only (no per-byte multiplier).
+            timeouts.ReadIntervalTimeout = 0
+            timeouts.ReadTotalTimeoutMultiplier = 0
+            timeouts.ReadTotalTimeoutConstant = ms
+        timeouts.WriteTotalTimeoutMultiplier = 0
+        timeouts.WriteTotalTimeoutConstant = 0
+        ok = self._kernel32.SetCommTimeouts(self._handle, ctypes.byref(timeouts))
+        if not ok:
+            raise OSError("SetCommTimeouts failed")
 
     def read(self, n: int) -> bytes:
         out = bytearray()
@@ -397,7 +474,21 @@ class _NamedPipeStream:
                 ctypes.byref(read),
                 None,
             )
-            if not ok or read.value == 0:
+            if not ok:
+                err = self._kernel32.GetLastError()
+                if err in (
+                    self._ERROR_TIMEOUT,
+                    self._ERROR_SEM_TIMEOUT,
+                    self._ERROR_IO_INCOMPLETE,
+                ):
+                    if not out:
+                        raise TimeoutError("named pipe read timed out")
+                    raise TimeoutError("named pipe read timed out mid-frame")
+                break
+            if read.value == 0:
+                # Timeout with zero bytes can also surface as success+0.
+                if self._read_timeout_ms is not None and not out:
+                    raise TimeoutError("named pipe read timed out")
                 break
             out += bytes(self._buf[: read.value])
         return bytes(out)
@@ -448,10 +539,114 @@ class _NamedPipeStream:
             self._kernel32.CloseHandle(handle)
 
 
+class IdentitySnapshot(TypedDict):
+    """Plain strings for handshake discovery — capture on the main thread only."""
+
+    title: str | None
+    toe_path: str | None
+    image: str | None
+    start_time: str | None
+
+
+def compose_toe_path(folder: str | None, name: str | None) -> str | None:
+    """Join project folder + name into a toe path when both are non-empty."""
+    folder_s = (folder or "").strip()
+    name_s = (name or "").strip()
+    if folder_s and name_s:
+        return os.path.join(folder_s, name_s)
+    return None
+
+
+def _process_image() -> str | None:
+    """Best-effort absolute path of the current process image."""
+    try:
+        if sys.platform.startswith("win"):
+            buf = ctypes.create_unicode_buffer(32768)
+            n = ctypes.windll.kernel32.GetModuleFileNameW(None, buf, len(buf))
+            if n:
+                return buf.value or None
+    except Exception:  # noqa: BLE001 — best-effort fingerprint
+        pass
+    return None
+
+
+def _process_start_time() -> str | None:
+    """Best-effort opaque OS process start-time string for pid-reuse fingerprint."""
+    try:
+        if sys.platform.startswith("win"):
+
+            class _FileTime(ctypes.Structure):
+                _fields_ = [
+                    ("dwLowDateTime", ctypes.c_uint32),
+                    ("dwHighDateTime", ctypes.c_uint32),
+                ]
+
+            creation = _FileTime()
+            exit_t = _FileTime()
+            kernel = _FileTime()
+            user = _FileTime()
+            handle = ctypes.windll.kernel32.GetCurrentProcess()
+            ok = ctypes.windll.kernel32.GetProcessTimes(
+                handle,
+                ctypes.byref(creation),
+                ctypes.byref(exit_t),
+                ctypes.byref(kernel),
+                ctypes.byref(user),
+            )
+            if ok:
+                val = (int(creation.dwHighDateTime) << 32) | int(
+                    creation.dwLowDateTime
+                )
+                return str(val)
+        else:
+            # Linux /proc; macOS has no /proc — leave None on failure.
+            st = os.stat("/proc/self")
+            return str(int(st.st_ctime))
+    except Exception:  # noqa: BLE001 — best-effort fingerprint
+        pass
+    return None
+
+
+def identity_from_project(
+    name: str | None, folder: str | None
+) -> tuple[str | None, str | None]:
+    """Map TD ``project.name`` / ``project.folder`` → handshake title + toePath."""
+    title = (name or "").strip() or None
+    toe_path = compose_toe_path(folder, title)
+    return title, toe_path
+
+
+def _identity_snapshot() -> IdentitySnapshot:
+    """MAIN THREAD ONLY. Capture project identity + process fingerprint strings.
+
+    Never call from the IPC worker thread. Non-TD environments (smoke/REPL)
+    return null title/toePath with best-effort fingerprint fields.
+    """
+    title: str | None = None
+    toe_path: str | None = None
+    try:
+        import td  # type: ignore
+
+        title, toe_path = identity_from_project(
+            str(td.project.name), str(td.project.folder)
+        )
+    except Exception:  # noqa: BLE001 — outside TD or project unavailable
+        pass
+    image = _process_image() or "TouchDesigner.exe"
+    return {
+        "title": title,
+        "toe_path": toe_path,
+        "image": image,
+        "start_time": _process_start_time(),
+    }
+
+
 def handshake(
     stream,
     title: str | None = None,
     toe_path: str | None = None,
+    image: str | None = None,
+    start_time: str | None = None,
 ) -> dict[str, Any]:
     """Perform the client side of the IPC handshake over `stream`."""
     req = {
@@ -459,8 +654,8 @@ def handshake(
         "protocolVersion": __protocol_version__,
         "title": title,
         "toePath": toe_path,
-        "image": "TouchDesigner.exe",
-        "startTime": None,
+        "image": image if image is not None else "TouchDesigner.exe",
+        "startTime": start_time,
     }
     _write_frame(stream, req)
     return _read_frame(stream)
@@ -678,17 +873,38 @@ def process_pending(max_items: int = 64) -> int:
     return n
 
 
-def serve_queued(stream) -> None:
-    """Framed dispatch loop, worker-thread-safe: enqueue + wait, never dispatch here.
+def serve_queued(stream, *, idle_dead_s: float = IDLE_DEAD_S) -> None:
+    """Framed dispatch loop, worker-thread-safe for TD API methods.
 
-    Intended to run on a background thread started by [`bootstrap_threaded`].
+    ``ping`` is answered on this worker thread (daemon idle heartbeat) so a
+    paused timeline cannot look like a dead bridge. Other methods enqueue for
+    [`process_pending`] on the main thread.
+
+    Exits on EOF, or when no inbound frame arrives for ``idle_dead_s`` (when
+    the stream supports read timeouts).
     """
+    poll = min(_READ_POLL_S, idle_dead_s) if idle_dead_s > 0 else _READ_POLL_S
+    try:
+        _apply_read_timeout(stream, poll)
+    except Exception:  # noqa: BLE001 — makefile / test stubs may not support it
+        pass
+
+    last_recv = time.monotonic()
     while True:
         try:
             msg = _read_frame(stream)
+        except TimeoutError:
+            if idle_dead_s > 0 and (time.monotonic() - last_recv) >= idle_dead_s:
+                break
+            continue
         except EOFError:
             break
+        last_recv = time.monotonic()
         if msg.get("type") != "request":
+            continue
+        # Fast-path liveness — never touch the main-thread queue.
+        if msg.get("method") == "ping":
+            _write_frame(stream, dispatch(msg))
             continue
         response_slot: "queue.Queue[dict[str, Any]]" = queue.Queue(maxsize=1)
         _enqueue_pending(msg, response_slot)
@@ -766,8 +982,15 @@ def bootstrap(bridge_dir: str | None = None) -> dict[str, Any]:
     package from disk on every connect.
     Returns the handshake response.
     """
+    snap = _identity_snapshot()
     stream = dial()
-    resp = handshake(stream)
+    resp = handshake(
+        stream,
+        title=snap["title"],
+        toe_path=snap["toe_path"],
+        image=snap["image"],
+        start_time=snap["start_time"],
+    )
     pkg_dir = _resolve_bridge_package_dir(bridge_dir, resp)
     _load_bridge_package(pkg_dir)
     serve(stream)
@@ -791,6 +1014,9 @@ def bootstrap_threaded(bridge_dir: str | None = None) -> dict[str, Any]:
     framed read loop to a worker thread running [`serve_queued`] — the
     worker only ever touches the stream and a `queue.Queue`, never `td.*`.
 
+    Captures project identity (``project.name`` / folder → title + toePath)
+    on the main thread **before** dialing — never from the IPC worker.
+
     Path resolution: ``bridge_dir`` / ``TDMCP_BRIDGE_DIR`` → handshake
     ``bridgePackageDir`` → conventional data-dir ``bridge/``. Reloads the
     package from disk on every connect (version bumps without re-baking the tox).
@@ -803,8 +1029,15 @@ def bootstrap_threaded(bridge_dir: str | None = None) -> dict[str, Any]:
     global _active_stream, _active_thread
     if _active_stream is not None or _active_thread is not None:
         disconnect()
+    snap = _identity_snapshot()
     stream = dial()
-    resp = handshake(stream)
+    resp = handshake(
+        stream,
+        title=snap["title"],
+        toe_path=snap["toe_path"],
+        image=snap["image"],
+        start_time=snap["start_time"],
+    )
     pkg_dir = _resolve_bridge_package_dir(bridge_dir, resp)
     _load_bridge_package(pkg_dir)
     # Bind serve_queued from the (possibly reloaded) module object.

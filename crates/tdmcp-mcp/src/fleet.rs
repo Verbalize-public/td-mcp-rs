@@ -38,13 +38,13 @@ pub enum FleetInclude {
 pub struct FleetProcess {
     /// OS pid.
     pub pid: Pid,
-    /// Window title.
+    /// Project identity (`project.name`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
-    /// Window status hint.
+    /// Responsive / frozen hint — empty until P1 dialogs.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub window_status: Option<String>,
-    /// Opened toe path.
+    /// Opened `.toe` path when known.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub toe_path: Option<String>,
     /// Bridge status.

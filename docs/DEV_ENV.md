@@ -42,6 +42,11 @@ Custom page **Bridge** (created at Start by `ensure_ui`):
 | `Status` | Phase string (`Disconnected` / `Connecting` / `Re-connecting` / `Connected` / `Connected ([N] Tasks)`) |
 | `Cancelqueued` | Pulse — drop **bridge-queued** tasks only (not in-flight `dispatch`, not daemon queue) |
 
+Daemon idle heartbeat (`ping` every 5s; dead after 15s silence) is answered on
+the bridge worker thread and does **not** appear in `task_table`. If the daemon
+dies or stops probing, Autoconnect moves Status to `Re-connecting` after the
+bridge idle-dead timeout.
+
 Face: color-banded Composite `status_face` (Operator Viewer) + `task_table` DAT with short describes. Provoke rows with rs `execute_python` / `inspect` / `capture` under load. See [`scripts/pack_bootstrap_tox.md`](../scripts/pack_bootstrap_tox.md).
 
 ## Cold start

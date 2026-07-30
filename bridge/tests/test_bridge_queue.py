@@ -47,13 +47,13 @@ class QueuedServeTest(unittest.TestCase):
         while tdmcp_bridge.pending_count() < n and time.monotonic() < deadline:
             time.sleep(0.01)
 
-    def test_worker_never_dispatches_directly(self) -> None:
-        """A request sitting unprocessed must land in the queue, not a response."""
+    def test_worker_never_dispatches_td_methods_directly(self) -> None:
+        """TD API methods must land in the queue, not run on the worker."""
         worker = threading.Thread(
             target=tdmcp_bridge.serve_queued, args=(self.bridge_stream,), daemon=True
         )
         worker.start()
-        self._send_request(1, "ping")
+        self._send_request(1, "execute_python", {"script": "result = 1"})
 
         # Give the worker time to read + enqueue; it must NOT answer on its own.
         self._wait_pending(1)
@@ -65,7 +65,20 @@ class QueuedServeTest(unittest.TestCase):
 
         resp = self._recv_response()
         self.assertEqual(resp["id"], 1)
+        self.assertEqual(resp["result"], {"ok": True, "result": 1})
+
+    def test_ping_answered_on_worker_without_process_pending(self) -> None:
+        """Idle heartbeat ping must not depend on the main-thread pump."""
+        worker = threading.Thread(
+            target=tdmcp_bridge.serve_queued, args=(self.bridge_stream,), daemon=True
+        )
+        worker.start()
+        self._send_request(2, "ping")
+        # Blocking recv — must complete without calling process_pending.
+        resp = self._recv_response()
+        self.assertEqual(resp["id"], 2)
         self.assertEqual(resp["result"], {"ok": True, "pong": True})
+        self.assertEqual(tdmcp_bridge.pending_count(), 0)
 
     def test_multiple_requests_drained_in_one_pump(self) -> None:
         """Batch-drain semantics, independent of I/O timing.
@@ -147,6 +160,32 @@ class QueuedServeTest(unittest.TestCase):
             }
         )
         self.assertEqual(s, "# comment")
+
+
+class IdleDeadTest(unittest.TestCase):
+    """serve_queued exits after inbound silence when the stream supports timeouts."""
+
+    def setUp(self) -> None:
+        tdmcp_bridge._reset_pending_for_tests()  # noqa: SLF001
+        bridge_sock, daemon_sock = socket.socketpair()
+        self.daemon_sock = daemon_sock
+        self.addCleanup(bridge_sock.close)
+        self.addCleanup(daemon_sock.close)
+        self.stream = tdmcp_bridge._UdsStream(bridge_sock)  # noqa: SLF001
+
+    def test_idle_dead_exits_serve_queued(self) -> None:
+        done = threading.Event()
+
+        def run() -> None:
+            tdmcp_bridge.serve_queued(self.stream, idle_dead_s=0.25)
+            done.set()
+
+        worker = threading.Thread(target=run, daemon=True)
+        worker.start()
+        # No frames written — worker should exit on idle_dead.
+        self.assertTrue(done.wait(2.0), "serve_queued should exit after idle_dead")
+        worker.join(timeout=1.0)
+        self.assertFalse(worker.is_alive())
 
 
 @unittest.skipIf(

@@ -83,7 +83,10 @@ Handshake returns a local FS path to the bridge package directory. TD reloads fr
 | Rule | Detail |
 | --- | --- |
 | Ground truth | OS `pid` only |
-| Discovery | `fleet` lists by `pid` + title, bridge, tasks, traces |
+| Discovery | `fleet` lists by `pid` + **title** (`project.name`) + **toePath** (`folder`+`name`), bridge, tasks, traces |
+| Identity source | Filled at bridge handshake from a main-thread snapshot; stale until reconnect (no mid-session refresh) |
+| Fingerprint | Best-effort `image` (process exe path) + `startTime` (opaque OS start); used for pid-reuse |
+| Deferred | `windowStatus` and `fleet` `popups` — empty until P1 `dialogs` (Win) |
 | Usable | `bridge: "connected"` ⇒ any caller may address that `pid` |
 | Addressing | Process-scoped tools require `pid` |
 | IPC loss | Mark disconnected; cancel waits; stack cancelled-task trace |
@@ -103,6 +106,16 @@ Handshake returns a local FS path to the bridge package directory. TD reloads fr
 2. Cancel waits; stack cancelled tasks (`reason: bridge_lost`).
 3. Same `pid` re-handshake ⇒ usable again; stack stays until first success.
 4. First successful task clears the stack. First failure after resurrection keeps it.
+
+**Idle heartbeat (liveness):** after handshake, the daemon session actor probes
+the peer with wire `ping` outside the task queue (not visible in `fleet`
+tasks). Defaults: interval **5s**, pong wait **5s**, idle-dead **15s** (no
+inbound framed traffic). Any successful request/response (including ping/pong)
+resets the inactivity clock. Missed pong or idle-dead → same teardown as IPC
+loss. The bridge answers `ping` on the IPC worker thread (no main-thread
+`process_pending`) and exits its serve loop after **15s** inbound silence when
+read timeouts are available. `GET /mcp/health` remains daemon-process liveness
+only — not bridge peer health.
 
 ---
 

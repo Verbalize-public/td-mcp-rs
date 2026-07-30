@@ -3,29 +3,83 @@
 //! One actor task per connected TD peer. The actor receives [`TaskJob`]s from
 //! the MCP layer, promotes the head pending task to in-flight, sends a framed
 //! request, awaits the framed response (with a per-call timeout), records the
-//! task outcome on the registry, and replies. Disconnect is detected on the
-//! next call attempt; the actor then tears down, calls `on_bridge_lost`, and
-//! removes itself from the session map. (Prompt liveness detection without a
-//! pending call is a P0.x follow-up.)
+//! task outcome on the registry, and replies.
+//!
+//! While idle, the actor probes the peer with wire `ping` (outside the task
+//! queue). Missed pongs or inbound silence past [`HeartbeatConfig::idle_dead`]
+//! tear the session down via `on_bridge_lost`.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use serde_json::Value;
-use tdmcp_core::{PidRegistry, ProcessAttrs, TaskResult};
+use tdmcp_core::{BridgeMethod, PidRegistry, ProcessAttrs, TaskResult};
 use tdmcp_ipc::{BridgeEndpoint, IpcListener, IpcStream, Message};
 use tokio::sync::{mpsc, oneshot, Mutex};
+use tokio::time::{timeout, MissedTickBehavior};
 use tracing::{info, warn};
 
 use tdmcp_mcp::{BridgeRpc, BridgeRpcError};
 
 const CALL_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// Production idle heartbeat: ping every 5s; dead after 15s silence.
+pub const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
+/// Max wait for a heartbeat pong.
+pub const PONG_TIMEOUT: Duration = Duration::from_secs(5);
+/// Either side assumes the bridge dead after this much inbound silence.
+pub const IDLE_DEAD: Duration = Duration::from_secs(15);
+
 static CALL_ID: AtomicU64 = AtomicU64::new(1);
+
+/// Tunable idle liveness for a bridge session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HeartbeatConfig {
+    /// When false, no idle pings and no idle-dead teardown (tests that drive
+    /// the peer only on tool calls).
+    pub enabled: bool,
+    /// Send `ping` when the session has been quiet at least this long.
+    pub interval: Duration,
+    /// Max wait for the matching pong after a heartbeat ping.
+    pub pong_timeout: Duration,
+    /// Tear down if no inbound framed traffic for this long.
+    pub idle_dead: Duration,
+}
+
+impl HeartbeatConfig {
+    /// Production defaults (5s / 5s / 15s).
+    #[must_use]
+    pub const fn production() -> Self {
+        Self {
+            enabled: true,
+            interval: HEARTBEAT_INTERVAL,
+            pong_timeout: PONG_TIMEOUT,
+            idle_dead: IDLE_DEAD,
+        }
+    }
+
+    /// Disable idle probes (existing integration tests that only touch the
+    /// stream during tool calls).
+    #[must_use]
+    pub const fn disabled() -> Self {
+        Self {
+            enabled: false,
+            interval: Duration::from_secs(5),
+            pong_timeout: Duration::from_secs(5),
+            idle_dead: Duration::from_secs(15),
+        }
+    }
+}
+
+impl Default for HeartbeatConfig {
+    fn default() -> Self {
+        Self::production()
+    }
+}
 
 /// One queued tool call awaiting the bridge.
 struct TaskJob {
@@ -41,20 +95,30 @@ struct BridgeHandle {
 }
 
 /// Map of pid → bridge session handle. Cheap to clone (Arc-backed).
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct BridgeSessions {
     sessions: Arc<Mutex<HashMap<u32, BridgeHandle>>>,
     registry: Arc<Mutex<PidRegistry>>,
+    heartbeat: HeartbeatConfig,
 }
 
 impl BridgeSessions {
     /// Construct with the shared registry (same Arc the MCP layer uses).
+    /// Uses production heartbeat defaults.
     #[must_use]
     pub fn new(registry: Arc<Mutex<PidRegistry>>) -> Self {
         Self {
             sessions: Arc::new(Mutex::new(HashMap::new())),
             registry,
+            heartbeat: HeartbeatConfig::production(),
         }
+    }
+
+    /// Override idle heartbeat (tests: short intervals or [`HeartbeatConfig::disabled`]).
+    #[must_use]
+    pub fn with_heartbeat(mut self, heartbeat: HeartbeatConfig) -> Self {
+        self.heartbeat = heartbeat;
+        self
     }
 
     /// Spawn an actor for an accepted, handshaken stream.
@@ -66,8 +130,9 @@ impl BridgeSessions {
         }
         let sessions = self.sessions.clone();
         let registry = self.registry.clone();
+        let heartbeat = self.heartbeat;
         tokio::spawn(async move {
-            run_session(pid, stream, job_rx, registry, sessions).await;
+            run_session(pid, stream, job_rx, registry, sessions, heartbeat).await;
         });
     }
 }
@@ -102,66 +167,192 @@ async fn run_session(
     mut job_rx: mpsc::Receiver<TaskJob>,
     registry: Arc<Mutex<PidRegistry>>,
     sessions: Arc<Mutex<HashMap<u32, BridgeHandle>>>,
+    heartbeat: HeartbeatConfig,
 ) {
     info!(pid, "bridge session started");
-    while let Some(job) = job_rx.recv().await {
-        // Promote the head pending task (this job, FIFO) to in-flight.
-        {
-            let mut reg = registry.lock().await;
-            let _ = reg.start_next(pid);
-        }
+    let mut last_activity = Instant::now();
 
-        let id = CALL_ID.fetch_add(1, Ordering::Relaxed).to_string();
-        let req = Message::Request {
-            id: id.clone(),
-            method: job.method.clone(),
-            params: job.params.clone(),
+    let mut ticker = tokio::time::interval(if heartbeat.enabled {
+        heartbeat.interval.max(Duration::from_millis(1))
+    } else {
+        Duration::from_secs(3600)
+    });
+    ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    // Consume the immediate first tick so we wait a full interval before probing.
+    ticker.tick().await;
+
+    loop {
+        let until_idle_dead = if heartbeat.enabled {
+            heartbeat
+                .idle_dead
+                .saturating_sub(last_activity.elapsed())
+                .max(Duration::from_millis(1))
+        } else {
+            Duration::from_secs(3600)
         };
 
-        let outcome = match stream.send(&req).await {
-            Ok(()) => match tokio::time::timeout(CALL_TIMEOUT, stream.recv_message()).await {
-                Ok(Ok(Message::Response {
-                    id: rid,
-                    result,
-                    error,
-                })) if rid == id => {
-                    if let Some(err) = error {
-                        let msg = err
-                            .get("message")
-                            .and_then(Value::as_str)
-                            .unwrap_or("bridge returned an error")
-                            .to_owned();
-                        let code = err.get("code").and_then(Value::as_str).map(str::to_owned);
-                        Err(BridgeRpcError::BridgeReturned { message: msg, code })
-                    } else {
-                        Ok(result.unwrap_or(Value::Null))
+        tokio::select! {
+            biased;
+            job = job_rx.recv() => {
+                let Some(job) = job else {
+                    break;
+                };
+                match run_tool_job(pid, &mut stream, &registry, job).await {
+                    JobLoop::Continue { activity } => {
+                        if activity {
+                            last_activity = Instant::now();
+                        }
                     }
+                    JobLoop::Disconnect => break,
                 }
-                Ok(Ok(_other)) => Err(BridgeRpcError::Disconnected { pid }),
-                Ok(Err(_e)) => break,
-                Err(_) => Err(BridgeRpcError::Timeout {
-                    pid,
-                    budget_ms: CALL_TIMEOUT.as_millis() as u64,
-                }),
-            },
-            Err(_e) => break,
-        };
-
-        let success = matches!(&outcome, Ok(v) if !is_bridge_error(v));
-        {
-            let mut reg = registry.lock().await;
-            let result = if success {
-                TaskResult::Success
-            } else {
-                TaskResult::Failed
-            };
-            let _ = reg.complete_task(pid, result);
+            }
+            _ = tokio::time::sleep(until_idle_dead), if heartbeat.enabled => {
+                if last_activity.elapsed() >= heartbeat.idle_dead {
+                    warn!(pid, "bridge idle-dead — no inbound traffic");
+                    break;
+                }
+            }
+            _ = ticker.tick(), if heartbeat.enabled => {
+                if last_activity.elapsed() < heartbeat.interval {
+                    continue;
+                }
+                match run_heartbeat_ping(pid, &mut stream, heartbeat.pong_timeout).await {
+                    Ok(()) => {
+                        last_activity = Instant::now();
+                    }
+                    Err(()) => break,
+                }
+            }
         }
-
-        let _ = job.reply.send(outcome);
     }
 
     teardown(pid, registry, sessions).await;
+}
+
+enum JobLoop {
+    Continue { activity: bool },
+    Disconnect,
+}
+
+async fn run_tool_job(
+    pid: u32,
+    stream: &mut IpcStream,
+    registry: &Arc<Mutex<PidRegistry>>,
+    job: TaskJob,
+) -> JobLoop {
+    // Promote the head pending task (this job, FIFO) to in-flight.
+    {
+        let mut reg = registry.lock().await;
+        let _ = reg.start_next(pid);
+    }
+
+    let id = CALL_ID.fetch_add(1, Ordering::Relaxed).to_string();
+    let req = Message::Request {
+        id: id.clone(),
+        method: job.method.clone(),
+        params: job.params.clone(),
+    };
+
+    let outcome = match stream.send(&req).await {
+        Ok(()) => match timeout(CALL_TIMEOUT, stream.recv_message()).await {
+            Ok(Ok(Message::Response {
+                id: rid,
+                result,
+                error,
+            })) if rid == id => {
+                if let Some(err) = error {
+                    let msg = err
+                        .get("message")
+                        .and_then(Value::as_str)
+                        .unwrap_or("bridge returned an error")
+                        .to_owned();
+                    let code = err.get("code").and_then(Value::as_str).map(str::to_owned);
+                    Err(BridgeRpcError::BridgeReturned { message: msg, code })
+                } else {
+                    Ok(result.unwrap_or(Value::Null))
+                }
+            }
+            Ok(Ok(_other)) => Err(BridgeRpcError::Disconnected { pid }),
+            Ok(Err(_e)) => {
+                // Leave the in-flight task for `on_bridge_lost` → cancelled stack.
+                let _ = job.reply.send(Err(BridgeRpcError::Disconnected { pid }));
+                return JobLoop::Disconnect;
+            }
+            Err(_) => Err(BridgeRpcError::Timeout {
+                pid,
+                budget_ms: CALL_TIMEOUT.as_millis() as u64,
+            }),
+        },
+        Err(_e) => {
+            let _ = job.reply.send(Err(BridgeRpcError::Disconnected { pid }));
+            return JobLoop::Disconnect;
+        }
+    };
+
+    let success = matches!(&outcome, Ok(v) if !is_bridge_error(v));
+    {
+        let mut reg = registry.lock().await;
+        let result = if success {
+            TaskResult::Success
+        } else {
+            TaskResult::Failed
+        };
+        let _ = reg.complete_task(pid, result);
+    }
+
+    // Any framed response (ok or bridge error) counts as inbound activity.
+    let activity = matches!(&outcome, Ok(_) | Err(BridgeRpcError::BridgeReturned { .. }));
+    let _ = job.reply.send(outcome);
+    JobLoop::Continue { activity }
+}
+
+/// Internal liveness probe — not registered on the task queue / fleet.
+async fn run_heartbeat_ping(
+    pid: u32,
+    stream: &mut IpcStream,
+    pong_timeout: Duration,
+) -> Result<(), ()> {
+    let id = CALL_ID.fetch_add(1, Ordering::Relaxed).to_string();
+    let req = Message::Request {
+        id: id.clone(),
+        method: BridgeMethod::Ping.wire_str().to_owned(),
+        params: Value::Object(serde_json::Map::new()),
+    };
+    if stream.send(&req).await.is_err() {
+        warn!(pid, "bridge heartbeat send failed");
+        return Err(());
+    }
+    match timeout(pong_timeout, stream.recv_message()).await {
+        Ok(Ok(Message::Response {
+            id: rid,
+            result,
+            error,
+        })) if rid == id && error.is_none() => {
+            let ok = result
+                .as_ref()
+                .and_then(|v| v.get("ok"))
+                .and_then(Value::as_bool)
+                .unwrap_or(true);
+            if ok {
+                Ok(())
+            } else {
+                warn!(pid, "bridge heartbeat pong not ok");
+                Err(())
+            }
+        }
+        Ok(Ok(_other)) => {
+            warn!(pid, "bridge heartbeat unexpected frame");
+            Err(())
+        }
+        Ok(Err(_)) => {
+            warn!(pid, "bridge heartbeat recv failed");
+            Err(())
+        }
+        Err(_) => {
+            warn!(pid, "bridge heartbeat pong timeout");
+            Err(())
+        }
+    }
 }
 
 async fn teardown(
