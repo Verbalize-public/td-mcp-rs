@@ -23,12 +23,16 @@ pub const OP_SIMILAR_NAME: &str = "tdmcp.op.similar_name";
 pub const OP_OUTSIDE_ZONE: &str = "tdmcp.op.outside_zone";
 /// Inspect direct-child roster capped (soft; payload `truncation` block).
 pub const OP_CHILDREN_TRUNCATED: &str = "tdmcp.op.children_truncated";
+/// Unknown or unresolved opType for create.
+pub const OP_UNKNOWN_TYPE: &str = "tdmcp.op.unknown_type";
 
 /// Later batch step skipped after prior failure.
 pub const BATCH_SKIPPED_DEPENDENT: &str = "tdmcp.batch.skipped_dependent";
 
 /// Unknown parameter on node.
 pub const PAR_UNKNOWN: &str = "tdmcp.par.unknown";
+/// Mutate step failed with a TD-side exception (catch-all).
+pub const MUTATE_STEP_FAILED: &str = "tdmcp.mutate.step_failed";
 
 /// Python script execution failed.
 pub const SCRIPT_EXECUTION_FAILED: &str = "tdmcp.script.execution_failed";
@@ -52,8 +56,10 @@ pub const ALL: &[&str] = &[
     OP_SIMILAR_NAME,
     OP_OUTSIDE_ZONE,
     OP_CHILDREN_TRUNCATED,
+    OP_UNKNOWN_TYPE,
     BATCH_SKIPPED_DEPENDENT,
     PAR_UNKNOWN,
+    MUTATE_STEP_FAILED,
     SCRIPT_EXECUTION_FAILED,
     TD_GLSL_COMPILE,
     PERCEPTION_BLACK_FRAME,

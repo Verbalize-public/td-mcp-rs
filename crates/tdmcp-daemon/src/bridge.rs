@@ -145,13 +145,7 @@ impl BridgeSessions {
         let generation = SESSION_GENERATION.fetch_add(1, Ordering::Relaxed);
         {
             let mut s = self.sessions.lock().await;
-            s.insert(
-                pid,
-                BridgeHandle {
-                    job_tx,
-                    generation,
-                },
-            );
+            s.insert(pid, BridgeHandle { job_tx, generation });
         }
         let sessions = self.sessions.clone();
         let registry = self.registry.clone();
@@ -409,7 +403,10 @@ async fn teardown(
             }
             _ => {
                 // Superseded by a newer session for this pid — do not touch registry.
-                warn!(pid, generation, "bridge session ended — superseded, skip loss");
+                warn!(
+                    pid,
+                    generation, "bridge session ended — superseded, skip loss"
+                );
                 return;
             }
         }

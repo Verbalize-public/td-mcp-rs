@@ -208,7 +208,11 @@ async fn admin_restart_yields_one_healthy_listener() {
         .send()
         .await
         .expect("restart post");
-    assert!(resp.status().is_success(), "restart status {}", resp.status());
+    assert!(
+        resp.status().is_success(),
+        "restart status {}",
+        resp.status()
+    );
 
     // Wait for a new healthy owner (possibly new pid).
     let deadline = std::time::Instant::now() + Duration::from_secs(20);
@@ -258,7 +262,7 @@ async fn stale_daemon_lock_reclaimed_on_start() {
 
     // Fake a dead owner pid in daemon.lock.
     let fake_pid = 1u32; // System Idle / init — treat carefully; reclaim uses pid_alive.
-    // Prefer a definitely-dead pid: use a high unused number after verifying not alive.
+                         // Prefer a definitely-dead pid: use a high unused number after verifying not alive.
     let mut dead_pid = 4_000_000u32;
     while pid_alive(dead_pid) {
         dead_pid += 1;

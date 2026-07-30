@@ -65,7 +65,8 @@ class QueuedServeTest(unittest.TestCase):
 
         resp = self._recv_response()
         self.assertEqual(resp["id"], 1)
-        self.assertEqual(resp["result"], {"ok": True, "result": 1})
+        self.assertTrue(resp["result"]["ok"])
+        self.assertEqual(resp["result"]["result"], 1)
 
     def test_ping_answered_on_worker_without_process_pending(self) -> None:
         """Idle heartbeat ping must not depend on the main-thread pump."""

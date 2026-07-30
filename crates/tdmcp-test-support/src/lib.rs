@@ -148,9 +148,6 @@ mod tests {
         let stream = server_task.await.unwrap();
         assert_eq!(stream.pid, 42);
         assert_eq!(stream.handshake.title.as_deref(), Some("demo.toe"));
-        assert_eq!(
-            stream.handshake.toe_path.as_deref(),
-            Some("/data/demo.toe")
-        );
+        assert_eq!(stream.handshake.toe_path.as_deref(), Some("/data/demo.toe"));
     }
 }

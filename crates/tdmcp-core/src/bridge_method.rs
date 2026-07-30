@@ -17,6 +17,8 @@ pub enum BridgeMethod {
     Capture,
     /// Structural inspect.
     Inspect,
+    /// Ordered create / set / delete.
+    MutateNodes,
     /// Liveness ping.
     Ping,
 }
@@ -29,6 +31,7 @@ impl BridgeMethod {
             Self::ExecutePython => "execute_python",
             Self::Capture => "capture",
             Self::Inspect => "inspect",
+            Self::MutateNodes => "mutate_nodes",
             Self::Ping => "ping",
         }
     }
@@ -40,6 +43,7 @@ impl BridgeMethod {
             Self::ExecutePython => "PythonEval",
             Self::Capture => "Capture",
             Self::Inspect => "Inspect",
+            Self::MutateNodes => "Mutate",
             Self::Ping => "Ping",
         }
     }
@@ -49,6 +53,7 @@ impl BridgeMethod {
         Self::ExecutePython,
         Self::Capture,
         Self::Inspect,
+        Self::MutateNodes,
         Self::Ping,
     ];
 
@@ -58,6 +63,7 @@ impl BridgeMethod {
             "execute_python" => Some(Self::ExecutePython),
             "capture" => Some(Self::Capture),
             "inspect" => Some(Self::Inspect),
+            "mutate_nodes" => Some(Self::MutateNodes),
             "ping" => Some(Self::Ping),
             _ => None,
         }

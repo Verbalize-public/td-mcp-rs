@@ -93,15 +93,12 @@ async fn call_tool(
     .await
     {
         Ok(v) => Ok(Json(serde_json::json!({ "ok": true, "data": v }))),
-        Err(ToolCallError::Failed {
-            summary,
-            diagnostics,
-            image_jpeg_base64,
-        }) => Ok(Json(serde_json::json!({
+        Err(ToolCallError::Failed(fail)) => Ok(Json(serde_json::json!({
             "ok": false,
-            "summary": summary,
-            "diagnostics": diagnostics,
-            "jpegBase64": image_jpeg_base64,
+            "summary": fail.summary,
+            "diagnostics": fail.diagnostics,
+            "jpegBase64": fail.image_jpeg_base64,
+            "data": fail.data,
         }))),
         Err(ToolCallError::UnknownTool(_) | ToolCallError::InvalidArgs(_)) => {
             Err(axum::http::StatusCode::BAD_REQUEST)

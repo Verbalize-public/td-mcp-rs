@@ -5,7 +5,7 @@ use schemars::schema_for;
 use serde_json::Value;
 
 use crate::fleet::FleetParams;
-use crate::tools::{CaptureParams, ExecutePythonParams, InspectParams};
+use crate::tools::{CaptureParams, ExecutePythonParams, InspectParams, MutateNodesParams};
 
 /// Empty object schema for tools with no parameters.
 #[must_use]
@@ -22,6 +22,7 @@ pub fn input_schema_for(tool_name: &str) -> JsonObject {
         "execute_python" => schema_value::<ExecutePythonParams>(),
         "capture" => schema_value::<CaptureParams>(),
         "inspect" => schema_value::<InspectParams>(),
+        "mutate_nodes" => schema_value::<MutateNodesParams>(),
         "describe_tools" => Value::Object(empty_object_schema()),
         _ => Value::Object(empty_object_schema()),
     };
@@ -67,5 +68,18 @@ mod tests {
         let names: Vec<&str> = required.iter().filter_map(Value::as_str).collect();
         assert!(names.contains(&"pid"));
         assert!(names.contains(&"script"));
+    }
+
+    #[test]
+    fn mutate_nodes_requires_pid_and_steps() {
+        let s = input_schema_for("mutate_nodes");
+        let required = s
+            .get("required")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let names: Vec<&str> = required.iter().filter_map(Value::as_str).collect();
+        assert!(names.contains(&"pid"));
+        assert!(names.contains(&"steps"));
     }
 }

@@ -61,6 +61,11 @@ fn inspect_schema_matches_golden() {
 }
 
 #[test]
+fn mutate_nodes_schema_matches_golden() {
+    assert_schema_matches("mutate_nodes");
+}
+
+#[test]
 fn deny_unknown_fields_rejects_extra() {
     let err = serde_json::from_value::<tdmcp_mcp::ExecutePythonParams>(serde_json::json!({
         "pid": 1,

@@ -232,8 +232,8 @@ async fn exclusive_fails_while_shared_in_flight() {
     .await
     .expect_err("exclusive must fail");
     match err {
-        tdmcp_mcp::ToolCallError::Failed { diagnostics, .. } => {
-            assert_eq!(diagnostics.items[0].code, "tdmcp.bridge.queue_busy");
+        tdmcp_mcp::ToolCallError::Failed(fail) => {
+            assert_eq!(fail.diagnostics.items[0].code, "tdmcp.bridge.queue_busy");
         }
         other => panic!("expected Failed, got {other:?}"),
     }
@@ -354,8 +354,7 @@ async fn idle_peer_with_auto_pong_stays_connected() {
 #[tokio::test]
 async fn disconnected_pid_evicted_after_ttl() {
     let ttl = Duration::from_millis(80);
-    let (registry, sessions, peer) =
-        setup_with_ttl(48, HeartbeatConfig::disabled(), ttl).await;
+    let (registry, sessions, peer) = setup_with_ttl(48, HeartbeatConfig::disabled(), ttl).await;
     drop(peer);
 
     let catalog = Catalog::fallback();

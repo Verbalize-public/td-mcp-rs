@@ -144,7 +144,7 @@ only — not bridge peer health.
 | `inspect` | Structural subtree read (nodes / params / errors); summary = direct-child roster | **Shipped** |
 | `capture` | Perception — `top` / `preview` / `auto` | **Shipped** (P0 modes) |
 | `describe_tools` | Manifest of available tools | **Shipped** |
-| `mutate_nodes` | Ordered create / set / delete steps; sequential apply, stop on first hard error | **Planned** (P1) |
+| `mutate_nodes` | Ordered create / set / delete steps; sequential apply, stop on first hard error | **Shipped** |
 | `dialogs` | List / dismiss OS dialogs | **Planned** (P1, Win) |
 | `api_help` | Live TD Python API introspection | **Planned** (P1) |
 | `capture` `chop_data` / `pop` / `chop_image` | Extra perception modes | **Planned** (P1 / P1.x) |
@@ -183,7 +183,7 @@ When `childrenReturned < childCount`, the node includes `childrenTruncated: true
 | `chop_data` | **Planned** | CHOP → capped JSON |
 | `pop` / `chop_image` | **Planned** | Temp converter → TOP → `top` |
 
-### `mutate_nodes` — Planned (P1)
+### `mutate_nodes` — Shipped (P1)
 
 One tool. Ordered `steps[]`. **Sequential apply, stop on first hard error, never roll back.** No separate preflight pass — the live network can change between passes and a single-caller local daemon does not need two-phase commit. "Aggregate bad paths" is met by *returning* every path/param error seen up to the stop point, not by a resolve-all-then-apply phase.
 
@@ -284,7 +284,7 @@ Daemon CLI: `start` (foreground; tray + toast by default, dashboard hidden until
 | Phase | Ship | Exit green | Status |
 | --- | --- | --- | --- |
 | **P0** | Daemon + IPC + bootstrap + Streamable HTTP: `fleet` + script/errors + `capture` (`top`/`preview`) + diagnostics + per-pid queue + exclusive fail + resurrection | Two connected pids; exclusive fails while busy; perception non-black; structured script failure | **Shipped** (see [`E2E_CHECKLIST.md`](E2E_CHECKLIST.md)) |
-| **P1** | `mutate_nodes`, `capture` `chop_data`, dialogs (Win), op lint engine | `mutate_nodes` sequential apply stops at first bad path with `failedAt`; later steps emit `tdmcp.batch.skipped_dependent`; pure `apply_step` seam unit-covered without TD | **Planned** |
+| **P1** | `mutate_nodes`, `capture` `chop_data`, dialogs (Win), op lint engine | `mutate_nodes` sequential apply stops at first bad path with `failedAt`; later steps emit `tdmcp.batch.skipped_dependent`; pure `apply_step` seam unit-covered without TD | Partial (`mutate_nodes` **Shipped** + live E2E M1–M11; remaining P1 items **Planned**) |
 | **P1.x** | `capture` `pop`, `chop_image` | Non-TOP heroes via temp converters | **Planned** |
 | **P2** | Lifecycle create/start/stop (tray already shipped) | Operator create/start/stop; new project by pid | Partial (tray **Shipped**; lifecycle **Planned**) |
 | **P3** | WebSocket / remote RFC | Separate design review | **Planned** |

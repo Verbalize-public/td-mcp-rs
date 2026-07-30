@@ -189,3 +189,221 @@ async fn script_failure_returns_diagnostics() {
     );
     assert!(v["diagnostics"]["items"][0]["rawTraceback"].is_string());
 }
+
+#[tokio::test]
+async fn mutate_nodes_happy_path() {
+    let bridge: Arc<dyn BridgeRpc> = Arc::new(FakeBridgeRpc::responding(json!({
+        "ok": true,
+        "applied": 3,
+        "failedAt": null,
+        "steps": [
+            {"ok": true, "path": "/project1/noise1"},
+            {"ok": true, "path": "/project1/noise1"},
+            {"ok": true, "path": "/project1/noise1"}
+        ]
+    })));
+    let state = AppState::new(registry_with_pid(), Catalog::fallback(), bridge);
+    let app = build_mcp_router(state);
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/mcp/tools/call")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            json!({
+                "name": "mutate_nodes",
+                "arguments": {
+                    "pid": 34,
+                    "steps": [
+                        {"op": "create", "path": "/project1/noise1", "opType": "noiseTOP"},
+                        {"op": "set", "path": "/project1/noise1", "values": {"resolutionw": 128}},
+                        {"op": "delete", "path": "/project1/noise1"}
+                    ]
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["data"]["applied"], 3);
+    assert!(v["data"]["failedAt"].is_null());
+    assert_eq!(v["data"]["steps"].as_array().unwrap().len(), 3);
+}
+
+#[tokio::test]
+async fn mutate_nodes_first_step_failure() {
+    let bridge: Arc<dyn BridgeRpc> = Arc::new(FakeBridgeRpc::responding(json!({
+        "ok": false,
+        "applied": 0,
+        "failedAt": 0,
+        "steps": [
+            {"ok": false, "code": "tdmcp.op.unknown_type", "path": "/project1/x", "message": "unknown opType"},
+            {"ok": false, "skipped": true, "code": "tdmcp.batch.skipped_dependent", "path": "/project1/x"},
+            {"ok": false, "skipped": true, "code": "tdmcp.batch.skipped_dependent", "path": "/project1/x"}
+        ]
+    })));
+    let state = AppState::new(registry_with_pid(), Catalog::fallback(), bridge);
+    let app = build_mcp_router(state);
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/mcp/tools/call")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            json!({
+                "name": "mutate_nodes",
+                "arguments": {
+                    "pid": 34,
+                    "steps": [
+                        {"op": "create", "path": "/project1/x", "opType": "notReal"},
+                        {"op": "set", "path": "/project1/x", "values": {"a": 1}},
+                        {"op": "delete", "path": "/project1/x"}
+                    ]
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(v["ok"], false);
+    assert_eq!(
+        v["diagnostics"]["items"][0]["code"],
+        "tdmcp.op.unknown_type"
+    );
+    assert_eq!(v["data"]["applied"], 0);
+    assert_eq!(v["data"]["failedAt"], 0);
+    assert_eq!(
+        v["data"]["steps"][1]["code"],
+        "tdmcp.batch.skipped_dependent"
+    );
+}
+
+#[tokio::test]
+async fn mutate_nodes_mid_batch_failure() {
+    let bridge: Arc<dyn BridgeRpc> = Arc::new(FakeBridgeRpc::responding(json!({
+        "ok": false,
+        "applied": 1,
+        "failedAt": 1,
+        "steps": [
+            {"ok": true, "path": "/project1/noise1"},
+            {"ok": false, "code": "tdmcp.par.unknown", "path": "/project1/noise1", "message": "unknown parameter: nope"},
+            {"ok": false, "skipped": true, "code": "tdmcp.batch.skipped_dependent", "path": "/project1/noise1"}
+        ]
+    })));
+    let state = AppState::new(registry_with_pid(), Catalog::fallback(), bridge);
+    let app = build_mcp_router(state);
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/mcp/tools/call")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            json!({
+                "name": "mutate_nodes",
+                "arguments": {
+                    "pid": 34,
+                    "steps": [
+                        {"op": "create", "path": "/project1/noise1", "opType": "noiseTOP"},
+                        {"op": "set", "path": "/project1/noise1", "values": {"nope": 1}},
+                        {"op": "delete", "path": "/project1/noise1"}
+                    ]
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(v["ok"], false);
+    assert_eq!(v["diagnostics"]["items"][0]["code"], "tdmcp.par.unknown");
+    assert_eq!(v["data"]["applied"], 1);
+    assert_eq!(v["data"]["failedAt"], 1);
+    assert_eq!(
+        v["data"]["steps"][2]["code"],
+        "tdmcp.batch.skipped_dependent"
+    );
+}
+
+#[tokio::test]
+async fn mutate_nodes_unknown_field_rejected() {
+    let bridge: Arc<dyn BridgeRpc> = Arc::new(FakeBridgeRpc::responding(
+        json!({"ok": true, "applied": 0, "failedAt": null, "steps": []}),
+    ));
+    let state = AppState::new(registry_with_pid(), Catalog::fallback(), bridge);
+    let app = build_mcp_router(state);
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/mcp/tools/call")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            json!({
+                "name": "mutate_nodes",
+                "arguments": {
+                    "pid": 34,
+                    "steps": [{"op": "delete", "path": "/project1/x", "extra": true}]
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn mutate_nodes_detail_level_detailed_echoes_values() {
+    let bridge: Arc<dyn BridgeRpc> = Arc::new(FakeBridgeRpc::responding(json!({
+        "ok": true,
+        "applied": 1,
+        "failedAt": null,
+        "steps": [{
+            "ok": true,
+            "path": "/project1/noise1",
+            "values": {"resolutionw": 128}
+        }]
+    })));
+    let state = AppState::new(registry_with_pid(), Catalog::fallback(), bridge);
+    let app = build_mcp_router(state);
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/mcp/tools/call")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            json!({
+                "name": "mutate_nodes",
+                "arguments": {
+                    "pid": 34,
+                    "detailLevel": "detailed",
+                    "steps": [{
+                        "op": "set",
+                        "path": "/project1/noise1",
+                        "values": {"resolutionw": 128}
+                    }]
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["data"]["steps"][0]["values"]["resolutionw"], 128);
+}

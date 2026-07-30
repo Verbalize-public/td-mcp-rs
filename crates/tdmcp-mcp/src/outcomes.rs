@@ -85,16 +85,27 @@ pub fn failed_one_with_image(
     item: DiagnosticItem,
     image_jpeg_base64: Option<String>,
 ) -> ToolCallError {
+    failed_one_with_image_and_data(item, image_jpeg_base64, None)
+}
+
+/// Build a single-item `Failed` tool error with optional JPEG + structured data.
+pub fn failed_one_with_image_and_data(
+    item: DiagnosticItem,
+    image_jpeg_base64: Option<String>,
+    data: Option<Value>,
+) -> ToolCallError {
     let summary = item.message.clone();
     let diagnostics = Diagnostics {
         summary,
         items: vec![item],
     };
-    ToolCallError::Failed {
+    crate::tools::ToolFailPayload {
         summary: diagnostics.recount_summary(),
         diagnostics,
         image_jpeg_base64,
+        data,
     }
+    .into_error()
 }
 
 /// Map a script (`execute_python`) outcome.
@@ -202,6 +213,95 @@ pub fn map_inspect_outcome(
         BridgeOutcome::QueueBusy => Err(queue_busy(catalog, "inspect", pid)),
         BridgeOutcome::Transport(err) => Err(transport(catalog, "inspect", pid, err)),
     }
+}
+
+/// Map a `mutate_nodes` outcome.
+pub fn map_mutate_outcome(
+    catalog: &Catalog,
+    pid: Pid,
+    context_path: Option<OpPath>,
+    outcome: BridgeOutcome,
+) -> Result<Value, ToolCallError> {
+    match outcome {
+        BridgeOutcome::Ok(value) => {
+            let env = BridgeResultEnvelope::from_value(&value);
+            // Soft failure: bridge returns applied/failedAt/steps even when ok:false.
+            if env.is_error() || value.get("ok") == Some(&Value::Bool(false)) {
+                let failed_at = value
+                    .get("failedAt")
+                    .and_then(Value::as_u64)
+                    .map(|i| i as u32);
+                let (code, msg, op_path) = mutate_failure_from_steps(&value);
+                let item = build_diag(
+                    catalog,
+                    code,
+                    DiagnosticSpan {
+                        tool: "mutate_nodes".into(),
+                        mutation_index: failed_at,
+                        field: None,
+                        line: None,
+                        column: None,
+                        snippet: None,
+                    },
+                    Some(msg),
+                    ctx(pid, op_path, context_path),
+                );
+                let data = Some(serde_json::json!({
+                    "applied": value.get("applied").cloned().unwrap_or(Value::from(0)),
+                    "failedAt": value.get("failedAt").cloned().unwrap_or(Value::Null),
+                    "steps": value.get("steps").cloned().unwrap_or_else(|| Value::Array(vec![])),
+                }));
+                return Err(failed_one_with_image_and_data(item, None, data));
+            }
+            Ok(serde_json::json!({
+                "ok": true,
+                "applied": value.get("applied").cloned().unwrap_or(Value::from(0)),
+                "failedAt": value.get("failedAt").cloned().unwrap_or(Value::Null),
+                "steps": value.get("steps").cloned().unwrap_or_else(|| Value::Array(vec![])),
+            }))
+        }
+        BridgeOutcome::QueueBusy => Err(queue_busy(catalog, "mutate_nodes", pid)),
+        BridgeOutcome::Transport(err) => Err(transport(catalog, "mutate_nodes", pid, err)),
+    }
+}
+
+/// Pull the first hard-failure code/message/path from a mutate envelope.
+fn mutate_failure_from_steps(value: &Value) -> (&'static str, String, Option<OpPath>) {
+    let steps = value.get("steps").and_then(Value::as_array);
+    if let Some(steps) = steps {
+        for step in steps {
+            if step.get("ok") == Some(&Value::Bool(false))
+                && step.get("skipped") != Some(&Value::Bool(true))
+            {
+                let code = step
+                    .get("code")
+                    .and_then(Value::as_str)
+                    .unwrap_or(codes::MUTATE_STEP_FAILED);
+                // Leak-free: map known codes to static; unknown → MUTATE_STEP_FAILED.
+                let code = match code {
+                    codes::OP_NOT_FOUND => codes::OP_NOT_FOUND,
+                    codes::OP_UNKNOWN_TYPE => codes::OP_UNKNOWN_TYPE,
+                    codes::PAR_UNKNOWN => codes::PAR_UNKNOWN,
+                    codes::BATCH_SKIPPED_DEPENDENT => codes::BATCH_SKIPPED_DEPENDENT,
+                    codes::MUTATE_STEP_FAILED => codes::MUTATE_STEP_FAILED,
+                    _ => codes::MUTATE_STEP_FAILED,
+                };
+                let msg = step
+                    .get("message")
+                    .and_then(Value::as_str)
+                    .unwrap_or("mutate step failed")
+                    .to_owned();
+                let op_path = step.get("path").and_then(Value::as_str).map(OpPath::from);
+                return (code, msg, op_path);
+            }
+        }
+    }
+    let env = BridgeResultEnvelope::from_value(value);
+    (
+        codes::MUTATE_STEP_FAILED,
+        env.message_or("mutate_nodes failed"),
+        None,
+    )
 }
 
 fn span(tool: &str, field: Option<String>) -> DiagnosticSpan {

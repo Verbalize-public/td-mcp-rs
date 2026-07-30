@@ -111,6 +111,28 @@ entries:
       - kind: doc
         id: api_help
 
+  - code: tdmcp.op.unknown_type
+    layer: mutate
+    message: "Unknown or unresolved opType for create"
+    mitigation:
+      - "Fix the opType string (e.g. noiseTOP, not noise)"
+      - "Query api_help / TD docs for the OP family name"
+      - "Fix the failedAt step only; later steps are skipped, not replayed"
+    references:
+      - kind: doc
+        id: mutate_nodes
+
+  - code: tdmcp.mutate.step_failed
+    layer: mutate
+    message: "Mutate step failed with a TD-side exception"
+    mitigation:
+      - "Read the message / rawTraceback for the TD error"
+      - "Fix the failedAt step only; later steps are skipped, not replayed"
+      - "Common causes: locked node, duplicate name, wrong parent family"
+    references:
+      - kind: doc
+        id: mutate_nodes
+
   - code: tdmcp.script.execution_failed
     layer: script
     message: "Python script execution failed"

@@ -90,14 +90,15 @@ impl ServerHandler for McpHandler {
                 None,
             )),
             Err(ToolCallError::InvalidArgs(msg)) => Err(ErrorData::invalid_params(msg, None)),
-            Err(ToolCallError::Failed {
-                summary,
-                diagnostics,
-                image_jpeg_base64,
-            }) => {
-                let payload = serde_json::to_value(&diagnostics)
-                    .unwrap_or_else(|_| json!({ "summary": summary }));
-                Ok(call_tool_error_result(payload, image_jpeg_base64).into())
+            Err(ToolCallError::Failed(fail)) => {
+                let mut payload = serde_json::to_value(&fail.diagnostics)
+                    .unwrap_or_else(|_| json!({ "summary": fail.summary }));
+                if let Some(data) = fail.data {
+                    if let Some(obj) = payload.as_object_mut() {
+                        obj.insert("data".into(), data);
+                    }
+                }
+                Ok(call_tool_error_result(payload, fail.image_jpeg_base64).into())
             }
         }
     }

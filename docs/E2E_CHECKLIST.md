@@ -49,11 +49,39 @@ See [`DEV_ENV.md`](DEV_ENV.md) § Dev smoke. Does **not** replace rows 1–12 be
 | 11 | `capture` mode `preview` on zone COMP with `out1` → non-black | ✅ |
 | 12 | Black TOP → `tdmcp.perception.black_frame` | ✅ |
 
-**Run record:** 2026-07-29, TouchDesigner 099.2025.33070 (Windows), two
+### `mutate_nodes` (P1)
+
+| # | Step | Pass? |
+| --- | --- | --- |
+| M1 | `fleet` shows the connected pid | ✅ |
+| M2 | 1-step `create` of a `noiseTOP` under `/project1` → `ok:true, applied:1, failedAt:null`; echoed path matches | ✅ |
+| M3 | `inspect` confirms the created node's `opType` | ✅ |
+| M4 | 2-step batch `create` + `set` (`values:{resolutionw:128}`) → both ok | ✅ |
+| M5 | `set` with `expressions:{resolutionw:"absTime.seconds*4"}` → re-`inspect` params confirms expression mode | ✅ |
+| M6 | `set` with `pulse` on a Pulse par → no error (used `timerCHOP` + `start`) | ✅ |
+| M7 | Mid-batch failure — `create` ok, then `set` on a nonexistent param → `failedAt:1`; `tdmcp.par.unknown`; later steps `tdmcp.batch.skipped_dependent` | ✅ |
+| M8 | First-step failure — `create` with bad `opType` → `failedAt:0, applied:0`; `tdmcp.op.unknown_type` | ✅ |
+| M9 | `delete` a previously created node → `ok:true`; re-`inspect` confirms gone | ✅ |
+| M10 | Structural errors clean after the whole pass (`inspect` errors / classic `get_td_node_errors`) | ✅ |
+| M11 | `capture` top on a created TOP → non-black | ✅ |
+
+**Run record (P0):** 2026-07-29, TouchDesigner 099.2025.33070 (Windows), two
 `_agent_tdmcprs_e2e*` sandbox projects, daemon `0.1.0` release build. All 12
 rows pass. See "Bugs found and fixed" below — none were pre-existing test
 gaps, all were live-only failures (never hit by the mocked/in-memory
 integration suite).
+
+**Run record (`mutate_nodes` M1–M11):** 2026-07-31, TouchDesigner via
+`_agent_tdmcprs_dev.4.toe` (pid 19168), daemon `0.1.0` release rebuild.
+All M1–M11 pass over HTTP JSON `/mcp/tools/call`. Notes:
+- M5: `inspect` params report evaluated `resolutionw` (~3554), confirming
+  expression mode took (explicit `par.mode` set before `.expr`).
+- M6: used `timerCHOP` + `pulse:["start"]` (noiseTOP has no pulse par).
+- Same-version `ensure` does **not** re-extract `diagnostics/catalog.yaml`
+  when `install.version` already matches — first M8 run fell back to
+  `layer:fleet` without mitigation until the stamp was deleted and assets
+  re-extracted. Workaround for same-version rebuilds: delete
+  `%LOCALAPPDATA%/tdmcp-rs/install.version` before `ensure`.
 
 ## Bugs found and fixed during this run
 

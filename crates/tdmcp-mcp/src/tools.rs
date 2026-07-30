@@ -17,7 +17,9 @@ use tokio::sync::Mutex;
 
 use crate::bridge_rpc::{BridgeRpc, BridgeRpcError};
 use crate::fleet::{fleet_summary, FleetParams};
-use crate::outcomes::{map_inspect_outcome, map_perception_outcome, map_script_outcome};
+use crate::outcomes::{
+    map_inspect_outcome, map_mutate_outcome, map_perception_outcome, map_script_outcome,
+};
 use crate::schema::input_schema_for;
 
 /// Per-call bridge wait budget. A timeout fails the **wait** — it does not
@@ -46,16 +48,36 @@ pub enum ToolCallError {
     #[error("invalid arguments: {0}")]
     InvalidArgs(String),
     /// Domain / queue / bridge failure with diagnostics.
-    #[error("{summary}")]
-    Failed {
-        /// Short summary.
-        summary: String,
-        /// Structured diagnostics.
-        diagnostics: tdmcp_diagnostics::Diagnostics,
-        /// Optional JPEG (base64) when perception failed but a frame was captured
-        /// (e.g. black-frame) — agents still need to see the pixels.
-        image_jpeg_base64: Option<String>,
-    },
+    #[error("{0}")]
+    Failed(Box<ToolFailPayload>),
+}
+
+/// Payload for [`ToolCallError::Failed`] (boxed to keep the error enum small).
+#[derive(Debug)]
+pub struct ToolFailPayload {
+    /// Short summary.
+    pub summary: String,
+    /// Structured diagnostics.
+    pub diagnostics: tdmcp_diagnostics::Diagnostics,
+    /// Optional JPEG (base64) when perception failed but a frame was captured
+    /// (e.g. black-frame) — agents still need to see the pixels.
+    pub image_jpeg_base64: Option<String>,
+    /// Optional structured payload (e.g. mutate `applied` / `failedAt` / `steps`).
+    pub data: Option<Value>,
+}
+
+impl std::fmt::Display for ToolFailPayload {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.summary)
+    }
+}
+
+impl ToolFailPayload {
+    /// Wrap as [`ToolCallError::Failed`].
+    #[must_use]
+    pub fn into_error(self) -> ToolCallError {
+        ToolCallError::Failed(Box::new(self))
+    }
 }
 
 /// Catalogue of v1 tools with derived schemas.
@@ -76,6 +98,11 @@ pub fn tool_descriptors() -> Vec<ToolDescriptor> {
             name: "inspect".into(),
             description: "Structural subtree read (nodes/params/errors). Default summary includes a direct-child roster ({name, opType}); detailed adds path+family. Roster capped at 64 — when truncated see node.truncation (detailLevel does not raise the cap).".into(),
             input_schema: input_schema_for("inspect"),
+        },
+        ToolDescriptor {
+            name: "mutate_nodes".into(),
+            description: "Ordered create/set/delete steps; sequential apply, stop on first hard error; later steps skipped (tdmcp.batch.skipped_dependent). Fix from failedAt only.".into(),
+            input_schema: input_schema_for("mutate_nodes"),
         },
         ToolDescriptor {
             name: "capture".into(),
@@ -221,6 +248,61 @@ pub struct InspectParams {
     pub detail_level: DetailLevel,
 }
 
+/// One ordered mutate step (`create` / `set` / `delete`).
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(tag = "op", rename_all = "lowercase", deny_unknown_fields)]
+pub enum MutateStep {
+    /// Create a node at `path` with the given `opType`.
+    Create {
+        /// Desired node path (absolute or relative to contextPath).
+        path: OpPath,
+        /// TD op class name (e.g. `noiseTOP`).
+        #[serde(rename = "opType")]
+        op_type: String,
+        /// Optional plain parameter values applied after create.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        values: Option<Map<String, Value>>,
+    },
+    /// Set values / expressions / pulse on an existing node.
+    Set {
+        /// Target node path.
+        path: OpPath,
+        /// Plain parameter values (`par.val = …`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        values: Option<Map<String, Value>>,
+        /// Expression strings; mode is set to expression before assign.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        expressions: Option<Map<String, Value>>,
+        /// Parameter names to pulse.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pulse: Option<Vec<String>>,
+    },
+    /// Destroy a node.
+    Delete {
+        /// Target node path.
+        path: OpPath,
+    },
+}
+
+/// Args for mutate_nodes.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MutateNodesParams {
+    /// Target pid.
+    pub pid: Pid,
+    /// Ordered steps; apply stops at the first hard failure.
+    pub steps: Vec<MutateStep>,
+    /// Resolution base for relative paths.
+    #[serde(default)]
+    pub context_path: Option<OpPath>,
+    /// Exclusive enqueue.
+    #[serde(default)]
+    pub exclusive: bool,
+    /// Structural detail level for per-step echo.
+    #[serde(default)]
+    pub detail_level: DetailLevel,
+}
+
 /// Outcome of a bridge-driven tool call, as reported to the mapper.
 #[derive(Debug)]
 pub enum BridgeOutcome {
@@ -330,6 +412,27 @@ pub async fn dispatch_tool(
                 params.context_path,
                 outcome,
             )
+        }
+        "mutate_nodes" => {
+            let params: MutateNodesParams = serde_json::from_value(args)
+                .map_err(|e| ToolCallError::InvalidArgs(e.to_string()))?;
+            let method = BridgeMethod::MutateNodes;
+            let steps = serde_json::to_value(&params.steps)
+                .map_err(|e| ToolCallError::InvalidArgs(e.to_string()))?;
+            let outcome = enqueue_and_call(
+                registry,
+                bridge,
+                params.pid,
+                method,
+                mode_of(params.exclusive),
+                serde_json::json!({
+                    "steps": steps,
+                    "contextPath": params.context_path,
+                    "detailLevel": params.detail_level.as_str(),
+                }),
+            )
+            .await;
+            map_mutate_outcome(catalog, params.pid, params.context_path, outcome)
         }
         other => Err(ToolCallError::UnknownTool(other.to_owned())),
     }

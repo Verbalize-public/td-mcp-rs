@@ -32,7 +32,13 @@ _READ_POLL_S = 1.0
 
 # Wire method names — must match tdmcp_core::BridgeMethod::wire_str() exactly.
 # Parity gated by bridge/tests/test_bridge_methods.py + fixtures/bridge_methods.json.
-BRIDGE_METHODS: tuple[str, ...] = ("execute_python", "capture", "inspect", "ping")
+BRIDGE_METHODS: tuple[str, ...] = (
+    "execute_python",
+    "capture",
+    "inspect",
+    "mutate_nodes",
+    "ping",
+)
 
 
 class ExecutePythonParams(TypedDict):
@@ -60,6 +66,12 @@ class InspectParams(TypedDict):
     path: str
     contextPath: NotRequired[str | None]
     include: NotRequired[list[str]]
+    detailLevel: NotRequired[str]
+
+
+class MutateNodesParams(TypedDict):
+    steps: list[dict[str, Any]]
+    contextPath: NotRequired[str | None]
     detailLevel: NotRequired[str]
 
 
@@ -529,10 +541,394 @@ def handle_inspect(params: dict[str, Any]) -> dict[str, Any]:
         return {"ok": False, "error": str(exc), "traceback": traceback.format_exc()}
 
 
+# --- mutate_nodes (pure apply_step seam + live handle_mutate wrapper) --------
+
+
+def _absolutize_path(path: str, context_path: str | None) -> str:
+    """Join relative path against contextPath (default /project1)."""
+    path = (path or "").strip()
+    if path.startswith("/"):
+        return path.rstrip("/") or "/"
+    base = (context_path or "/project1").rstrip("/") or "/project1"
+    if not path:
+        return base
+    return f"{base}/{path}"
+
+
+def _parent_and_name(full_path: str) -> tuple[str, str]:
+    """Split an absolute path into (parent_path, leaf_name)."""
+    full = (full_path or "").rstrip("/") or "/"
+    if full == "/":
+        return "/", ""
+    parent, name = full.rsplit("/", 1)
+    return parent or "/", name
+
+
+def _get_par(node: Any, name: str) -> Any | None:
+    """Best-effort parameter lookup; None if missing."""
+    try:
+        pars = getattr(node, "par", None)
+        if pars is None:
+            return None
+        return getattr(pars, name, None)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _apply_values(node: Any, values: dict[str, Any]) -> dict[str, Any] | None:
+    """Assign plain parameter values. Returns an error step dict, or None on ok."""
+    for name, val in values.items():
+        par = _get_par(node, name)
+        if par is None:
+            return {
+                "ok": False,
+                "code": "tdmcp.par.unknown",
+                "path": getattr(node, "path", None),
+                "message": f"unknown parameter: {name}",
+                "field": name,
+            }
+        try:
+            if hasattr(par, "val"):
+                par.val = val
+            else:
+                setattr(node.par, name, val)
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "ok": False,
+                "code": "tdmcp.mutate.step_failed",
+                "path": getattr(node, "path", None),
+                "message": str(exc),
+                "field": name,
+            }
+    return None
+
+
+def _apply_expressions(
+    node: Any, expressions: dict[str, Any], expression_mode: Any
+) -> dict[str, Any] | None:
+    """Set expression mode explicitly, then assign .expr."""
+    for name, expr in expressions.items():
+        par = _get_par(node, name)
+        if par is None:
+            return {
+                "ok": False,
+                "code": "tdmcp.par.unknown",
+                "path": getattr(node, "path", None),
+                "message": f"unknown parameter: {name}",
+                "field": name,
+            }
+        try:
+            par.mode = expression_mode
+            par.expr = expr
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "ok": False,
+                "code": "tdmcp.mutate.step_failed",
+                "path": getattr(node, "path", None),
+                "message": str(exc),
+                "field": name,
+            }
+    return None
+
+
+def _apply_pulse(node: Any, pulse: list[str]) -> dict[str, Any] | None:
+    """Pulse named parameters."""
+    for name in pulse:
+        par = _get_par(node, name)
+        if par is None:
+            return {
+                "ok": False,
+                "code": "tdmcp.par.unknown",
+                "path": getattr(node, "path", None),
+                "message": f"unknown parameter: {name}",
+                "field": name,
+            }
+        try:
+            pulse_fn = getattr(par, "pulse", None)
+            if not callable(pulse_fn):
+                return {
+                    "ok": False,
+                    "code": "tdmcp.mutate.step_failed",
+                    "path": getattr(node, "path", None),
+                    "message": f"parameter {name} has no pulse()",
+                    "field": name,
+                }
+            pulse_fn()
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "ok": False,
+                "code": "tdmcp.mutate.step_failed",
+                "path": getattr(node, "path", None),
+                "message": str(exc),
+                "field": name,
+            }
+    return None
+
+
+class MutateContext:
+    """Resolution hooks for apply_step — no ``td`` import in the pure seam.
+
+    Live TD supplies :class:`_TdMutateContext`; unit tests supply fakes.
+    """
+
+    def resolve(self, path: str) -> Any | None:  # noqa: D401
+        raise NotImplementedError
+
+    def get_op_type(self, op_type: str) -> Any | None:  # noqa: D401
+        raise NotImplementedError
+
+    def expression_mode(self) -> Any:
+        """Value assigned to ``par.mode`` before setting ``.expr``."""
+        return "EXPRESSION"
+
+
+class _TdMutateContext(MutateContext):
+    """Live TD resolution via ``tdmcp_resolve`` / ``getattr(td, …)``."""
+
+    def __init__(self, context_path: str | None) -> None:
+        self._context_path = context_path
+
+    def resolve(self, path: str) -> Any | None:
+        node = tdmcp_resolve(path, self._context_path)
+        if node is None or not getattr(node, "valid", True):
+            return None
+        return node
+
+    def get_op_type(self, op_type: str) -> Any | None:
+        import td  # type: ignore
+
+        return getattr(td, op_type, None)
+
+    def expression_mode(self) -> Any:
+        import td  # type: ignore
+
+        mode_enum = getattr(td, "ParMode", None)
+        if mode_enum is not None:
+            expr = getattr(mode_enum, "EXPRESSION", None)
+            if expr is not None:
+                return expr
+        return "EXPRESSION"
+
+
+def apply_step(
+    ctx: MutateContext,
+    step: dict[str, Any],
+    *,
+    context_path: str | None = None,
+    detail_level: str = "summary",
+) -> dict[str, Any]:
+    """Apply one mutate step. Pure seam — no ``td`` import.
+
+    Returns a per-step result dict: ``{ok, path?, code?, message?, …}``.
+    """
+    op = step.get("op") or ""
+    try:
+        if op == "create":
+            return _step_create(ctx, step, context_path, detail_level)
+        if op == "set":
+            return _step_set(ctx, step, context_path, detail_level)
+        if op == "delete":
+            return _step_delete(ctx, step, context_path)
+        return {
+            "ok": False,
+            "code": "tdmcp.mutate.step_failed",
+            "message": f"unknown mutate op: {op}",
+            "path": step.get("path"),
+        }
+    except Exception as exc:  # noqa: BLE001 — never propagate raw
+        return {
+            "ok": False,
+            "code": "tdmcp.mutate.step_failed",
+            "message": str(exc),
+            "path": step.get("path"),
+        }
+
+
+def _step_create(
+    ctx: MutateContext,
+    step: dict[str, Any],
+    context_path: str | None,
+    detail_level: str,
+) -> dict[str, Any]:
+    path = step.get("path") or ""
+    op_type = step.get("opType") or ""
+    full = _absolutize_path(path, context_path)
+    parent_path, name = _parent_and_name(full)
+    if not name:
+        return {
+            "ok": False,
+            "code": "tdmcp.mutate.step_failed",
+            "message": "create path has no leaf name",
+            "path": full,
+        }
+    parent = ctx.resolve(parent_path)
+    if parent is None:
+        return {
+            "ok": False,
+            "code": "tdmcp.op.not_found",
+            "message": f"parent not found: {parent_path}",
+            "path": full,
+        }
+    op_cls = ctx.get_op_type(op_type)
+    if op_cls is None:
+        return {
+            "ok": False,
+            "code": "tdmcp.op.unknown_type",
+            "message": f"unknown opType: {op_type}",
+            "path": full,
+        }
+    created = parent.create(op_cls, name)
+    created_path = getattr(created, "path", None) or full
+    values = step.get("values")
+    if values:
+        err = _apply_values(created, values)
+        if err is not None:
+            err["path"] = created_path
+            return err
+    out: dict[str, Any] = {"ok": True, "path": created_path}
+    if detail_level == "detailed" and values:
+        out["values"] = values
+    return out
+
+
+def _step_set(
+    ctx: MutateContext,
+    step: dict[str, Any],
+    context_path: str | None,
+    detail_level: str,
+) -> dict[str, Any]:
+    path = step.get("path") or ""
+    full = _absolutize_path(path, context_path)
+    node = ctx.resolve(full)
+    if node is None:
+        return {
+            "ok": False,
+            "code": "tdmcp.op.not_found",
+            "message": f"node not found: {full}",
+            "path": full,
+        }
+    node_path = getattr(node, "path", None) or full
+    values = step.get("values")
+    expressions = step.get("expressions")
+    pulse = step.get("pulse")
+    if values:
+        err = _apply_values(node, values)
+        if err is not None:
+            return err
+    if expressions:
+        err = _apply_expressions(node, expressions, ctx.expression_mode())
+        if err is not None:
+            return err
+    if pulse:
+        err = _apply_pulse(node, list(pulse))
+        if err is not None:
+            return err
+    out: dict[str, Any] = {"ok": True, "path": node_path}
+    if detail_level == "detailed":
+        if values:
+            out["values"] = values
+        if expressions:
+            out["expressions"] = expressions
+        if pulse:
+            out["pulse"] = list(pulse)
+    return out
+
+
+def _step_delete(
+    ctx: MutateContext,
+    step: dict[str, Any],
+    context_path: str | None,
+) -> dict[str, Any]:
+    path = step.get("path") or ""
+    full = _absolutize_path(path, context_path)
+    node = ctx.resolve(full)
+    if node is None:
+        return {
+            "ok": False,
+            "code": "tdmcp.op.not_found",
+            "message": f"node not found: {full}",
+            "path": full,
+        }
+    node_path = getattr(node, "path", None) or full
+    try:
+        node.destroy()
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "ok": False,
+            "code": "tdmcp.mutate.step_failed",
+            "message": str(exc),
+            "path": node_path,
+        }
+    return {"ok": True, "path": node_path}
+
+
+def run_mutate_steps(
+    ctx: MutateContext,
+    steps: list[dict[str, Any]],
+    *,
+    context_path: str | None = None,
+    detail_level: str = "summary",
+) -> dict[str, Any]:
+    """Sequential apply; stop on first hard error; mark rest skipped."""
+    results: list[dict[str, Any]] = []
+    applied = 0
+    failed_at: int | None = None
+    for i, step in enumerate(steps):
+        if failed_at is not None:
+            results.append(
+                {
+                    "ok": False,
+                    "skipped": True,
+                    "code": "tdmcp.batch.skipped_dependent",
+                    "path": step.get("path"),
+                }
+            )
+            continue
+        result = apply_step(
+            ctx, step, context_path=context_path, detail_level=detail_level
+        )
+        results.append(result)
+        if result.get("ok"):
+            applied += 1
+        else:
+            failed_at = i
+    return {
+        "ok": failed_at is None,
+        "applied": applied,
+        "failedAt": failed_at,
+        "steps": results,
+    }
+
+
+def handle_mutate(params: dict[str, Any]) -> dict[str, Any]:
+    """Live TD wrapper for mutate_nodes — resolves via ``td.op()``."""
+    steps = params.get("steps") or []
+    if not isinstance(steps, list):
+        return {
+            "ok": False,
+            "applied": 0,
+            "failedAt": 0,
+            "steps": [
+                {
+                    "ok": False,
+                    "code": "tdmcp.mutate.step_failed",
+                    "message": "steps must be a list",
+                }
+            ],
+        }
+    context_path = params.get("contextPath")
+    detail_level = params.get("detailLevel") or "summary"
+    ctx = _TdMutateContext(context_path)
+    return run_mutate_steps(
+        ctx, steps, context_path=context_path, detail_level=detail_level
+    )
+
+
 HANDLERS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "execute_python": handle_execute_python,
     "capture": handle_capture,
     "inspect": handle_inspect,
+    "mutate_nodes": handle_mutate,
     "ping": lambda _p: {"ok": True, "pong": True},
 }
 
@@ -1012,6 +1408,16 @@ def summarize_request(msg: dict[str, Any]) -> str:
         if mode and mode != "auto":
             return _short_text(f"{path} ({mode})")
         return _short_text(path)
+    if method == "mutate_nodes":
+        steps = params.get("steps") or []
+        n = len(steps) if isinstance(steps, list) else 0
+        first_op = ""
+        if isinstance(steps, list) and steps:
+            first = steps[0] if isinstance(steps[0], dict) else {}
+            first_op = str(first.get("op") or "")
+        if first_op:
+            return _short_text(f"{n}× {first_op}")
+        return _short_text(f"mutate×{n}")
     if method == "ping":
         return "ping"
     return _short_text(method or "unknown")

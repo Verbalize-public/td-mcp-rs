@@ -1,0 +1,172 @@
+{
+  "$defs": {
+    "DetailLevel": {
+      "description": "Structural detail level.",
+      "oneOf": [
+        {
+          "const": "summary",
+          "description": "Direct-child roster as `{name, opType}` (capped at 64; see `node.truncation`).",
+          "type": "string"
+        },
+        {
+          "const": "detailed",
+          "description": "Direct-child roster as `{path, family, opType}` (same 64 cap — does not uncap).",
+          "type": "string"
+        }
+      ]
+    },
+    "MutateStep": {
+      "description": "One ordered mutate step (`create` / `set` / `delete`).",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Create a node at `path` with the given `opType`.",
+          "properties": {
+            "op": {
+              "const": "create",
+              "type": "string"
+            },
+            "opType": {
+              "description": "TD op class name (e.g. `noiseTOP`).",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/$defs/OpPath",
+              "description": "Desired node path (absolute or relative to contextPath)."
+            },
+            "values": {
+              "additionalProperties": true,
+              "description": "Optional plain parameter values applied after create.",
+              "type": [
+                "object",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "op",
+            "path",
+            "opType"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Set values / expressions / pulse on an existing node.",
+          "properties": {
+            "expressions": {
+              "additionalProperties": true,
+              "description": "Expression strings; mode is set to expression before assign.",
+              "type": [
+                "object",
+                "null"
+              ]
+            },
+            "op": {
+              "const": "set",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/$defs/OpPath",
+              "description": "Target node path."
+            },
+            "pulse": {
+              "description": "Parameter names to pulse.",
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            },
+            "values": {
+              "additionalProperties": true,
+              "description": "Plain parameter values (`par.val = …`).",
+              "type": [
+                "object",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "op",
+            "path"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Destroy a node.",
+          "properties": {
+            "op": {
+              "const": "delete",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/$defs/OpPath",
+              "description": "Target node path."
+            }
+          },
+          "required": [
+            "op",
+            "path"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "OpPath": {
+      "description": "Operator path string passed to TD for resolution via `td.op()`.",
+      "type": "string"
+    },
+    "Pid": {
+      "description": "OS process id — sole address for tools and queues.",
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Args for mutate_nodes.",
+  "properties": {
+    "contextPath": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/OpPath"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Resolution base for relative paths."
+    },
+    "detailLevel": {
+      "$ref": "#/$defs/DetailLevel",
+      "default": "summary",
+      "description": "Structural detail level for per-step echo."
+    },
+    "exclusive": {
+      "default": false,
+      "description": "Exclusive enqueue.",
+      "type": "boolean"
+    },
+    "pid": {
+      "$ref": "#/$defs/Pid",
+      "description": "Target pid."
+    },
+    "steps": {
+      "description": "Ordered steps; apply stops at the first hard failure.",
+      "items": {
+        "$ref": "#/$defs/MutateStep"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "pid",
+    "steps"
+  ],
+  "type": "object"
+}

@@ -124,11 +124,7 @@ struct FleetSnapshot {
 }
 
 impl DashboardApp {
-    fn new(
-        admin_base: String,
-        icon_normal: RgbaIcon,
-        icon_attention: RgbaIcon,
-    ) -> Result<Self> {
+    fn new(admin_base: String, icon_normal: RgbaIcon, icon_attention: RgbaIcon) -> Result<Self> {
         let menu = Menu::new();
         let menu_show = MenuItem::new("Show dashboard", true, None);
         let menu_hide = MenuItem::new("Hide dashboard", true, None);

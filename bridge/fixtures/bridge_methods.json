@@ -2,5 +2,6 @@
   "execute_python",
   "capture",
   "inspect",
+  "mutate_nodes",
   "ping"
 ]
