@@ -7,7 +7,11 @@
 pub mod admin;
 pub mod bridge;
 pub mod config;
+pub mod ensure;
+pub mod install;
 pub mod tracing_init;
 
 pub use admin::RestartArgs;
 pub use bridge::{run_ipc_accept, BridgeSessions};
+pub use ensure::{ensure_daemon, health_ok, EnsureOptions, EnsureResult};
+pub use install::{default_data_dir, ensure_installed, InstallOutcome};

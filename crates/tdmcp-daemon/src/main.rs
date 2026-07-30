@@ -19,6 +19,8 @@ use tracing::{info, warn};
 use tdmcp_daemon::admin::{build_admin_router, RestartArgs};
 use tdmcp_daemon::bridge::{run_ipc_accept, BridgeSessions};
 use tdmcp_daemon::config::Config;
+use tdmcp_daemon::ensure::{ensure_daemon, EnsureOptions};
+use tdmcp_daemon::install::{self, InstallOutcome};
 use tdmcp_diagnostics::Catalog;
 use tdmcp_mcp::{build_mcp_router, AppState, McpHandler};
 
@@ -56,6 +58,36 @@ enum Commands {
         #[arg(long, env = "TDMCP_PORT")]
         port: Option<u16>,
     },
+    /// Materialize embedded bridge/catalog/tox into the data directory.
+    Install {
+        /// Data directory override.
+        #[arg(long, env = "TDMCP_DATA_DIR")]
+        data_dir: Option<PathBuf>,
+    },
+    /// Upsert the long-lived daemon (health → lock → detached spawn → poll).
+    Ensure {
+        /// HTTP listen port (MCP + admin).
+        #[arg(long, env = "TDMCP_PORT")]
+        port: Option<u16>,
+        /// Data directory override.
+        #[arg(long, env = "TDMCP_DATA_DIR")]
+        data_dir: Option<PathBuf>,
+        /// Max wait for health after spawn (ms).
+        #[arg(long, default_value_t = 15_000)]
+        timeout_ms: u64,
+    },
+    /// Cursor/IDE entrypoint: ensure daemon, then speak MCP over stdio (proxy).
+    Mcp {
+        /// HTTP listen port of the long-lived daemon.
+        #[arg(long, env = "TDMCP_PORT")]
+        port: Option<u16>,
+        /// Data directory override.
+        #[arg(long, env = "TDMCP_DATA_DIR")]
+        data_dir: Option<PathBuf>,
+        /// Max wait for health after spawn (ms).
+        #[arg(long, default_value_t = 15_000)]
+        timeout_ms: u64,
+    },
 }
 
 #[tokio::main]
@@ -69,8 +101,70 @@ async fn main() -> Result<()> {
             catalog,
         } => {
             let cfg = Config::load(port, data_dir, bridge_dir, catalog)?;
+            // Ensure embedded assets exist under data_dir (no-op when current).
+            let _ = install::ensure_installed(&cfg.data_dir)?;
             tdmcp_daemon::tracing_init::init(&cfg)?;
             run_daemon(cfg).await
+        }
+        Commands::Install { data_dir } => {
+            let data_dir = data_dir.unwrap_or_else(install::default_data_dir);
+            match install::ensure_installed(&data_dir)? {
+                InstallOutcome::AlreadyCurrent => {
+                    println!(
+                        "already current {} → {}",
+                        env!("CARGO_PKG_VERSION"),
+                        data_dir.display()
+                    );
+                }
+                InstallOutcome::Extracted => {
+                    println!(
+                        "installed {} → {}",
+                        env!("CARGO_PKG_VERSION"),
+                        data_dir.display()
+                    );
+                }
+            }
+            Ok(())
+        }
+        Commands::Ensure {
+            port,
+            data_dir,
+            timeout_ms,
+        } => {
+            let opts = EnsureOptions {
+                port: port.unwrap_or(9860),
+                data_dir: data_dir.unwrap_or_else(install::default_data_dir),
+                exe: None,
+                timeout: std::time::Duration::from_millis(timeout_ms),
+                poll_only: false,
+            };
+            let result = ensure_daemon(opts).await?;
+            println!(
+                "ok url={} already_running={} spawned={}",
+                result.base_url, result.already_running, result.spawned
+            );
+            Ok(())
+        }
+        Commands::Mcp {
+            port,
+            data_dir,
+            timeout_ms,
+        } => {
+            let port = port.unwrap_or(9860);
+            let opts = EnsureOptions {
+                port,
+                data_dir: data_dir.unwrap_or_else(install::default_data_dir),
+                exe: None,
+                timeout: std::time::Duration::from_millis(timeout_ms),
+                poll_only: false,
+            };
+            let result = ensure_daemon(opts).await?;
+            let daemon_url = format!("{}/mcp/rpc", result.base_url);
+            // Stdio MCP: do not print to stdout (JSON-RPC). Logs go via tracing/stderr.
+            tdmcp_mcp::run_stdio_proxy(&daemon_url)
+                .await
+                .map_err(|e| anyhow::anyhow!(e))?;
+            Ok(())
         }
         Commands::Status { port } => {
             let port = port.unwrap_or(9860);

@@ -22,8 +22,10 @@ Law: [`CONSTITUTION.md`](CONSTITUTION.md). User install/quickstart: [`README.md`
 
 ## Agent ops (when driving live TD via this daemon)
 
-1. Assert daemon listening (`http://127.0.0.1:9860/mcp/health`); spawn with
-   `tdmcp-daemon start` if connection refused.
+1. Prefer relying on Cursor's `tdmcp-daemon mcp` upsert, or run
+   `tdmcp-daemon ensure` before probing. Health URL
+   (`http://127.0.0.1:9860/mcp/health`) still valid. Stdio is only the MCP
+   client shim — the HTTP daemon stays up across MCP restarts.
 2. `fleet` → pick connected `pid` → `inspect` → mutate → `inspect` errors →
    `capture` (perception) → perception-critic for look claims.
 3. Pass `pid` every process-scoped call. Use `contextPath` for relative
@@ -58,5 +60,5 @@ scripts/check.sh    # Unix
 ```
 
 After `src/` / schema / catalog changes: rebuild daemon, restart MCP client if
-needed (stdio not used — Streamable HTTP; peers survive MCP client restart if
-daemon stays up).
+needed (HTTP daemon survives MCP restart if already running; stdio proxy is
+respawned per MCP session).

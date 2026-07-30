@@ -17,6 +17,7 @@ axum = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true }
 dirs = { workspace = true }
+include_dir = { workspace = true }
 rmcp = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -34,6 +35,7 @@ uuid = { workspace = true }
 [dev-dependencies]
 reqwest = { workspace = true }
 tdmcp-test-support = { workspace = true }
+tempfile = { workspace = true }
 tokio-util = { workspace = true }
 tower = { workspace = true }
 

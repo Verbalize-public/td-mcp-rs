@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "tdmcp-rs": {
+      "command": "C:/absolute/path/to/tdmcp-daemon.exe",
+      "args": ["mcp"]
+    }
+  }
+}

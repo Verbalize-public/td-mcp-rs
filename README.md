@@ -17,19 +17,35 @@ Bridge package and diagnostic catalog ship beside the repo (`bridge/`,
 
 ## Quickstart
 
-1. Start the daemon:
+1. Build the daemon:
 
    ```text
-   tdmcp-daemon start --port 9860
+   cargo build --release -p tdmcp-daemon
    ```
 
-2. Point an MCP client at Streamable HTTP:
+2. Add to Cursor `mcp.json` (see [`mcp.tdmcp.example.json`](mcp.tdmcp.example.json);
+   use an absolute path; on Unix omit `.exe`):
 
-   ```text
-   http://127.0.0.1:9860/mcp/rpc
+   ```json
+   {
+     "mcpServers": {
+       "tdmcp-rs": {
+         "command": "<path>/tdmcp-daemon",
+         "args": ["mcp"]
+       }
+     }
+   }
    ```
 
-   Health check: `GET http://127.0.0.1:9860/mcp/health` → `{"ok":true}`.
+   Cursor spawns `tdmcp-daemon mcp`, which runs `ensure` (health → lock →
+   detached spawn → poll), then serves a stdio MCP proxy to
+   `http://127.0.0.1:9860/mcp/rpc`. The HTTP daemon stays up across MCP client
+   restarts.
+
+   First run extracts embedded bridge, catalog, and bootstrap `.tox` into the
+   data dir (`install` / `ensure` / `start` / `mcp` all do this). Default:
+   `%LOCALAPPDATA%/tdmcp-rs/` (Windows), Application Support (macOS), or XDG
+   (Linux).
 
 3. Drop the bootstrap tox into a TouchDesigner project (or load
    `bridge/bootstrap.py`). TD dials the local IPC endpoint, handshakes, and
@@ -42,6 +58,19 @@ Bridge package and diagnostic catalog ship beside the repo (`bridge/`,
    ```
 
    Tray menu: show/hide dashboard, restart/stop daemon, quit.
+
+### Power users
+
+Manual daemon + direct Streamable HTTP (no stdio shim):
+
+```text
+tdmcp-daemon start --port 9860
+# MCP client URL: http://127.0.0.1:9860/mcp/rpc
+# Health: GET http://127.0.0.1:9860/mcp/health → {"ok":true}
+```
+
+Other CLI helpers: `tdmcp-daemon ensure` (spawn if down), `install` (extract
+assets only), `status`, `stop`.
 
 ## Tools (P0)
 

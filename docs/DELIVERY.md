@@ -22,12 +22,27 @@ Default MCP listen: `127.0.0.1:9860`. Data dir:
 | macOS | `~/Library/Application Support/tdmcp-rs/` |
 | Linux | `$XDG_DATA_HOME/tdmcp-rs/` or `~/.local/share/tdmcp-rs/` |
 
-## Auto-upsert
+## Auto-upsert — Shipped
 
-Cursor plugin registers `http://127.0.0.1:9860/mcp/rpc`. On connection refused,
-spawn `tdmcp-daemon start` and retry. Stale lockfile (pid dead) → reclaim.
+Cursor registers `tdmcp-daemon` with `args: ["mcp"]`. On MCP connect:
 
-## Packaging (P2)
+1. `mcp` calls `ensure` — health check, lockfile, detached spawn if needed, poll
+   until healthy.
+2. Stdio MCP proxy forwards tool requests to `http://127.0.0.1:{port}/mcp/rpc`.
+3. Stale lockfile (pid dead) → reclaim.
 
-`cargo xtask dist` assembles release tree: binaries + bridge + catalog + tox.
-Until then: `cargo build --release -p tdmcp-daemon -p tdmcp-gui`.
+The long-lived HTTP daemon survives MCP client restarts; only the stdio proxy
+process is respawned.
+
+## Assets
+
+Bridge, diagnostic catalog, and bootstrap `.tox` are embedded in the
+`tdmcp-daemon` binary. `install`, `ensure`, `start`, and `mcp` extract them
+into the data dir on first use (no separate asset bundle required for dev
+builds).
+
+## Packaging
+
+`cargo run -p xtask -- dist` copies the release `tdmcp-daemon` binary into
+`target/dist/` (bridge, catalog, and bootstrap `.tox` are embedded in the
+binary). If a release `tdmcp-gui` binary already exists, it is copied too.

@@ -47,16 +47,9 @@ impl Config {
         let bridge_dir = bridge_dir
             .or(rc.bridge_dir)
             .unwrap_or_else(|| default_bridge_dir(&data_dir));
-        let catalog_path = catalog.or(rc.catalog).unwrap_or_else(|| {
-            // Prefer repo/install catalog beside binary, else data dir copy.
-            let beside =
-                PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../diagnostics/catalog.yaml");
-            if beside.exists() {
-                beside
-            } else {
-                data_dir.join("diagnostics/catalog.yaml")
-            }
-        });
+        let catalog_path = catalog
+            .or(rc.catalog)
+            .unwrap_or_else(|| default_catalog_path(&data_dir));
 
         fs::create_dir_all(&data_dir)
             .with_context(|| format!("create data dir {}", data_dir.display()))?;
@@ -91,10 +84,59 @@ fn default_data_dir() -> PathBuf {
 }
 
 fn default_bridge_dir(data_dir: &Path) -> PathBuf {
-    let beside = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../bridge");
-    if beside.exists() {
-        beside
-    } else {
-        data_dir.join("bridge")
+    #[cfg(debug_assertions)]
+    {
+        let beside = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../bridge");
+        if beside.exists() {
+            return beside;
+        }
+    }
+    data_dir.join("bridge")
+}
+
+fn default_catalog_path(data_dir: &Path) -> PathBuf {
+    #[cfg(debug_assertions)]
+    {
+        let beside =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../diagnostics/catalog.yaml");
+        if beside.exists() {
+            return beside;
+        }
+    }
+    data_dir.join("diagnostics/catalog.yaml")
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, reason = "unit tests")]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn load_respects_explicit_overrides() {
+        let data = PathBuf::from("/tmp/tdmcp-test-data");
+        let bridge = PathBuf::from("/tmp/tdmcp-test-bridge");
+        let catalog = PathBuf::from("/tmp/tdmcp-test-catalog.yaml");
+        let cfg = Config::load(
+            Some(1234),
+            Some(data.clone()),
+            Some(bridge.clone()),
+            Some(catalog.clone()),
+        )
+        .expect("load config");
+        assert_eq!(cfg.port, 1234);
+        assert_eq!(cfg.data_dir, data);
+        assert_eq!(cfg.bridge_dir, bridge);
+        assert_eq!(cfg.catalog_path, catalog);
+    }
+
+    #[test]
+    #[cfg(not(debug_assertions))]
+    fn release_defaults_use_data_dir_only() {
+        let data = PathBuf::from("/tmp/tdmcp-default-data");
+        assert_eq!(default_bridge_dir(&data), data.join("bridge"));
+        assert_eq!(
+            default_catalog_path(&data),
+            data.join("diagnostics/catalog.yaml")
+        );
     }
 }

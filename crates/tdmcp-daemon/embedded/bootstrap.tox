@@ -1,0 +1,4 @@
+# Placeholder bootstrap .tox for td-mcp-rs.
+# Real TouchDesigner .tox packaging lands with release delivery.
+# Until then, load bridge/bootstrap.py (extracted beside this file under data_dir)
+# or drop a hand-built tox that dials the local IPC endpoint.

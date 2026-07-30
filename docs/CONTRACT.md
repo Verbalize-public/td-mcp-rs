@@ -38,10 +38,9 @@ Crate layout: [`ARCHITECTURE.md`](../ARCHITECTURE.md). Engineering law: [`CONSTI
 ## Architecture — Shipped
 
 ```text
- IDE (Cursor / …)  ──┐
-                     │  MCP Streamable HTTP  http://127.0.0.1:9860/mcp
- Other MCP callers ──┤
-                     ▼
+ IDE (Cursor)  ── stdio ──► tdmcp-daemon mcp ──► HTTP MCP proxy ──┐
+ Other MCP callers ── Streamable HTTP http://127.0.0.1:9860/mcp ──┤
+                                                                  ▼
  ┌────────────────── Daemon (tdmcp-daemon) ─────────────────────────────┐
  │  axum + rmcp  │  admin /admin/*  │  PidRegistry  │  per-pid queues   │
  └──────────┬────────────────────────────────────────────────────────────┘
@@ -56,12 +55,18 @@ Crate layout: [`ARCHITECTURE.md`](../ARCHITECTURE.md). Engineering law: [`CONSTI
 
 | Direction | Transport | Role | Status |
 | --- | --- | --- | --- |
-| IDE → daemon | Streamable HTTP MCP (`/mcp/rpc`) + JSON fallback (`/mcp/tools/*`) | Tool calls | **Shipped** |
+| IDE → daemon | Streamable HTTP MCP (`/mcp/rpc`) + JSON fallback (`/mcp/tools/*`) | Tool calls (direct HTTP clients) | **Shipped** |
+| IDE → daemon | stdio (`tdmcp-daemon mcp` → stdio proxy → HTTP `/mcp/rpc`) | Cursor entrypoint | **Shipped** |
 | TD → daemon | Local IPC | Bridge | **Shipped** |
 | Operator → daemon | Tray + admin HTTP + OS toasts | Human monitor | **Shipped** |
-| IDE → daemon | WebSocket / stdio | — | **Planned** / not used |
+| IDE → daemon | WebSocket | — | **Planned** |
 
 **Listen:** `127.0.0.1:9860` (override via CLI / env / RC); loopback only; no auth.
+
+**Stdio proxy (v1):** forwards tools request/response only (`list_tools` /
+`call_tool`). Server-initiated notifications are **not** forwarded. The HTTP
+daemon is the control plane; the stdio process is a short-lived shim per MCP
+client session.
 
 ### Bridge transport — Shipped
 
@@ -190,9 +195,9 @@ Code families in use today: `tdmcp.bridge.*`, `tdmcp.script.*`, `tdmcp.perceptio
 
 Config precedence: **CLI args > env (`TDMCP_*`) > RC file > defaults**.
 
-Artifacts: `tdmcp-daemon`, `tdmcp-gui`, `bridge/`, `diagnostics/catalog.yaml`, bootstrap `.tox`. Packaging via `cargo xtask dist` is **Planned** (P2); until then build with `cargo build --release -p tdmcp-daemon -p tdmcp-gui`.
+Artifacts: `tdmcp-daemon`, `tdmcp-gui`, `bridge/`, `diagnostics/catalog.yaml`, bootstrap `.tox`. Bridge, catalog, and bootstrap ship embedded in the daemon binary; `install` / `ensure` / `start` / `mcp` extract into the data dir. Packaging via `cargo xtask dist` is **Planned** (P2); until then build with `cargo build --release -p tdmcp-daemon -p tdmcp-gui`.
 
-Daemon start: `tdmcp-daemon start [--port 9860] [--data-dir …]`. MCP clients may auto-spawn on connection refused. Manual start for debugging.
+Daemon CLI: `start` (foreground), `stop`, `status`, `install`, `ensure`, `mcp` (Cursor entrypoint — `ensure` then stdio proxy). Manual `start` for debugging; Cursor uses `mcp`.
 
 ---
 
@@ -211,7 +216,7 @@ Daemon start: `tdmcp-daemon start [--port 9860] [--data-dir …]`. MCP clients m
 ## Decided contract (summary)
 
 - TD↔daemon: local IPC (named pipe / UDS); handshake returns FS path to bridge package.
-- Cursor↔daemon: Streamable HTTP on `http://127.0.0.1:9860/mcp` (JSON fallback also on `/mcp/tools/*`; rmcp at `/mcp/rpc`).
+- Cursor↔daemon: `tdmcp-daemon mcp` (stdio proxy → Streamable HTTP at `/mcp/rpc`; v1 tools only, no notification forward). Direct HTTP clients may use `http://127.0.0.1:9860/mcp` (JSON fallback on `/mcp/tools/*`).
 - Identity: `pid` only; exclusive fails iff queue non-empty; resurrection stacks until first success.
 - Perception: `capture` only; builders never self-grade look.
 - Paths: `OpPath` + optional `contextPath`; TD resolves; default base `/project1`.
