@@ -7,7 +7,10 @@
 //!
 //! While idle, the actor probes the peer with wire `ping` (outside the task
 //! queue). Missed pongs or inbound silence past [`HeartbeatConfig::idle_dead`]
-//! tear the session down via `on_bridge_lost`.
+//! tear the session down via `on_bridge_lost`. After loss, the pid is evicted
+//! from the fleet when [`DISCONNECTED_TTL`] elapses or any handshake succeeds.
+//! Session generations prevent a superseded actor's teardown from clobbering a
+//! newer connection for the same pid.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -33,8 +36,11 @@ pub const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
 pub const PONG_TIMEOUT: Duration = Duration::from_secs(5);
 /// Either side assumes the bridge dead after this much inbound silence.
 pub const IDLE_DEAD: Duration = Duration::from_secs(15);
+/// After bridge loss, drop the pid from the fleet if still disconnected.
+pub const DISCONNECTED_TTL: Duration = Duration::from_secs(15);
 
 static CALL_ID: AtomicU64 = AtomicU64::new(1);
+static SESSION_GENERATION: AtomicU64 = AtomicU64::new(1);
 
 /// Tunable idle liveness for a bridge session.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -92,6 +98,9 @@ struct TaskJob {
 #[derive(Clone)]
 struct BridgeHandle {
     job_tx: mpsc::Sender<TaskJob>,
+    /// Monotonic generation so a superseded actor's teardown cannot clobber
+    /// a newer connection for the same pid.
+    generation: u64,
 }
 
 /// Map of pid → bridge session handle. Cheap to clone (Arc-backed).
@@ -100,6 +109,7 @@ pub struct BridgeSessions {
     sessions: Arc<Mutex<HashMap<u32, BridgeHandle>>>,
     registry: Arc<Mutex<PidRegistry>>,
     heartbeat: HeartbeatConfig,
+    disconnected_ttl: Duration,
 }
 
 impl BridgeSessions {
@@ -111,6 +121,7 @@ impl BridgeSessions {
             sessions: Arc::new(Mutex::new(HashMap::new())),
             registry,
             heartbeat: HeartbeatConfig::production(),
+            disconnected_ttl: DISCONNECTED_TTL,
         }
     }
 
@@ -121,18 +132,43 @@ impl BridgeSessions {
         self
     }
 
+    /// Override post-disconnect fleet eviction TTL (tests: short grace).
+    #[must_use]
+    pub fn with_disconnected_ttl(mut self, ttl: Duration) -> Self {
+        self.disconnected_ttl = ttl;
+        self
+    }
+
     /// Spawn an actor for an accepted, handshaken stream.
     pub async fn spawn(&self, pid: u32, stream: IpcStream) {
         let (job_tx, job_rx) = mpsc::channel::<TaskJob>(32);
+        let generation = SESSION_GENERATION.fetch_add(1, Ordering::Relaxed);
         {
             let mut s = self.sessions.lock().await;
-            s.insert(pid, BridgeHandle { job_tx });
+            s.insert(
+                pid,
+                BridgeHandle {
+                    job_tx,
+                    generation,
+                },
+            );
         }
         let sessions = self.sessions.clone();
         let registry = self.registry.clone();
         let heartbeat = self.heartbeat;
+        let disconnected_ttl = self.disconnected_ttl;
         tokio::spawn(async move {
-            run_session(pid, stream, job_rx, registry, sessions, heartbeat).await;
+            run_session(
+                pid,
+                generation,
+                stream,
+                job_rx,
+                registry,
+                sessions,
+                heartbeat,
+                disconnected_ttl,
+            )
+            .await;
         });
     }
 }
@@ -161,15 +197,18 @@ impl BridgeRpc for BridgeSessions {
     }
 }
 
+#[allow(clippy::too_many_arguments, reason = "session actor wiring")]
 async fn run_session(
     pid: u32,
+    generation: u64,
     mut stream: IpcStream,
     mut job_rx: mpsc::Receiver<TaskJob>,
     registry: Arc<Mutex<PidRegistry>>,
     sessions: Arc<Mutex<HashMap<u32, BridgeHandle>>>,
     heartbeat: HeartbeatConfig,
+    disconnected_ttl: Duration,
 ) {
-    info!(pid, "bridge session started");
+    info!(pid, generation, "bridge session started");
     let mut last_activity = Instant::now();
 
     let mut ticker = tokio::time::interval(if heartbeat.enabled {
@@ -226,7 +265,7 @@ async fn run_session(
         }
     }
 
-    teardown(pid, registry, sessions).await;
+    teardown(pid, generation, registry, sessions, disconnected_ttl).await;
 }
 
 enum JobLoop {
@@ -357,21 +396,41 @@ async fn run_heartbeat_ping(
 
 async fn teardown(
     pid: u32,
+    generation: u64,
     registry: Arc<Mutex<PidRegistry>>,
     sessions: Arc<Mutex<HashMap<u32, BridgeHandle>>>,
+    disconnected_ttl: Duration,
 ) {
+    {
+        let mut s = sessions.lock().await;
+        match s.get(&pid) {
+            Some(handle) if handle.generation == generation => {
+                s.remove(&pid);
+            }
+            _ => {
+                // Superseded by a newer session for this pid — do not touch registry.
+                warn!(pid, generation, "bridge session ended — superseded, skip loss");
+                return;
+            }
+        }
+    }
     {
         let mut reg = registry.lock().await;
         reg.on_bridge_lost(pid, chrono::Utc::now());
-    }
-    {
-        let mut s = sessions.lock().await;
-        s.remove(&pid);
     }
     warn!(
         pid,
         "bridge session ended — disconnected, cancelled tasks stacked"
     );
+
+    let registry = registry.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(disconnected_ttl).await;
+        let mut reg = registry.lock().await;
+        if reg.evict_if_disconnected(pid) {
+            warn!(pid, "disconnected pid evicted from fleet after TTL");
+        }
+    });
 }
 
 fn is_bridge_error(value: &Value) -> bool {

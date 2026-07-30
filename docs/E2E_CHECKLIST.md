@@ -34,8 +34,8 @@ See [`DEV_ENV.md`](DEV_ENV.md) § Dev smoke. Does **not** replace rows 1–12 be
 | 2 | Two TD instances dial IPC and complete handshake | ✅ |
 | 3 | `fleet` lists both pids with `bridge: connected`, non-empty `title`, and `toePath` when project folder+name known | ✅ |
 | 4 | Enqueue shared task on pid A; exclusive on A fails (`queue_busy`) | ✅ |
-| 5 | Kill tox / drop IPC → `bridge: disconnected` + `cancelledTasks` | ✅ |
-| 5b | Kill TD / drop IPC **while idle** (no tool call) → `fleet` shows `disconnected` within ~15s | |
+| 5 | Kill tox / drop IPC → `bridge: disconnected` + `cancelledTasks`; gone from `fleet` after ~15s TTL (or sooner if another bridge handshakes) | ✅ |
+| 5b | Kill TD / drop IPC **while idle** (no tool call) → `fleet` shows `disconnected` within ~15s detection, then removed after eviction TTL | |
 | 6 | Same pid re-handshake → `resurrected: true`; first failed task keeps stack | ✅ |
 | 7 | Successful task clears resurrection stack | ✅ |
 | 8 | `execute_python` with `result = 1` returns structured result | ✅ |
@@ -96,4 +96,5 @@ in `bridge/tdmcp_bridge/__init__.py` and covered by `bridge/tests/test_bridge_qu
 - Idle liveness: daemon heartbeats with wire `ping` every 5s; either side
   treats the bridge as dead after 15s inbound silence (see CONTRACT
   Disconnect / resurrection). Row **5b** verifies detection without an
-  intervening tool call.
+  intervening tool call. After loss, fleet eviction TTL is a separate **15s**
+  (worst-case idle path ≈ detection + TTL).

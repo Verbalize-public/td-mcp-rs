@@ -38,8 +38,18 @@ async fn setup_with(
     pid: u32,
     heartbeat: HeartbeatConfig,
 ) -> (Arc<Mutex<PidRegistry>>, BridgeSessions, FakeTdPeer) {
+    setup_with_ttl(pid, heartbeat, Duration::from_secs(15)).await
+}
+
+async fn setup_with_ttl(
+    pid: u32,
+    heartbeat: HeartbeatConfig,
+    disconnected_ttl: Duration,
+) -> (Arc<Mutex<PidRegistry>>, BridgeSessions, FakeTdPeer) {
     let registry = Arc::new(Mutex::new(PidRegistry::new()));
-    let sessions = BridgeSessions::new(registry.clone()).with_heartbeat(heartbeat);
+    let sessions = BridgeSessions::new(registry.clone())
+        .with_heartbeat(heartbeat)
+        .with_disconnected_ttl(disconnected_ttl);
     let (peer, server) = FakeTdPeer::pair(pid);
 
     let server_task = tokio::spawn(async move {
@@ -62,6 +72,46 @@ async fn setup_with(
 /// Default setup: heartbeat disabled so tool-call-only peer drivers stay simple.
 async fn setup(pid: u32) -> (Arc<Mutex<PidRegistry>>, BridgeSessions, FakeTdPeer) {
     setup_with(pid, HeartbeatConfig::disabled()).await
+}
+
+async fn wait_until_disconnected(registry: &Arc<Mutex<PidRegistry>>, pid: u32, budget: Duration) {
+    let deadline = tokio::time::Instant::now() + budget;
+    loop {
+        {
+            let reg = registry.lock().await;
+            if let Some(entry) = reg.get(pid) {
+                if entry.bridge == tdmcp_core::BridgeStatus::Disconnected {
+                    return;
+                }
+            }
+        }
+        if tokio::time::Instant::now() >= deadline {
+            panic!("expected pid {pid} disconnected within {budget:?}");
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+async fn rehandshake_and_spawn(
+    registry: &Arc<Mutex<PidRegistry>>,
+    sessions: &BridgeSessions,
+    pid: u32,
+) -> FakeTdPeer {
+    let (peer, server) = FakeTdPeer::pair(pid);
+    let server_task = tokio::spawn(async move {
+        IpcStream::accept_memory_handshake(server, "/bridge", "0.1.0")
+            .await
+            .expect("server handshake")
+    });
+    let mut peer = peer;
+    peer.handshake("proj").await.expect("client handshake");
+    let ipc_stream = server_task.await.expect("join server");
+    {
+        let mut reg = registry.lock().await;
+        reg.handshake(pid, attrs(), Some("1".into()), chrono::Utc::now());
+    }
+    sessions.spawn(pid, ipc_stream).await;
+    peer
 }
 
 /// Drive the fake peer: answer `n` requests with canned results.
@@ -221,20 +271,7 @@ async fn disconnect_then_resurrection() {
     }
 
     // Re-handshake the same pid → resurrected.
-    let (peer2, server2) = FakeTdPeer::pair(45);
-    let server_task = tokio::spawn(async move {
-        IpcStream::accept_memory_handshake(server2, "/bridge", "0.1.0")
-            .await
-            .expect("server handshake 2")
-    });
-    let mut peer2 = peer2;
-    peer2.handshake("proj").await.expect("client handshake 2");
-    let ipc_stream2 = server_task.await.expect("join server 2");
-    {
-        let mut reg = registry.lock().await;
-        reg.handshake(45, attrs(), Some("1".into()), chrono::Utc::now());
-    }
-    sessions.spawn(45, ipc_stream2).await;
+    let peer2 = rehandshake_and_spawn(&registry, &sessions, 45).await;
 
     {
         let reg = registry.lock().await;
@@ -311,5 +348,82 @@ async fn idle_peer_with_auto_pong_stays_connected() {
         entry.bridge,
         tdmcp_core::BridgeStatus::Connected,
         "auto-pong peer must stay connected across idle heartbeats"
+    );
+}
+
+#[tokio::test]
+async fn disconnected_pid_evicted_after_ttl() {
+    let ttl = Duration::from_millis(80);
+    let (registry, sessions, peer) =
+        setup_with_ttl(48, HeartbeatConfig::disabled(), ttl).await;
+    drop(peer);
+
+    let catalog = Catalog::fallback();
+    let _ = dispatch_tool(
+        &registry,
+        &catalog,
+        &sessions,
+        "execute_python",
+        json!({"pid": 48, "script": "result=1"}),
+    )
+    .await;
+
+    wait_until_disconnected(&registry, 48, Duration::from_millis(500)).await;
+
+    tokio::time::sleep(ttl + Duration::from_millis(80)).await;
+
+    let reg = registry.lock().await;
+    assert!(
+        reg.get(48).is_none(),
+        "disconnected pid must leave fleet after TTL"
+    );
+}
+
+#[tokio::test]
+async fn any_handshake_evicts_other_disconnected() {
+    let (registry, sessions, peer_a) = setup(49).await;
+    drop(peer_a);
+
+    let catalog = Catalog::fallback();
+    let _ = dispatch_tool(
+        &registry,
+        &catalog,
+        &sessions,
+        "execute_python",
+        json!({"pid": 49, "script": "result=1"}),
+    )
+    .await;
+    wait_until_disconnected(&registry, 49, Duration::from_millis(500)).await;
+
+    let peer_b = rehandshake_and_spawn(&registry, &sessions, 50).await;
+    let _driver = peer_b.spawn_auto_pong();
+
+    {
+        let reg = registry.lock().await;
+        assert!(reg.get(49).is_none(), "ghost pid 49 must be purged");
+        assert_eq!(
+            reg.get(50).expect("pid 50").bridge,
+            tdmcp_core::BridgeStatus::Connected
+        );
+    }
+}
+
+#[tokio::test]
+async fn superseding_spawn_does_not_mark_new_session_disconnected() {
+    let (registry, sessions, _peer_old) = setup(51).await;
+
+    // Replacing the session drops the old job_tx → old actor teardowns with a
+    // stale generation and must not flip the new connection to disconnected.
+    let peer_new = rehandshake_and_spawn(&registry, &sessions, 51).await;
+    let _driver = peer_new.spawn_auto_pong();
+
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let reg = registry.lock().await;
+    let entry = reg.get(51).expect("entry");
+    assert_eq!(
+        entry.bridge,
+        tdmcp_core::BridgeStatus::Connected,
+        "stale teardown must not clobber a newer session"
     );
 }

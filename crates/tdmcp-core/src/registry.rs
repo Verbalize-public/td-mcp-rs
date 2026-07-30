@@ -15,7 +15,8 @@ use crate::task_queue::{QueueError, TaskInfo, TaskMode, TaskQueue, TaskResult};
 pub enum BridgeStatus {
     /// IPC connected — usable.
     Connected,
-    /// Process known but IPC down — discovery only.
+    /// IPC down — temporary grace for resurrection / cancelled-task traces;
+    /// evicted from the registry after TTL or when any other handshake succeeds.
     Disconnected,
 }
 
@@ -83,6 +84,8 @@ impl PidRegistry {
     }
 
     /// Handshake from a connecting TD. Handles resurrection vs pid-reuse.
+    ///
+    /// Any successful handshake also evicts other disconnected fleet ghosts.
     pub fn handshake(
         &mut self,
         pid: u32,
@@ -100,16 +103,16 @@ impl PidRegistry {
                     entry.process = process;
                     entry.protocol_version = protocol_version;
                     entry.bridge = BridgeStatus::Connected;
-                    return;
+                } else {
+                    let was_disconnected = entry.bridge == BridgeStatus::Disconnected;
+                    entry.process = process;
+                    entry.protocol_version = protocol_version;
+                    entry.bridge = BridgeStatus::Connected;
+                    if was_disconnected {
+                        entry.resurrection.on_resurrect();
+                    }
+                    let _ = now;
                 }
-                let was_disconnected = entry.bridge == BridgeStatus::Disconnected;
-                entry.process = process;
-                entry.protocol_version = protocol_version;
-                entry.bridge = BridgeStatus::Connected;
-                if was_disconnected {
-                    entry.resurrection.on_resurrect();
-                }
-                let _ = now;
             }
             None => {
                 self.entries.insert(
@@ -125,6 +128,7 @@ impl PidRegistry {
                 );
             }
         }
+        self.evict_all_disconnected(Some(pid));
     }
 
     /// Mark IPC lost: disconnect, cancel waits, stack traces.
@@ -137,7 +141,28 @@ impl PidRegistry {
         entry.resurrection.on_bridge_lost(cancelled, now);
     }
 
-    /// Process exited — drop mapping.
+    /// Remove `pid` only when it is still disconnected. Returns whether removed.
+    pub fn evict_if_disconnected(&mut self, pid: u32) -> bool {
+        match self.entries.get(&pid) {
+            Some(entry) if entry.bridge == BridgeStatus::Disconnected => {
+                self.entries.remove(&pid);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Drop every disconnected entry except the optional pid (the connecting peer).
+    pub fn evict_all_disconnected(&mut self, except: Option<u32>) {
+        self.entries.retain(|pid, entry| {
+            if Some(*pid) == except {
+                return true;
+            }
+            entry.bridge != BridgeStatus::Disconnected
+        });
+    }
+
+    /// Process exited — drop mapping unconditionally.
     pub fn on_process_exit(&mut self, pid: u32) {
         self.entries.remove(&pid);
     }
@@ -280,5 +305,44 @@ mod tests {
         r.complete_task(34, TaskResult::Success).unwrap();
         assert!(!r.get(34).unwrap().resurrection.resurrected);
         assert!(r.get(34).unwrap().resurrection.cancelled_tasks.is_empty());
+    }
+
+    #[test]
+    fn handshake_evicts_other_disconnected() {
+        let mut r = PidRegistry::new();
+        let now = Utc::now();
+        r.handshake(10, attrs("a"), Some("1".into()), now);
+        r.handshake(20, attrs("b"), Some("1".into()), now);
+        r.on_bridge_lost(10, now);
+        assert_eq!(r.get(10).unwrap().bridge, BridgeStatus::Disconnected);
+
+        r.handshake(20, attrs("b"), Some("1".into()), now);
+        assert!(r.get(10).is_none());
+        assert_eq!(r.get(20).unwrap().bridge, BridgeStatus::Connected);
+    }
+
+    #[test]
+    fn same_pid_handshake_resurrects_not_evicts() {
+        let mut r = PidRegistry::new();
+        let now = Utc::now();
+        r.handshake(10, attrs("a"), Some("1".into()), now);
+        r.on_bridge_lost(10, now);
+        r.handshake(10, attrs("a"), Some("1".into()), now);
+        let e = r.get(10).unwrap();
+        assert_eq!(e.bridge, BridgeStatus::Connected);
+        assert!(e.resurrection.resurrected);
+    }
+
+    #[test]
+    fn evict_if_disconnected_noops_when_connected() {
+        let mut r = PidRegistry::new();
+        let now = Utc::now();
+        r.handshake(10, attrs("a"), Some("1".into()), now);
+        assert!(!r.evict_if_disconnected(10));
+        assert!(r.get(10).is_some());
+
+        r.on_bridge_lost(10, now);
+        assert!(r.evict_if_disconnected(10));
+        assert!(r.get(10).is_none());
     }
 }

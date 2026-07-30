@@ -89,8 +89,8 @@ Handshake returns a local FS path to the bridge package directory. TD reloads fr
 | Deferred | `windowStatus` and `fleet` `popups` — empty until P1 `dialogs` (Win) |
 | Usable | `bridge: "connected"` ⇒ any caller may address that `pid` |
 | Addressing | Process-scoped tools require `pid` |
-| IPC loss | Mark disconnected; cancel waits; stack cancelled-task trace |
-| Resurrection | Same `pid` re-handshakes ⇒ connected; stack cleared on first successful task |
+| IPC loss | Mark disconnected; cancel waits; stack cancelled-task trace; remove from fleet after **15s** TTL or when **any** handshake succeeds |
+| Resurrection | Same `pid` re-handshakes within the grace window ⇒ connected; stack cleared on first successful task |
 | Pid reuse | Best-effort fingerprint; mismatch ⇒ clear that pid’s state only |
 
 ### Task queue — Shipped
@@ -104,8 +104,12 @@ Handshake returns a local FS path to the bridge package directory. TD reloads fr
 
 1. State the loss (`bridge` disconnected, `lastDisconnectAt`).
 2. Cancel waits; stack cancelled tasks (`reason: bridge_lost`).
-3. Same `pid` re-handshake ⇒ usable again; stack stays until first success.
+3. Same `pid` re-handshake within the grace window ⇒ usable again; stack stays until first success.
 4. First successful task clears the stack. First failure after resurrection keeps it.
+5. **Fleet eviction:** while still `disconnected`, the pid is removed from the
+   registry (and thus `fleet`) when either **any** successful handshake occurs
+   (other ghosts purged; the connecting pid stays / resurrects) or **15s**
+   elapses since this loss (`DISCONNECTED_TTL`).
 
 **Idle heartbeat (liveness):** after handshake, the daemon session actor probes
 the peer with wire `ping` outside the task queue (not visible in `fleet`
@@ -114,7 +118,8 @@ inbound framed traffic). Any successful request/response (including ping/pong)
 resets the inactivity clock. Missed pong or idle-dead → same teardown as IPC
 loss. The bridge answers `ping` on the IPC worker thread (no main-thread
 `process_pending`) and exits its serve loop after **15s** inbound silence when
-read timeouts are available. `GET /mcp/health` remains daemon-process liveness
+read timeouts are available. Idle detection and fleet eviction are separate
+clocks (each up to **15s**). `GET /mcp/health` remains daemon-process liveness
 only — not bridge peer health.
 
 ---
