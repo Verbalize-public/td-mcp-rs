@@ -171,6 +171,8 @@ Typical loop: `fleet` → pick connected `pid` → `inspect` → mutate → `ins
 
 `params` is opt-in. `errors` / `warnings` are string arrays from `OP.errors()` / `OP.warnings()` (no recurse). Not gated by `detailLevel`.
 
+**Cook before read (rule):** `inspect` always calls `OP.cook(force=True)` on the resolved target before reading nodes/params/errors/warnings. Inspecting a COMP cooks that network. Errors/warnings remain non-recursive (target only). Cook failures are best-effort and do not fail the inspect.
+
 ### `inspect` / `detailLevel`
 
 | Level | Direct `children` entries | Counts / truncation |

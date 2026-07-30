@@ -463,6 +463,27 @@ def _op_messages(fn: Any) -> list[str]:
     return out
 
 
+def _force_cook(node: Any) -> None:
+    """Best-effort ``OP.cook(force=True)`` so inspect sees post-cook errors.
+
+    Missing ``cook``, TypeError on kwargs, and cook failures are swallowed —
+    inspect still returns structure. Positional ``cook(True)`` is a fallback
+    for fakes / older signatures.
+    """
+    cook = getattr(node, "cook", None)
+    if not callable(cook):
+        return
+    try:
+        cook(force=True)
+    except TypeError:
+        try:
+            cook(True)
+        except Exception:  # noqa: BLE001
+            return
+    except Exception:  # noqa: BLE001
+        return
+
+
 def build_inspect_node(
     n: Any,
     *,
@@ -551,6 +572,8 @@ def handle_inspect(params: dict[str, Any]) -> dict[str, Any]:
         want_params = "params" in include
         want_errors = "errors" in include
         want_warnings = "warnings" in include
+
+    _force_cook(node)
 
     try:
         return {

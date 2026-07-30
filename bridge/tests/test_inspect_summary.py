@@ -6,7 +6,7 @@ import os
 import sys
 import unittest
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -27,6 +27,7 @@ def _fake_node(
     *,
     errors: object = "",
     warnings: object = "",
+    cook: object | None = None,
 ) -> SimpleNamespace:
     return SimpleNamespace(
         path="/project1",
@@ -37,6 +38,7 @@ def _fake_node(
         errors=lambda: errors,
         warnings=lambda: warnings,
         valid=True,
+        cook=cook if cook is not None else MagicMock(),
     )
 
 
@@ -180,6 +182,48 @@ class InspectMessagesTest(unittest.TestCase):
         self.assertNotIn("errors", result["node"])
         self.assertEqual(result["node"]["children"], [])
         self.assertEqual(result["node"]["childCount"], 0)
+
+    def test_handle_inspect_force_cooks_target(self) -> None:
+        cook = MagicMock()
+        node = _fake_node([], errors="err1", cook=cook)
+        with patch.dict(sys.modules, {"td": SimpleNamespace()}):
+            with patch.object(tdmcp_bridge, "tdmcp_resolve", return_value=node):
+                result = tdmcp_bridge.handle_inspect({
+                    "path": "/project1",
+                    "include": [],
+                })
+        self.assertTrue(result["ok"])
+        cook.assert_called_once_with(force=True)
+        self.assertEqual(result["node"]["errors"], ["err1"])
+
+    def test_handle_inspect_cook_raise_still_ok(self) -> None:
+        cook = MagicMock(side_effect=RuntimeError("cook boom"))
+        node = _fake_node([], errors="err1", warnings="warn1", cook=cook)
+        with patch.dict(sys.modules, {"td": SimpleNamespace()}):
+            with patch.object(tdmcp_bridge, "tdmcp_resolve", return_value=node):
+                result = tdmcp_bridge.handle_inspect({
+                    "path": "/project1",
+                    "include": [],
+                })
+        self.assertTrue(result["ok"])
+        cook.assert_called_once_with(force=True)
+        self.assertEqual(result["node"]["errors"], ["err1"])
+        self.assertEqual(result["node"]["warnings"], ["warn1"])
+
+    def test_force_cook_positional_fallback(self) -> None:
+        calls: list[tuple] = []
+
+        def cook(*args: object, **kwargs: object) -> None:
+            if kwargs.get("force") is True:
+                raise TypeError("no force kw")
+            calls.append((args, kwargs))
+
+        node = SimpleNamespace(cook=cook)
+        tdmcp_bridge._force_cook(node)
+        self.assertEqual(calls, [((True,), {})])
+
+    def test_force_cook_missing_is_noop(self) -> None:
+        tdmcp_bridge._force_cook(SimpleNamespace())  # no cook attr
 
 
 if __name__ == "__main__":

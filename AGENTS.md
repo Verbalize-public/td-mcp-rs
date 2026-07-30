@@ -36,6 +36,8 @@ Law: [`CONSTITUTION.md`](CONSTITUTION.md). User install/quickstart: [`README.md`
 5. Prefer `detailLevel: summary` / `diagnosticLevel: summary`; store-first for
    `capture`. Summary `inspect` includes a direct-child roster (capped at 64;
    when truncated see `node.truncation` — `detailed` does not raise the cap).
+   `inspect` force-cooks its target before reporting errors/warnings (COMP =
+   network cook).
 
 ## Operate vs Document
 

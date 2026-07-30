@@ -64,12 +64,18 @@ See [`DEV_ENV.md`](DEV_ENV.md) § Dev smoke. Does **not** replace rows 1–12 be
 | M9 | `delete` a previously created node → `ok:true`; re-`inspect` confirms gone | ✅ |
 | M10 | Structural errors/warnings clean after the whole pass (`inspect` default `errors`+`warnings` / classic `get_td_node_errors`); when a node warns, `node.warnings` is non-empty | ✅ |
 | M11 | `capture` top on a created TOP → non-black | ✅ |
+| M12 | Create bare `mathCHOP` → immediate `inspect` → `node.errors` non-empty (`Not enough sources`) | ✅ |
 
 **Run record (P0):** 2026-07-29, TouchDesigner 099.2025.33070 (Windows), two
 `_agent_tdmcprs_e2e*` sandbox projects, daemon `0.1.0` release build. All 12
 rows pass. See "Bugs found and fixed" below — none were pre-existing test
 gaps, all were live-only failures (never hit by the mocked/in-memory
 integration suite).
+
+**Run record (M12 inspect force-cook):** 2026-07-31, `NewProject.1.toe`
+(pid 2192), HTTP `/mcp/tools/call`. Bare `mathCHOP` at
+`/project1/agent_zone_test/m12_math` → first `inspect` returned
+`Not enough sources specified` (bridge `_force_cook` before read).
 
 **Run record (`mutate_nodes` M1–M11):** 2026-07-31, TouchDesigner via
 `_agent_tdmcprs_dev.4.toe` (pid 19168), daemon `0.1.0` release rebuild.
