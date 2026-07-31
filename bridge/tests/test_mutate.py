@@ -79,7 +79,18 @@ class FakeNode:
         return [SimpleNamespace(name=k) for k in self.par._pars]
 
     def create(self, op_cls: Any, name: str) -> FakeNode:
-        child_path = f"{self.path.rstrip('/')}/{name}"
+        # Name taken → allocate a different leaf (simple counter; not full TD parity).
+        actual = name
+        if actual in self._children:
+            base = name.rstrip("0123456789") or name
+            n = 2
+            while True:
+                candidate = f"{base}{n}"
+                if candidate not in self._children:
+                    actual = candidate
+                    break
+                n += 1
+        child_path = f"{self.path.rstrip('/')}/{actual}"
         child = FakeNode(child_path, op_types=self._op_types)
         # Seed a few common pars for set tests.
         child.par = FakeParGroup(
@@ -89,7 +100,7 @@ class FakeNode:
                 "pulse1": FakePar(0),
             }
         )
-        self._children[name] = child
+        self._children[actual] = child
         return child
 
     def destroy(self) -> None:
@@ -122,7 +133,22 @@ class FakeCtx(tdmcp_bridge.MutateContext):
 
     def track(self, node: FakeNode) -> FakeNode:
         self.nodes[node.path] = node
+        parent_path, leaf = tdmcp_bridge._parent_and_name(node.path)
+        parent = self.nodes.get(parent_path)
+        if parent is not None and leaf:
+            parent._children[leaf] = node
         return node
+
+    def enable_create_tracking(self) -> FakeNode:
+        """Wrap root create so children are registered for later resolve."""
+        parent = self.nodes["/project1"]
+        orig = parent.create
+
+        def create_and_track(op_cls: Any, name: str) -> FakeNode:
+            return self.track(orig(op_cls, name))
+
+        parent.create = create_and_track  # type: ignore[method-assign]
+        return parent
 
 
 class MutateCreateTest(unittest.TestCase):
@@ -213,6 +239,38 @@ class MutateCreateTest(unittest.TestCase):
         node = ctx.nodes["/project1/noise1"]
         self.assertTrue(node.viewer)
         self.assertTrue(node.display)
+
+    def test_create_rename_emits_lint(self) -> None:
+        ctx = FakeCtx()
+        ctx.enable_create_tracking()
+        occupant = FakeNode("/project1/null1")
+        ctx.track(occupant)
+        out = tdmcp_bridge.apply_step(
+            ctx,
+            {"op": "create", "path": "/project1/null1", "opType": "noiseTOP"},
+        )
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["path"], "/project1/null2")
+        self.assertNotEqual(out["path"], "/project1/null1")
+        lints = out.get("lints") or []
+        self.assertEqual(len(lints), 1)
+        self.assertEqual(lints[0]["code"], "tdmcp.op.renamed")
+        self.assertIn("requested", lints[0]["message"])
+        self.assertEqual(lints[0]["suggestion"]["opPath"], "/project1/null2")
+        self.assertEqual(lints[0]["suggestion"]["replace"], "/project1/null2")
+        self.assertIn("/project1/null2", ctx.nodes)
+        self.assertIs(ctx.nodes["/project1/null1"], occupant)
+
+    def test_create_no_rename_no_lints(self) -> None:
+        ctx = FakeCtx()
+        ctx.enable_create_tracking()
+        out = tdmcp_bridge.apply_step(
+            ctx,
+            {"op": "create", "path": "/project1/noise1", "opType": "noiseTOP"},
+        )
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["path"], "/project1/noise1")
+        self.assertNotIn("lints", out)
 
     def test_create_bad_values_rolls_back(self) -> None:
         ctx = FakeCtx()
@@ -696,6 +754,62 @@ class MutateWireTest(unittest.TestCase):
         self.assertEqual(out["failedAt"], 0)
         self.assertTrue(out["steps"][1].get("skipped"))
         self.assertEqual(out["steps"][1]["path"], "/project1/zone/null1")
+
+    def test_batch_connect_after_rename_wires_new_node(self) -> None:
+        ctx = FakeCtx()
+        ctx.enable_create_tracking()
+        occupant = FakeNode("/project1/null1")
+        ctx.track(occupant)
+        out = tdmcp_bridge.run_mutate_steps(
+            ctx,
+            [
+                {"op": "create", "path": "/project1/null1", "opType": "noiseTOP"},
+                {"op": "create", "path": "/project1/noiseX", "opType": "noiseTOP"},
+                {
+                    "op": "connect",
+                    "src": "/project1/null1",
+                    "dst": "/project1/noiseX",
+                },
+            ],
+            detail_level="detailed",
+        )
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["applied"], 3)
+        create_step = out["steps"][0]
+        self.assertEqual(create_step["path"], "/project1/null2")
+        self.assertEqual(create_step["lints"][0]["code"], "tdmcp.op.renamed")
+        renamed = ctx.nodes["/project1/null2"]
+        dst = ctx.nodes["/project1/noiseX"]
+        self.assertIn(
+            dst.inputConnectors[0], renamed.outputConnectors[0].connections
+        )
+        self.assertEqual(occupant.outputConnectors[0].connections, [])
+        self.assertEqual(out["steps"][2]["src"], "/project1/null2")
+
+    def test_batch_remap_relative_paths(self) -> None:
+        ctx = FakeCtx()
+        ctx.enable_create_tracking()
+        occupant = FakeNode("/project1/null1")
+        ctx.track(occupant)
+        out = tdmcp_bridge.run_mutate_steps(
+            ctx,
+            [
+                {"op": "create", "path": "null1", "opType": "noiseTOP"},
+                {"op": "create", "path": "peer1", "opType": "noiseTOP"},
+                {"op": "connect", "src": "null1", "dst": "peer1"},
+            ],
+            context_path="/project1",
+            detail_level="detailed",
+        )
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["steps"][0]["path"], "/project1/null2")
+        renamed = ctx.nodes["/project1/null2"]
+        peer = ctx.nodes["/project1/peer1"]
+        self.assertIn(
+            peer.inputConnectors[0], renamed.outputConnectors[0].connections
+        )
+        self.assertEqual(occupant.outputConnectors[0].connections, [])
+        self.assertEqual(out["steps"][2]["src"], "/project1/null2")
 
 
 class MutateDeleteTest(unittest.TestCase):

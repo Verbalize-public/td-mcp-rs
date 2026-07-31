@@ -1088,7 +1088,12 @@ def _step_create(
             ctx,
         )
     created = parent.create(op_cls, name)
-    created_path = getattr(created, "path", None) or full
+    raw_created = getattr(created, "path", None)
+    if isinstance(raw_created, str) and raw_created.strip():
+        created_path = _absolutize_path(raw_created, None)
+    else:
+        # Missing path → assume requested; never emit a false rename lint.
+        created_path = full
     values = step.get("values")
     if values:
         err = _apply_values(created, values)
@@ -1109,6 +1114,24 @@ def _step_create(
             out["values"] = values
         if flags:
             out["flags"] = flags
+    if created_path != full:
+        try:
+            out["lints"] = [
+                {
+                    "severity": "lint",
+                    "code": "tdmcp.op.renamed",
+                    "message": (
+                        f"requested '{full}', created as '{created_path}'"
+                    ),
+                    "confidence": "high",
+                    "suggestion": {
+                        "opPath": created_path,
+                        "replace": created_path,
+                    },
+                }
+            ]
+        except Exception:  # noqa: BLE001 — never change ok after materialization
+            pass
     return out
 
 
@@ -1337,6 +1360,45 @@ def _step_disconnect(
     return out
 
 
+def _rewrite_step_aliases(
+    step: dict[str, Any],
+    aliases: dict[str, str],
+    context_path: str | None,
+) -> dict[str, Any]:
+    """Shallow-copy ``step`` and remap path/src/dst via create aliases.
+
+    Best-effort: never raises; returns ``step`` unchanged on any failure.
+    """
+    if not aliases:
+        return step
+    try:
+        out = dict(step)
+        for key in ("path", "src", "dst"):
+            raw = out.get(key)
+            if not isinstance(raw, str) or not raw:
+                continue
+            abs_path = _absolutize_path(raw, context_path)
+            mapped = aliases.get(abs_path)
+            if mapped:
+                out[key] = mapped
+        return out
+    except Exception:  # noqa: BLE001
+        return step
+
+
+def _alias_lookup(
+    path: str, aliases: dict[str, str], context_path: str | None
+) -> str:
+    """Absolutize then apply alias; best-effort, never raises."""
+    try:
+        if not path:
+            return path
+        abs_path = _absolutize_path(path, context_path)
+        return aliases.get(abs_path, abs_path)
+    except Exception:  # noqa: BLE001
+        return path
+
+
 def run_mutate_steps(
     ctx: MutateContext,
     steps: list[dict[str, Any]],
@@ -1344,10 +1406,16 @@ def run_mutate_steps(
     context_path: str | None = None,
     detail_level: str = "summary",
 ) -> dict[str, Any]:
-    """Sequential apply; stop on first hard error; mark rest skipped."""
+    """Sequential apply; stop on first hard error; mark rest skipped.
+
+    When a create step is auto-renamed by TD, later steps in this batch that
+    still reference the requested path are remapped to the actual created path
+    (create-intent wins inside one ``mutate_nodes`` call).
+    """
     results: list[dict[str, Any]] = []
     applied = 0
     failed_at: int | None = None
+    aliases: dict[str, str] = {}
     for i, step in enumerate(steps):
         if failed_at is not None:
             raw_path = step.get("path") or step.get("dst") or ""
@@ -1356,18 +1424,33 @@ def run_mutate_steps(
                     "ok": False,
                     "skipped": True,
                     "code": "tdmcp.batch.skipped_dependent",
-                    "path": _absolutize_path(raw_path, context_path)
+                    "path": _alias_lookup(raw_path, aliases, context_path)
                     if raw_path
                     else raw_path,
                 }
             )
             continue
+        rewritten = _rewrite_step_aliases(step, aliases, context_path)
         result = apply_step(
-            ctx, step, context_path=context_path, detail_level=detail_level
+            ctx, rewritten, context_path=context_path, detail_level=detail_level
         )
         results.append(result)
         if result.get("ok"):
             applied += 1
+            if (step.get("op") or "") == "create":
+                try:
+                    requested = _absolutize_path(
+                        step.get("path") or "", context_path
+                    )
+                    actual = result.get("path")
+                    if (
+                        isinstance(actual, str)
+                        and actual
+                        and actual != requested
+                    ):
+                        aliases[requested] = actual
+                except Exception:  # noqa: BLE001 — never fail the batch
+                    pass
         else:
             failed_at = i
     return {

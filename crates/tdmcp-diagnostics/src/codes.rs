@@ -19,6 +19,8 @@ pub const BRIDGE_VERSION: &str = "tdmcp.bridge.version";
 pub const OP_NOT_FOUND: &str = "tdmcp.op.not_found";
 /// Similar node name found nearby (lint).
 pub const OP_SIMILAR_NAME: &str = "tdmcp.op.similar_name";
+/// Create auto-renamed by TD; actual path differs from requested (lint).
+pub const OP_RENAMED: &str = "tdmcp.op.renamed";
 /// Path outside authorized mutation zone.
 pub const OP_OUTSIDE_ZONE: &str = "tdmcp.op.outside_zone";
 /// Inspect direct-child roster capped (soft; payload `truncation` block).
@@ -68,6 +70,7 @@ pub const ALL: &[&str] = &[
     BRIDGE_VERSION,
     OP_NOT_FOUND,
     OP_SIMILAR_NAME,
+    OP_RENAMED,
     OP_OUTSIDE_ZONE,
     OP_CHILDREN_TRUNCATED,
     OP_UNKNOWN_TYPE,

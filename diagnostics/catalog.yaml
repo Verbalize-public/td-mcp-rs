@@ -70,6 +70,17 @@ entries:
       - kind: doc
         id: op_path_harness
 
+  - code: tdmcp.op.renamed
+    layer: mutate
+    message: "Create used a different path than requested (TD auto-rename)"
+    mitigation:
+      - "Trust the echoed step path / suggestion.opPath — not the requested leaf"
+      - "Later steps in the same mutate_nodes batch that reuse the requested path are remapped to the created op"
+      - "To target the pre-existing occupant instead, inspect and use its path, or split batches"
+    references:
+      - kind: doc
+        id: op_path_harness
+
   - code: tdmcp.op.outside_zone
     layer: mutate
     message: "Path is outside the authorized mutation zone"

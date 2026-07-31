@@ -75,6 +75,7 @@ See [`DEV_ENV.md`](DEV_ENV.md) § Dev smoke. Does **not** replace rows 1–12 be
 | M20 | `set` `flags:{allowCooking:false}` on a non-COMP → `tdmcp.mutate.step_failed` (live-only; TD raises; not unit-testable via FakeNode) | ✅ |
 | M21 | Failing `mutate_nodes` MCP response is flat `{ok:false, summary, items, applied, failedAt, steps}` (no nested `data`) over axum + rmcp | |
 | M22 | Named-pipe mid-frame timeout disconnects cleanly (no silent desync / dead read thread); idle timeout still polls until IDLE_DEAD | |
+| M23 | Pre-create occupant `nullTOP` at a path (e.g. `/project1/…/null1`). Batch: `create` same path + peer TOP + `connect` using the **requested** path → `ok`; create step has nested `tdmcp.op.renamed` and echoed path ≠ requested; connect wires the **renamed** node (inspect connections and/or `capture` on dst non-black), not the occupant | ✅ |
 
 **Run record (P0):** 2026-07-29, TouchDesigner 099.2025.33070 (Windows), two
 `_agent_tdmcprs_e2e*` sandbox projects, daemon `0.1.0` release build. All 12
@@ -117,6 +118,15 @@ before `ensure` so bridge + catalog re-extracted; loaded fresh
   8 allowed flags; following `delete` skipped.
 - M20: `allowCooking:false` on noiseTOP → `tdmcp.mutate.step_failed` with TD
   message "This flag can only be disabled for COMPs."
+
+**Run record (`mutate_nodes` create-rename M23):** 2026-07-31,
+`_agent_tdmcprs_dev.4.toe` (pid 15448), daemon `0.1.0` xtask dist after
+`tdmcp.op.renamed` + batch alias rewrite. Deleted
+`%LOCALAPPDATA%/tdmcp-rs/install.version` before `ensure`. Zone
+`/project1/m23_rename_zone`: occupant `null1`, batch create `null1` →
+`null2` with nested lint, create `noise1`, `connect` noise→requested
+`null1` remapped to `null2`. Occupant inputs stayed empty; `capture` top
+on `null2` non-black. HTTP `/mcp/tools/call`.
 
 ## Bugs found and fixed during this run
 

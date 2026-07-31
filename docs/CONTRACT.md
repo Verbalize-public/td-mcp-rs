@@ -210,7 +210,7 @@ Step shapes:
 
 | `op` | Fields | Notes |
 | --- | --- | --- |
-| `create` | `path`, `opType`, `values?`, `flags?` | Parent derived from path resolution; `values` is a convenience (agent may follow with `set`). If `values`/`flags` fail after the node is materialized, the just-created node is destroyed (best-effort) — no orphan is left |
+| `create` | `path`, `opType`, `values?`, `flags?` | Parent derived from path resolution; `values` is a convenience (agent may follow with `set`). If `values`/`flags` fail after the node is materialized, the just-created node is destroyed (best-effort) — no orphan is left. When TD auto-renames (requested leaf already occupied), the step still **succeeds** with the actual canonical `path` and a nested lint `tdmcp.op.renamed` (`suggestion.opPath` / `replace` = actual). Within the same `mutate_nodes` batch, later steps whose `path`/`src`/`dst` absolutize to the **requested** create path are remapped to the actual created op (create-intent wins). To target the pre-existing occupant instead, inspect and use its path, or split batches. Nested success lints live under `steps[]` — `ok:true` responses have no top-level `items` |
 | `set` | `path`, `values?`, `expressions?`, `pulse?`, `flags?` | Explicit modes — no silent guessing. `values: {name: val}`, `expressions: {name: expr}`, `pulse: [name]` |
 | `delete` | `path` | |
 | `connect` | `src`, `dst`, `srcOutput?` (default 0), `dstInput?` (default 0) | `src.outputConnectors[i].connect(dst.inputConnectors[j])`. Echoes canonical `path` = dst |
