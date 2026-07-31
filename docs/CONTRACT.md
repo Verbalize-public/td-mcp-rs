@@ -30,7 +30,7 @@ Crate layout: [`ARCHITECTURE.md`](../ARCHITECTURE.md). Engineering law: [`CONSTI
 | Offline ToeDigest / `.toe` write / inject | Separate MCP; v1 adopt path = drop tox |
 | Remote / WAN TD control | After local contract is boring |
 | Multiple bridge protocols | One local IPC |
-| Silent auto-reconnect | Explicit resurrection policy |
+| Silent auto-reconnect (TD↔daemon IPC) | Explicit resurrection policy (see Goals §7). Distinct from stdio↔daemon HTTP reconnect-only heal below. |
 | Lifecycle create/start/stop | **P2+** |
 
 ---
@@ -68,8 +68,21 @@ Crate layout: [`ARCHITECTURE.md`](../ARCHITECTURE.md). Engineering law: [`CONSTI
 
 **Stdio proxy (v1):** forwards tools request/response only (`list_tools` /
 `call_tool`). Server-initiated notifications are **not** forwarded. The HTTP
-daemon is the control plane; the stdio process is a short-lived shim per MCP
-client session.
+daemon is the control plane; Cursor invokes `tdmcp-daemon mcp`, which
+`ensure`s once at cold start then runs the stdio shim for the MCP client
+session.
+
+**Stdio proxy resilience:** if the HTTP link to the daemon is lost (e.g.
+`/admin/restart`, crash, idle-exit), the shim attempts a **reconnect-only**
+heal — it never spawns / upserts a daemon mid-session. Heal is single-flight
+and debounced; a background watcher keeps probing while unhealthy so a
+freshly-restarted daemon does not idle-exit again before the next tool call.
+The failed call always returns `tdmcp.daemon.unreachable` with downtime and a
+suggestion (no silent retry of the tool). Thresholds:
+`TDMCP_RECONNECT_RECENT_MS` (default 3000), `TDMCP_RECONNECT_STALE_MS` (15000),
+`TDMCP_RECONNECT_DEBOUNCE_MS` (250), `TDMCP_RECONNECT_PROBE_INTERVAL_MS` (500),
+`TDMCP_RECONNECT_PROBE_MAX_MS` (5000). This is **not** the TD↔daemon IPC
+resurrection policy (Goals §7 / non-goal “Silent auto-reconnect”).
 
 ### Bridge transport — Shipped
 

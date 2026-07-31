@@ -50,6 +50,17 @@ entries:
       - kind: doc
         id: bridge_package
 
+  - code: tdmcp.daemon.unreachable
+    layer: fleet
+    message: "Stdio proxy lost its HTTP link to the daemon"
+    mitigation:
+      - "If downtime is short, wait and retry (daemon may be mid-restart)"
+      - "Verify with inspect before retrying a mutation whose effect is unknown"
+      - "If downtime exceeds ~15s, run `tdmcp-daemon ensure` or restart the MCP client (stdio proxy never auto-spawns)"
+    references:
+      - kind: doc
+        id: stdio_proxy_resilience
+
   - code: tdmcp.op.not_found
     layer: mutate
     message: "Could not resolve OpPath for a mutate step"

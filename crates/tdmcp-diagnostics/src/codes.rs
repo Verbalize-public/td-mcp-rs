@@ -15,6 +15,9 @@ pub const BRIDGE_TIMEOUT: &str = "tdmcp.bridge.timeout";
 /// Bridge package version incompatible with daemon.
 pub const BRIDGE_VERSION: &str = "tdmcp.bridge.version";
 
+/// Stdio proxy ↔ daemon HTTP link lost / unreachable (reconnect-only; no upsert).
+pub const DAEMON_UNREACHABLE: &str = "tdmcp.daemon.unreachable";
+
 /// OpPath resolution failed.
 pub const OP_NOT_FOUND: &str = "tdmcp.op.not_found";
 /// Similar node name found nearby (lint).
@@ -72,6 +75,7 @@ pub const ALL: &[&str] = &[
     BRIDGE_QUEUE_BUSY,
     BRIDGE_TIMEOUT,
     BRIDGE_VERSION,
+    DAEMON_UNREACHABLE,
     OP_NOT_FOUND,
     OP_SIMILAR_NAME,
     OP_RENAMED,

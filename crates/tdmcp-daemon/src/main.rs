@@ -191,13 +191,33 @@ fn main() -> Result<()> {
                     idle_exit_secs: None,
                     force_install: false,
                 };
-                let result = ensure_daemon(opts).await?;
-                let daemon_url = format!("{}/mcp/rpc", result.base_url);
-                // Stdio MCP: do not print to stdout (JSON-RPC). Logs go via tracing/stderr.
-                tdmcp_mcp::run_stdio_proxy(&daemon_url)
-                    .await
-                    .map_err(|e| anyhow::anyhow!(e))?;
-                Ok(())
+                // Cold start may race a dying daemon between ensure and the first
+                // HTTP handshake — retry ensure+connect a few times (upsert is
+                // legitimate here). Mid-session reconnect is reconnect-only.
+                const MAX_CONNECT_ATTEMPTS: u32 = 3;
+                let mut last_err = None;
+                for attempt in 1..=MAX_CONNECT_ATTEMPTS {
+                    let result = ensure_daemon(opts.clone()).await?;
+                    let daemon_url = format!("{}/mcp/rpc", result.base_url);
+                    // Stdio MCP: do not print to stdout (JSON-RPC). Logs go via tracing/stderr.
+                    match tdmcp_mcp::run_stdio_proxy(&daemon_url).await {
+                        Ok(()) => return Ok(()),
+                        Err(e) if e.is_connect() && attempt < MAX_CONNECT_ATTEMPTS => {
+                            warn!(
+                                attempt,
+                                error = %e,
+                                "stdio proxy initial connect failed — retrying ensure"
+                            );
+                            last_err = Some(e);
+                            tokio::time::sleep(Duration::from_millis(200)).await;
+                        }
+                        Err(e) => return Err(anyhow::anyhow!(e)),
+                    }
+                }
+                match last_err {
+                    Some(e) => Err(anyhow::anyhow!(e)),
+                    None => bail!("stdio proxy: exhausted connect retries"),
+                }
             })
         }
         Commands::Status { port } => {

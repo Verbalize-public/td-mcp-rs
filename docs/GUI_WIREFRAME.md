@@ -58,9 +58,11 @@ Empty states (centered meta text): `No MCP clients connected` /
 | Stop | `POST /admin/shutdown` (err outline → fill on hover) |
 | Startup | Tray icon + OS toast only — dashboard starts **hidden** |
 | Tray left-click / double-click | **Toggle** popup (Docker-style); anchored near tray icon |
-| Tray right-click | Context menu: Restart / Stop only |
+| Tray right-click | Context menu: Restart / Stop only (left-click does **not** open menu) |
 | Focus loss / click-away | Hide popup (transient always-on-top ~150ms on show only) |
-| Window close (X) | Hide only — does **not** stop the daemon |
+| Window chrome | Borderless (no OS title bar / controls); 1px theme border |
+| Taskbar | No taskbar button while visible — tray icon only |
+| Hide | Tray left-click toggle or focus loss — does **not** stop the daemon |
 
 ## Admin surfaces
 
@@ -76,7 +78,8 @@ Empty states (centered meta text): `No MCP clients connected` /
 - [x] Compact Ableton-dark layout (LED chips, MCP + TD sections, Restart/Stop footer)
 - [x] Status + fleet + MCP sessions populate from a running daemon
 - [x] Auto-refresh only (no Refresh button / no editable Admin URL)
-- [x] Tray left-click toggles; right-click Restart / Stop
+- [x] Tray left-click toggles; right-click Restart / Stop (menu not on left)
+- [x] Borderless popup; no taskbar button (tray only)
 - [x] Focus-loss auto-hide (Docker-style)
 - [x] Status-reflecting icon / tooltip
 - [x] OS toast notifications on fleet edge transitions + startup

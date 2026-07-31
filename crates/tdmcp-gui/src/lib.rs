@@ -41,7 +41,8 @@ pub fn run(admin_base: String) -> Result<()> {
             .with_max_inner_size([WINDOW_WIDTH, WINDOW_MAX_HEIGHT])
             .with_title("td-mcp-rs")
             .with_icon(window_icon)
-            .with_decorations(true)
+            .with_decorations(false)
+            .with_taskbar(false)
             .with_resizable(false)
             // Tray + toast only at startup; user opens the dashboard via the tray.
             .with_visible(false),
@@ -147,6 +148,7 @@ impl DashboardApp {
 
         let tray = TrayIconBuilder::new()
             .with_menu(Box::new(menu))
+            .with_menu_on_left_click(false)
             .with_tooltip("td-mcp-rs")
             .with_icon(tray_icon_from(&icon_normal)?)
             .build()
@@ -755,7 +757,12 @@ impl eframe::App for DashboardApp {
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default()
-            .frame(egui::Frame::NONE.fill(theme::BG_WINDOW).inner_margin(0.0))
+            .frame(
+                egui::Frame::NONE
+                    .fill(theme::BG_WINDOW)
+                    .stroke(egui::Stroke::new(1.0, BORDER))
+                    .inner_margin(0.0),
+            )
             .show(ui, |ui| {
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {

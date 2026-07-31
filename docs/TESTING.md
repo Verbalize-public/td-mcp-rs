@@ -21,6 +21,7 @@ before declaring a gate green.
 4. OpPath similar-name lint (bounded) — when implemented (P1).
 5. `mutate_nodes` sequential apply — stops at first hard failure (`failedAt`); later steps emit `tdmcp.batch.skipped_dependent`; pure `apply_step` seam unit-covered without TD (`bridge/tests/test_mutate.py` + `mcp_tools.rs`).
 6. Diagnostics catalog completeness — every emitted `code` has a catalog entry.
+7. Stdio proxy reconnect — kill HTTP daemon mid-session → `tdmcp.daemon.unreachable`; restart on same port → subsequent `fleet` succeeds without relaunching the stdio process; watcher heals without an intervening successful tool call (`crates/tdmcp-daemon/tests/stdio_proxy.rs`).
 
 ## Running
 
