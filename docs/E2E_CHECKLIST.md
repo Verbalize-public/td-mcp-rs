@@ -48,6 +48,7 @@ See [`DEV_ENV.md`](DEV_ENV.md) § Dev smoke. Does **not** replace rows 1–12 be
 | 10 | `capture` mode `top` on a non-black TOP → ok | ✅ |
 | 11 | `capture` mode `preview` on zone COMP with `out1` → non-black | ✅ |
 | 12 | Black TOP → `tdmcp.perception.black_frame` | ✅ |
+| 12b | Constant TOP non-black solid (e.g. white) → `tdmcp.perception.uniform_frame` | |
 
 ### `mutate_nodes` (P1)
 
@@ -157,7 +158,10 @@ in `bridge/tdmcp_bridge/__init__.py` and covered by `bridge/tests/test_bridge_qu
    count, so black frames were never detected. Fixed by sampling real pixel
    data via `TOP.numpyArray()` and checking mean RGB near zero, with the old
    byte-size check retained only as a last-resort fallback when
-   `numpyArray` is unavailable.
+   `numpyArray` is unavailable. Non-black solid frames now fail as
+   `tdmcp.perception.uniform_frame` (per-channel spatial max−min ≤ 2/255).
+   Bridge soft-fails that omit `message` no longer stomp catalog text with a
+   generic fallback.
 4. **`capture` returned only a JPEG byte *count*, not pixels.** Agents got
    `{ bytes, path }` with no MCP image content block. Fixed by base64-encoding
    `saveByteArray(".jpg")` as `jpegBase64` and promoting it to an MCP

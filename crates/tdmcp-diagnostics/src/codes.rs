@@ -58,6 +58,8 @@ pub const TD_GLSL_COMPILE: &str = "tdmcp.td.glsl_compile";
 
 /// Captured TOP frame is black.
 pub const PERCEPTION_BLACK_FRAME: &str = "tdmcp.perception.black_frame";
+/// Captured TOP frame is a uniform solid color (non-black).
+pub const PERCEPTION_UNIFORM_FRAME: &str = "tdmcp.perception.uniform_frame";
 /// No perception path for COMP.
 pub const PERCEPTION_NO_PATH: &str = "tdmcp.perception.no_path";
 
@@ -87,6 +89,7 @@ pub const ALL: &[&str] = &[
     SCRIPT_EXECUTION_FAILED,
     TD_GLSL_COMPILE,
     PERCEPTION_BLACK_FRAME,
+    PERCEPTION_UNIFORM_FRAME,
     PERCEPTION_NO_PATH,
 ];
 

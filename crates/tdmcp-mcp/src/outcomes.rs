@@ -169,12 +169,14 @@ pub fn map_perception_outcome(
             let env = BridgeResultEnvelope::from_value(&value);
             if env.is_error() {
                 let code = env.code.as_deref().unwrap_or(codes::PERCEPTION_NO_PATH);
-                let msg = env.message_or("perception capture failed");
+                // Prefer bridge message/error; otherwise let catalog text win
+                // (avoids stomping e.g. black_frame with a generic fallback).
+                let msg = env.message.clone().or_else(|| env.error.clone());
                 let item = build_diag(
                     catalog,
                     code,
                     span,
-                    Some(msg),
+                    msg,
                     ctx(pid, Some(path), context_path),
                 );
                 let jpeg = value
@@ -641,5 +643,71 @@ mod tests {
         }));
         assert_eq!(op.code, codes::OP_UNKNOWN_TYPE);
         assert_eq!(op.lints[0].code, codes::OP_SIMILAR_TYPE);
+    }
+
+    fn perception_fail_item(value: Value) -> DiagnosticItem {
+        let catalog = Catalog::fallback();
+        let err = map_perception_outcome(
+            &catalog,
+            Pid::new(1),
+            OpPath::new("/project1/out1"),
+            None,
+            BridgeOutcome::Ok(value),
+            DiagnosticLevel::Summary,
+        )
+        .expect_err("expected perception soft failure");
+        match err {
+            ToolCallError::Failed(payload) => payload.diagnostics.items[0].clone(),
+            other => panic!("unexpected error: {other}"),
+        }
+    }
+
+    #[test]
+    fn perception_black_frame_uses_catalog_message_when_bridge_omits_it() {
+        let item = perception_fail_item(json!({
+            "ok": false,
+            "code": "tdmcp.perception.black_frame",
+            "jpegBase64": "aaaa"
+        }));
+        assert_eq!(item.code, codes::PERCEPTION_BLACK_FRAME);
+        assert!(
+            item.message.to_lowercase().contains("black"),
+            "expected catalog black-frame message, got {:?}",
+            item.message
+        );
+        assert!(
+            !item.message.contains("perception capture failed"),
+            "generic fallback must not stomp catalog message"
+        );
+    }
+
+    #[test]
+    fn perception_uniform_frame_uses_catalog_message_when_bridge_omits_it() {
+        let item = perception_fail_item(json!({
+            "ok": false,
+            "code": "tdmcp.perception.uniform_frame",
+            "jpegBase64": "aaaa"
+        }));
+        assert_eq!(item.code, codes::PERCEPTION_UNIFORM_FRAME);
+        assert!(
+            item.message.to_lowercase().contains("uniform"),
+            "expected catalog uniform-frame message, got {:?}",
+            item.message
+        );
+        assert!(!item.message.contains("perception capture failed"));
+    }
+
+    #[test]
+    fn perception_prefers_bridge_message_over_catalog() {
+        let item = perception_fail_item(json!({
+            "ok": false,
+            "code": "tdmcp.perception.black_frame",
+            "message": "Captured TOP frame is black (mean rgb≈0.00,0.00,0.00)",
+            "jpegBase64": "aaaa"
+        }));
+        assert_eq!(
+            item.message,
+            "Captured TOP frame is black (mean rgb≈0.00,0.00,0.00)"
+        );
     }
 }

@@ -188,7 +188,7 @@ When `childrenReturned < childCount`, the node includes `childrenTruncated: true
 
 | Mode | Status | Behavior |
 | --- | --- | --- |
-| `top` | **Shipped** | TOP → JPEG (`jpegBase64` + MCP image content); optional `maxSize` (default 256); black frame = perception fail (image still returned) |
+| `top` | **Shipped** | TOP → JPEG (`jpegBase64` + MCP image content); optional `maxSize` (default 256); black or uniform solid frame = perception fail (`tdmcp.perception.black_frame` / `tdmcp.perception.uniform_frame`; image still returned) |
 | `preview` | **Shipped** | COMP face: `opviewer` → `./out1` → TOP child → error |
 | `auto` | **Shipped** | TOP → `top`; COMP → `preview` |
 | `chop_data` | **Planned** | CHOP → capped JSON |

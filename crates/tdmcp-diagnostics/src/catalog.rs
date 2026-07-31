@@ -137,6 +137,7 @@ mod tests {
         assert!(cat.contains("tdmcp.bridge.unknown_pid"));
         assert!(cat.contains("tdmcp.op.not_found"));
         assert!(cat.contains("tdmcp.perception.black_frame"));
+        assert!(cat.contains("tdmcp.perception.uniform_frame"));
         assert!(cat.contains("tdmcp.script.execution_failed"));
     }
 

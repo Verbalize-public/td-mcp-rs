@@ -378,10 +378,19 @@ def handle_capture(params: dict[str, Any]) -> dict[str, Any]:
             source, tmp_top = _maybe_downscale_top(td, target, int(max_size))
         data = source.saveByteArray(".jpg")
         raw = bytes(data) if data is not None else b""
-        black = _is_black_top(source, raw)
+        kind, mean_rgb = _classify_frame(source, raw)
+        code = None
+        message = None
+        if kind == "black":
+            code = "tdmcp.perception.black_frame"
+            message = _perception_frame_message("black", mean_rgb)
+        elif kind == "uniform":
+            code = "tdmcp.perception.uniform_frame"
+            message = _perception_frame_message("uniform", mean_rgb)
         return {
-            "ok": not black,
-            "code": "tdmcp.perception.black_frame" if black else None,
+            "ok": kind is None,
+            "code": code,
+            "message": message,
             "bytes": len(raw),
             "path": getattr(target, "path", path),
             "mimeType": "image/jpeg",
@@ -399,6 +408,7 @@ def handle_capture(params: dict[str, Any]) -> dict[str, Any]:
 
 
 _BLACK_MEAN_THRESHOLD = 1.0 / 255.0
+_UNIFORM_RANGE_THRESHOLD = 2.0 / 255.0
 
 
 def _maybe_downscale_top(td_mod, target, max_size: int):
@@ -429,16 +439,37 @@ def _maybe_downscale_top(td_mod, target, max_size: int):
     return tmp_top, tmp_top
 
 
-def _is_black_top(target, data: bytes | None) -> bool:
-    """Real pixel-based black check via `TOP.numpyArray`, byte-size as fallback.
+def _perception_frame_message(kind: str, mean_rgb: tuple[float, ...] | None) -> str:
+    """Human message for black / uniform perception failures."""
+    if mean_rgb is not None and len(mean_rgb) >= 3:
+        rgb = f"{mean_rgb[0]:.2f},{mean_rgb[1]:.2f},{mean_rgb[2]:.2f}"
+    elif mean_rgb is not None and mean_rgb:
+        rgb = ",".join(f"{c:.2f}" for c in mean_rgb)
+    else:
+        rgb = None
+    if kind == "black":
+        base = "Captured TOP frame is black"
+    else:
+        base = "Captured TOP frame is a uniform solid color"
+    if rgb is None:
+        return f"{base} — perception fail"
+    return f"{base} (mean rgb≈{rgb})"
 
-    `saveByteArray`'s encoded JPEG size is not a reliable black-frame signal —
-    solid colors of *any* value compress to a similarly tiny size (verified:
-    a solid-white and solid-black 256x256 Constant TOP both encode to the same
-    byte count). `numpyArray()` gives real RGB(A) samples; mean over the RGB
-    channels near zero is the actual "black" signal. Falls back to the old
-    tiny-file heuristic only when `numpyArray` isn't available on this target
-    (e.g. very old TD builds) or genuinely produced no bytes.
+
+def _classify_frame(
+    target, data: bytes | None
+) -> tuple[str | None, tuple[float, ...] | None]:
+    """Classify a captured TOP as black / uniform / ok via `TOP.numpyArray`.
+
+    Returns ``(kind, mean_rgb)`` where ``kind`` is ``"black"``, ``"uniform"``,
+    or ``None`` (ok). ``mean_rgb`` is set when pixels were sampled.
+
+    Black = mean RGB ≤ 1/255. Uniform = not black and per-channel spatial
+    range (max−min) ≤ 2/255 (solid red counts; global max−min across channels
+    would not). `saveByteArray` JPEG size is not a reliable color signal —
+    solid colors of *any* value compress similarly. Falls back to the old
+    tiny-file heuristic as **black** only when `numpyArray` isn't available
+    or produced no bytes — size alone cannot distinguish white from black.
     """
     if hasattr(target, "numpyArray"):
         try:
@@ -446,12 +477,30 @@ def _is_black_top(target, data: bytes | None) -> bool:
             if arr is not None and arr.size:
                 channels = min(3, arr.shape[-1]) if arr.ndim >= 3 else 1
                 sample = arr[..., :channels] if arr.ndim >= 3 else arr
-                return bool(sample.mean() <= _BLACK_MEAN_THRESHOLD)
+                mean_val = float(sample.mean())
+                if sample.ndim >= 3:
+                    ch_means = sample.mean(axis=(0, 1))
+                    mean_rgb = tuple(float(x) for x in ch_means[:channels])
+                    # Per-channel spatial range — solid red is uniform even though
+                    # R≠G (global max−min across all samples would be ~1.0).
+                    ch_max = sample.max(axis=(0, 1))
+                    ch_min = sample.min(axis=(0, 1))
+                    rng = max(
+                        float(ch_max[i] - ch_min[i]) for i in range(channels)
+                    )
+                else:
+                    mean_rgb = (mean_val,)
+                    rng = float(sample.max() - sample.min())
+                if mean_val <= _BLACK_MEAN_THRESHOLD:
+                    return "black", mean_rgb
+                if rng <= _UNIFORM_RANGE_THRESHOLD:
+                    return "uniform", mean_rgb
+                return None, mean_rgb
         except Exception:  # noqa: BLE001 — fall through to byte-size heuristic
             pass
-    if not data:
-        return True
-    return len(data) < 200
+    if not data or len(data) < 200:
+        return "black", None
+    return None, None
 
 
 # Direct-child roster cap for inspect (summary and detailed).

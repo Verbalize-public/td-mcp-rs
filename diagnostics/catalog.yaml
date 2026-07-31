@@ -248,6 +248,16 @@ entries:
       - kind: doc
         id: capture
 
+  - code: tdmcp.perception.uniform_frame
+    layer: perception
+    message: "Captured TOP frame is a uniform solid color — perception fail"
+    mitigation:
+      - "Re-inspect wiring and zone face"
+      - "Re-capture; perception-critic FAIL until fixed"
+    references:
+      - kind: doc
+        id: capture
+
   - code: tdmcp.perception.no_path
     layer: perception
     message: "No perception path for this COMP (opviewer / out1 / TOP child missing)"
