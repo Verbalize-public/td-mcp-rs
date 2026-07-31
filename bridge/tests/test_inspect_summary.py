@@ -253,6 +253,25 @@ class InspectMessagesTest(unittest.TestCase):
         self.assertEqual(out["errors"], ["cook failed"])
         self.assertEqual(out["warnings"], ["missing input"])
 
+    def test_build_inspect_want_nodes_false_omits_roster(self) -> None:
+        child = SimpleNamespace(name="n1", opType="nullTOP", path="/project1/n1")
+        node = _fake_node([child], errors="err1", warnings="warn1")
+        out = tdmcp_bridge.build_inspect_node(
+            node,
+            want_nodes=False,
+            want_errors=True,
+            want_warnings=True,
+        )
+        self.assertEqual(out["path"], "/project1")
+        self.assertEqual(out["opType"], "baseCOMP")
+        self.assertEqual(out["errors"], ["err1"])
+        self.assertEqual(out["warnings"], ["warn1"])
+        self.assertNotIn("children", out)
+        self.assertNotIn("childCount", out)
+        self.assertNotIn("childrenReturned", out)
+        self.assertNotIn("childrenTruncated", out)
+        self.assertNotIn("truncation", out)
+
     def test_handle_inspect_empty_include_defaults(self) -> None:
         node = _fake_node([], errors="err1", warnings="warn1")
         with patch.dict(sys.modules, {"td": SimpleNamespace()}):
@@ -281,7 +300,8 @@ class InspectMessagesTest(unittest.TestCase):
         self.assertIn("children", result["node"])
 
     def test_handle_inspect_allowlist_warnings_only(self) -> None:
-        node = _fake_node([], errors="err1", warnings="warn1")
+        child = SimpleNamespace(name="n1", opType="nullTOP", path="/project1/n1")
+        node = _fake_node([child], errors="err1", warnings="warn1")
         with patch.dict(sys.modules, {"td": SimpleNamespace()}):
             with patch.object(tdmcp_bridge, "tdmcp_resolve", return_value=node):
                 result = tdmcp_bridge.handle_inspect({
@@ -291,8 +311,27 @@ class InspectMessagesTest(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertEqual(result["node"]["warnings"], ["warn1"])
         self.assertNotIn("errors", result["node"])
-        self.assertEqual(result["node"]["children"], [])
-        self.assertEqual(result["node"]["childCount"], 0)
+        self.assertNotIn("children", result["node"])
+        self.assertNotIn("childCount", result["node"])
+        self.assertNotIn("childrenReturned", result["node"])
+
+    def test_handle_inspect_allowlist_errors_only(self) -> None:
+        child = SimpleNamespace(name="n1", opType="nullTOP", path="/project1/n1")
+        node = _fake_node([child], errors="err1", warnings="warn1")
+        with patch.dict(sys.modules, {"td": SimpleNamespace()}):
+            with patch.object(tdmcp_bridge, "tdmcp_resolve", return_value=node):
+                result = tdmcp_bridge.handle_inspect({
+                    "path": "/project1",
+                    "include": ["errors"],
+                })
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["node"]["errors"], ["err1"])
+        self.assertEqual(result["node"]["path"], "/project1")
+        self.assertEqual(result["node"]["opType"], "baseCOMP")
+        self.assertNotIn("warnings", result["node"])
+        self.assertNotIn("children", result["node"])
+        self.assertNotIn("childCount", result["node"])
+        self.assertNotIn("childrenReturned", result["node"])
 
     def test_handle_inspect_force_cooks_target(self) -> None:
         cook = MagicMock()

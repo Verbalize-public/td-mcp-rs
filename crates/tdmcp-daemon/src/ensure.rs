@@ -30,6 +30,8 @@ pub struct EnsureOptions {
     pub no_gui: bool,
     /// Child `TDMCP_IDLE_EXIT_SECS`. `None` → default `30`; tests use `Some(0)`.
     pub idle_exit_secs: Option<u64>,
+    /// When true, re-extract embedded bridge/catalog/tox even if already current.
+    pub force_install: bool,
 }
 
 impl Default for EnsureOptions {
@@ -42,6 +44,7 @@ impl Default for EnsureOptions {
             poll_only: false,
             no_gui: false,
             idle_exit_secs: None,
+            force_install: false,
         }
     }
 }
@@ -60,7 +63,7 @@ pub struct EnsureResult {
 /// Health-check `:port`; if down, lock + spawn detached `tdmcp-daemon start`.
 pub async fn ensure_daemon(opts: EnsureOptions) -> Result<EnsureResult> {
     let base_url = format!("http://127.0.0.1:{}", opts.port);
-    install::ensure_installed(&opts.data_dir)?;
+    install::ensure_installed(&opts.data_dir, opts.force_install)?;
 
     if health_ok(opts.port).await {
         return Ok(EnsureResult {

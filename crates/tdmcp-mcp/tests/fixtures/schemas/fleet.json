@@ -42,7 +42,7 @@
   "properties": {
     "include": {
       "default": [],
-      "description": "Include sections (default: process + bridge; cancelled always when non-empty).",
+      "description": "Include sections (default: process + bridge). `tasks` omitted when empty;\ncancelled stack always when non-empty.",
       "items": {
         "$ref": "#/$defs/FleetInclude"
       },

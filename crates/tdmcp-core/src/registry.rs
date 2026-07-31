@@ -25,10 +25,13 @@ pub enum BridgeStatus {
 #[serde(rename_all = "camelCase")]
 pub struct ProcessAttrs {
     /// Project identity (`project.name` from handshake); not OS window title.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
     /// Opened `.toe` path when known (`folder` + `name`).
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub toe_path: Option<String>,
     /// Responsive / frozen hint — empty until P1 dialogs / hang probe.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub window_status: Option<String>,
     /// Fingerprint for pid-reuse checks.
     pub fingerprint: ProcessFingerprint,

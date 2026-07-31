@@ -70,6 +70,9 @@ enum Commands {
         /// Data directory override.
         #[arg(long, env = "TDMCP_DATA_DIR")]
         data_dir: Option<PathBuf>,
+        /// Re-extract even when install.version already matches this binary.
+        #[arg(long, default_value_t = false)]
+        force: bool,
     },
     /// Upsert the long-lived daemon (health → lock → detached spawn → poll).
     Ensure {
@@ -85,6 +88,9 @@ enum Commands {
         /// Spawn the daemon with `--no-gui`.
         #[arg(long, env = "TDMCP_NO_GUI", default_value_t = false)]
         no_gui: bool,
+        /// Re-extract embedded assets even when already current.
+        #[arg(long, default_value_t = false)]
+        force: bool,
     },
     /// Cursor/IDE entrypoint: ensure daemon, then speak MCP over stdio (proxy).
     Mcp {
@@ -115,13 +121,13 @@ fn main() -> Result<()> {
         } => {
             let cfg = Config::load(port, data_dir, bridge_dir, catalog)?;
             // Ensure embedded assets exist under data_dir (no-op when current).
-            let _ = install::ensure_installed(&cfg.data_dir)?;
+            let _ = install::ensure_installed(&cfg.data_dir, false)?;
             tdmcp_daemon::tracing_init::init(&cfg)?;
             start_daemon(cfg, no_gui)
         }
-        Commands::Install { data_dir } => {
+        Commands::Install { data_dir, force } => {
             let data_dir = data_dir.unwrap_or_else(install::default_data_dir);
-            match install::ensure_installed(&data_dir)? {
+            match install::ensure_installed(&data_dir, force)? {
                 InstallOutcome::AlreadyCurrent => {
                     println!(
                         "already current {} → {}",
@@ -144,6 +150,7 @@ fn main() -> Result<()> {
             data_dir,
             timeout_ms,
             no_gui,
+            force,
         } => {
             let rt = tokio::runtime::Runtime::new().context("tokio runtime")?;
             rt.block_on(async {
@@ -155,6 +162,7 @@ fn main() -> Result<()> {
                     poll_only: false,
                     no_gui,
                     idle_exit_secs: None,
+                    force_install: force,
                 };
                 let result = ensure_daemon(opts).await?;
                 println!(
@@ -181,6 +189,7 @@ fn main() -> Result<()> {
                     poll_only: false,
                     no_gui,
                     idle_exit_secs: None,
+                    force_install: false,
                 };
                 let result = ensure_daemon(opts).await?;
                 let daemon_url = format!("{}/mcp/rpc", result.base_url);

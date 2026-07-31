@@ -11,7 +11,8 @@ pub struct FleetParams {
     /// Optional pid filter.
     #[serde(default)]
     pub pids: Option<Vec<Pid>>,
-    /// Include sections (default: process + bridge; cancelled always when non-empty).
+    /// Include sections (default: process + bridge). `tasks` omitted when empty;
+    /// cancelled stack always when non-empty.
     #[serde(default)]
     pub include: Vec<FleetInclude>,
 }
@@ -49,7 +50,7 @@ pub struct FleetProcess {
     pub toe_path: Option<String>,
     /// Bridge status.
     pub bridge: BridgeStatus,
-    /// In-flight / pending tasks when requested.
+    /// In-flight / pending tasks when requested; omitted when the snapshot is empty.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tasks: Option<Vec<tdmcp_core::TaskInfo>>,
     /// Resurrected flag when non-default.
@@ -92,11 +93,73 @@ pub fn fleet_summary(registry: &PidRegistry, params: &FleetParams) -> FleetRespo
             window_status: entry.process.window_status.clone(),
             toe_path: entry.process.toe_path.clone(),
             bridge: entry.bridge,
-            tasks: want_tasks.then(|| entry.queue.snapshot()),
+            tasks: want_tasks
+                .then(|| entry.queue.snapshot())
+                .filter(|t| !t.is_empty()),
             resurrected: entry.resurrection.resurrected,
             last_disconnect_at: entry.resurrection.last_disconnect_at,
             cancelled_tasks: entry.resurrection.cancelled_tasks.clone(),
         });
     }
     FleetResponse { processes }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, reason = "unit tests")]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+    use tdmcp_core::{ProcessAttrs, ProcessFingerprint, TaskMode};
+
+    fn connected_registry(pid: u32) -> PidRegistry {
+        let mut reg = PidRegistry::new();
+        reg.handshake(
+            pid,
+            ProcessAttrs {
+                title: Some("proj".into()),
+                fingerprint: ProcessFingerprint {
+                    title: Some("proj".into()),
+                    image: Some("TouchDesigner.exe".into()),
+                    start_time: Some("t0".into()),
+                },
+                ..Default::default()
+            },
+            Some("1".into()),
+            Utc::now(),
+        );
+        reg
+    }
+
+    #[test]
+    fn idle_tasks_include_omits_empty_tasks_key() {
+        let reg = connected_registry(34);
+        let params = FleetParams {
+            include: vec![FleetInclude::Tasks, FleetInclude::Cancelled],
+            ..Default::default()
+        };
+        let json = serde_json::to_value(fleet_summary(&reg, &params)).expect("serialize");
+        let proc = &json["processes"][0];
+        assert_eq!(proc["pid"], 34);
+        assert!(proc.get("tasks").is_none(), "idle queue must omit tasks");
+        assert!(
+            proc.get("cancelledTasks").is_none(),
+            "empty cancelled stack must omit cancelledTasks"
+        );
+    }
+
+    #[test]
+    fn non_empty_tasks_include_emits_tasks() {
+        let mut reg = connected_registry(34);
+        reg.enqueue(34, "PythonEval", TaskMode::Shared).unwrap();
+        let params = FleetParams {
+            include: vec![FleetInclude::Tasks],
+            ..Default::default()
+        };
+        let json = serde_json::to_value(fleet_summary(&reg, &params)).expect("serialize");
+        let tasks = json["processes"][0]["tasks"]
+            .as_array()
+            .expect("tasks present when non-empty");
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0]["name"], "PythonEval");
+    }
 }

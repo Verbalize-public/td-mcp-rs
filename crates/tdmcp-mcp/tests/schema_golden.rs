@@ -77,3 +77,27 @@ fn deny_unknown_fields_rejects_extra() {
         "deny_unknown_fields should reject unknownField"
     );
 }
+
+#[test]
+fn fleet_unknown_include_rejected() {
+    let err = serde_json::from_value::<tdmcp_mcp::FleetParams>(serde_json::json!({
+        "include": ["typo"]
+    }));
+    assert!(
+        err.is_err(),
+        "unknown fleet include enum variant must fail deserialize"
+    );
+}
+
+#[test]
+fn inspect_unknown_include_rejected() {
+    let err = serde_json::from_value::<tdmcp_mcp::InspectParams>(serde_json::json!({
+        "pid": 1,
+        "path": "/project1",
+        "include": ["typo"]
+    }));
+    assert!(
+        err.is_err(),
+        "unknown inspect include enum variant must fail deserialize"
+    );
+}

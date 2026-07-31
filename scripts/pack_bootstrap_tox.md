@@ -44,7 +44,7 @@ Clear `externaltox` on the COMP before save. Use `comp.save(path)` (not `saveTox
 2. Run the pack script below via `execute_python_script`.
 3. Confirm output size ≫ 1KB and file is binary (not the old ASCII placeholder).
 4. Rebuild `tdmcp-daemon` so `include_bytes!` / `include_dir!` pick up the new tox and `bridge/`.
-5. Force re-extract (same semver does **not** refresh assets): delete `%LOCALAPPDATA%/tdmcp-rs/install.version`, then `tdmcp-daemon install`. Restart any running daemon so TD loads the new bridge. For a quick live check you can also copy `bridge/` into the data dir and reload the tox COMP.
+5. Force re-extract (same semver skips refresh by default): `tdmcp-daemon install --force` (or `ensure --force`). Restart any running daemon so TD loads the new bridge. For a quick live check you can also copy `bridge/` into the data dir and reload the tox COMP.
 
 ```python
 import os

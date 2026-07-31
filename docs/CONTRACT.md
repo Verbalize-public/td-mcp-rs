@@ -181,6 +181,17 @@ Failures (all bridge-backed tools): `{ ok: false, summary, items, … }` via dia
 
 **Transport note:** Streamable HTTP JSON fallback (`/mcp/tools/call`) still wraps success as `{ ok: true, data: <above> }`; stdio/rmcp does not. Failures are not double-wrapped.
 
+### `fleet` / `include`
+
+| `include` | Behavior |
+| --- | --- |
+| default / omit | identity (`pid`, `title?`, `toePath?`) + `bridge`; also `cancelledTasks` / `resurrected` / `lastDisconnectAt` only when non-default |
+| `tasks` | queue snapshot; **omitted when empty** |
+| `cancelled` | accepted for forward-compat; cancelled stack still emits whenever non-empty (not gated today) |
+| `popups` | deferred / empty until P1 |
+
+Unknown `include` values are **rejected** at MCP arg deserialize (invalid params) — not silently ignored.
+
 ### `inspect` / `include`
 
 | `include` | Sections |
@@ -188,7 +199,11 @@ Failures (all bridge-backed tools): `{ ok: false, summary, items, … }` via dia
 | `[]` / omitted | `nodes` + `errors` + `warnings` |
 | non-empty | allowlist only (`nodes` / `params` / `errors` / `warnings`) |
 
-`params` is opt-in. `errors` / `warnings` are string arrays from `OP.errors()` / `OP.warnings()` (no recurse). Not gated by `detailLevel`.
+`params` is opt-in. `errors` / `warnings` are string arrays from `OP.errors()` / `OP.warnings()` (no recurse). Not gated by `detailLevel`. When those sections are included (including via default empty `include`), empty arrays are still emitted as “section loaded” — they never flip MCP tool failure. Tool-level failure is only bridge soft-fail (`ok: false`), queue busy, or transport. Unknown `include` values are **rejected** at MCP arg deserialize.
+
+Child roster fields (`childCount`, `childrenReturned`, `children`, and when truncated `childrenTruncated` / `truncation`) are emitted **only when `nodes` is in the effective include set** (default empty `include` includes `nodes`). When a non-empty `include` omits `nodes`, those keys are absent entirely — same "section not loaded" signal as omitted `params` / `errors` / `warnings`.
+
+Many TD cook problems (invalid select path, missing movie file, …) surface as **warnings**, not `errors` — live DoD for structural messages should not assume a non-empty `errors` array.
 
 When `params` is included, each entry is `{ name, mode, val, expr? }`:
 
@@ -203,14 +218,16 @@ When `params` is included, each entry is `{ name, mode, val, expr? }`:
 
 ### `inspect` / `detailLevel`
 
+Applies **only when `nodes` is included** (see `inspect` / `include` — default empty `include` includes `nodes`). When `nodes` is excluded, no child-roster fields are present.
+
 | Level | Direct `children` entries | Counts / truncation |
 | --- | --- | --- |
-| `summary` (default) | `{name, opType}` | Always `childCount` + `childrenReturned`; roster capped at **64** |
+| `summary` (default) | `{name, opType}` | `childCount` + `childrenReturned`; roster capped at **64** |
 | `detailed` | `{path, family, opType}` | Same cap — **does not** raise the limit |
 
 When `childrenReturned < childCount`, the node includes `childrenTruncated: true` and a `truncation` object (`field`, `limit`, `code: tdmcp.op.children_truncated`, `message`, `mitigation`). Soft limit — MCP success stays `{ ok: true, node }` (see result shapes). Mitigation: inspect a child COMP, or `execute_python` for a full name list — not `detailLevel: detailed`.
 
-`children` is always an array (never a bare count).
+When the roster is loaded, `children` is always an array (never a bare count).
 
 ### `capture` modes
 
@@ -319,9 +336,9 @@ Code families in use today: `tdmcp.bridge.*`, `tdmcp.script.*`, `tdmcp.perceptio
 
 Config precedence: **CLI args > env (`TDMCP_*`) > RC file > defaults**.
 
-Artifacts: `tdmcp-daemon` (embeds tray UI when built with default `gui` feature), `bridge/`, `diagnostics/catalog.yaml`, bootstrap `.tox`. Bridge, catalog, and bootstrap ship embedded in the daemon binary; `install` / `ensure` / `start` / `mcp` extract into the data dir. Packaging via `cargo xtask dist` is **Planned** (P2); until then build with `cargo build --release -p tdmcp-daemon`. Headless: `cargo build --release -p tdmcp-daemon --no-default-features`, or runtime `--no-gui` / `TDMCP_NO_GUI=1`.
+Artifacts: `tdmcp-daemon` (embeds tray UI when built with default `gui` feature), `bridge/`, `diagnostics/catalog.yaml`, bootstrap `.tox`. Bridge, catalog, and bootstrap ship embedded in the daemon binary; `install` / `ensure` / `start` / `mcp` extract into the data dir. Same semver stamp skips re-extract — use `tdmcp-daemon install --force` or `ensure --force` to refresh embedded assets without bumping the package version. `mcp` upsert stays non-force (does not re-extract on every Cursor reconnect). Packaging via `cargo xtask dist` is **Planned** (P2); until then build with `cargo build --release -p tdmcp-daemon`. Headless: `cargo build --release -p tdmcp-daemon --no-default-features`, or runtime `--no-gui` / `TDMCP_NO_GUI=1`.
 
-Daemon CLI: `start` (foreground; tray + toast by default, dashboard hidden until opened), `stop`, `status`, `install`, `ensure`, `mcp` (Cursor entrypoint — `ensure` then stdio proxy). Manual `start` for debugging; Cursor uses `mcp`.
+Daemon CLI: `start` (foreground; tray + toast by default, dashboard hidden until opened), `stop`, `status`, `install` (`--force` re-extract), `ensure` (`--force` re-extract then upsert), `mcp` (Cursor entrypoint — `ensure` then stdio proxy). Manual `start` for debugging; Cursor uses `mcp`.
 
 ---
 

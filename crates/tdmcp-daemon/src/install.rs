@@ -31,13 +31,16 @@ pub enum InstallOutcome {
 
 /// Ensure `{data_dir}` contains bridge/, diagnostics/catalog.yaml, bootstrap.tox,
 /// and an `install.version` stamp matching this binary.
-pub fn ensure_installed(data_dir: &Path) -> Result<InstallOutcome> {
+///
+/// When `force` is true, always re-extract even if the stamp and marker files
+/// already match this binary version (same-version bridge/catalog refresh).
+pub fn ensure_installed(data_dir: &Path, force: bool) -> Result<InstallOutcome> {
     fs::create_dir_all(data_dir)
         .with_context(|| format!("create data dir {}", data_dir.display()))?;
 
     let stamp_path = data_dir.join(STAMP_NAME);
     let version = env!("CARGO_PKG_VERSION");
-    if assets_current(data_dir, &stamp_path, version) {
+    if !force && assets_current(data_dir, &stamp_path, version) {
         return Ok(InstallOutcome::AlreadyCurrent);
     }
 
@@ -142,7 +145,7 @@ mod tests {
     fn extract_to_empty_data_dir() {
         let dir = tempdir().expect("tempdir");
         let data = dir.path();
-        let outcome = ensure_installed(data).expect("install");
+        let outcome = ensure_installed(data, false).expect("install");
         assert_eq!(outcome, InstallOutcome::Extracted);
         assert!(data.join("bridge/manifest.json").is_file());
         assert!(data.join("diagnostics/catalog.yaml").is_file());
@@ -154,7 +157,7 @@ mod tests {
             env!("CARGO_PKG_VERSION")
         );
         // Second call is a no-op.
-        let again = ensure_installed(data).expect("reinstall");
+        let again = ensure_installed(data, false).expect("reinstall");
         assert_eq!(again, InstallOutcome::AlreadyCurrent);
     }
 
@@ -162,10 +165,30 @@ mod tests {
     fn version_bump_reextracts() {
         let dir = tempdir().expect("tempdir");
         let data = dir.path();
-        ensure_installed(data).expect("install");
+        ensure_installed(data, false).expect("install");
         fs::write(data.join("install.version"), "0.0.0").expect("stamp");
-        let outcome = ensure_installed(data).expect("reinstall");
+        let outcome = ensure_installed(data, false).expect("reinstall");
         assert_eq!(outcome, InstallOutcome::Extracted);
+        assert_eq!(
+            fs::read_to_string(data.join("install.version"))
+                .expect("stamp")
+                .trim(),
+            env!("CARGO_PKG_VERSION")
+        );
+    }
+
+    #[test]
+    fn force_reextracts_when_already_current() {
+        let dir = tempdir().expect("tempdir");
+        let data = dir.path();
+        ensure_installed(data, false).expect("install");
+        assert_eq!(
+            ensure_installed(data, false).expect("noop"),
+            InstallOutcome::AlreadyCurrent
+        );
+        let forced = ensure_installed(data, true).expect("force");
+        assert_eq!(forced, InstallOutcome::Extracted);
+        assert!(data.join("bridge/manifest.json").is_file());
         assert_eq!(
             fs::read_to_string(data.join("install.version"))
                 .expect("stamp")

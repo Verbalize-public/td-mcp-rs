@@ -78,8 +78,9 @@ Tray (default): icon + toast on start; open the dashboard yourself via Show /
 tray click. Closing the window only hides it — use **Stop** /
 `tdmcp-daemon stop` to end the process.
 
-Other CLI helpers: `tdmcp-daemon ensure` (spawn if down), `install` (extract
-assets only), `status`, `stop`.
+Other CLI helpers: `tdmcp-daemon ensure` (spawn if down; `--force` re-extracts
+embedded assets), `install` (extract assets only; `--force` same-version
+refresh), `status`, `stop`.
 
 ## Tools (P0)
 

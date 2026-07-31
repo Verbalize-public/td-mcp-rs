@@ -66,6 +66,7 @@ fn ensure_opts(port: u16, data_dir: &Path) -> EnsureOptions {
         no_gui: true,
         // Keep daemon alive for the duration of ensure/restart tests.
         idle_exit_secs: Some(0),
+        force_install: false,
     }
 }
 

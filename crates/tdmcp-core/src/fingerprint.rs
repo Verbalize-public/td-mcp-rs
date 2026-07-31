@@ -7,10 +7,13 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "camelCase")]
 pub struct ProcessFingerprint {
     /// Project identity hint (`project.name`).
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
     /// Process image / exe path.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub image: Option<String>,
     /// Process start time (opaque string; OS-specific).
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub start_time: Option<String>,
 }
 

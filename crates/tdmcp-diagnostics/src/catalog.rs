@@ -35,10 +35,10 @@ pub struct CatalogEntry {
     /// Message template (may contain `{op_path}` style placeholders later).
     pub message: String,
     /// Mitigation steps.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub mitigation: Vec<String>,
     /// References.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub references: Vec<Reference>,
 }
 

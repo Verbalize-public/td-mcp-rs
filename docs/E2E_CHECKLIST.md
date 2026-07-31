@@ -104,9 +104,9 @@ All M1–M11 pass over HTTP JSON `/mcp/tools/call`. Notes:
 - M6: used `timerCHOP` + `pulse:["start"]` (noiseTOP has no pulse par).
 - Same-version `ensure` does **not** re-extract `diagnostics/catalog.yaml`
   when `install.version` already matches — first M8 run fell back to
-  `layer:fleet` without mitigation until the stamp was deleted and assets
-  re-extracted. Workaround for same-version rebuilds: delete
-  `%LOCALAPPDATA%/tdmcp-rs/install.version` before `ensure`.
+  `layer:fleet` without mitigation until assets were re-extracted.
+  Prefer `tdmcp-daemon install --force` or `ensure --force` for same-version
+  rebuilds (historically: delete `%LOCALAPPDATA%/tdmcp-rs/install.version`).
 
 **Run record (`mutate_nodes` connect/disconnect M13–M17):** 2026-07-31,
 `eldenmess.3.toe` (pid 25300), zone `/project1/agent_mutate_probe`, daemon
@@ -116,8 +116,8 @@ Connect uses `src.outputConnectors[i].connect(dst.inputConnectors[j])`.
 
 **Run record (`mutate_nodes` flags M18–M20):** 2026-07-31,
 `_agent_tdmcprs_dev.4.toe` (pid 15448), daemon `0.1.0` release rebuild after
-adding `flags` to create/set. Deleted `%LOCALAPPDATA%/tdmcp-rs/install.version`
-before `ensure` so bridge + catalog re-extracted; loaded fresh
+adding `flags` to create/set. Forced re-extract (`install --force` / stamp
+delete) so bridge + catalog refreshed; loaded fresh
 `bootstrap.tox` into `/project1/tdmcp_rs`. All M18–M20 pass over HTTP
 `/mcp/tools/call`. Notes:
 - M18: `create` with `values`+`flags` applied 2 steps; `execute_python`
@@ -129,8 +129,8 @@ before `ensure` so bridge + catalog re-extracted; loaded fresh
 
 **Run record (`mutate_nodes` create-rename M23):** 2026-07-31,
 `_agent_tdmcprs_dev.4.toe` (pid 15448), daemon `0.1.0` xtask dist after
-`tdmcp.op.renamed` + batch alias rewrite. Deleted
-`%LOCALAPPDATA%/tdmcp-rs/install.version` before `ensure`. Zone
+`tdmcp.op.renamed` + batch alias rewrite. Forced re-extract before `ensure`.
+Zone
 `/project1/m23_rename_zone`: occupant `null1`, batch create `null1` →
 `null2` with nested lint, create `noise1`, `connect` noise→requested
 `null1` remapped to `null2`. Occupant inputs stayed empty; `capture` top

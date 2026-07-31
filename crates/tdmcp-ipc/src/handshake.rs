@@ -11,16 +11,16 @@ pub struct HandshakeRequest {
     /// Protocol version the bridge client speaks.
     pub protocol_version: String,
     /// Optional project identity (`project.name`), not OS window title.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
     /// Optional opened `.toe` path (`project.folder` + `project.name`).
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub toe_path: Option<String>,
     /// Optional process image / exe path (fingerprint).
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub image: Option<String>,
     /// Optional opaque OS process start-time (fingerprint).
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub start_time: Option<String>,
 }
 
@@ -33,6 +33,6 @@ pub struct HandshakeResponse {
     /// Daemon protocol version.
     pub daemon_version: String,
     /// Minimum daemon version this package requires (echo / advisory).
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub min_daemon: Option<String>,
 }

@@ -642,25 +642,26 @@ def build_inspect_node(
         "path": getattr(n, "path", None),
         "family": getattr(n, "family", None),
         "opType": getattr(n, "opType", None),
-        "childCount": child_count,
-        "childrenReturned": len(children),
-        "children": children,
     }
-    if want_nodes and len(children) < child_count:
-        out["childrenTruncated"] = True
-        out["truncation"] = {
-            "field": "children",
-            "limit": CHILDREN_ROSTER_LIMIT,
-            "code": "tdmcp.op.children_truncated",
-            "message": (
-                f"Direct-child roster capped at {CHILDREN_ROSTER_LIMIT} of {child_count}"
-            ),
-            "mitigation": [
-                "Inspect a child COMP path for nested overview",
-                "detailLevel does not raise this cap",
-                "Use execute_python if you need the full name list",
-            ],
-        }
+    if want_nodes:
+        out["childCount"] = child_count
+        out["childrenReturned"] = len(children)
+        out["children"] = children
+        if len(children) < child_count:
+            out["childrenTruncated"] = True
+            out["truncation"] = {
+                "field": "children",
+                "limit": CHILDREN_ROSTER_LIMIT,
+                "code": "tdmcp.op.children_truncated",
+                "message": (
+                    f"Direct-child roster capped at {CHILDREN_ROSTER_LIMIT} of {child_count}"
+                ),
+                "mitigation": [
+                    "Inspect a child COMP path for nested overview",
+                    "detailLevel does not raise this cap",
+                    "Use execute_python if you need the full name list",
+                ],
+            }
     if want_params:
         out["params"] = [_inspect_param_entry(p) for p in n.pars()]
     if want_errors:

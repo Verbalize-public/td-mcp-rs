@@ -488,6 +488,30 @@ mod tests {
     }
 
     #[test]
+    fn inspect_empty_errors_warnings_is_success() {
+        let catalog = Catalog::fallback();
+        let ok = map_inspect_outcome(
+            &catalog,
+            Pid::new(1),
+            OpPath::new("/project1"),
+            None,
+            BridgeOutcome::Ok(json!({
+                "ok": true,
+                "node": {
+                    "path": "/project1",
+                    "errors": [],
+                    "warnings": []
+                }
+            })),
+            DiagnosticLevel::Summary,
+        )
+        .expect("empty TD message arrays must not fail the tool");
+        assert_eq!(ok["ok"], true);
+        assert_eq!(ok["node"]["errors"], json!([]));
+        assert_eq!(ok["node"]["warnings"], json!([]));
+    }
+
+    #[test]
     fn script_summary_omits_traceback_detailed_keeps_it() {
         let catalog = Catalog::fallback();
         let bridge_val = json!({
