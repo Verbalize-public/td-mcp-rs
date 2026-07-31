@@ -50,6 +50,12 @@ See [`DEV_ENV.md`](DEV_ENV.md) § Dev smoke. Does **not** replace rows 1–12 be
 | 11 | `capture` mode `preview` on zone COMP with `out1` → non-black | ✅ |
 | 12 | Black TOP → `tdmcp.perception.black_frame` | ✅ |
 | 12b | Constant TOP non-black solid (e.g. white) → `tdmcp.perception.uniform_frame` | |
+| 13 | Create ephemeral non-empty `constantCHOP` under `/project1/e2e_kit/zone` → `capture` mode `chop_data` → `ok`; top-level `channels` / `numChans` / `numSamples` (not nested); no `jpegBase64` | |
+| 14 | `capture` mode `chop_data` on a TOP (e.g. `/project1/e2e_kit/probe`) → `tdmcp.perception.wrong_family` | |
+| 15 | `capture` mode `auto` on that CHOP → same chop_data success shape (`mode: chop_data`) | |
+| 16 | Empty CHOP (`numChans` or `numSamples` 0) → `tdmcp.perception.empty_chop` | |
+| 17 | `capture` mode `chop_image` on non-empty CHOP → non-black JPEG; no leftover `__tdmcp_tmp_chopimg__*` under parent | |
+| 18 | `capture` mode `pop` on a POP (ephemeral under zone if available) → non-black JPEG; no leftover `__tdmcp_tmp_pop__*`; or `converter_failed` if `poptoTOP` absent on build | |
 
 ### `mutate_nodes` (P1)
 

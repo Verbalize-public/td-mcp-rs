@@ -129,8 +129,7 @@ pub fn map_script_outcome(
                 let msg = env.message_or("script execution failed");
                 let mut context = ctx(pid, None, context_path);
                 context.logs = env.logs.clone();
-                let exception =
-                    reduce_exception(env.exception.clone(), format_mode);
+                let exception = reduce_exception(env.exception.clone(), format_mode);
                 fill_span_from_exception(&mut span, exception.as_ref());
                 let mut item = build_diag(
                     catalog,
@@ -141,14 +140,13 @@ pub fn map_script_outcome(
                 );
                 item.raw_traceback = raw_traceback_for(
                     diagnostic_level,
-                    env.traceback
-                        .or_else(|| {
-                            exception
-                                .as_ref()
-                                .and_then(|e| e.get("raw"))
-                                .and_then(Value::as_str)
-                                .map(str::to_owned)
-                        }),
+                    env.traceback.or_else(|| {
+                        exception
+                            .as_ref()
+                            .and_then(|e| e.get("raw"))
+                            .and_then(Value::as_str)
+                            .map(str::to_owned)
+                    }),
                 );
                 item.exception = exception;
                 if let Some(lint) = none_op_lint(item.exception.as_ref()) {
@@ -221,17 +219,17 @@ fn fill_span_from_exception(span: &mut DiagnosticSpan, exception: Option<&Value>
             .get("lineno")
             .and_then(Value::as_u64)
             .map(|n| n as u32);
-        span.snippet = frame
-            .get("line")
-            .and_then(Value::as_str)
-            .map(str::to_owned);
+        span.snippet = frame.get("line").and_then(Value::as_str).map(str::to_owned);
     }
 }
 
 fn none_op_lint(exception: Option<&Value>) -> Option<LintItem> {
     let exception = exception?;
     let ty = exception.get("type").and_then(Value::as_str)?;
-    let message = exception.get("message").and_then(Value::as_str).unwrap_or("");
+    let message = exception
+        .get("message")
+        .and_then(Value::as_str)
+        .unwrap_or("");
     if ty != "AttributeError" || !message.contains("NoneType") {
         return None;
     }
@@ -269,13 +267,7 @@ pub fn map_perception_outcome(
                 // Prefer bridge message/error; otherwise let catalog text win
                 // (avoids stomping e.g. black_frame with a generic fallback).
                 let msg = env.message.clone().or_else(|| env.error.clone());
-                let item = build_diag(
-                    catalog,
-                    code,
-                    span,
-                    msg,
-                    ctx(pid, Some(path), context_path),
-                );
+                let item = build_diag(catalog, code, span, msg, ctx(pid, Some(path), context_path));
                 let jpeg = value
                     .get("jpegBase64")
                     .and_then(|v| v.as_str())
@@ -657,18 +649,12 @@ mod tests {
         );
         assert!(summary.raw_traceback.is_none());
         assert!(summary.exception.is_some());
-        assert_eq!(
-            summary.exception.as_ref().unwrap()["type"],
-            "RuntimeError"
-        );
+        assert_eq!(summary.exception.as_ref().unwrap()["type"], "RuntimeError");
         assert!(summary.exception.as_ref().unwrap()["frames"][0]
             .get("locals")
             .is_none());
         assert_eq!(summary.span.line, Some(1));
-        assert_eq!(
-            summary.context.context_path.as_deref(),
-            Some("/project1")
-        );
+        assert_eq!(summary.context.context_path.as_deref(), Some("/project1"));
 
         let detailed = script_fail(bridge_val, DiagnosticLevel::Detailed, FormatMode::Normal);
         assert!(detailed
@@ -910,5 +896,63 @@ mod tests {
             item.message,
             "Captured TOP frame is black (mean rgb≈0.00,0.00,0.00)"
         );
+    }
+
+    #[test]
+    fn perception_chop_data_success_passes_through_without_image() {
+        let catalog = Catalog::fallback();
+        let value = json!({
+            "ok": true,
+            "path": "/project1/zone/const1",
+            "mode": "chop_data",
+            "family": "CHOP",
+            "numChans": 1,
+            "numSamples": 2,
+            "rate": 60.0,
+            "channels": [{"name": "chan1", "samples": [0.1, 0.2]}]
+        });
+        let out = map_perception_outcome(
+            &catalog,
+            Pid::new(1),
+            OpPath::new("/project1/zone/const1"),
+            None,
+            BridgeOutcome::Ok(value.clone()),
+            DiagnosticLevel::Summary,
+        )
+        .expect("chop_data success should pass through");
+        assert_eq!(out, value);
+        assert!(out.get("jpegBase64").is_none());
+        assert_eq!(out["mode"], "chop_data");
+    }
+
+    #[test]
+    fn perception_empty_chop_fails_without_image() {
+        let catalog = Catalog::fallback();
+        let err = map_perception_outcome(
+            &catalog,
+            Pid::new(1),
+            OpPath::new("/project1/zone/const1"),
+            None,
+            BridgeOutcome::Ok(json!({
+                "ok": false,
+                "code": "tdmcp.perception.empty_chop",
+                "message": "CHOP has no channels or samples (numChans=0, numSamples=0)",
+                "path": "/project1/zone/const1",
+                "mode": "chop_data",
+                "family": "CHOP"
+            })),
+            DiagnosticLevel::Summary,
+        )
+        .expect_err("expected empty_chop failure");
+        match err {
+            ToolCallError::Failed(payload) => {
+                assert_eq!(
+                    payload.diagnostics.items[0].code,
+                    codes::PERCEPTION_EMPTY_CHOP
+                );
+                assert!(payload.image_jpeg_base64.is_none());
+            }
+            other => panic!("unexpected error: {other}"),
+        }
     }
 }

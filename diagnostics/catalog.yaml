@@ -288,3 +288,43 @@ entries:
     references:
       - kind: doc
         id: capture
+
+  - code: tdmcp.perception.wrong_family
+    layer: perception
+    message: "Capture mode does not match the resolved operator family"
+    mitigation:
+      - "Use mode chop_data on a CHOP, top/preview on a TOP/COMP, or auto"
+      - "Re-inspect the path family, then re-capture with the matching mode"
+    references:
+      - kind: doc
+        id: capture
+
+  - code: tdmcp.perception.empty_chop
+    layer: perception
+    message: "CHOP has no channels or samples to capture"
+    mitigation:
+      - "Wire or cook a non-empty CHOP before capture"
+      - "Re-inspect numChans / numSamples, then re-capture mode: chop_data"
+    references:
+      - kind: doc
+        id: capture
+
+  - code: tdmcp.perception.chop_truncated
+    layer: perception
+    message: "CHOP capture capped (channels, samples, or total scalars)"
+    mitigation:
+      - "Narrow the CHOP window or channel count in TD before re-capture"
+      - "Caps are fixed: 32 channels, 256 samples/channel, 4096 scalars"
+    references:
+      - kind: doc
+        id: capture
+
+  - code: tdmcp.perception.converter_failed
+    layer: perception
+    message: "Temp converter for chop_image / pop capture failed"
+    mitigation:
+      - "Confirm the source is a CHOP (chop_image) or POP (pop)"
+      - "Re-capture; temps are destroyed — no project residue expected"
+    references:
+      - kind: doc
+        id: capture

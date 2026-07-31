@@ -90,7 +90,7 @@ refresh), `status`, `stop`.
 | `fleet` | List TD processes by `pid`, bridge status, tasks, resurrection traces |
 | `execute_python` | Run Python in TD (`result = …`) |
 | `inspect` | Structural subtree read (nodes / params / errors / warnings; empty include defaults to nodes+errors+warnings) |
-| `capture` | Perception (`top` / `preview` / `auto`) |
+| `capture` | Perception (`top` / `preview` / `auto` / `chop_data` / `chop_image` / `pop`) |
 | `describe_tools` | Tool manifest |
 
 Process-scoped tools require `pid`. Prefer `detailLevel: summary` — `inspect`

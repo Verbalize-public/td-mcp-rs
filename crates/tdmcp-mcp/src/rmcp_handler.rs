@@ -94,10 +94,8 @@ impl ServerHandler for McpHandler {
             request.client_info.version.clone(),
         );
         let mut info = self.get_info();
-        info.protocol_version = negotiate_protocol_version(
-            &request.protocol_version,
-            info.protocol_version,
-        );
+        info.protocol_version =
+            negotiate_protocol_version(&request.protocol_version, info.protocol_version);
         Ok(info)
     }
 

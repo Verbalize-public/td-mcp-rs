@@ -46,9 +46,8 @@ impl BridgeEndpoint {
         #[cfg(windows)]
         {
             let _ = data_dir;
-            let name = std::env::var("TDMCP_IPC_PIPE").unwrap_or_else(|_| {
-                r"\\.\pipe\tdmcp-rs".to_owned()
-            });
+            let name =
+                std::env::var("TDMCP_IPC_PIPE").unwrap_or_else(|_| r"\\.\pipe\tdmcp-rs".to_owned());
             Self::NamedPipe(name)
         }
         #[cfg(unix)]

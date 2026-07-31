@@ -198,20 +198,18 @@ async fn script_failure_returns_diagnostics() {
 
 #[tokio::test]
 async fn script_failure_summary_omits_raw_traceback() {
-    let bridge: Arc<dyn BridgeRpc> = Arc::new(FakeBridgeRpc::responding(
-        json!({
-            "ok": false,
-            "error": "name 'x' is not defined",
-            "traceback": "  File \"<td>\", line 1",
-            "exception": {
-                "type": "NameError",
-                "message": "name 'x' is not defined",
-                "frames": [],
-                "syntax": null,
-                "raw": "  File \"<td>\", line 1"
-            }
-        }),
-    ));
+    let bridge: Arc<dyn BridgeRpc> = Arc::new(FakeBridgeRpc::responding(json!({
+        "ok": false,
+        "error": "name 'x' is not defined",
+        "traceback": "  File \"<td>\", line 1",
+        "exception": {
+            "type": "NameError",
+            "message": "name 'x' is not defined",
+            "frames": [],
+            "syntax": null,
+            "raw": "  File \"<td>\", line 1"
+        }
+    })));
     let state = AppState::new(registry_with_pid(), Catalog::fallback(), bridge);
     let app = build_mcp_router(state);
 
@@ -244,20 +242,18 @@ async fn script_failure_summary_omits_raw_traceback() {
 
 #[tokio::test]
 async fn script_failure_default_level_includes_raw_traceback() {
-    let bridge: Arc<dyn BridgeRpc> = Arc::new(FakeBridgeRpc::responding(
-        json!({
-            "ok": false,
-            "error": "boom",
-            "traceback": "Traceback (most recent call last):\n  File \"<td>\", line 1",
-            "exception": {
-                "type": "RuntimeError",
-                "message": "boom",
-                "frames": [],
-                "syntax": null,
-                "raw": "Traceback (most recent call last):\n  File \"<td>\", line 1"
-            }
-        }),
-    ));
+    let bridge: Arc<dyn BridgeRpc> = Arc::new(FakeBridgeRpc::responding(json!({
+        "ok": false,
+        "error": "boom",
+        "traceback": "Traceback (most recent call last):\n  File \"<td>\", line 1",
+        "exception": {
+            "type": "RuntimeError",
+            "message": "boom",
+            "frames": [],
+            "syntax": null,
+            "raw": "Traceback (most recent call last):\n  File \"<td>\", line 1"
+        }
+    })));
     let state = AppState::new(registry_with_pid(), Catalog::fallback(), bridge);
     let app = build_mcp_router(state);
 

@@ -217,11 +217,15 @@ pub enum CaptureMode {
     Top,
     /// COMP face fallback chain.
     Preview,
-    /// TOP → top; COMP → preview.
+    /// TOP → top; COMP → preview; CHOP → chop_data; POP → pop.
     #[default]
     Auto,
-    /// CHOP → capped JSON (P1).
+    /// CHOP → capped JSON.
     ChopData,
+    /// CHOP → temp choptoTOP → JPEG.
+    ChopImage,
+    /// POP → temp poptoTOP → JPEG.
+    Pop,
 }
 
 impl CaptureMode {
@@ -233,6 +237,8 @@ impl CaptureMode {
             Self::Preview => "preview",
             Self::Auto => "auto",
             Self::ChopData => "chop_data",
+            Self::ChopImage => "chop_image",
+            Self::Pop => "pop",
         }
     }
 }

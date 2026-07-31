@@ -92,11 +92,7 @@ impl McpSessionRegistry {
         let name = name.into();
         let version = version.into();
         if let Ok(mut guard) = self.inner.lock() {
-            if let Some(row) = guard
-                .iter_mut()
-                .rev()
-                .find(|s| s.client_name == match_name)
-            {
+            if let Some(row) = guard.iter_mut().rev().find(|s| s.client_name == match_name) {
                 row.client_name = name;
                 row.client_version = version;
                 return Some(row.id.clone());
@@ -108,10 +104,7 @@ impl McpSessionRegistry {
     /// Snapshot of all live sessions (oldest first).
     #[must_use]
     pub fn list(&self) -> Vec<McpSessionInfo> {
-        self.inner
-            .lock()
-            .map(|g| g.clone())
-            .unwrap_or_default()
+        self.inner.lock().map(|g| g.clone()).unwrap_or_default()
     }
 
     /// Live lease count (idle exit / status chips).

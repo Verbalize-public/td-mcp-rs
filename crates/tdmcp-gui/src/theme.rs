@@ -1,6 +1,8 @@
 //! Ableton-dark design tokens + egui Visuals for the tray popup.
 
-use eframe::egui::{self, Color32, CornerRadius, FontFamily, FontId, Shadow, Stroke, Style, Visuals};
+use eframe::egui::{
+    self, Color32, CornerRadius, FontFamily, FontId, Shadow, Stroke, Style, Visuals,
+};
 
 /// Popup background — everything sits on this.
 pub const BG_WINDOW: Color32 = Color32::from_rgb(0x13, 0x13, 0x13);
@@ -136,10 +138,12 @@ fn zero_rounding(w: &mut egui::style::WidgetVisuals) {
 
 /// Paint a 6px status LED (Ableton-style colored dot).
 pub fn status_led(ui: &mut egui::Ui, color: Color32) {
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(LED_SIZE + 2.0, LED_SIZE + 2.0), egui::Sense::hover());
+    let (rect, _) = ui.allocate_exact_size(
+        egui::vec2(LED_SIZE + 2.0, LED_SIZE + 2.0),
+        egui::Sense::hover(),
+    );
     let center = rect.center();
-    ui.painter()
-        .circle_filled(center, LED_SIZE * 0.5, color);
+    ui.painter().circle_filled(center, LED_SIZE * 0.5, color);
 }
 
 /// Section header strip: `bg_panel`, meta title, hairline below.
@@ -154,37 +158,30 @@ pub fn section_header(ui: &mut egui::Ui, title: &str) {
         font_meta(),
         TEXT_DIM,
     );
-    ui.painter().hline(
-        rect.x_range(),
-        rect.bottom(),
-        Stroke::new(1.0, BORDER),
-    );
+    ui.painter()
+        .hline(rect.x_range(), rect.bottom(), Stroke::new(1.0, BORDER));
 }
 
 /// Ghost (borderless) text/icon button — transparent at rest, hover fill only.
 ///
 /// * `rest` — text color at rest
 /// * `hot` — text color on hover/press
-pub fn ghost_button(
-    ui: &mut egui::Ui,
-    label: &str,
-    rest: Color32,
-    hot: Color32,
-) -> egui::Response {
+pub fn ghost_button(ui: &mut egui::Ui, label: &str, rest: Color32, hot: Color32) -> egui::Response {
     let galley = ui
         .painter()
         .layout_no_wrap(label.to_owned(), font_label(), rest);
     let pad = egui::vec2(6.0, 2.0);
-    let size = egui::vec2(
-        (galley.size().x + pad.x * 2.0).max(22.0),
-        22.0,
-    );
+    let size = egui::vec2((galley.size().x + pad.x * 2.0).max(22.0), 22.0);
     let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
 
     let hovered = response.hovered();
     let pressed = response.is_pointer_button_down_on();
     let active = hovered || pressed;
-    let fill = if active { BG_HOVER } else { Color32::TRANSPARENT };
+    let fill = if active {
+        BG_HOVER
+    } else {
+        Color32::TRANSPARENT
+    };
     let text_color = if active { hot } else { rest };
 
     ui.painter().rect_filled(rect, 0.0, fill);

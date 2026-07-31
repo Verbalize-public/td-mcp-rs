@@ -15,12 +15,22 @@
         },
         {
           "const": "auto",
-          "description": "TOP → top; COMP → preview.",
+          "description": "TOP → top; COMP → preview; CHOP → chop_data; POP → pop.",
           "type": "string"
         },
         {
           "const": "chop_data",
-          "description": "CHOP → capped JSON (P1).",
+          "description": "CHOP → capped JSON.",
+          "type": "string"
+        },
+        {
+          "const": "chop_image",
+          "description": "CHOP → temp choptoTOP → JPEG.",
+          "type": "string"
+        },
+        {
+          "const": "pop",
+          "description": "POP → temp poptoTOP → JPEG.",
           "type": "string"
         }
       ]

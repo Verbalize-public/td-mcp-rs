@@ -67,6 +67,14 @@ pub const PERCEPTION_BLACK_FRAME: &str = "tdmcp.perception.black_frame";
 pub const PERCEPTION_UNIFORM_FRAME: &str = "tdmcp.perception.uniform_frame";
 /// No perception path for COMP.
 pub const PERCEPTION_NO_PATH: &str = "tdmcp.perception.no_path";
+/// Capture mode does not match resolved operator family.
+pub const PERCEPTION_WRONG_FAMILY: &str = "tdmcp.perception.wrong_family";
+/// CHOP has no channels or samples.
+pub const PERCEPTION_EMPTY_CHOP: &str = "tdmcp.perception.empty_chop";
+/// CHOP capture capped (soft; payload `truncation` block).
+pub const PERCEPTION_CHOP_TRUNCATED: &str = "tdmcp.perception.chop_truncated";
+/// Temp converter for chop_image / pop failed.
+pub const PERCEPTION_CONVERTER_FAILED: &str = "tdmcp.perception.converter_failed";
 
 /// All codes that must exist in the catalog (compile-time enumeration).
 pub const ALL: &[&str] = &[
@@ -98,6 +106,10 @@ pub const ALL: &[&str] = &[
     PERCEPTION_BLACK_FRAME,
     PERCEPTION_UNIFORM_FRAME,
     PERCEPTION_NO_PATH,
+    PERCEPTION_WRONG_FAMILY,
+    PERCEPTION_EMPTY_CHOP,
+    PERCEPTION_CHOP_TRUNCATED,
+    PERCEPTION_CONVERTER_FAILED,
 ];
 
 #[cfg(test)]

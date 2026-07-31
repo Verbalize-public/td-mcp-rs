@@ -15,7 +15,9 @@ use eframe::egui;
 use serde::Deserialize;
 use tracing::warn;
 use tray_icon::menu::{Menu, MenuEvent, MenuItem};
-use tray_icon::{Icon, MouseButton, MouseButtonState, Rect, TrayIcon, TrayIconBuilder, TrayIconEvent};
+use tray_icon::{
+    Icon, MouseButton, MouseButtonState, Rect, TrayIcon, TrayIconBuilder, TrayIconEvent,
+};
 
 use theme::{
     font_label, font_meta, font_mono, font_title, ghost_button, section_header, status_led, ACCENT,
@@ -317,8 +319,7 @@ impl DashboardApp {
         y = y.max(mon_y).min(mon_y + mon_h - popup_h);
 
         ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(
-            x as f32,
-            y as f32,
+            x as f32, y as f32,
         )));
     }
 
@@ -536,7 +537,11 @@ impl DashboardApp {
         ui.horizontal(|ui| {
             status_led(ui, ACCENT);
             ui.add_space(2.0);
-            ui.label(egui::RichText::new("td-mcp-rs").font(font_title()).color(TEXT));
+            ui.label(
+                egui::RichText::new("td-mcp-rs")
+                    .font(font_title())
+                    .color(TEXT),
+            );
             if let Some(st) = &self.status {
                 ui.label(
                     egui::RichText::new(format!("· v{}", st.version))
@@ -837,7 +842,7 @@ fn reveal_bootstrap_tox(data_dir: &Path) -> Result<()> {
                 .spawn()
                 .map_err(|e| anyhow::anyhow!("explorer: {e}"))?;
         }
-        return Ok(());
+        Ok(())
     }
     #[cfg(target_os = "macos")]
     {
@@ -852,7 +857,7 @@ fn reveal_bootstrap_tox(data_dir: &Path) -> Result<()> {
                 .spawn()
                 .map_err(|e| anyhow::anyhow!("open: {e}"))?;
         }
-        return Ok(());
+        Ok(())
     }
     #[cfg(all(unix, not(target_os = "macos")))]
     {
@@ -861,7 +866,7 @@ fn reveal_bootstrap_tox(data_dir: &Path) -> Result<()> {
             .arg(data_dir)
             .spawn()
             .map_err(|e| anyhow::anyhow!("xdg-open: {e}"))?;
-        return Ok(());
+        Ok(())
     }
     #[cfg(not(any(windows, unix)))]
     {

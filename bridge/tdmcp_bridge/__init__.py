@@ -338,42 +338,211 @@ def handle_execute_python(params: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def handle_capture(params: dict[str, Any]) -> dict[str, Any]:
-    """P0 capture: top / preview — requires live TD.
+# chop_data caps (token / wire discipline; not MCP knobs).
+CHOP_DATA_MAX_CHANNELS = 32
+CHOP_DATA_MAX_SAMPLES = 256
+CHOP_DATA_MAX_SCALARS = 4096
 
-    Returns JPEG as ``jpegBase64`` so the MCP layer can emit an image content
-    block. Optional ``maxSize`` (default 256) downscales via a temp
-    ``resolutionTOP`` that is always destroyed.
-    """
-    import base64
-    import td  # type: ignore
+_BLACK_MEAN_THRESHOLD = 1.0 / 255.0
+_UNIFORM_RANGE_THRESHOLD = 2.0 / 255.0
 
-    path = params.get("path") or ""
-    mode = params.get("mode") or "auto"
-    context_path = params.get("contextPath")
-    max_size = params.get("maxSize", 256)
-    node = tdmcp_resolve(path, context_path)
-    if node is None or not getattr(node, "valid", False):
-        return {"ok": False, "code": "tdmcp.op.not_found", "path": path}
 
-    target = node
-    if mode in ("preview", "auto") and hasattr(node, "par"):
-        # Fallback chain: opviewer → ./out1 → first TOP child
-        opviewer = getattr(node.par, "opviewer", None)
-        if opviewer is not None and getattr(opviewer, "eval", None):
+def _op_family(node: Any) -> str | None:
+    """Best-effort TD family string (``TOP`` / ``CHOP`` / ``COMP`` / ``POP`` / …)."""
+    fam = getattr(node, "family", None)
+    if fam is None:
+        return None
+    return str(fam)
+
+
+def _effective_capture_mode(mode: str, node: Any) -> str:
+    """Resolve ``auto`` (and pass-through explicit modes) from operator family."""
+    if mode != "auto":
+        return mode
+    family = _op_family(node)
+    if family == "CHOP":
+        return "chop_data"
+    if family == "POP":
+        return "pop"
+    if family == "COMP":
+        return "preview"
+    if family == "TOP" or hasattr(node, "saveByteArray"):
+        return "top"
+    return mode
+
+
+def _chan_samples(chan: Any, n_samples: int) -> list[float]:
+    """Read up to ``n_samples`` floats from a TD Channel (or test double)."""
+    vals = getattr(chan, "vals", None)
+    if vals is not None:
+        try:
+            return [float(vals[i]) for i in range(n_samples)]
+        except Exception:  # noqa: BLE001
+            pass
+    out: list[float] = []
+    for i in range(n_samples):
+        try:
+            out.append(float(chan[i]))
+        except Exception:  # noqa: BLE001
+            out.append(0.0)
+    return out
+
+
+def _capture_chop_data(node: Any, path: str) -> dict[str, Any]:
+    """CHOP → capped JSON. Pure enough for unit tests with fake CHOPs."""
+    try:
+        cook = getattr(node, "cook", None)
+        if callable(cook):
+            cook(force=True)
+    except Exception:  # noqa: BLE001 — best-effort, like inspect
+        pass
+
+    resolved = getattr(node, "path", None) or path
+    family = _op_family(node) or "CHOP"
+    if family != "CHOP":
+        return {
+            "ok": False,
+            "code": "tdmcp.perception.wrong_family",
+            "message": (
+                f"mode chop_data requires CHOP; resolved family is {family!r}"
+            ),
+            "path": resolved,
+            "mode": "chop_data",
+            "family": family,
+        }
+
+    num_chans = int(getattr(node, "numChans", 0) or 0)
+    num_samples = int(getattr(node, "numSamples", 0) or 0)
+    if num_chans <= 0 or num_samples <= 0:
+        return {
+            "ok": False,
+            "code": "tdmcp.perception.empty_chop",
+            "message": (
+                f"CHOP has no channels or samples "
+                f"(numChans={num_chans}, numSamples={num_samples})"
+            ),
+            "path": resolved,
+            "mode": "chop_data",
+            "family": "CHOP",
+            "numChans": num_chans,
+            "numSamples": num_samples,
+        }
+
+    chans_attr = getattr(node, "chans", None)
+    if callable(chans_attr):
+        try:
+            chans_attr = chans_attr()
+        except Exception:  # noqa: BLE001
+            chans_attr = None
+    if chans_attr is None:
+        chans_list: list[Any] = []
+        for i in range(num_chans):
             try:
-                ref = opviewer.eval()
-                if ref:
-                    target = td.op(ref) or target
+                chans_list.append(node[i])
             except Exception:  # noqa: BLE001
-                pass
-        if target is node:
-            child = node.op("out1")
-            if child is not None:
-                target = child
+                break
+    else:
+        chans_list = list(chans_attr)
 
-    # Pixel capture is TD-version specific; return a structured stub when
-    # saveByteArray is unavailable so daemon diagnostics can classify.
+    channels_out: list[dict[str, Any]] = []
+    scalars_used = 0
+    truncated_field: str | None = None
+    truncated_limit = 0
+    chan_limit = min(num_chans, CHOP_DATA_MAX_CHANNELS, len(chans_list))
+
+    for ci in range(chan_limit):
+        if scalars_used >= CHOP_DATA_MAX_SCALARS:
+            truncated_field = "scalars"
+            truncated_limit = CHOP_DATA_MAX_SCALARS
+            break
+        chan = chans_list[ci]
+        samples_wanted = min(
+            num_samples,
+            CHOP_DATA_MAX_SAMPLES,
+            CHOP_DATA_MAX_SCALARS - scalars_used,
+        )
+        samples = _chan_samples(chan, samples_wanted)
+        name = getattr(chan, "name", None)
+        if name is None:
+            name = f"chan{ci}"
+        channels_out.append({"name": str(name), "samples": samples})
+        scalars_used += len(samples)
+        if samples_wanted < num_samples:
+            truncated_field = "samples"
+            truncated_limit = CHOP_DATA_MAX_SAMPLES
+            # Continue other channels only if scalar budget remains; if we
+            # hit samples-per-channel cap but still have budget, mark samples
+            # and keep going until channel/scalar caps.
+            if scalars_used >= CHOP_DATA_MAX_SCALARS:
+                truncated_field = "scalars"
+                truncated_limit = CHOP_DATA_MAX_SCALARS
+                break
+
+    if truncated_field is None and (
+        chan_limit < num_chans or len(chans_list) < num_chans
+    ):
+        truncated_field = "channels"
+        truncated_limit = CHOP_DATA_MAX_CHANNELS
+
+    out: dict[str, Any] = {
+        "ok": True,
+        "path": resolved,
+        "mode": "chop_data",
+        "family": "CHOP",
+        "numChans": num_chans,
+        "numSamples": num_samples,
+        "channels": channels_out,
+    }
+    rate = getattr(node, "rate", None)
+    if rate is not None:
+        try:
+            out["rate"] = float(rate)
+        except (TypeError, ValueError):
+            pass
+    if truncated_field is not None:
+        out["truncation"] = {
+            "field": truncated_field,
+            "limit": truncated_limit,
+            "code": "tdmcp.perception.chop_truncated",
+            "message": (
+                f"CHOP capture capped at {truncated_field} "
+                f"(limit={truncated_limit}; "
+                f"numChans={num_chans}, numSamples={num_samples})"
+            ),
+            "mitigation": [
+                "Narrow the CHOP window or channel count in TD before re-capture",
+                "Caps are fixed: 32 channels, 256 samples/channel, 4096 scalars",
+            ],
+        }
+    return out
+
+
+def _resolve_preview_face(td_mod: Any, node: Any) -> Any:
+    """COMP face fallback: opviewer → ./out1 (leave node if neither resolves)."""
+    target = node
+    if not hasattr(node, "par"):
+        return target
+    opviewer = getattr(node.par, "opviewer", None)
+    if opviewer is not None and getattr(opviewer, "eval", None):
+        try:
+            ref = opviewer.eval()
+            if ref:
+                target = td_mod.op(ref) or target
+        except Exception:  # noqa: BLE001
+            pass
+    if target is node:
+        child = node.op("out1") if hasattr(node, "op") else None
+        if child is not None:
+            target = child
+    return target
+
+
+def _capture_top_jpeg(
+    td_mod: Any, target: Any, path: str, max_size: Any
+) -> dict[str, Any]:
+    """TOP → JPEG (+ black/uniform soft-fail). Temps always destroyed."""
+    import base64
+
     if not hasattr(target, "saveByteArray"):
         return {
             "ok": False,
@@ -386,7 +555,7 @@ def handle_capture(params: dict[str, Any]) -> dict[str, Any]:
     source = target
     try:
         if max_size is not None:
-            source, tmp_top = _maybe_downscale_top(td, target, int(max_size))
+            source, tmp_top = _maybe_downscale_top(td_mod, target, int(max_size))
         data = source.saveByteArray(".jpg")
         raw = bytes(data) if data is not None else b""
         kind, mean_rgb = _classify_frame(source, raw)
@@ -418,8 +587,198 @@ def handle_capture(params: dict[str, Any]) -> dict[str, Any]:
                 pass
 
 
-_BLACK_MEAN_THRESHOLD = 1.0 / 255.0
-_UNIFORM_RANGE_THRESHOLD = 2.0 / 255.0
+def _create_temp_converter(
+    td_mod: Any, source: Any, op_class: Any, tmp_name: str
+) -> Any:
+    """Create a temp converter under ``source``'s parent; destroy name collision."""
+    parent = source.parent() if hasattr(source, "parent") else None
+    if parent is None:
+        raise RuntimeError("converter parent missing")
+    existing = parent.op(tmp_name) if hasattr(parent, "op") else None
+    if existing is not None:
+        existing.destroy()
+    tmp = parent.create(op_class, tmp_name)
+    tmp.inputConnectors[0].connect(source)
+    try:
+        cook = getattr(tmp, "cook", None)
+        if callable(cook):
+            cook(force=True)
+    except Exception:  # noqa: BLE001
+        pass
+    return tmp
+
+
+def _capture_via_converter(
+    td_mod: Any,
+    source: Any,
+    path: str,
+    max_size: Any,
+    *,
+    mode: str,
+    expect_family: str,
+    op_attr: str,
+    tmp_prefix: str,
+) -> dict[str, Any]:
+    """Temp converter → TOP JPEG path; always destroy the converter."""
+    family = _op_family(source)
+    if family != expect_family:
+        return {
+            "ok": False,
+            "code": "tdmcp.perception.wrong_family",
+            "message": (
+                f"mode {mode} requires {expect_family}; "
+                f"resolved family is {family!r}"
+            ),
+            "path": getattr(source, "path", path),
+            "mode": mode,
+            "family": family,
+        }
+    op_class = getattr(td_mod, op_attr, None)
+    if op_class is None:
+        return {
+            "ok": False,
+            "code": "tdmcp.perception.converter_failed",
+            "message": f"td.{op_attr} unavailable in this TouchDesigner build",
+            "path": getattr(source, "path", path),
+            "mode": mode,
+            "family": family,
+        }
+
+    tmp_name = tmp_prefix + str(getattr(source, "name", "src"))
+    converter = None
+    try:
+        converter = _create_temp_converter(td_mod, source, op_class, tmp_name)
+        result = _capture_top_jpeg(td_mod, converter, path, max_size)
+        # Report the source path agents asked for, not the temp converter.
+        result["path"] = getattr(source, "path", path)
+        result["mode"] = mode
+        if result.get("ok") is False and result.get("code") in (
+            None,
+            "tdmcp.perception.no_path",
+        ):
+            if "error" in result or result.get("code") == "tdmcp.perception.no_path":
+                if "error" in result:
+                    return {
+                        "ok": False,
+                        "code": "tdmcp.perception.converter_failed",
+                        "message": str(result.get("error") or "converter capture failed"),
+                        "path": getattr(source, "path", path),
+                        "mode": mode,
+                        "family": family,
+                        "traceback": result.get("traceback"),
+                    }
+        return result
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "ok": False,
+            "code": "tdmcp.perception.converter_failed",
+            "message": str(exc),
+            "path": getattr(source, "path", path),
+            "mode": mode,
+            "family": family,
+            "traceback": traceback.format_exc(),
+        }
+    finally:
+        if converter is not None:
+            try:
+                converter.destroy()
+            except Exception:  # noqa: BLE001
+                pass
+
+
+def handle_capture(params: dict[str, Any]) -> dict[str, Any]:
+    """Perception capture: top / preview / auto / chop_data / chop_image / pop.
+
+    JPEG modes return ``jpegBase64`` for MCP image promotion. ``chop_data``
+    returns capped channel JSON (no image). Optional ``maxSize`` (default 256)
+    applies to JPEG paths only via a temp ``resolutionTOP`` that is always
+    destroyed. Converter temps for ``chop_image`` / ``pop`` are also destroyed.
+    """
+    path = params.get("path") or ""
+    mode = params.get("mode") or "auto"
+    context_path = params.get("contextPath")
+    max_size = params.get("maxSize", 256)
+    node = tdmcp_resolve(path, context_path)
+    if node is None or not getattr(node, "valid", False):
+        return {"ok": False, "code": "tdmcp.op.not_found", "path": path}
+
+    effective = _effective_capture_mode(str(mode), node)
+
+    if effective == "chop_data":
+        return _capture_chop_data(node, path)
+
+    import td  # type: ignore  # JPEG / converter paths need the TD module
+
+    if effective == "chop_image":
+        return _capture_via_converter(
+            td,
+            node,
+            path,
+            max_size,
+            mode="chop_image",
+            expect_family="CHOP",
+            op_attr="choptoTOP",
+            tmp_prefix="__tdmcp_tmp_chopimg__",
+        )
+
+    if effective == "pop":
+        return _capture_via_converter(
+            td,
+            node,
+            path,
+            max_size,
+            mode="pop",
+            expect_family="POP",
+            op_attr="poptoTOP",
+            tmp_prefix="__tdmcp_tmp_pop__",
+        )
+
+    target = node
+    if effective == "preview":
+        target = _resolve_preview_face(td, node)
+
+    if effective in ("top", "preview"):
+        # Explicit top on non-TOP → wrong_family (not no_path).
+        if effective == "top" and _op_family(node) not in (None, "TOP") and not hasattr(
+            node, "saveByteArray"
+        ):
+            fam = _op_family(node)
+            return {
+                "ok": False,
+                "code": "tdmcp.perception.wrong_family",
+                "message": f"mode top requires TOP; resolved family is {fam!r}",
+                "path": getattr(node, "path", path),
+                "mode": "top",
+                "family": fam,
+            }
+        result = _capture_top_jpeg(td, target, path, max_size)
+        # preview face miss stays no_path (COMP-oriented).
+        if (
+            effective == "top"
+            and result.get("code") == "tdmcp.perception.no_path"
+            and _op_family(node) not in (None, "TOP")
+        ):
+            fam = _op_family(node)
+            return {
+                "ok": False,
+                "code": "tdmcp.perception.wrong_family",
+                "message": f"mode top requires TOP; resolved family is {fam!r}",
+                "path": getattr(node, "path", path),
+                "mode": "top",
+                "family": fam,
+            }
+        return result
+
+    # Unknown mode or unresolved auto family.
+    fam = _op_family(node)
+    return {
+        "ok": False,
+        "code": "tdmcp.perception.wrong_family",
+        "message": f"unsupported capture mode {effective!r} for family {fam!r}",
+        "path": getattr(node, "path", path),
+        "mode": effective,
+        "family": fam,
+    }
 
 
 def _maybe_downscale_top(td_mod, target, max_size: int):

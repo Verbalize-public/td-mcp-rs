@@ -157,12 +157,11 @@ only — not bridge peer health.
 | `fleet` | Fleet view — processes by pid, bridge, tasks, cancelled traces | **Shipped** |
 | `execute_python` | Run Python in TD; `result = …`; optional `logs`; structured `exception` on failure | **Shipped** |
 | `inspect` | Structural subtree read (nodes / params / errors / warnings); summary = direct-child roster | **Shipped** |
-| `capture` | Perception — `top` / `preview` / `auto` | **Shipped** (P0 modes) |
+| `capture` | Perception — `top` / `preview` / `auto` / `chop_data` / `chop_image` / `pop` | **Shipped** |
 | `describe_tools` | Manifest of available tools | **Shipped** |
 | `mutate_nodes` | Ordered create / set / delete / connect / disconnect steps; sequential apply, stop on first hard error | **Shipped** |
 | `dialogs` | List / dismiss OS dialogs | **Planned** (P1, Win) |
 | `api_help` | Live TD Python API introspection | **Planned** (P1) |
-| `capture` `chop_data` / `pop` / `chop_image` | Extra perception modes | **Planned** (P1 / P1.x) |
 | Lifecycle create/start/stop | Return new `pid` | **Planned** (P2) |
 
 **Not planned (v1):** sticky / `select_target` / `targetId` / ToeDigest / inject / `call_node` (use `execute_python` for other node method calls; connector wiring is `mutate_nodes` `connect` / `disconnect`).
@@ -186,7 +185,7 @@ Structured success is **flat tool fields** with a single outer `ok` (bridge may 
 | `execute_python` | `{ ok: true, result, logs? }` |
 | `mutate_nodes` | `{ ok: true, applied, failedAt, steps }` |
 | `inspect` | `{ ok: true, node }` |
-| `capture` | `{ ok: true, path, bytes, mimeType, jpegBase64?, maxSize? }` + MCP image content when JPEG present (`jpegBase64` stripped from structured after promotion) |
+| `capture` | JPEG modes: `{ ok: true, path, bytes, mimeType, jpegBase64?, maxSize?, mode? }` + MCP image content when JPEG present (`jpegBase64` stripped from structured after promotion). `chop_data`: `{ ok: true, path, mode, family, numChans, numSamples, rate?, channels:[{name, samples}], truncation? }` (structured only; no image) |
 | `fleet` | tool-specific fleet object (no shared shell) |
 | `describe_tools` | tool-specific catalog object (no shared shell) |
 
@@ -246,11 +245,12 @@ When the roster is loaded, `children` is always an array (never a bare count).
 
 | Mode | Status | Behavior |
 | --- | --- | --- |
-| `top` | **Shipped** | TOP → JPEG (flat success fields + MCP image content; see result shapes); optional `maxSize` (default 256); black or uniform solid frame = perception fail (`tdmcp.perception.black_frame` / `tdmcp.perception.uniform_frame`; image still returned) |
-| `preview` | **Shipped** | COMP face: `opviewer` → `./out1` → TOP child → error |
-| `auto` | **Shipped** | TOP → `top`; COMP → `preview` |
-| `chop_data` | **Planned** | CHOP → capped JSON |
-| `pop` / `chop_image` | **Planned** | Temp converter → TOP → `top` |
+| `top` | **Shipped** | TOP → JPEG (flat success fields + MCP image content; see result shapes); optional `maxSize` (default 256); black or uniform solid frame = perception fail (`tdmcp.perception.black_frame` / `tdmcp.perception.uniform_frame`; image still returned); wrong family → `tdmcp.perception.wrong_family` |
+| `preview` | **Shipped** | COMP face: `opviewer` → `./out1` → error (`tdmcp.perception.no_path`) |
+| `auto` | **Shipped** | TOP → `top`; COMP → `preview`; CHOP → `chop_data`; POP → `pop` |
+| `chop_data` | **Shipped** | CHOP → capped JSON (32 channels, 256 samples/channel, 4096 scalars); soft `truncation` + `tdmcp.perception.chop_truncated` when capped; empty → `tdmcp.perception.empty_chop`; wrong family → `tdmcp.perception.wrong_family`; all-zero non-empty = success; ignores `maxSize` |
+| `chop_image` | **Shipped** | CHOP → temp `choptoTOP` (`__tdmcp_tmp_chopimg__*`) → JPEG path; temp always destroyed; converter failure → `tdmcp.perception.converter_failed` |
+| `pop` | **Shipped** | POP → temp `poptoTOP` (`__tdmcp_tmp_pop__*`) → JPEG path; temp always destroyed; converter failure → `tdmcp.perception.converter_failed` |
 
 ### `mutate_nodes` — Shipped (P1)
 
@@ -387,8 +387,8 @@ Daemon CLI: `start` (foreground; tray + toast by default, dashboard hidden until
 | Phase | Ship | Exit green | Status |
 | --- | --- | --- | --- |
 | **P0** | Daemon + IPC + bootstrap + Streamable HTTP: `fleet` + script/errors + `capture` (`top`/`preview`) + diagnostics + per-pid queue + exclusive fail + resurrection | Two connected pids; exclusive fails while busy; perception non-black; structured script failure | **Shipped** (see [`E2E_CHECKLIST.md`](E2E_CHECKLIST.md)) |
-| **P1** | `mutate_nodes` (incl. connect/disconnect), `capture` `chop_data`, dialogs (Win), op lint engine | `mutate_nodes` sequential apply stops at first bad path with `failedAt`; later steps emit `tdmcp.batch.skipped_dependent`; pure `apply_step` seam unit-covered without TD | Partial (`mutate_nodes` **Shipped** + live E2E M1–M17; remaining P1 items **Planned**) |
-| **P1.x** | `capture` `pop`, `chop_image` | Non-TOP heroes via temp converters | **Planned** |
+| **P1** | `mutate_nodes` (incl. connect/disconnect), `capture` `chop_data`, dialogs (Win), op lint engine | `mutate_nodes` sequential apply stops at first bad path with `failedAt`; later steps emit `tdmcp.batch.skipped_dependent`; pure `apply_step` seam unit-covered without TD | Partial (`mutate_nodes` + `capture` `chop_data` **Shipped**; dialogs / op lint **Planned**) |
+| **P1.x** | `capture` `pop`, `chop_image` | Non-TOP heroes via temp converters | **Shipped** (unit + E2E rows 17–18) |
 | **P2** | Lifecycle create/start/stop (tray already shipped) | Operator create/start/stop; new project by pid | Partial (tray **Shipped**; lifecycle **Planned**) |
 | **P3** | WebSocket / remote RFC | Separate design review | **Planned** |
 
