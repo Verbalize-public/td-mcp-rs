@@ -58,7 +58,7 @@ See [`DEV_ENV.md`](DEV_ENV.md) § Dev smoke. Does **not** replace rows 1–12 be
 | M2 | 1-step `create` of a `noiseTOP` under `/project1` → `ok:true, applied:1, failedAt:null`; echoed path matches | ✅ |
 | M3 | `inspect` confirms the created node's `opType` | ✅ |
 | M4 | 2-step batch `create` + `set` (`values:{resolutionw:128}`) → both ok | ✅ |
-| M5 | `set` with `expressions:{resolutionw:"absTime.seconds*4"}` → re-`inspect` params confirms expression mode | ✅ |
+| M5 | `set` with `expressions:{resolutionw:"absTime.seconds*4"}` → re-`inspect` `include:["params"]` shows `mode=="EXPRESSION"` and `expr` matching the string set | ✅ |
 | M6 | `set` with `pulse` on a Pulse par → no error (used `timerCHOP` + `start`) | ✅ |
 | M7 | Mid-batch failure — `create` ok, then `set` on a nonexistent param → `failedAt:1`; `tdmcp.par.unknown`; later steps `tdmcp.batch.skipped_dependent`. (Wrong-bag: flag name under `values` keeps `tdmcp.par.unknown` and may nest `tdmcp.par.wrong_collection` — unit-covered; not a live gate.) | ✅ |
 | M8 | First-step failure — `create` with bad `opType` → `failedAt:0, applied:0`; `tdmcp.op.unknown_type` | ✅ |
@@ -92,8 +92,15 @@ integration suite).
 **Run record (`mutate_nodes` M1–M11):** 2026-07-31, TouchDesigner via
 `_agent_tdmcprs_dev.4.toe` (pid 19168), daemon `0.1.0` release rebuild.
 All M1–M11 pass over HTTP JSON `/mcp/tools/call`. Notes:
-- M5: `inspect` params report evaluated `resolutionw` (~3554), confirming
-  expression mode took (explicit `par.mode` set before `.expr`).
+- M5 (superseded criterion): previously passed on evaluated `resolutionw`
+  (~3554) alone — weak proxy. Re-run required: `inspect` params must show
+  `mode == "EXPRESSION"` and `expr == "absTime.seconds*4"` for `resolutionw`.
+
+**Run record (inspect params mode/expr M5):** 2026-07-31, pid 15448
+(`_agent_tdmcprs_dev.4.toe`), daemon after `xtask dist` + re-extract.
+`/project1/agent_mutate_live/m5_expr`: after
+`expressions:{resolutionw:"absTime.seconds*4"}`, `inspect` params returned
+`{"name":"resolutionw","mode":"EXPRESSION","expr":"absTime.seconds*4","val":107078}`.
 - M6: used `timerCHOP` + `pulse:["start"]` (noiseTOP has no pulse par).
 - Same-version `ensure` does **not** re-extract `diagnostics/catalog.yaml`
   when `install.version` already matches — first M8 run fell back to

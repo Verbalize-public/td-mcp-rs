@@ -42,10 +42,11 @@ Bridge package and diagnostic catalog ship beside the repo (`bridge/`,
    Cursor spawns `tdmcp-daemon mcp`, which runs `ensure` (health → lock →
    detached spawn → poll), then serves a stdio MCP proxy to
    `http://127.0.0.1:9860/mcp/rpc`. The HTTP daemon stays up across MCP client
-   restarts. By default the detached daemon also shows a system-tray icon and
-   a startup toast (dashboard window stays hidden until you open it from the
-   tray; **Stop** ends the process). Use `--no-gui` or `TDMCP_NO_GUI=1` for
-   headless.
+   restarts, and exits on its own after **30s** with no MCP sessions and no
+   TD bridges (`TDMCP_IDLE_EXIT_SECS`; `0` disables). By default the detached
+   daemon also shows a system-tray icon and a startup toast (dashboard window
+   stays hidden until you open it from the tray; **Stop** ends the process).
+   Use `--no-gui` or `TDMCP_NO_GUI=1` for headless.
 
    First run extracts embedded bridge, catalog, and bootstrap `.tox` into the
    data dir (`install` / `ensure` / `start` / `mcp` all do this). Default:

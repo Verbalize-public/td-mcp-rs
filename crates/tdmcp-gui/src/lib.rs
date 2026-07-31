@@ -423,7 +423,8 @@ impl eframe::App for DashboardApp {
     }
 }
 
-fn notify(summary: &str, body: &str) {
+/// Show an OS toast (best-effort; failures are logged).
+pub fn toast(summary: &str, body: &str) {
     match notify_rust::Notification::new()
         .summary(summary)
         .body(body)
@@ -433,6 +434,10 @@ fn notify(summary: &str, body: &str) {
         Ok(_) => {}
         Err(e) => warn!(error = %e, summary, "OS toast failed"),
     }
+}
+
+fn notify(summary: &str, body: &str) {
+    toast(summary, body);
 }
 
 #[derive(Debug, Deserialize)]

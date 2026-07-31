@@ -38,12 +38,18 @@ pub enum BridgeEndpoint {
 
 impl BridgeEndpoint {
     /// Default production endpoint.
+    ///
+    /// On Windows, `TDMCP_IPC_PIPE` overrides the named-pipe path (tests use a
+    /// unique pipe so a live TD on `\\.\pipe\tdmcp-rs` cannot attach).
     #[must_use]
     pub fn default_endpoint(data_dir: &Path) -> Self {
         #[cfg(windows)]
         {
             let _ = data_dir;
-            Self::NamedPipe(r"\\.\pipe\tdmcp-rs".to_owned())
+            let name = std::env::var("TDMCP_IPC_PIPE").unwrap_or_else(|_| {
+                r"\\.\pipe\tdmcp-rs".to_owned()
+            });
+            Self::NamedPipe(name)
         }
         #[cfg(unix)]
         {

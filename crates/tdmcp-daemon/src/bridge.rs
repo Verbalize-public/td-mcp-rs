@@ -139,6 +139,11 @@ impl BridgeSessions {
         self
     }
 
+    /// Number of live bridge session actors (connected IPC peers).
+    pub async fn connected_count(&self) -> usize {
+        self.sessions.lock().await.len()
+    }
+
     /// Spawn an actor for an accepted, handshaken stream.
     pub async fn spawn(&self, pid: u32, stream: IpcStream) {
         let (job_tx, job_rx) = mpsc::channel::<TaskJob>(32);

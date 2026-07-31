@@ -560,6 +560,55 @@ def _force_cook(node: Any) -> None:
         return
 
 
+def _par_mode_name(p: Any) -> str:
+    """Stable ParMode name string (CONSTANT / EXPRESSION / …)."""
+    mode = getattr(p, "mode", None)
+    if mode is None:
+        return "CONSTANT"
+    name = getattr(mode, "name", None)
+    if isinstance(name, str) and name:
+        return name
+    s = str(mode)
+    if "." in s:
+        return s.rsplit(".", 1)[-1]
+    return s or "CONSTANT"
+
+
+def _json_safe_par_val(val: Any) -> Any:
+    """Coerce evaluated par values so json.dumps never dies on td.OP etc."""
+    if val is None or isinstance(val, (bool, int, float, str)):
+        return val
+    path = getattr(val, "path", None)
+    if isinstance(path, str):
+        return path
+    if callable(path):
+        try:
+            resolved = path()
+            if isinstance(resolved, str):
+                return resolved
+        except Exception:  # noqa: BLE001
+            pass
+    try:
+        json.dumps(val)
+        return val
+    except (TypeError, ValueError, OverflowError):
+        return str(val)
+
+
+def _inspect_param_entry(p: Any) -> dict[str, Any]:
+    """One params[] entry: name + mode + JSON-safe val; expr when EXPRESSION."""
+    mode = _par_mode_name(p)
+    entry: dict[str, Any] = {"name": getattr(p, "name", None), "mode": mode}
+    try:
+        entry["val"] = _json_safe_par_val(p.eval())
+    except Exception:  # noqa: BLE001
+        entry["val"] = None
+    if mode == "EXPRESSION":
+        expr = getattr(p, "expr", None)
+        entry["expr"] = "" if expr is None else str(expr)
+    return entry
+
+
 def build_inspect_node(
     n: Any,
     *,
@@ -613,13 +662,7 @@ def build_inspect_node(
             ],
         }
     if want_params:
-        pars = []
-        for p in n.pars():
-            try:
-                pars.append({"name": p.name, "val": p.eval()})
-            except Exception:  # noqa: BLE001
-                pars.append({"name": p.name, "val": None})
-        out["params"] = pars
+        out["params"] = [_inspect_param_entry(p) for p in n.pars()]
     if want_errors:
         out["errors"] = _op_messages(getattr(n, "errors", lambda: ""))
     if want_warnings:

@@ -23,6 +23,7 @@ use tdmcp_daemon::config::Config;
 use tdmcp_daemon::ensure::{
     daemon_lock_path, ensure_daemon, refuse_if_daemon_owned, EnsureOptions,
 };
+use tdmcp_daemon::idle::{idle_exit_timeout, run_idle_watcher};
 use tdmcp_daemon::install::{self, InstallOutcome};
 use tdmcp_diagnostics::Catalog;
 use tdmcp_mcp::{build_mcp_router, AppState, McpHandler};
@@ -153,6 +154,7 @@ fn main() -> Result<()> {
                     timeout: Duration::from_millis(timeout_ms),
                     poll_only: false,
                     no_gui,
+                    idle_exit_secs: None,
                 };
                 let result = ensure_daemon(opts).await?;
                 println!(
@@ -178,6 +180,7 @@ fn main() -> Result<()> {
                     timeout: Duration::from_millis(timeout_ms),
                     poll_only: false,
                     no_gui,
+                    idle_exit_secs: None,
                 };
                 let result = ensure_daemon(opts).await?;
                 let daemon_url = format!("{}/mcp/rpc", result.base_url);
@@ -298,6 +301,7 @@ async fn run_daemon(cfg: Config, no_gui: bool) -> Result<()> {
     let state = AppState::new_shared(registry.clone(), catalog, bridge);
     let admin_state = state.clone();
     let mcp_handler_state = state.clone();
+    let mcp_sessions = state.mcp_sessions.clone();
 
     // Real MCP transport: rmcp Streamable HTTP over the same AppState the
     // JSON fallback (`/mcp/tools/*`) uses. One `McpHandler` per session
@@ -341,11 +345,26 @@ async fn run_daemon(cfg: Config, no_gui: bool) -> Result<()> {
         run_ipc_accept(endpoint, bridge_dir, ipc_registry, ipc_sessions).await;
     });
 
+    let idle_handle = if let Some(timeout) = idle_exit_timeout() {
+        info!(idle_secs = timeout.as_secs(), "idle exit armed");
+        let idle_bridges = sessions.clone();
+        let idle_data_dir = cfg.data_dir.clone();
+        Some(tokio::spawn(async move {
+            run_idle_watcher(idle_bridges, mcp_sessions, idle_data_dir, timeout).await;
+        }))
+    } else {
+        info!("idle exit disabled (TDMCP_IDLE_EXIT_SECS=0)");
+        None
+    };
+
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
         .await?;
 
     ipc_handle.abort();
+    if let Some(h) = idle_handle {
+        h.abort();
+    }
     let _ = std::fs::remove_file(&lock_path);
     Ok(())
 }

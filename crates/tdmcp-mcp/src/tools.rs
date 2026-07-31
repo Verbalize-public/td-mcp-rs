@@ -132,7 +132,7 @@ pub fn tool_descriptors() -> Vec<ToolDescriptor> {
         },
         ToolDescriptor {
             name: "inspect".into(),
-            description: "Structural subtree read (nodes/params/errors/warnings). Empty include defaults to nodes+errors+warnings; params opt-in; non-empty include is an allowlist. Default summary includes a direct-child roster ({name, opType}); detailed adds path+family. Roster capped at 64 — when truncated see node.truncation (detailLevel does not raise the cap).".into(),
+            description: "Structural subtree read (nodes/params/errors/warnings). Empty include defaults to nodes+errors+warnings; params opt-in; non-empty include is an allowlist. Params entries are {name, mode, val, expr?} (expr only when mode is EXPRESSION; val is evaluated and JSON-safe). Default summary includes a direct-child roster ({name, opType}); detailed adds path+family. Roster capped at 64 — when truncated see node.truncation (detailLevel does not raise the cap).".into(),
             input_schema: input_schema_for("inspect"),
         },
         ToolDescriptor {

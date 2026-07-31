@@ -23,7 +23,7 @@ with `--no-gui` / `TDMCP_NO_GUI=1`, or build `--no-default-features`).
  Tray menu: Show / Hide · Restart daemon · Stop daemon
  Tray icon: normal (cyan) · attention (amber badge) when
  disconnected / resurrected / cancelled tasks present
- OS toasts: startup, bridge disconnect, resurrection, cancelled tasks
+ OS toasts: startup, bridge disconnect, resurrection, cancelled tasks, idle exit
 ```
 
 ## Controls

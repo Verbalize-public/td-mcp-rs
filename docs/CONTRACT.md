@@ -62,6 +62,8 @@ Crate layout: [`ARCHITECTURE.md`](../ARCHITECTURE.md). Engineering law: [`CONSTI
 
 **Singleton:** one owner per listen port. Exclusivity = `daemon.lock` (pid) + TCP bind on `127.0.0.1:{port}`. Stale locks (dead pid) are reclaimed on `start` / `ensure`. A second `start` while healthy refuses with a clear error. `/admin/restart` clears the lock then spawn-then-exit; the replacement retries bind briefly. No distributed leader election — localhost only.
 
+**Idle auto-exit:** after **30s** with zero connected bridges and zero live Streamable HTTP MCP session leases (stdio proxy counts), the daemon toasts and exits (`process::exit`). Admin/health polls and JSON `/mcp/tools/*` do not keep it alive. Assumes session-mode MCP (not per-request handlers). Override: `TDMCP_IDLE_EXIT_SECS` (`0` disables). `ensure` / `mcp` respawn on next use. Tests may set `TDMCP_IPC_PIPE` so a live TD on the production pipe cannot attach.
+
 **Listen:** `127.0.0.1:9860` (override via CLI / env / RC); loopback only; no auth.
 
 **Stdio proxy (v1):** forwards tools request/response only (`list_tools` /
@@ -187,6 +189,15 @@ Failures (all bridge-backed tools): `{ ok: false, summary, items, … }` via dia
 | non-empty | allowlist only (`nodes` / `params` / `errors` / `warnings`) |
 
 `params` is opt-in. `errors` / `warnings` are string arrays from `OP.errors()` / `OP.warnings()` (no recurse). Not gated by `detailLevel`.
+
+When `params` is included, each entry is `{ name, mode, val, expr? }`:
+
+| Field | Content |
+| --- | --- |
+| `name` | Parameter name |
+| `mode` | `ParMode` name string (`CONSTANT`, `EXPRESSION`, …) |
+| `val` | Evaluated value, JSON-safe (live `OP` → path string; eval failure → `null`) |
+| `expr` | Present only when `mode == "EXPRESSION"` — the expression string |
 
 **Cook before read (rule):** `inspect` always calls `OP.cook(force=True)` on the resolved target before reading nodes/params/errors/warnings. Inspecting a COMP cooks that network. Errors/warnings remain non-recursive (target only). Cook failures are best-effort and do not fail the inspect.
 

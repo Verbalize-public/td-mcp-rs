@@ -8,6 +8,7 @@ pub mod admin;
 pub mod bridge;
 pub mod config;
 pub mod ensure;
+pub mod idle;
 pub mod install;
 pub mod tracing_init;
 

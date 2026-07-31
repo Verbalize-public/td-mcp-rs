@@ -6,6 +6,7 @@ import os
 import sys
 import unittest
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -22,19 +23,45 @@ def _fake_child(name: str, *, op_type: str = "nullTOP", family: str = "TOP") -> 
     )
 
 
+class FakeInspectPar:
+    """Minimal Par for inspect params shaping (mode / expr / eval)."""
+
+    def __init__(
+        self,
+        name: str,
+        *,
+        val: Any = None,
+        mode: Any = "CONSTANT",
+        expr: str | None = None,
+        eval_raises: Exception | None = None,
+    ) -> None:
+        self.name = name
+        self.mode = mode
+        self.expr = expr
+        self._val = val
+        self._eval_raises = eval_raises
+
+    def eval(self) -> Any:
+        if self._eval_raises is not None:
+            raise self._eval_raises
+        return self._val
+
+
 def _fake_node(
     children: list[SimpleNamespace],
     *,
     errors: object = "",
     warnings: object = "",
     cook: object | None = None,
+    pars: list[Any] | None = None,
 ) -> SimpleNamespace:
+    par_list = list(pars) if pars is not None else []
     return SimpleNamespace(
         path="/project1",
         family="COMP",
         opType="baseCOMP",
         children=children,
-        pars=lambda: [],
+        pars=lambda: par_list,
         errors=lambda: errors,
         warnings=lambda: warnings,
         valid=True,
@@ -120,6 +147,90 @@ class InspectSummaryRosterTest(unittest.TestCase):
             _fake_node([child]), detail_level="summary"
         )
         self.assertEqual(out["children"][0]["name"], "fallback1")
+
+
+class InspectParamsTest(unittest.TestCase):
+    def test_constant_par_no_expr_key(self) -> None:
+        node = _fake_node([], pars=[FakeInspectPar("resolutionw", val=128)])
+        out = tdmcp_bridge.build_inspect_node(node, want_nodes=False, want_params=True)
+        self.assertEqual(
+            out["params"],
+            [{"name": "resolutionw", "mode": "CONSTANT", "val": 128}],
+        )
+        self.assertNotIn("expr", out["params"][0])
+
+    def test_expression_par_includes_expr(self) -> None:
+        node = _fake_node(
+            [],
+            pars=[
+                FakeInspectPar(
+                    "resolutionw",
+                    val=3554,
+                    mode="EXPRESSION",
+                    expr="absTime.seconds*4",
+                )
+            ],
+        )
+        out = tdmcp_bridge.build_inspect_node(node, want_nodes=False, want_params=True)
+        self.assertEqual(
+            out["params"],
+            [{
+                "name": "resolutionw",
+                "mode": "EXPRESSION",
+                "val": 3554,
+                "expr": "absTime.seconds*4",
+            }],
+        )
+
+    def test_enum_like_mode_name(self) -> None:
+        mode = SimpleNamespace(name="EXPRESSION")
+        node = _fake_node(
+            [],
+            pars=[
+                FakeInspectPar(
+                    "resolutionw",
+                    val=1,
+                    mode=mode,
+                    expr="me.time.seconds",
+                )
+            ],
+        )
+        out = tdmcp_bridge.build_inspect_node(node, want_nodes=False, want_params=True)
+        self.assertEqual(out["params"][0]["mode"], "EXPRESSION")
+        self.assertEqual(out["params"][0]["expr"], "me.time.seconds")
+
+    def test_op_val_coerced_to_path(self) -> None:
+        op_val = SimpleNamespace(path="/project1/out1")
+        node = _fake_node(
+            [],
+            pars=[FakeInspectPar("opviewer", val=op_val)],
+        )
+        out = tdmcp_bridge.build_inspect_node(node, want_nodes=False, want_params=True)
+        self.assertEqual(out["params"][0]["val"], "/project1/out1")
+        self.assertEqual(out["params"][0]["mode"], "CONSTANT")
+
+    def test_eval_raises_keeps_mode_and_expr(self) -> None:
+        node = _fake_node(
+            [],
+            pars=[
+                FakeInspectPar(
+                    "resolutionw",
+                    mode="EXPRESSION",
+                    expr="1/0",
+                    eval_raises=RuntimeError("bad expr"),
+                )
+            ],
+        )
+        out = tdmcp_bridge.build_inspect_node(node, want_nodes=False, want_params=True)
+        self.assertEqual(
+            out["params"],
+            [{
+                "name": "resolutionw",
+                "mode": "EXPRESSION",
+                "val": None,
+                "expr": "1/0",
+            }],
+        )
 
 
 class InspectMessagesTest(unittest.TestCase):

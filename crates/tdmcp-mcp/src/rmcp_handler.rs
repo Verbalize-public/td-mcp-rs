@@ -6,7 +6,12 @@
 //! request (stateless mode) via the `service_factory` closure passed to
 //! `StreamableHttpService::new`. Construction is cheap: [`AppState`] wraps
 //! `Arc`s, so cloning it does not duplicate daemon state.
+//!
+//! Each handler acquires one [`McpSessionLease`] on [`AppState::mcp_sessions`].
+//! Clones share the lease `Arc` (no double-count); the counter decrements when
+//! the last clone of that session's handler is dropped.
 
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use rmcp::model::{
@@ -21,17 +26,41 @@ use crate::schema::input_schema_for;
 use crate::tools::{dispatch_tool, tool_descriptors, ToolCallError};
 use crate::AppState;
 
+/// Decrements [`AppState::mcp_sessions`] when the last `Arc` clone is dropped.
+struct McpSessionLease {
+    count: Arc<AtomicUsize>,
+}
+
+impl McpSessionLease {
+    fn acquire(count: Arc<AtomicUsize>) -> Arc<Self> {
+        count.fetch_add(1, Ordering::Relaxed);
+        Arc::new(Self { count })
+    }
+}
+
+impl Drop for McpSessionLease {
+    fn drop(&mut self) {
+        self.count.fetch_sub(1, Ordering::Relaxed);
+    }
+}
+
 /// `rmcp` server handler over the shared daemon [`AppState`].
 #[derive(Clone)]
 pub struct McpHandler {
     state: AppState,
+    /// Shared across clones of this session's handler; not incremented on clone.
+    _lease: Arc<McpSessionLease>,
 }
 
 impl McpHandler {
-    /// Wrap shared daemon state for the rmcp transport.
+    /// Wrap shared daemon state for the rmcp transport and acquire a session lease.
     #[must_use]
     pub fn new(state: AppState) -> Self {
-        Self { state }
+        let lease = McpSessionLease::acquire(state.mcp_sessions.clone());
+        Self {
+            state,
+            _lease: lease,
+        }
     }
 }
 
@@ -165,6 +194,28 @@ fn try_perception_image_result(mut value: Value) -> Result<CallToolResult, Value
 mod tests {
     use super::*;
     use serde_json::json;
+    use tdmcp_core::PidRegistry;
+    use tdmcp_diagnostics::Catalog;
+
+    use crate::testing::FakeBridgeRpc;
+
+    #[test]
+    fn session_lease_counts_acquire_and_shared_drop() {
+        let state = AppState::new(
+            PidRegistry::new(),
+            Catalog::fallback(),
+            Arc::new(FakeBridgeRpc::responding(json!({}))),
+        );
+        assert_eq!(state.mcp_session_count(), 0);
+        let a = McpHandler::new(state.clone());
+        assert_eq!(state.mcp_session_count(), 1);
+        let b = a.clone();
+        assert_eq!(state.mcp_session_count(), 1);
+        drop(a);
+        assert_eq!(state.mcp_session_count(), 1);
+        drop(b);
+        assert_eq!(state.mcp_session_count(), 0);
+    }
 
     #[test]
     fn capture_promotes_jpeg_to_image_content() {

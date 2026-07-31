@@ -3,6 +3,7 @@
 //! A simple `/mcp/*` JSON surface for tests and as a fallback. The rmcp
 //! Streamable HTTP layer nests on top of the same [`AppState`].
 
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use axum::extract::State;
@@ -26,6 +27,8 @@ pub struct AppState {
     pub catalog: Arc<Catalog>,
     /// Live bridge transport (daemon-supplied).
     pub bridge: Arc<dyn BridgeRpc>,
+    /// Live Streamable HTTP MCP session leases (see [`crate::McpHandler`]).
+    pub mcp_sessions: Arc<AtomicUsize>,
 }
 
 impl AppState {
@@ -36,6 +39,7 @@ impl AppState {
             registry: Arc::new(Mutex::new(registry)),
             catalog: Arc::new(catalog),
             bridge,
+            mcp_sessions: Arc::new(AtomicUsize::new(0)),
         }
     }
 
@@ -51,7 +55,14 @@ impl AppState {
             registry,
             catalog: Arc::new(catalog),
             bridge,
+            mcp_sessions: Arc::new(AtomicUsize::new(0)),
         }
+    }
+
+    /// Number of live Streamable HTTP MCP session leases.
+    #[must_use]
+    pub fn mcp_session_count(&self) -> usize {
+        self.mcp_sessions.load(Ordering::Relaxed)
     }
 }
 

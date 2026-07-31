@@ -28,6 +28,8 @@ pub struct EnsureOptions {
     pub poll_only: bool,
     /// When true, spawn with `--no-gui` (headless; used by tests / CI).
     pub no_gui: bool,
+    /// Child `TDMCP_IDLE_EXIT_SECS`. `None` → default `30`; tests use `Some(0)`.
+    pub idle_exit_secs: Option<u64>,
 }
 
 impl Default for EnsureOptions {
@@ -39,6 +41,7 @@ impl Default for EnsureOptions {
             timeout: Duration::from_secs(15),
             poll_only: false,
             no_gui: false,
+            idle_exit_secs: None,
         }
     }
 }
@@ -96,7 +99,13 @@ pub async fn ensure_daemon(opts: EnsureOptions) -> Result<EnsureResult> {
                         spawned: false,
                     });
                 }
-                spawn_detached(&exe, opts.port, &opts.data_dir, opts.no_gui)?;
+                spawn_detached(
+                    &exe,
+                    opts.port,
+                    &opts.data_dir,
+                    opts.no_gui,
+                    opts.idle_exit_secs,
+                )?;
                 spawned = true;
                 drop(guard);
             }
@@ -156,12 +165,20 @@ fn resolve_exe(override_exe: Option<&PathBuf>) -> Result<PathBuf> {
     std::env::current_exe().context("resolve current_exe for ensure spawn")
 }
 
-fn spawn_detached(exe: &Path, port: u16, data_dir: &Path, no_gui: bool) -> Result<()> {
+fn spawn_detached(
+    exe: &Path,
+    port: u16,
+    data_dir: &Path,
+    no_gui: bool,
+    idle_exit_secs: Option<u64>,
+) -> Result<()> {
+    let idle_secs = idle_exit_secs.unwrap_or(crate::idle::DEFAULT_IDLE_EXIT_SECS);
     info!(
         exe = %exe.display(),
         port,
         data_dir = %data_dir.display(),
         no_gui,
+        idle_secs,
         "ensure: spawning detached daemon"
     );
     let mut cmd = Command::new(exe);
@@ -173,6 +190,7 @@ fn spawn_detached(exe: &Path, port: u16, data_dir: &Path, no_gui: bool) -> Resul
     if no_gui {
         cmd.arg("--no-gui");
     }
+    cmd.env("TDMCP_IDLE_EXIT_SECS", idle_secs.to_string());
     cmd.stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());

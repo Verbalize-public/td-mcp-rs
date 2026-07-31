@@ -64,6 +64,8 @@ fn ensure_opts(port: u16, data_dir: &Path) -> EnsureOptions {
         poll_only: false,
         // Integration tests are headless — never open the tray UI.
         no_gui: true,
+        // Keep daemon alive for the duration of ensure/restart tests.
+        idle_exit_secs: Some(0),
     }
 }
 
@@ -77,6 +79,7 @@ fn spawn_start(port: u16, data_dir: &Path) -> std::process::Child {
             data_dir.to_str().expect("utf8 data_dir"),
             "--no-gui",
         ])
+        .env("TDMCP_IDLE_EXIT_SECS", "0")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
