@@ -7,6 +7,7 @@ rust-version.workspace = true
 description = "Diagnostic envelope and catalog for td-mcp-rs"
 
 [dependencies]
+schemars = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }

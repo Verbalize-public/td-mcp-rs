@@ -128,3 +128,41 @@ def test_tee_coerces_non_str() -> None:
     tee.write(123)
     assert buf.getvalue() == "123"
     assert prev.getvalue() == "123"
+
+
+def test_execute_python_exposes_td_and_op_globals(monkeypatch: pytest.MonkeyPatch) -> None:
+    import types
+
+    fake_td = types.SimpleNamespace(op=lambda path: f"resolved:{path}", noiseTOP=object())
+    monkeypatch.setitem(sys.modules, "td", fake_td)
+    out = bridge.handle_execute_python(
+        {
+            "script": (
+                "assert td is not None\n"
+                "assert callable(op)\n"
+                "result = op('/project1')\n"
+            ),
+            "includeLogs": False,
+        }
+    )
+    assert out["ok"] is True
+    assert out["result"] == "resolved:/project1"
+
+
+def test_execute_python_keeps_tdmcp_resolve(monkeypatch: pytest.MonkeyPatch) -> None:
+    import types
+
+    monkeypatch.setitem(sys.modules, "td", types.SimpleNamespace(op=lambda _p: None))
+    out = bridge.handle_execute_python(
+        {
+            "script": (
+                "assert callable(tdmcp_resolve)\n"
+                "assert __tdmcp_context_path__ == '/project1'\n"
+                "result = 'ok'\n"
+            ),
+            "contextPath": "/project1",
+            "includeLogs": False,
+        }
+    )
+    assert out["ok"] is True
+    assert out["result"] == "ok"

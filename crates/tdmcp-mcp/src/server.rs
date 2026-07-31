@@ -93,13 +93,15 @@ async fn call_tool(
     .await
     {
         Ok(v) => Ok(Json(serde_json::json!({ "ok": true, "data": v }))),
-        Err(ToolCallError::Failed(fail)) => Ok(Json(serde_json::json!({
-            "ok": false,
-            "summary": fail.summary,
-            "diagnostics": fail.diagnostics,
-            "jpegBase64": fail.image_jpeg_base64,
-            "data": fail.data,
-        }))),
+        Err(ToolCallError::Failed(fail)) => {
+            let mut payload = fail.structured_content();
+            if let Some(b64) = fail.image_jpeg_base64.as_ref().filter(|s| !s.is_empty()) {
+                if let Some(obj) = payload.as_object_mut() {
+                    obj.insert("jpegBase64".into(), Value::String(b64.clone()));
+                }
+            }
+            Ok(Json(payload))
+        }
         Err(ToolCallError::UnknownTool(_) | ToolCallError::InvalidArgs(_)) => {
             Err(axum::http::StatusCode::BAD_REQUEST)
         }

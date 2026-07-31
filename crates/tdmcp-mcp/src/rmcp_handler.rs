@@ -15,7 +15,7 @@ use rmcp::model::{
 };
 use rmcp::service::RequestContext;
 use rmcp::{ErrorData, RoleServer, ServerHandler};
-use serde_json::{json, Value};
+use serde_json::Value;
 
 use crate::schema::input_schema_for;
 use crate::tools::{dispatch_tool, tool_descriptors, ToolCallError};
@@ -91,13 +91,7 @@ impl ServerHandler for McpHandler {
             )),
             Err(ToolCallError::InvalidArgs(msg)) => Err(ErrorData::invalid_params(msg, None)),
             Err(ToolCallError::Failed(fail)) => {
-                let mut payload = serde_json::to_value(&fail.diagnostics)
-                    .unwrap_or_else(|_| json!({ "summary": fail.summary }));
-                if let Some(data) = fail.data {
-                    if let Some(obj) = payload.as_object_mut() {
-                        obj.insert("data".into(), data);
-                    }
-                }
+                let payload = fail.structured_content();
                 Ok(call_tool_error_result(payload, fail.image_jpeg_base64).into())
             }
         }
@@ -170,6 +164,7 @@ fn try_perception_image_result(mut value: Value) -> Result<CallToolResult, Value
 #[allow(clippy::unwrap_used, clippy::expect_used, reason = "unit tests")]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn capture_promotes_jpeg_to_image_content() {

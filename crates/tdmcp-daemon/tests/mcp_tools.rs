@@ -152,10 +152,9 @@ async fn exclusive_fails_while_shared_in_flight() {
         .unwrap();
     let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(v["ok"], false);
-    assert_eq!(
-        v["diagnostics"]["items"][0]["code"],
-        "tdmcp.bridge.queue_busy"
-    );
+    assert_eq!(v["items"][0]["code"], "tdmcp.bridge.queue_busy");
+    assert!(v.get("data").is_none());
+    assert!(v.get("applied").is_none());
 
     drop(gate);
     let _ = first.await;
@@ -163,6 +162,42 @@ async fn exclusive_fails_while_shared_in_flight() {
 
 #[tokio::test]
 async fn script_failure_returns_diagnostics() {
+    let bridge: Arc<dyn BridgeRpc> = Arc::new(FakeBridgeRpc::responding(
+        json!({"ok": false, "error": "NameError: 'x'", "traceback": "  File \"<td>\", line 1"}),
+    ));
+    let state = AppState::new(registry_with_pid(), Catalog::fallback(), bridge);
+    let app = build_mcp_router(state);
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/mcp/tools/call")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            json!({
+                "name":"execute_python",
+                "arguments":{
+                    "pid":34,
+                    "script":"x",
+                    "diagnosticLevel":"detailed"
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(v["ok"], false);
+    assert_eq!(v["items"][0]["code"], "tdmcp.script.execution_failed");
+    assert!(v["items"][0]["rawTraceback"].is_string());
+    assert!(v.get("data").is_none());
+    assert!(v.get("applied").is_none());
+}
+
+#[tokio::test]
+async fn script_failure_summary_omits_raw_traceback() {
     let bridge: Arc<dyn BridgeRpc> = Arc::new(FakeBridgeRpc::responding(
         json!({"ok": false, "error": "NameError: 'x'", "traceback": "  File \"<td>\", line 1"}),
     ));
@@ -183,11 +218,8 @@ async fn script_failure_returns_diagnostics() {
         .unwrap();
     let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(v["ok"], false);
-    assert_eq!(
-        v["diagnostics"]["items"][0]["code"],
-        "tdmcp.script.execution_failed"
-    );
-    assert!(v["diagnostics"]["items"][0]["rawTraceback"].is_string());
+    assert_eq!(v["items"][0]["code"], "tdmcp.script.execution_failed");
+    assert!(v["items"][0].get("rawTraceback").is_none());
 }
 
 #[tokio::test]
@@ -276,16 +308,11 @@ async fn mutate_nodes_first_step_failure() {
         .unwrap();
     let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(v["ok"], false);
-    assert_eq!(
-        v["diagnostics"]["items"][0]["code"],
-        "tdmcp.op.unknown_type"
-    );
-    assert_eq!(v["data"]["applied"], 0);
-    assert_eq!(v["data"]["failedAt"], 0);
-    assert_eq!(
-        v["data"]["steps"][1]["code"],
-        "tdmcp.batch.skipped_dependent"
-    );
+    assert_eq!(v["items"][0]["code"], "tdmcp.op.unknown_type");
+    assert_eq!(v["applied"], 0);
+    assert_eq!(v["failedAt"], 0);
+    assert_eq!(v["steps"][1]["code"], "tdmcp.batch.skipped_dependent");
+    assert!(v.get("data").is_none());
 }
 
 #[tokio::test]
@@ -328,13 +355,11 @@ async fn mutate_nodes_mid_batch_failure() {
         .unwrap();
     let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(v["ok"], false);
-    assert_eq!(v["diagnostics"]["items"][0]["code"], "tdmcp.par.unknown");
-    assert_eq!(v["data"]["applied"], 1);
-    assert_eq!(v["data"]["failedAt"], 1);
-    assert_eq!(
-        v["data"]["steps"][2]["code"],
-        "tdmcp.batch.skipped_dependent"
-    );
+    assert_eq!(v["items"][0]["code"], "tdmcp.par.unknown");
+    assert_eq!(v["applied"], 1);
+    assert_eq!(v["failedAt"], 1);
+    assert_eq!(v["steps"][2]["code"], "tdmcp.batch.skipped_dependent");
+    assert!(v.get("data").is_none());
 }
 
 #[tokio::test]
@@ -456,10 +481,11 @@ async fn mutate_nodes_flag_unknown_surfaces_diagnostics() {
         .unwrap();
     let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(v["ok"], false);
-    assert_eq!(v["diagnostics"]["items"][0]["code"], "tdmcp.flag.unknown");
-    assert_eq!(v["diagnostics"]["items"][0]["span"]["field"], "selected");
-    assert_eq!(v["data"]["failedAt"], 0);
-    assert_eq!(v["data"]["steps"][0]["code"], "tdmcp.flag.unknown");
+    assert_eq!(v["items"][0]["code"], "tdmcp.flag.unknown");
+    assert_eq!(v["items"][0]["span"]["field"], "selected");
+    assert_eq!(v["failedAt"], 0);
+    assert_eq!(v["steps"][0]["code"], "tdmcp.flag.unknown");
+    assert!(v.get("data").is_none());
 }
 
 #[tokio::test]
@@ -511,11 +537,14 @@ async fn mutate_nodes_wrong_collection_lint_forwarded() {
         .unwrap();
     let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(v["ok"], false);
-    let item = &v["diagnostics"]["items"][0];
+    assert_eq!(v["applied"], 0);
+    assert_eq!(v["failedAt"], 0);
+    let item = &v["items"][0];
     assert_eq!(item["code"], "tdmcp.par.unknown");
     assert_eq!(item["span"]["field"], "viewer");
     assert_eq!(item["lints"][0]["code"], "tdmcp.par.wrong_collection");
     assert_eq!(item["lints"][0]["suggestion"]["replace"], "flags.viewer");
+    assert!(v.get("data").is_none());
 }
 
 #[tokio::test]
@@ -561,8 +590,9 @@ async fn mutate_nodes_malformed_lints_keep_hard_error() {
         .unwrap();
     let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(v["ok"], false);
-    let item = &v["diagnostics"]["items"][0];
+    let item = &v["items"][0];
     assert_eq!(item["code"], "tdmcp.flag.unknown");
     assert_eq!(item["span"]["field"], "resolutionw");
     assert!(item["lints"].is_null() || item["lints"].as_array().is_some_and(|a| a.is_empty()));
+    assert!(v.get("data").is_none());
 }

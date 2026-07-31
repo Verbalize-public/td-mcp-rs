@@ -7,6 +7,7 @@ owns the session + RPC (execute_python, capture, inspect helpers).
 from __future__ import annotations
 
 import ctypes
+import difflib
 import importlib
 import io
 import json
@@ -29,6 +30,15 @@ PONG_TIMEOUT_S = 5.0
 IDLE_DEAD_S = 15.0
 # Short poll so serve_queued can notice IDLE_DEAD without blocking forever.
 _READ_POLL_S = 1.0
+
+
+class MidFrameTimeout(TimeoutError):
+    """Read timed out after partial frame bytes were already consumed.
+
+    Distinct from a clean idle ``TimeoutError`` (zero bytes). Continuing to
+    read after this leaves the byte stream desynced — ``serve_queued`` must
+    disconnect rather than ``continue``.
+    """
 
 # Wire method names — must match tdmcp_core::BridgeMethod::wire_str() exactly.
 # Parity gated by bridge/tests/test_bridge_methods.py + fixtures/bridge_methods.json.
@@ -97,6 +107,8 @@ def _read_frame(stream) -> dict[str, Any]:
     """
     try:
         header = stream.read(4)
+    except MidFrameTimeout:
+        raise
     except TimeoutError:
         raise
     if len(header) < 4:
@@ -106,8 +118,10 @@ def _read_frame(stream) -> dict[str, Any]:
     (length,) = struct.unpack("<I", header)
     try:
         body = stream.read(length)
+    except MidFrameTimeout:
+        raise
     except TimeoutError as exc:
-        raise TimeoutError("timed out mid-frame") from exc
+        raise MidFrameTimeout("timed out mid-frame") from exc
     if len(body) < length:
         raise EOFError("short body")
     return json.loads(body.decode("utf-8"))
@@ -249,11 +263,24 @@ def handle_execute_python(params: dict[str, Any]) -> dict[str, Any]:
     else:
         include_logs = bool(include_logs)
 
+    # Convenience globals for agent scripts. ``td`` / ``op`` are safe here
+    # because handle_execute_python only runs on TD's main/cook thread via
+    # process_pending → dispatch. ``me`` / ``parent`` are intentionally
+    # omitted — execute_python has no script-owner OP context.
     local_vars: dict[str, Any] = {
         "__tdmcp_context_path__": context_path,
         "tdmcp_resolve": lambda p: tdmcp_resolve(p, context_path),
         "result": None,
     }
+    try:
+        import td  # type: ignore
+
+        local_vars["td"] = td
+        op_fn = getattr(td, "op", None)
+        if callable(op_fn):
+            local_vars["op"] = op_fn
+    except Exception:  # noqa: BLE001 — unit tests / non-TD hosts
+        pass
 
     buf: io.StringIO | None = None
     prev_out = prev_err = None
@@ -642,6 +669,104 @@ _FLAG_NAMES = frozenset(
 )
 
 
+def _suggest_names(name: str, candidates: list[str], *, n: int = 3) -> list[str]:
+    """Case-insensitive near-miss suggestions via difflib. Never raises."""
+    try:
+        if not isinstance(name, str) or not name or not candidates:
+            return []
+        lower_map: dict[str, str] = {}
+        for c in candidates:
+            if isinstance(c, str) and c and not c.startswith("_"):
+                lower_map.setdefault(c.lower(), c)
+        if not lower_map:
+            return []
+        key = name.lower()
+        out: list[str] = []
+        if key in lower_map:
+            out.append(lower_map[key])
+        for m in difflib.get_close_matches(key, list(lower_map.keys()), n=n, cutoff=0.5):
+            cand = lower_map[m]
+            if cand not in out:
+                out.append(cand)
+            if len(out) >= n:
+                break
+        return out[:n]
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def _par_names(node: Any) -> list[str]:
+    """Best-effort list of .par names on ``node`` (via ``pars()``)."""
+    try:
+        pars_fn = getattr(node, "pars", None)
+        if not callable(pars_fn):
+            return []
+        names: list[str] = []
+        for p in pars_fn() or []:
+            n = getattr(p, "name", None)
+            if isinstance(n, str) and n:
+                names.append(n)
+        return names
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def _with_similar_param_hint(err: dict[str, Any], node: Any) -> dict[str, Any]:
+    """Best-effort near-miss .par name lint. Never raises; never changes code/ok."""
+    try:
+        name = err.get("field")
+        if not isinstance(name, str) or not name:
+            return err
+        suggestions = _suggest_names(name, _par_names(node))
+        if not suggestions:
+            return err
+        top = suggestions[0]
+        out = dict(err)
+        out["message"] = f"unknown parameter: {name} (did you mean: {top}?)"
+        out["lints"] = [
+            {
+                "severity": "lint",
+                "code": "tdmcp.par.similar_name",
+                "message": f"similar parameter '{top}' found on node",
+                "confidence": "medium",
+                "suggestion": {"replace": top},
+            }
+        ]
+        return out
+    except Exception:  # noqa: BLE001
+        return err
+
+
+def _with_similar_type_hint(err: dict[str, Any], ctx: "MutateContext") -> dict[str, Any]:
+    """Best-effort near-miss opType lint. Never raises; never changes code/ok."""
+    try:
+        name = err.get("field")
+        if not isinstance(name, str) or not name:
+            return err
+        list_fn = getattr(ctx, "list_op_type_names", None)
+        candidates = list_fn() if callable(list_fn) else []
+        if not isinstance(candidates, list):
+            return err
+        suggestions = _suggest_names(name, [c for c in candidates if isinstance(c, str)])
+        if not suggestions:
+            return err
+        top = suggestions[0]
+        out = dict(err)
+        out["message"] = f"unknown opType: {name} (did you mean: {top}?)"
+        out["lints"] = [
+            {
+                "severity": "lint",
+                "code": "tdmcp.op.similar_type",
+                "message": f"similar opType '{top}' found",
+                "confidence": "medium",
+                "suggestion": {"replace": top},
+            }
+        ]
+        return out
+    except Exception:  # noqa: BLE001
+        return err
+
+
 def _with_collection_hint(
     err: dict[str, Any], node: Any, *, as_param: bool
 ) -> dict[str, Any]:
@@ -683,6 +808,8 @@ def _with_collection_hint(
                 }
             ]
             return out
+        if as_param:
+            return _with_similar_param_hint(err, node)
         return err
     except Exception:  # noqa: BLE001
         return err
@@ -830,6 +957,10 @@ class MutateContext:
     def get_op_type(self, op_type: str) -> Any | None:  # noqa: D401
         raise NotImplementedError
 
+    def list_op_type_names(self) -> list[str]:
+        """Candidate opType names for near-miss suggestions (default: none)."""
+        return []
+
     def expression_mode(self) -> Any:
         """Value assigned to ``par.mode`` before setting ``.expr``."""
         return "EXPRESSION"
@@ -851,6 +982,14 @@ class _TdMutateContext(MutateContext):
         import td  # type: ignore
 
         return getattr(td, op_type, None)
+
+    def list_op_type_names(self) -> list[str]:
+        import td  # type: ignore
+
+        try:
+            return [n for n in dir(td) if isinstance(n, str) and not n.startswith("_")]
+        except Exception:  # noqa: BLE001
+            return []
 
     def expression_mode(self) -> Any:
         import td  # type: ignore
@@ -901,6 +1040,16 @@ def apply_step(
         }
 
 
+def _rollback_create(created: Any) -> None:
+    """Best-effort destroy of a just-created node. Never raises; never masks the step error."""
+    try:
+        destroy = getattr(created, "destroy", None)
+        if callable(destroy):
+            destroy()
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _step_create(
     ctx: MutateContext,
     step: dict[str, Any],
@@ -928,12 +1077,16 @@ def _step_create(
         }
     op_cls = ctx.get_op_type(op_type)
     if op_cls is None:
-        return {
-            "ok": False,
-            "code": "tdmcp.op.unknown_type",
-            "message": f"unknown opType: {op_type}",
-            "path": full,
-        }
+        return _with_similar_type_hint(
+            {
+                "ok": False,
+                "code": "tdmcp.op.unknown_type",
+                "message": f"unknown opType: {op_type}",
+                "path": full,
+                "field": op_type,
+            },
+            ctx,
+        )
     created = parent.create(op_cls, name)
     created_path = getattr(created, "path", None) or full
     values = step.get("values")
@@ -941,12 +1094,14 @@ def _step_create(
         err = _apply_values(created, values)
         if err is not None:
             err["path"] = created_path
+            _rollback_create(created)
             return err
     flags = step.get("flags")
     if flags:
         err = _apply_flags(created, flags)
         if err is not None:
             err["path"] = created_path
+            _rollback_create(created)
             return err
     out: dict[str, Any] = {"ok": True, "path": created_path}
     if detail_level == "detailed":
@@ -1195,12 +1350,15 @@ def run_mutate_steps(
     failed_at: int | None = None
     for i, step in enumerate(steps):
         if failed_at is not None:
+            raw_path = step.get("path") or step.get("dst") or ""
             results.append(
                 {
                     "ok": False,
                     "skipped": True,
                     "code": "tdmcp.batch.skipped_dependent",
-                    "path": step.get("path") or step.get("dst"),
+                    "path": _absolutize_path(raw_path, context_path)
+                    if raw_path
+                    else raw_path,
                 }
             )
             continue
@@ -1337,7 +1495,7 @@ class _UdsStream:
             except _socket.timeout as exc:
                 if not out:
                     raise TimeoutError("uds read timed out") from exc
-                raise TimeoutError("uds read timed out mid-frame") from exc
+                raise MidFrameTimeout("uds read timed out mid-frame") from exc
             if not chunk:
                 break
             out += chunk
@@ -1462,12 +1620,14 @@ class _NamedPipeStream:
                 ):
                     if not out:
                         raise TimeoutError("named pipe read timed out")
-                    raise TimeoutError("named pipe read timed out mid-frame")
+                    raise MidFrameTimeout("named pipe read timed out mid-frame")
                 break
             if read.value == 0:
                 # Timeout with zero bytes can also surface as success+0.
                 if self._read_timeout_ms is not None and not out:
                     raise TimeoutError("named pipe read timed out")
+                if self._read_timeout_ms is not None and out:
+                    raise MidFrameTimeout("named pipe read timed out mid-frame")
                 break
             out += bytes(self._buf[: read.value])
         return bytes(out)
@@ -1882,23 +2042,40 @@ def serve_queued(stream, *, idle_dead_s: float = IDLE_DEAD_S) -> None:
     while True:
         try:
             msg = _read_frame(stream)
+        except MidFrameTimeout:
+            # Partial frame already consumed — stream is desynced; disconnect.
+            break
         except TimeoutError:
             if idle_dead_s > 0 and (time.monotonic() - last_recv) >= idle_dead_s:
                 break
             continue
         except EOFError:
             break
+        except Exception:  # noqa: BLE001 — never kill the daemon thread silently
+            # Decode / unexpected stream errors: close cleanly with a trace.
+            sys.stderr.write(
+                "tdmcp_bridge: serve_queued stopping after unexpected read error\n"
+            )
+            traceback.print_exc(file=sys.stderr)
+            break
         last_recv = time.monotonic()
-        if msg.get("type") != "request":
-            continue
-        # Fast-path liveness — never touch the main-thread queue.
-        if msg.get("method") == "ping":
-            _write_frame(stream, dispatch(msg))
-            continue
-        response_slot: "queue.Queue[dict[str, Any]]" = queue.Queue(maxsize=1)
-        _enqueue_pending(msg, response_slot)
-        resp = response_slot.get()
-        _write_frame(stream, resp)
+        try:
+            if msg.get("type") != "request":
+                continue
+            # Fast-path liveness — never touch the main-thread queue.
+            if msg.get("method") == "ping":
+                _write_frame(stream, dispatch(msg))
+                continue
+            response_slot: "queue.Queue[dict[str, Any]]" = queue.Queue(maxsize=1)
+            _enqueue_pending(msg, response_slot)
+            resp = response_slot.get()
+            _write_frame(stream, resp)
+        except Exception:  # noqa: BLE001 — never kill the daemon thread silently
+            sys.stderr.write(
+                "tdmcp_bridge: serve_queued stopping after dispatch/write error\n"
+            )
+            traceback.print_exc(file=sys.stderr)
+            break
 
 
 def _env_bridge_dir() -> str | None:

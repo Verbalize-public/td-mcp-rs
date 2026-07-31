@@ -15,6 +15,21 @@
         }
       ]
     },
+    "DiagnosticLevel": {
+      "description": "Payload size for diagnostics (independent of structural `detailLevel`).",
+      "oneOf": [
+        {
+          "const": "summary",
+          "description": "Codes, messages, capped lints, mitigation.",
+          "type": "string"
+        },
+        {
+          "const": "detailed",
+          "description": "Plus raw traceback / full TD dumps.",
+          "type": "string"
+        }
+      ]
+    },
     "MutateStep": {
       "description": "One ordered mutate step (`create` / `set` / `delete` / `connect` / `disconnect`).",
       "oneOf": [
@@ -226,6 +241,11 @@
       "$ref": "#/$defs/DetailLevel",
       "default": "summary",
       "description": "Structural detail level for per-step echo."
+    },
+    "diagnosticLevel": {
+      "$ref": "#/$defs/DiagnosticLevel",
+      "default": "summary",
+      "description": "Diagnostic payload size (`summary` omits raw traceback)."
     },
     "exclusive": {
       "default": false,

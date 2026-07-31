@@ -210,26 +210,29 @@ Step shapes:
 
 | `op` | Fields | Notes |
 | --- | --- | --- |
-| `create` | `path`, `opType`, `values?`, `flags?` | Parent derived from path resolution; `values` is a convenience (agent may follow with `set`) |
+| `create` | `path`, `opType`, `values?`, `flags?` | Parent derived from path resolution; `values` is a convenience (agent may follow with `set`). If `values`/`flags` fail after the node is materialized, the just-created node is destroyed (best-effort) — no orphan is left |
 | `set` | `path`, `values?`, `expressions?`, `pulse?`, `flags?` | Explicit modes — no silent guessing. `values: {name: val}`, `expressions: {name: expr}`, `pulse: [name]` |
 | `delete` | `path` | |
 | `connect` | `src`, `dst`, `srcOutput?` (default 0), `dstInput?` (default 0) | `src.outputConnectors[i].connect(dst.inputConnectors[j])`. Echoes canonical `path` = dst |
 | `disconnect` | `path`, `input?` (default 0) | `path.inputConnectors[input].disconnect()` |
 
-`values` = `.par.*` only. `flags` = direct OP attributes (`node.<name> = val`); allowlist = operate-relevant TD Common Flags subset: `activeViewer`, `allowCooking`, `bypass`, `cloneImmune`, `display`, `lock`, `render`, `viewer`. Unknown flag names → `tdmcp.flag.unknown`. When a name is in the wrong bag (flag under `values` / param under `flags`), the hard code stays (`tdmcp.par.unknown` / `tdmcp.flag.unknown`) and a best-effort nested lint (`tdmcp.par.wrong_collection` / `tdmcp.flag.wrong_collection`) may be attached — hints never auto-redirect and never change the hard outcome. Wire errors: `tdmcp.wire.bad_index` (connector index OOB), `tdmcp.wire.connect_failed` (TD connector exception); missing ops reuse `tdmcp.op.not_found`.
+`values` = `.par.*` only. `flags` = direct OP attributes (`node.<name> = val`); allowlist = operate-relevant TD Common Flags subset: `activeViewer`, `allowCooking`, `bypass`, `cloneImmune`, `display`, `lock`, `render`, `viewer`. Unknown flag names → `tdmcp.flag.unknown`. When a name is in the wrong bag (flag under `values` / param under `flags`), the hard code stays (`tdmcp.par.unknown` / `tdmcp.flag.unknown`) and a best-effort nested lint (`tdmcp.par.wrong_collection` / `tdmcp.flag.wrong_collection`) may be attached — hints never auto-redirect and never change the hard outcome. Same-collection near-misses (typo / case) may attach `tdmcp.par.similar_name` or `tdmcp.op.similar_type` with `suggestion.replace` — also best-effort, never changing the hard code. Wire errors: `tdmcp.wire.bad_index` (connector index OOB), `tdmcp.wire.connect_failed` (TD connector exception); missing ops reuse `tdmcp.op.not_found`.
 
 Result (summary):
 
 ```json
 { "ok": true|false, "applied": N, "failedAt": <index|null>,
   "steps": [{"ok": true, "path": "/project1/..."} | {"ok": false, "code": "tdmcp.*", "path": "..."}],
-  "diagnostics": {...} }
+  "summary"?: "...", "items"?: [/* diagnostics */] }
 ```
 
+- Success: `{ok: true, applied, failedAt: null, steps}`.
+- Soft failure (any transport): flat `{ok: false, summary, items, applied, failedAt, steps}` — mutate fields are **not** nested under `data`.
 - `applied` = count of steps that succeeded before any stop.
 - `failedAt` = index of the first hard failure, or `null` if all applied.
-- Steps after `failedAt` are marked `skipped` with `tdmcp.batch.skipped_dependent` — they are **not** replayed; the agent fixes from `failedAt` only.
+- Steps after `failedAt` are marked `skipped` with `tdmcp.batch.skipped_dependent` — they are **not** replayed; the agent fixes from `failedAt` only. Skipped-step `path` is absolutized against `contextPath`.
 - Canonical absolute `path` is echoed per step so the agent can re-`inspect` without re-resolving.
+- `diagnosticLevel` (default `summary`) on bridge-backed tools gates `rawTraceback` inclusion (`detailed` only).
 
 **Mutation zones are not enforced by the daemon in v1.** Zone discipline lives in the agent layer (`creative-operator` → `cop-touchdesigner-mcp` → `reference/mutation-zones.md`): the agent only passes paths under a self-created named COMP or an authorized subtree. `tdmcp.op.outside_zone` stays **reserved** in the catalog, not emitted by the daemon. A future P2 may add per-pid zone registration if operate experience demands it.
 
@@ -248,7 +251,7 @@ All network-scoped tools share one reference system resolved by TouchDesigner vi
 | `OpPath` | Absolute or relative path string |
 | `contextPath?` | Anchor for relative paths; default base = project root (`/project1`) |
 
-Canonical output echoes TD’s absolute `node.path`. `execute_python` is OpPath-exempt by default; `contextPath` is exposed as `__tdmcp_context_path__` + optional `tdmcp_resolve()` helper.
+Canonical output echoes TD’s absolute `node.path`. `execute_python` is OpPath-exempt by default; `contextPath` is exposed as `__tdmcp_context_path__` + optional `tdmcp_resolve()` helper. Scripts also receive convenience globals `td` and `op` (TD’s module and `td.op`) when running inside TouchDesigner — `me` / `parent` are not provided (no script-owner OP context).
 
 ### `execute_python` logs / Debug DAT — Shipped
 

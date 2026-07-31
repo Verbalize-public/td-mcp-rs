@@ -73,6 +73,8 @@ See [`DEV_ENV.md`](DEV_ENV.md) § Dev smoke. Does **not** replace rows 1–12 be
 | M18 | `create` noiseTOP with `flags:{viewer:true,display:true}` → `ok`; `capture` top non-black (no separate `execute_python` for flags) | ✅ |
 | M19 | `set` with unrecognized flag name (e.g. `selected`) → `failedAt` + `tdmcp.flag.unknown`; later steps `tdmcp.batch.skipped_dependent`. (Wrong-bag: param name under `flags` keeps `tdmcp.flag.unknown` and may nest `tdmcp.flag.wrong_collection` — unit-covered; not a live gate.) | ✅ |
 | M20 | `set` `flags:{allowCooking:false}` on a non-COMP → `tdmcp.mutate.step_failed` (live-only; TD raises; not unit-testable via FakeNode) | ✅ |
+| M21 | Failing `mutate_nodes` MCP response is flat `{ok:false, summary, items, applied, failedAt, steps}` (no nested `data`) over axum + rmcp | |
+| M22 | Named-pipe mid-frame timeout disconnects cleanly (no silent desync / dead read thread); idle timeout still polls until IDLE_DEAD | |
 
 **Run record (P0):** 2026-07-29, TouchDesigner 099.2025.33070 (Windows), two
 `_agent_tdmcprs_e2e*` sandbox projects, daemon `0.1.0` release build. All 12
@@ -153,6 +155,12 @@ in `bridge/tdmcp_bridge/__init__.py` and covered by `bridge/tests/test_bridge_qu
    double-payload). Optional `maxSize` (default 256) downscales via a temp
    `resolutionTOP`. Black-frame failures still attach the JPEG so critics
    can see the frame.
+
+## Client quirks (out of scope)
+
+- Cursor MCP client may reject parallel tool calls with
+  `Invalid arguments: server: Required`. This is client-side stdio plumbing,
+  not a `td-mcp-rs` daemon bug — serialize calls when driving from Cursor.
 
 ## Notes
 

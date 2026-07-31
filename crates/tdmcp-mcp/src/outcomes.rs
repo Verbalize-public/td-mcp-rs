@@ -10,8 +10,8 @@ use serde_json::Value;
 use tdmcp_core::{OpPath, Pid};
 use tdmcp_diagnostics::codes;
 use tdmcp_diagnostics::{
-    Catalog, DiagnosticContext, DiagnosticItem, DiagnosticLayer, DiagnosticSeverity,
-    DiagnosticSpan, Diagnostics, LintItem, Suggestion,
+    Catalog, DiagnosticContext, DiagnosticItem, DiagnosticLayer, DiagnosticLevel,
+    DiagnosticSeverity, DiagnosticSpan, Diagnostics, LintItem, Suggestion,
 };
 
 use crate::bridge_rpc::BridgeRpcError;
@@ -113,6 +113,7 @@ pub fn map_script_outcome(
     catalog: &Catalog,
     pid: Pid,
     outcome: BridgeOutcome,
+    diagnostic_level: DiagnosticLevel,
 ) -> Result<Value, ToolCallError> {
     let span = span("execute_python", None);
     match outcome {
@@ -129,7 +130,7 @@ pub fn map_script_outcome(
                     Some(msg),
                     context,
                 );
-                item.raw_traceback = env.traceback;
+                item.raw_traceback = raw_traceback_for(diagnostic_level, env.traceback);
                 Err(failed_one(item))
             } else {
                 let mut body = serde_json::json!({ "ok": true, "result": value.get("result") });
@@ -146,6 +147,13 @@ pub fn map_script_outcome(
     }
 }
 
+fn raw_traceback_for(level: DiagnosticLevel, traceback: Option<String>) -> Option<String> {
+    match level {
+        DiagnosticLevel::Detailed => traceback,
+        DiagnosticLevel::Summary => None,
+    }
+}
+
 /// Map a perception (`capture`) outcome.
 pub fn map_perception_outcome(
     catalog: &Catalog,
@@ -153,6 +161,7 @@ pub fn map_perception_outcome(
     path: OpPath,
     context_path: Option<OpPath>,
     outcome: BridgeOutcome,
+    _diagnostic_level: DiagnosticLevel,
 ) -> Result<Value, ToolCallError> {
     let span = span("capture", Some("path".into()));
     match outcome {
@@ -190,6 +199,7 @@ pub fn map_inspect_outcome(
     path: OpPath,
     context_path: Option<OpPath>,
     outcome: BridgeOutcome,
+    _diagnostic_level: DiagnosticLevel,
 ) -> Result<Value, ToolCallError> {
     let span = span("inspect", Some("path".into()));
     match outcome {
@@ -221,6 +231,7 @@ pub fn map_mutate_outcome(
     pid: Pid,
     context_path: Option<OpPath>,
     outcome: BridgeOutcome,
+    _diagnostic_level: DiagnosticLevel,
 ) -> Result<Value, ToolCallError> {
     match outcome {
         BridgeOutcome::Ok(value) => {
@@ -306,10 +317,7 @@ fn mutate_failure_from_steps(value: &Value) -> MutateStepFailure {
                     .unwrap_or("mutate step failed")
                     .to_owned();
                 let op_path = step.get("path").and_then(Value::as_str).map(OpPath::from);
-                let field = step
-                    .get("field")
-                    .and_then(Value::as_str)
-                    .map(str::to_owned);
+                let field = step.get("field").and_then(Value::as_str).map(str::to_owned);
                 let lints = parse_step_lints(step);
                 return MutateStepFailure {
                     code,
@@ -353,10 +361,7 @@ fn parse_step_lints(step: &Value) -> Vec<LintItem> {
         let suggestion = obj.get("suggestion").and_then(|s| {
             let replace = s.get("replace").and_then(Value::as_str)?;
             Some(Suggestion {
-                op_path: s
-                    .get("opPath")
-                    .and_then(Value::as_str)
-                    .map(str::to_owned),
+                op_path: s.get("opPath").and_then(Value::as_str).map(str::to_owned),
                 replace: Some(replace.to_owned()),
             })
         });
@@ -452,7 +457,12 @@ pub fn build_diag(
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, reason = "unit tests")]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    reason = "unit tests"
+)]
 mod tests {
     use super::*;
     use serde_json::json;
@@ -464,10 +474,50 @@ mod tests {
             Pid::new(1),
             None,
             BridgeOutcome::Ok(value),
+            DiagnosticLevel::Summary,
         )
         .expect_err("expected mutate soft failure");
         match err {
             ToolCallError::Failed(payload) => payload.diagnostics.items[0].clone(),
+            other => panic!("unexpected error: {other}"),
+        }
+    }
+
+    #[test]
+    fn script_summary_omits_traceback_detailed_keeps_it() {
+        let catalog = Catalog::fallback();
+        let bridge_val = json!({
+            "ok": false,
+            "error": "boom",
+            "traceback": "Traceback (most recent call last):\n  File \"<td>\", line 1"
+        });
+        let summary_err = map_script_outcome(
+            &catalog,
+            Pid::new(1),
+            BridgeOutcome::Ok(bridge_val.clone()),
+            DiagnosticLevel::Summary,
+        )
+        .expect_err("expected script failure");
+        match summary_err {
+            ToolCallError::Failed(payload) => {
+                assert!(payload.diagnostics.items[0].raw_traceback.is_none());
+            }
+            other => panic!("unexpected error: {other}"),
+        }
+        let detailed_err = map_script_outcome(
+            &catalog,
+            Pid::new(1),
+            BridgeOutcome::Ok(bridge_val),
+            DiagnosticLevel::Detailed,
+        )
+        .expect_err("expected script failure");
+        match detailed_err {
+            ToolCallError::Failed(payload) => {
+                assert!(payload.diagnostics.items[0]
+                    .raw_traceback
+                    .as_deref()
+                    .is_some_and(|t| t.contains("Traceback")));
+            }
             other => panic!("unexpected error: {other}"),
         }
     }
@@ -544,5 +594,52 @@ mod tests {
         }));
         assert_eq!(item.code, codes::PAR_UNKNOWN);
         assert!(item.lints.is_empty());
+    }
+
+    #[test]
+    fn mutate_forwards_similar_name_and_similar_type_lints() {
+        let par = fail_item(json!({
+            "ok": false,
+            "applied": 0,
+            "failedAt": 0,
+            "steps": [{
+                "ok": false,
+                "code": "tdmcp.par.unknown",
+                "path": "/project1/hsv1",
+                "field": "satmult",
+                "message": "unknown parameter: satmult (did you mean: saturationmult?)",
+                "lints": [{
+                    "severity": "lint",
+                    "code": "tdmcp.par.similar_name",
+                    "message": "similar parameter 'saturationmult' found on node",
+                    "confidence": "medium",
+                    "suggestion": {"replace": "saturationmult"}
+                }]
+            }]
+        }));
+        assert_eq!(par.code, codes::PAR_UNKNOWN);
+        assert_eq!(par.lints[0].code, codes::PAR_SIMILAR_NAME);
+
+        let op = fail_item(json!({
+            "ok": false,
+            "applied": 0,
+            "failedAt": 0,
+            "steps": [{
+                "ok": false,
+                "code": "tdmcp.op.unknown_type",
+                "path": "/project1/x",
+                "field": "hsvAdjustTOP",
+                "message": "unknown opType: hsvAdjustTOP (did you mean: hsvadjustTOP?)",
+                "lints": [{
+                    "severity": "lint",
+                    "code": "tdmcp.op.similar_type",
+                    "message": "similar opType 'hsvadjustTOP' found",
+                    "confidence": "medium",
+                    "suggestion": {"replace": "hsvadjustTOP"}
+                }]
+            }]
+        }));
+        assert_eq!(op.code, codes::OP_UNKNOWN_TYPE);
+        assert_eq!(op.lints[0].code, codes::OP_SIMILAR_TYPE);
     }
 }

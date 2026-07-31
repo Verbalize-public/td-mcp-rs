@@ -33,7 +33,9 @@ pub enum DiagnosticLayer {
 }
 
 /// Payload size for diagnostics (independent of structural `detailLevel`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum DiagnosticLevel {
     /// Codes, messages, capped lints, mitigation.

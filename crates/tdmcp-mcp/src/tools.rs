@@ -12,6 +12,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use tdmcp_core::{BridgeMethod, OpPath, Pid, PidRegistry, TaskMode};
+use tdmcp_diagnostics::DiagnosticLevel;
 use thiserror::Error;
 use tokio::sync::Mutex;
 
@@ -78,6 +79,41 @@ impl ToolFailPayload {
     pub fn into_error(self) -> ToolCallError {
         ToolCallError::Failed(Box::new(self))
     }
+
+    /// Normalize a failure into the wire structured-content shape shared by
+    /// rmcp and the axum JSON fallback.
+    ///
+    /// Always includes top-level `"ok": false`. Serializes `diagnostics` as
+    /// `{summary, items}` at the top level, then splices object keys from
+    /// [`Self::data`] (e.g. mutate `applied` / `failedAt` / `steps`) flat —
+    /// never nested under `"data"`. Non-object `data` is kept under `"data"`
+    /// as a last resort.
+    #[must_use]
+    pub fn structured_content(&self) -> Value {
+        let mut payload = match serde_json::to_value(&self.diagnostics) {
+            Ok(Value::Object(map)) => Value::Object(map),
+            Ok(_) | Err(_) => serde_json::json!({
+                "summary": self.summary,
+                "items": [],
+            }),
+        };
+        if let Some(obj) = payload.as_object_mut() {
+            obj.insert("ok".into(), Value::Bool(false));
+            if let Some(data) = &self.data {
+                match data {
+                    Value::Object(data_obj) => {
+                        for (k, v) in data_obj {
+                            obj.insert(k.clone(), v.clone());
+                        }
+                    }
+                    other => {
+                        obj.insert("data".into(), other.clone());
+                    }
+                }
+            }
+        }
+        payload
+    }
 }
 
 /// Catalogue of v1 tools with derived schemas.
@@ -134,6 +170,9 @@ pub struct ExecutePythonParams {
     /// When true (default), capture stdout/stderr during exec and return as `logs`.
     #[serde(default = "default_true")]
     pub include_logs: bool,
+    /// Diagnostic payload size (`summary` omits raw traceback).
+    #[serde(default)]
+    pub diagnostic_level: DiagnosticLevel,
 }
 
 fn default_true() -> bool {
@@ -189,6 +228,9 @@ pub struct CaptureParams {
     /// Defaults to 256.
     #[serde(default = "default_capture_max_size")]
     pub max_size: Option<u32>,
+    /// Diagnostic payload size (`summary` omits raw traceback).
+    #[serde(default)]
+    pub diagnostic_level: DiagnosticLevel,
 }
 
 fn default_capture_max_size() -> Option<u32> {
@@ -248,6 +290,9 @@ pub struct InspectParams {
     /// Structural detail level.
     #[serde(default)]
     pub detail_level: DetailLevel,
+    /// Diagnostic payload size (`summary` omits raw traceback).
+    #[serde(default)]
+    pub diagnostic_level: DiagnosticLevel,
 }
 
 /// One ordered mutate step (`create` / `set` / `delete` / `connect` / `disconnect`).
@@ -330,6 +375,9 @@ pub struct MutateNodesParams {
     /// Structural detail level for per-step echo.
     #[serde(default)]
     pub detail_level: DetailLevel,
+    /// Diagnostic payload size (`summary` omits raw traceback).
+    #[serde(default)]
+    pub diagnostic_level: DiagnosticLevel,
 }
 
 /// Outcome of a bridge-driven tool call, as reported to the mapper.
@@ -379,7 +427,7 @@ pub async fn dispatch_tool(
                 }),
             )
             .await;
-            map_script_outcome(catalog, params.pid, outcome)
+            map_script_outcome(catalog, params.pid, outcome, params.diagnostic_level)
         }
         "capture" => {
             let params: CaptureParams = serde_json::from_value(args)
@@ -405,6 +453,7 @@ pub async fn dispatch_tool(
                 params.path,
                 params.context_path,
                 outcome,
+                params.diagnostic_level,
             )
         }
         "inspect" => {
@@ -441,6 +490,7 @@ pub async fn dispatch_tool(
                 params.path,
                 params.context_path,
                 outcome,
+                params.diagnostic_level,
             )
         }
         "mutate_nodes" => {
@@ -462,7 +512,13 @@ pub async fn dispatch_tool(
                 }),
             )
             .await;
-            map_mutate_outcome(catalog, params.pid, params.context_path, outcome)
+            map_mutate_outcome(
+                catalog,
+                params.pid,
+                params.context_path,
+                outcome,
+                params.diagnostic_level,
+            )
         }
         other => Err(ToolCallError::UnknownTool(other.to_owned())),
     }

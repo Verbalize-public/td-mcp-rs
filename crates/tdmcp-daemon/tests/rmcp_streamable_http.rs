@@ -252,10 +252,11 @@ async fn script_failure_surfaces_as_tool_error_with_diagnostics() {
     .await;
 
     assert_eq!(result["result"]["isError"], true);
-    assert_eq!(
-        result["result"]["structuredContent"]["items"][0]["code"],
-        "tdmcp.script.execution_failed"
-    );
+    let sc = &result["result"]["structuredContent"];
+    assert_eq!(sc["ok"], false);
+    assert_eq!(sc["items"][0]["code"], "tdmcp.script.execution_failed");
+    assert!(sc.get("data").is_none());
+    assert!(sc.get("applied").is_none());
 
     ct.cancel();
 }

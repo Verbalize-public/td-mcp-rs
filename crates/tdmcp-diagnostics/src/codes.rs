@@ -37,6 +37,10 @@ pub const FLAG_UNKNOWN: &str = "tdmcp.flag.unknown";
 pub const PAR_WRONG_COLLECTION: &str = "tdmcp.par.wrong_collection";
 /// Lint: name belongs under values, not flags.
 pub const FLAG_WRONG_COLLECTION: &str = "tdmcp.flag.wrong_collection";
+/// Lint: similar .par name found (typo / near-miss).
+pub const PAR_SIMILAR_NAME: &str = "tdmcp.par.similar_name";
+/// Lint: similar opType found (case / near-miss).
+pub const OP_SIMILAR_TYPE: &str = "tdmcp.op.similar_type";
 /// Mutate step failed with a TD-side exception (catch-all).
 pub const MUTATE_STEP_FAILED: &str = "tdmcp.mutate.step_failed";
 /// Connector index out of range for connect/disconnect.
@@ -72,6 +76,8 @@ pub const ALL: &[&str] = &[
     FLAG_UNKNOWN,
     PAR_WRONG_COLLECTION,
     FLAG_WRONG_COLLECTION,
+    PAR_SIMILAR_NAME,
+    OP_SIMILAR_TYPE,
     MUTATE_STEP_FAILED,
     WIRE_BAD_INDEX,
     WIRE_CONNECT_FAILED,

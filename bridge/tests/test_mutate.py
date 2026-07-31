@@ -75,6 +75,9 @@ class FakeNode:
             FakeConnector(self, kind="out", index=i) for i in range(n_outputs)
         ]
 
+    def pars(self) -> list[Any]:
+        return [SimpleNamespace(name=k) for k in self.par._pars]
+
     def create(self, op_cls: Any, name: str) -> FakeNode:
         child_path = f"{self.path.rstrip('/')}/{name}"
         child = FakeNode(child_path, op_types=self._op_types)
@@ -103,10 +106,16 @@ class FakeCtx(tdmcp_bridge.MutateContext):
         self.nodes["/project1"] = root
 
     def resolve(self, path: str) -> Any | None:
-        return self.nodes.get(path)
+        node = self.nodes.get(path)
+        if node is not None and getattr(node, "_destroyed", False):
+            return None
+        return node
 
     def get_op_type(self, op_type: str) -> Any | None:
         return self.op_types.get(op_type)
+
+    def list_op_type_names(self) -> list[str]:
+        return list(self.op_types.keys())
 
     def expression_mode(self) -> Any:
         return "EXPRESSION"
@@ -204,6 +213,92 @@ class MutateCreateTest(unittest.TestCase):
         node = ctx.nodes["/project1/noise1"]
         self.assertTrue(node.viewer)
         self.assertTrue(node.display)
+
+    def test_create_bad_values_rolls_back(self) -> None:
+        ctx = FakeCtx()
+        parent = ctx.nodes["/project1"]
+        orig = parent.create
+        created_holder: list[FakeNode] = []
+
+        def create_and_track(op_cls: Any, name: str) -> FakeNode:
+            child = ctx.track(orig(op_cls, name))
+            created_holder.append(child)
+            return child
+
+        parent.create = create_and_track  # type: ignore[method-assign]
+        out = tdmcp_bridge.apply_step(
+            ctx,
+            {
+                "op": "create",
+                "path": "noise1",
+                "opType": "noiseTOP",
+                "values": {"resolutionw": 128, "nope": 1},
+            },
+            context_path="/project1",
+        )
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["code"], "tdmcp.par.unknown")
+        self.assertEqual(out["field"], "nope")
+        self.assertEqual(len(created_holder), 1)
+        self.assertTrue(created_holder[0]._destroyed)
+        self.assertIsNone(ctx.resolve("/project1/noise1"))
+
+    def test_create_bad_flags_rolls_back(self) -> None:
+        ctx = FakeCtx()
+        parent = ctx.nodes["/project1"]
+        orig = parent.create
+        created_holder: list[FakeNode] = []
+
+        def create_and_track(op_cls: Any, name: str) -> FakeNode:
+            child = ctx.track(orig(op_cls, name))
+            created_holder.append(child)
+            return child
+
+        parent.create = create_and_track  # type: ignore[method-assign]
+        out = tdmcp_bridge.apply_step(
+            ctx,
+            {
+                "op": "create",
+                "path": "noise1",
+                "opType": "noiseTOP",
+                "flags": {"selected": True},
+            },
+            context_path="/project1",
+        )
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["code"], "tdmcp.flag.unknown")
+        self.assertTrue(created_holder[0]._destroyed)
+        self.assertIsNone(ctx.resolve("/project1/noise1"))
+
+    def test_create_rollback_destroy_failure_keeps_original_error(self) -> None:
+        ctx = FakeCtx()
+        parent = ctx.nodes["/project1"]
+        orig = parent.create
+
+        def create_and_track(op_cls: Any, name: str) -> FakeNode:
+            child = ctx.track(orig(op_cls, name))
+
+            def boom() -> None:
+                raise RuntimeError("destroy blew up")
+
+            child.destroy = boom  # type: ignore[method-assign]
+            return child
+
+        parent.create = create_and_track  # type: ignore[method-assign]
+        out = tdmcp_bridge.apply_step(
+            ctx,
+            {
+                "op": "create",
+                "path": "noise1",
+                "opType": "noiseTOP",
+                "values": {"nope": 1},
+            },
+            context_path="/project1",
+        )
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["code"], "tdmcp.par.unknown")
+        self.assertEqual(out["field"], "nope")
+        self.assertNotIn("destroy blew up", out.get("message", ""))
 
 
 class MutateSetTest(unittest.TestCase):
@@ -372,6 +467,67 @@ class MutateSetTest(unittest.TestCase):
         self.assertEqual(out["message"], "unknown parameter: viewer")
         self.assertNotIn("lints", out)
 
+    def test_suggest_names_case_and_near_miss(self) -> None:
+        self.assertEqual(
+            tdmcp_bridge._suggest_names("hsvAdjustTOP", ["hsvadjustTOP", "noiseTOP"]),
+            ["hsvadjustTOP"],
+        )
+        near = tdmcp_bridge._suggest_names(
+            "satmult", ["saturationmult", "hueoffset", "valuemult"]
+        )
+        self.assertIn("saturationmult", near)
+        self.assertEqual(tdmcp_bridge._suggest_names("zzzz", ["amp", "freq"]), [])
+
+    def test_set_similar_param_name_hint(self) -> None:
+        ctx = FakeCtx()
+        node = FakeNode("/project1/hsv1")
+        node.par = FakeParGroup(
+            {
+                "saturationmult": FakePar(1.0),
+                "hueoffset": FakePar(0.0),
+            }
+        )
+        ctx.nodes[node.path] = node
+        out = tdmcp_bridge.apply_step(
+            ctx,
+            {"op": "set", "path": "/project1/hsv1", "values": {"satmult": 1.3}},
+        )
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["code"], "tdmcp.par.unknown")
+        self.assertIn("saturationmult", out["message"])
+        self.assertEqual(out["lints"][0]["code"], "tdmcp.par.similar_name")
+        self.assertEqual(out["lints"][0]["suggestion"]["replace"], "saturationmult")
+
+    def test_create_similar_op_type_hint(self) -> None:
+        ctx = FakeCtx()
+        ctx.op_types["hsvadjustTOP"] = object()
+        out = tdmcp_bridge.apply_step(
+            ctx,
+            {"op": "create", "path": "/project1/x", "opType": "hsvAdjustTOP"},
+        )
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["code"], "tdmcp.op.unknown_type")
+        self.assertIn("hsvadjustTOP", out["message"])
+        self.assertEqual(out["lints"][0]["code"], "tdmcp.op.similar_type")
+        self.assertEqual(out["lints"][0]["suggestion"]["replace"], "hsvadjustTOP")
+
+    def test_similar_param_hint_enrich_failure_returns_base(self) -> None:
+        class BoomNode:
+            def pars(self) -> list[Any]:
+                raise RuntimeError("pars boom")
+
+        base = {
+            "ok": False,
+            "code": "tdmcp.par.unknown",
+            "path": "/project1/x",
+            "message": "unknown parameter: satmult",
+            "field": "satmult",
+        }
+        out = tdmcp_bridge._with_similar_param_hint(base, BoomNode())
+        self.assertEqual(out["code"], "tdmcp.par.unknown")
+        self.assertEqual(out["message"], "unknown parameter: satmult")
+        self.assertNotIn("lints", out)
+
     def test_set_flags_and_values_together(self) -> None:
         ctx, node = self._node()
         out = tdmcp_bridge.apply_step(
@@ -520,6 +676,26 @@ class MutateWireTest(unittest.TestCase):
         self.assertEqual(out["steps"][1]["code"], "tdmcp.op.not_found")
         self.assertTrue(out["steps"][2].get("skipped"))
         self.assertEqual(out["steps"][2]["code"], "tdmcp.batch.skipped_dependent")
+
+    def test_skipped_connect_path_is_absolutized(self) -> None:
+        ctx = FakeCtx()
+        ctx.track(FakeNode("/project1/zone/a"))
+        out = tdmcp_bridge.run_mutate_steps(
+            ctx,
+            [
+                {
+                    "op": "connect",
+                    "src": "missing_src",
+                    "dst": "null1",
+                },
+                {"op": "disconnect", "path": "null1"},
+            ],
+            context_path="/project1/zone",
+        )
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["failedAt"], 0)
+        self.assertTrue(out["steps"][1].get("skipped"))
+        self.assertEqual(out["steps"][1]["path"], "/project1/zone/null1")
 
 
 class MutateDeleteTest(unittest.TestCase):

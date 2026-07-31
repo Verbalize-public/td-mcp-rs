@@ -1,5 +1,20 @@
 {
   "$defs": {
+    "DiagnosticLevel": {
+      "description": "Payload size for diagnostics (independent of structural `detailLevel`).",
+      "oneOf": [
+        {
+          "const": "summary",
+          "description": "Codes, messages, capped lints, mitigation.",
+          "type": "string"
+        },
+        {
+          "const": "detailed",
+          "description": "Plus raw traceback / full TD dumps.",
+          "type": "string"
+        }
+      ]
+    },
     "OpPath": {
       "description": "Operator path string passed to TD for resolution via `td.op()`.",
       "type": "string"
@@ -25,6 +40,11 @@
       ],
       "default": null,
       "description": "Optional context path (exposed to script as helper; not enforced)."
+    },
+    "diagnosticLevel": {
+      "$ref": "#/$defs/DiagnosticLevel",
+      "default": "summary",
+      "description": "Diagnostic payload size (`summary` omits raw traceback)."
     },
     "exclusive": {
       "default": false,

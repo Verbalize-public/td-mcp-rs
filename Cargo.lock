@@ -4482,6 +4482,7 @@ dependencies = [
 name = "tdmcp-diagnostics"
 version = "0.1.0"
 dependencies = [
+ "schemars",
  "serde",
  "serde_json",
  "serde_yaml",

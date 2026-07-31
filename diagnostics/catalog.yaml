@@ -143,6 +143,26 @@ entries:
       - kind: doc
         id: mutate_nodes
 
+  - code: tdmcp.par.similar_name
+    layer: mutate
+    message: "Similar parameter name found on the node"
+    mitigation:
+      - "Retry with the suggested .par name from the lint suggestion.replace"
+      - "Inspect the node with include: params if unsure"
+    references:
+      - kind: doc
+        id: mutate_nodes
+
+  - code: tdmcp.op.similar_type
+    layer: mutate
+    message: "Similar opType found (case or near-miss)"
+    mitigation:
+      - "Retry create with the suggested opType from the lint suggestion.replace"
+      - "TD op class names are case-sensitive (e.g. hsvadjustTOP, not hsvAdjustTOP)"
+    references:
+      - kind: doc
+        id: mutate_nodes
+
   - code: tdmcp.op.unknown_type
     layer: mutate
     message: "Unknown or unresolved opType for create"

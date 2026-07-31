@@ -301,5 +301,68 @@ class WindowsPipeDisconnectTest(unittest.TestCase):
         self.assertFalse(tdmcp_bridge.is_connected())
 
 
+class MidFrameTimeoutServeTest(unittest.TestCase):
+    """serve_queued must disconnect on mid-frame timeout, not silently continue."""
+
+    def setUp(self) -> None:
+        tdmcp_bridge._reset_pending_for_tests()  # noqa: SLF001
+
+    def test_mid_frame_timeout_exits_cleanly(self) -> None:
+        class BoomStream:
+            def set_read_timeout(self, _seconds: float | None) -> None:
+                return None
+
+            def read(self, _n: int) -> bytes:
+                raise tdmcp_bridge.MidFrameTimeout("partial body")
+
+            def write(self, data: bytes) -> int:
+                return len(data)
+
+        # Must return (not hang) when the first read raises MidFrameTimeout.
+        tdmcp_bridge.serve_queued(BoomStream(), idle_dead_s=30.0)
+
+    def test_clean_idle_timeout_continues_until_idle_dead(self) -> None:
+        calls = {"n": 0}
+
+        class IdleStream:
+            def set_read_timeout(self, _seconds: float | None) -> None:
+                return None
+
+            def read(self, _n: int) -> bytes:
+                calls["n"] += 1
+                raise TimeoutError("named pipe read timed out")
+
+            def write(self, data: bytes) -> int:
+                return len(data)
+
+        started = time.monotonic()
+        tdmcp_bridge.serve_queued(IdleStream(), idle_dead_s=0.15)
+        elapsed = time.monotonic() - started
+        self.assertGreaterEqual(calls["n"], 2)
+        self.assertLess(elapsed, 2.0)
+
+    def test_decode_exception_exits_cleanly(self) -> None:
+        class GarbageStream:
+            def __init__(self) -> None:
+                self._phase = 0
+
+            def set_read_timeout(self, _seconds: float | None) -> None:
+                return None
+
+            def read(self, n: int) -> bytes:
+                import struct
+
+                if self._phase == 0:
+                    self._phase = 1
+                    return struct.pack("<I", 4)
+                # Valid length, garbage UTF-8 body → JSONDecodeError in _read_frame.
+                return b"\xff\xff\xff\xff"[:n]
+
+            def write(self, data: bytes) -> int:
+                return len(data)
+
+        tdmcp_bridge.serve_queued(GarbageStream(), idle_dead_s=30.0)
+
+
 if __name__ == "__main__":
     unittest.main()
