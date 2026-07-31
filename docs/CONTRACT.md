@@ -210,13 +210,13 @@ Step shapes:
 
 | `op` | Fields | Notes |
 | --- | --- | --- |
-| `create` | `path`, `opType`, `values?` | Parent derived from path resolution; `values` is a convenience (agent may follow with `set`) |
-| `set` | `path`, `values?`, `expressions?`, `pulse?` | Explicit modes — no silent guessing. `values: {name: val}`, `expressions: {name: expr}`, `pulse: [name]` |
+| `create` | `path`, `opType`, `values?`, `flags?` | Parent derived from path resolution; `values` is a convenience (agent may follow with `set`) |
+| `set` | `path`, `values?`, `expressions?`, `pulse?`, `flags?` | Explicit modes — no silent guessing. `values: {name: val}`, `expressions: {name: expr}`, `pulse: [name]` |
 | `delete` | `path` | |
 | `connect` | `src`, `dst`, `srcOutput?` (default 0), `dstInput?` (default 0) | `src.outputConnectors[i].connect(dst.inputConnectors[j])`. Echoes canonical `path` = dst |
 | `disconnect` | `path`, `input?` (default 0) | `path.inputConnectors[input].disconnect()` |
 
-Wire errors: `tdmcp.wire.bad_index` (connector index OOB), `tdmcp.wire.connect_failed` (TD connector exception); missing ops reuse `tdmcp.op.not_found`.
+`values` = `.par.*` only. `flags` = direct OP attributes (`node.<name> = val`); allowlist = operate-relevant TD Common Flags subset: `activeViewer`, `allowCooking`, `bypass`, `cloneImmune`, `display`, `lock`, `render`, `viewer`. Unknown flag names → `tdmcp.flag.unknown`. When a name is in the wrong bag (flag under `values` / param under `flags`), the hard code stays (`tdmcp.par.unknown` / `tdmcp.flag.unknown`) and a best-effort nested lint (`tdmcp.par.wrong_collection` / `tdmcp.flag.wrong_collection`) may be attached — hints never auto-redirect and never change the hard outcome. Wire errors: `tdmcp.wire.bad_index` (connector index OOB), `tdmcp.wire.connect_failed` (TD connector exception); missing ops reuse `tdmcp.op.not_found`.
 
 Result (summary):
 

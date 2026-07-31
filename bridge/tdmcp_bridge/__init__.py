@@ -625,23 +625,118 @@ def _get_par(node: Any, name: str) -> Any | None:
         return None
 
 
+# Operate-relevant subset of TD OP_Class "Common Flags" (docs.derivative.ca).
+# Editor/UI-only flags (current, selected, expose, showCustomOnly, showDocked,
+# python) are intentionally omitted.
+_FLAG_NAMES = frozenset(
+    {
+        "activeViewer",
+        "allowCooking",
+        "bypass",
+        "cloneImmune",
+        "display",
+        "lock",
+        "render",
+        "viewer",
+    }
+)
+
+
+def _with_collection_hint(
+    err: dict[str, Any], node: Any, *, as_param: bool
+) -> dict[str, Any]:
+    """Best-effort cross-collection lint. Never raises; never changes code/ok.
+
+    When a name is missing from the requested bag but exists in the other
+    collection, attach a nested lint and a short message suffix. Any enrich
+    failure returns ``err`` unchanged (simplified base diagnostic only).
+    Builds on a shallow copy so a mid-enrich failure cannot leave a partial
+    message/lint on the caller's base dict.
+    """
+    try:
+        name = err.get("field")
+        if not isinstance(name, str) or not name:
+            return err
+        if as_param and name in _FLAG_NAMES:
+            out = dict(err)
+            out["message"] = f"unknown parameter: {name} (exists as flag — use flags)"
+            out["lints"] = [
+                {
+                    "severity": "lint",
+                    "code": "tdmcp.par.wrong_collection",
+                    "message": f"'{name}' is an OP flag; use flags, not values",
+                    "confidence": "high",
+                    "suggestion": {"replace": f"flags.{name}"},
+                }
+            ]
+            return out
+        if not as_param and _get_par(node, name) is not None:
+            out = dict(err)
+            out["message"] = f"unknown flag: {name} (exists as parameter — use values)"
+            out["lints"] = [
+                {
+                    "severity": "lint",
+                    "code": "tdmcp.flag.wrong_collection",
+                    "message": f"'{name}' is a .par parameter; use values, not flags",
+                    "confidence": "high",
+                    "suggestion": {"replace": f"values.{name}"},
+                }
+            ]
+            return out
+        return err
+    except Exception:  # noqa: BLE001
+        return err
+
+
 def _apply_values(node: Any, values: dict[str, Any]) -> dict[str, Any] | None:
     """Assign plain parameter values. Returns an error step dict, or None on ok."""
     for name, val in values.items():
         par = _get_par(node, name)
         if par is None:
-            return {
-                "ok": False,
-                "code": "tdmcp.par.unknown",
-                "path": getattr(node, "path", None),
-                "message": f"unknown parameter: {name}",
-                "field": name,
-            }
+            return _with_collection_hint(
+                {
+                    "ok": False,
+                    "code": "tdmcp.par.unknown",
+                    "path": getattr(node, "path", None),
+                    "message": f"unknown parameter: {name}",
+                    "field": name,
+                },
+                node,
+                as_param=True,
+            )
         try:
             if hasattr(par, "val"):
                 par.val = val
             else:
                 setattr(node.par, name, val)
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "ok": False,
+                "code": "tdmcp.mutate.step_failed",
+                "path": getattr(node, "path", None),
+                "message": str(exc),
+                "field": name,
+            }
+    return None
+
+
+def _apply_flags(node: Any, flags: dict[str, Any]) -> dict[str, Any] | None:
+    """Assign direct OP attributes (flags). Returns an error step dict, or None on ok."""
+    for name, val in flags.items():
+        if name not in _FLAG_NAMES:
+            return _with_collection_hint(
+                {
+                    "ok": False,
+                    "code": "tdmcp.flag.unknown",
+                    "path": getattr(node, "path", None),
+                    "message": f"unknown flag: {name}",
+                    "field": name,
+                },
+                node,
+                as_param=False,
+            )
+        try:
+            setattr(node, name, val)
         except Exception as exc:  # noqa: BLE001
             return {
                 "ok": False,
@@ -660,13 +755,17 @@ def _apply_expressions(
     for name, expr in expressions.items():
         par = _get_par(node, name)
         if par is None:
-            return {
-                "ok": False,
-                "code": "tdmcp.par.unknown",
-                "path": getattr(node, "path", None),
-                "message": f"unknown parameter: {name}",
-                "field": name,
-            }
+            return _with_collection_hint(
+                {
+                    "ok": False,
+                    "code": "tdmcp.par.unknown",
+                    "path": getattr(node, "path", None),
+                    "message": f"unknown parameter: {name}",
+                    "field": name,
+                },
+                node,
+                as_param=True,
+            )
         try:
             par.mode = expression_mode
             par.expr = expr
@@ -686,13 +785,17 @@ def _apply_pulse(node: Any, pulse: list[str]) -> dict[str, Any] | None:
     for name in pulse:
         par = _get_par(node, name)
         if par is None:
-            return {
-                "ok": False,
-                "code": "tdmcp.par.unknown",
-                "path": getattr(node, "path", None),
-                "message": f"unknown parameter: {name}",
-                "field": name,
-            }
+            return _with_collection_hint(
+                {
+                    "ok": False,
+                    "code": "tdmcp.par.unknown",
+                    "path": getattr(node, "path", None),
+                    "message": f"unknown parameter: {name}",
+                    "field": name,
+                },
+                node,
+                as_param=True,
+            )
         try:
             pulse_fn = getattr(par, "pulse", None)
             if not callable(pulse_fn):
@@ -839,9 +942,18 @@ def _step_create(
         if err is not None:
             err["path"] = created_path
             return err
+    flags = step.get("flags")
+    if flags:
+        err = _apply_flags(created, flags)
+        if err is not None:
+            err["path"] = created_path
+            return err
     out: dict[str, Any] = {"ok": True, "path": created_path}
-    if detail_level == "detailed" and values:
-        out["values"] = values
+    if detail_level == "detailed":
+        if values:
+            out["values"] = values
+        if flags:
+            out["flags"] = flags
     return out
 
 
@@ -865,6 +977,7 @@ def _step_set(
     values = step.get("values")
     expressions = step.get("expressions")
     pulse = step.get("pulse")
+    flags = step.get("flags")
     if values:
         err = _apply_values(node, values)
         if err is not None:
@@ -877,6 +990,10 @@ def _step_set(
         err = _apply_pulse(node, list(pulse))
         if err is not None:
             return err
+    if flags:
+        err = _apply_flags(node, flags)
+        if err is not None:
+            return err
     out: dict[str, Any] = {"ok": True, "path": node_path}
     if detail_level == "detailed":
         if values:
@@ -885,6 +1002,8 @@ def _step_set(
             out["expressions"] = expressions
         if pulse:
             out["pulse"] = list(pulse)
+        if flags:
+            out["flags"] = flags
     return out
 
 

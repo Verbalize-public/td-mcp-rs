@@ -59,7 +59,7 @@ See [`DEV_ENV.md`](DEV_ENV.md) § Dev smoke. Does **not** replace rows 1–12 be
 | M4 | 2-step batch `create` + `set` (`values:{resolutionw:128}`) → both ok | ✅ |
 | M5 | `set` with `expressions:{resolutionw:"absTime.seconds*4"}` → re-`inspect` params confirms expression mode | ✅ |
 | M6 | `set` with `pulse` on a Pulse par → no error (used `timerCHOP` + `start`) | ✅ |
-| M7 | Mid-batch failure — `create` ok, then `set` on a nonexistent param → `failedAt:1`; `tdmcp.par.unknown`; later steps `tdmcp.batch.skipped_dependent` | ✅ |
+| M7 | Mid-batch failure — `create` ok, then `set` on a nonexistent param → `failedAt:1`; `tdmcp.par.unknown`; later steps `tdmcp.batch.skipped_dependent`. (Wrong-bag: flag name under `values` keeps `tdmcp.par.unknown` and may nest `tdmcp.par.wrong_collection` — unit-covered; not a live gate.) | ✅ |
 | M8 | First-step failure — `create` with bad `opType` → `failedAt:0, applied:0`; `tdmcp.op.unknown_type` | ✅ |
 | M9 | `delete` a previously created node → `ok:true`; re-`inspect` confirms gone | ✅ |
 | M10 | Structural errors/warnings clean after the whole pass (`inspect` default `errors`+`warnings` / classic `get_td_node_errors`); when a node warns, `node.warnings` is non-empty | ✅ |
@@ -70,6 +70,9 @@ See [`DEV_ENV.md`](DEV_ENV.md) § Dev smoke. Does **not** replace rows 1–12 be
 | M15 | `connect` with `dstInput: 99` → `failedAt` + `tdmcp.wire.bad_index` | ✅ |
 | M16 | `connect` missing `src` → `tdmcp.op.not_found`; following step `tdmcp.batch.skipped_dependent` | ✅ |
 | M17 | Create `mathCHOP` + `constantCHOP`, `connect`, `inspect` → math `node.errors` empty (pairs with M12) | ✅ |
+| M18 | `create` noiseTOP with `flags:{viewer:true,display:true}` → `ok`; `capture` top non-black (no separate `execute_python` for flags) | ✅ |
+| M19 | `set` with unrecognized flag name (e.g. `selected`) → `failedAt` + `tdmcp.flag.unknown`; later steps `tdmcp.batch.skipped_dependent`. (Wrong-bag: param name under `flags` keeps `tdmcp.flag.unknown` and may nest `tdmcp.flag.wrong_collection` — unit-covered; not a live gate.) | ✅ |
+| M20 | `set` `flags:{allowCooking:false}` on a non-COMP → `tdmcp.mutate.step_failed` (live-only; TD raises; not unit-testable via FakeNode) | ✅ |
 
 **Run record (P0):** 2026-07-29, TouchDesigner 099.2025.33070 (Windows), two
 `_agent_tdmcprs_e2e*` sandbox projects, daemon `0.1.0` release build. All 12
@@ -99,6 +102,19 @@ All M1–M11 pass over HTTP JSON `/mcp/tools/call`. Notes:
 `0.1.0` release rebuild after adding wire steps. All M13–M17 pass over HTTP
 `/mcp/tools/call`. Dump: `tmp/mutate_wire_e2e_20260731_125953.jsonl`.
 Connect uses `src.outputConnectors[i].connect(dst.inputConnectors[j])`.
+
+**Run record (`mutate_nodes` flags M18–M20):** 2026-07-31,
+`_agent_tdmcprs_dev.4.toe` (pid 15448), daemon `0.1.0` release rebuild after
+adding `flags` to create/set. Deleted `%LOCALAPPDATA%/tdmcp-rs/install.version`
+before `ensure` so bridge + catalog re-extracted; loaded fresh
+`bootstrap.tox` into `/project1/tdmcp_rs`. All M18–M20 pass over HTTP
+`/mcp/tools/call`. Notes:
+- M18: `create` with `values`+`flags` applied 2 steps; `execute_python`
+  readback `viewer=true`/`display=true`; `capture` top `bytes=13569` non-black.
+- M19: `selected` → `tdmcp.flag.unknown` with catalog mitigation listing the
+  8 allowed flags; following `delete` skipped.
+- M20: `allowCooking:false` on noiseTOP → `tdmcp.mutate.step_failed` with TD
+  message "This flag can only be disabled for COMPs."
 
 ## Bugs found and fixed during this run
 

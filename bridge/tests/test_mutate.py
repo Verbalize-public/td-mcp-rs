@@ -179,6 +179,32 @@ class MutateCreateTest(unittest.TestCase):
         self.assertEqual(out["values"], {"resolutionw": 128})
         self.assertEqual(ctx.nodes["/project1/noise1"].par.resolutionw.val, 128)
 
+    def test_create_with_flags(self) -> None:
+        ctx = FakeCtx()
+        parent = ctx.nodes["/project1"]
+        orig = parent.create
+
+        def create_and_track(op_cls: Any, name: str) -> FakeNode:
+            return ctx.track(orig(op_cls, name))
+
+        parent.create = create_and_track  # type: ignore[method-assign]
+        out = tdmcp_bridge.apply_step(
+            ctx,
+            {
+                "op": "create",
+                "path": "noise1",
+                "opType": "noiseTOP",
+                "flags": {"viewer": True, "display": True},
+            },
+            context_path="/project1",
+            detail_level="detailed",
+        )
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["flags"], {"viewer": True, "display": True})
+        node = ctx.nodes["/project1/noise1"]
+        self.assertTrue(node.viewer)
+        self.assertTrue(node.display)
+
 
 class MutateSetTest(unittest.TestCase):
     def _node(self) -> tuple[FakeCtx, FakeNode]:
@@ -233,6 +259,27 @@ class MutateSetTest(unittest.TestCase):
         )
         self.assertFalse(out["ok"])
         self.assertEqual(out["code"], "tdmcp.par.unknown")
+        self.assertEqual(out["message"], "unknown parameter: nope")
+        self.assertNotIn("lints", out)
+
+    def test_set_flag_name_under_values_hints_wrong_collection(self) -> None:
+        ctx, _node = self._node()
+        out = tdmcp_bridge.apply_step(
+            ctx,
+            {
+                "op": "set",
+                "path": "/project1/noise1",
+                "values": {"viewer": True},
+            },
+        )
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["code"], "tdmcp.par.unknown")
+        self.assertEqual(out["field"], "viewer")
+        self.assertIn("exists as flag", out["message"])
+        self.assertEqual(len(out.get("lints", [])), 1)
+        lint = out["lints"][0]
+        self.assertEqual(lint["code"], "tdmcp.par.wrong_collection")
+        self.assertEqual(lint["suggestion"]["replace"], "flags.viewer")
 
     def test_set_node_missing(self) -> None:
         ctx = FakeCtx()
@@ -242,6 +289,107 @@ class MutateSetTest(unittest.TestCase):
         )
         self.assertFalse(out["ok"])
         self.assertEqual(out["code"], "tdmcp.op.not_found")
+
+    def test_set_flags_ok(self) -> None:
+        ctx, node = self._node()
+        out = tdmcp_bridge.apply_step(
+            ctx,
+            {
+                "op": "set",
+                "path": "/project1/noise1",
+                "flags": {"bypass": True},
+            },
+            detail_level="detailed",
+        )
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["flags"], {"bypass": True})
+        self.assertTrue(node.bypass)
+        out2 = tdmcp_bridge.apply_step(
+            ctx,
+            {
+                "op": "set",
+                "path": "/project1/noise1",
+                "flags": {"bypass": False},
+            },
+        )
+        self.assertTrue(out2["ok"])
+        self.assertFalse(node.bypass)
+
+    def test_set_flags_unknown(self) -> None:
+        ctx, _node = self._node()
+        out = tdmcp_bridge.apply_step(
+            ctx,
+            {
+                "op": "set",
+                "path": "/project1/noise1",
+                "flags": {"selected": True},
+            },
+        )
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["code"], "tdmcp.flag.unknown")
+        self.assertEqual(out["field"], "selected")
+        self.assertEqual(out["message"], "unknown flag: selected")
+        self.assertNotIn("lints", out)
+
+    def test_set_param_name_under_flags_hints_wrong_collection(self) -> None:
+        ctx, _node = self._node()
+        out = tdmcp_bridge.apply_step(
+            ctx,
+            {
+                "op": "set",
+                "path": "/project1/noise1",
+                "flags": {"resolutionw": 64},
+            },
+        )
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["code"], "tdmcp.flag.unknown")
+        self.assertEqual(out["field"], "resolutionw")
+        self.assertIn("exists as parameter", out["message"])
+        self.assertEqual(len(out.get("lints", [])), 1)
+        lint = out["lints"][0]
+        self.assertEqual(lint["code"], "tdmcp.flag.wrong_collection")
+        self.assertEqual(lint["suggestion"]["replace"], "values.resolutionw")
+
+    def test_collection_hint_enrich_failure_returns_base(self) -> None:
+        """Enrichment exceptions must not change the base diagnostic."""
+
+        class BoomErr(dict):
+            def get(self, key: Any, default: Any = None) -> Any:
+                raise RuntimeError("enrich boom")
+
+        base: dict[str, Any] = BoomErr(
+            ok=False,
+            code="tdmcp.par.unknown",
+            path="/project1/noise1",
+            message="unknown parameter: viewer",
+            field="viewer",
+        )
+        out = tdmcp_bridge._with_collection_hint(
+            base, FakeNode("/project1/noise1"), as_param=True
+        )
+        self.assertIs(out, base)
+        self.assertEqual(out["code"], "tdmcp.par.unknown")
+        self.assertEqual(out["message"], "unknown parameter: viewer")
+        self.assertNotIn("lints", out)
+
+    def test_set_flags_and_values_together(self) -> None:
+        ctx, node = self._node()
+        out = tdmcp_bridge.apply_step(
+            ctx,
+            {
+                "op": "set",
+                "path": "/project1/noise1",
+                "values": {"resolutionw": 64},
+                "flags": {"viewer": True, "display": True},
+            },
+            detail_level="detailed",
+        )
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["values"], {"resolutionw": 64})
+        self.assertEqual(out["flags"], {"viewer": True, "display": True})
+        self.assertEqual(node.par.resolutionw.val, 64)
+        self.assertTrue(node.viewer)
+        self.assertTrue(node.display)
 
 
 class MutateWireTest(unittest.TestCase):

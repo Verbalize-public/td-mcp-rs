@@ -22,6 +22,14 @@
           "additionalProperties": false,
           "description": "Create a node at `path` with the given `opType`.",
           "properties": {
+            "flags": {
+              "additionalProperties": true,
+              "description": "Direct OP attribute writes (`node.<name> = val`); allowlist = TD Common Flags subset, see CONTRACT.md.",
+              "type": [
+                "object",
+                "null"
+              ]
+            },
             "op": {
               "const": "create",
               "type": "string"
@@ -36,7 +44,7 @@
             },
             "values": {
               "additionalProperties": true,
-              "description": "Optional plain parameter values applied after create.",
+              "description": "Plain parameter values (`.par.*` only — direct OP attributes like `display`/`viewer` go in `flags`, not here).",
               "type": [
                 "object",
                 "null"
@@ -52,11 +60,19 @@
         },
         {
           "additionalProperties": false,
-          "description": "Set values / expressions / pulse on an existing node.",
+          "description": "Set values / expressions / pulse / flags on an existing node.",
           "properties": {
             "expressions": {
               "additionalProperties": true,
               "description": "Expression strings; mode is set to expression before assign.",
+              "type": [
+                "object",
+                "null"
+              ]
+            },
+            "flags": {
+              "additionalProperties": true,
+              "description": "Direct OP attribute writes (`node.<name> = val`); allowlist = TD Common Flags subset, see CONTRACT.md.",
               "type": [
                 "object",
                 "null"
@@ -82,7 +98,7 @@
             },
             "values": {
               "additionalProperties": true,
-              "description": "Plain parameter values (`par.val = …`).",
+              "description": "Plain parameter values (`.par.*` only — direct OP attributes like `display`/`viewer` go in `flags`, not here).",
               "type": [
                 "object",
                 "null"

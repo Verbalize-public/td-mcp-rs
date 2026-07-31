@@ -261,15 +261,18 @@ pub enum MutateStep {
         /// TD op class name (e.g. `noiseTOP`).
         #[serde(rename = "opType")]
         op_type: String,
-        /// Optional plain parameter values applied after create.
+        /// Plain parameter values (`.par.*` only — direct OP attributes like `display`/`viewer` go in `flags`, not here).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         values: Option<Map<String, Value>>,
+        /// Direct OP attribute writes (`node.<name> = val`); allowlist = TD Common Flags subset, see CONTRACT.md.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        flags: Option<Map<String, Value>>,
     },
-    /// Set values / expressions / pulse on an existing node.
+    /// Set values / expressions / pulse / flags on an existing node.
     Set {
         /// Target node path.
         path: OpPath,
-        /// Plain parameter values (`par.val = …`).
+        /// Plain parameter values (`.par.*` only — direct OP attributes like `display`/`viewer` go in `flags`, not here).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         values: Option<Map<String, Value>>,
         /// Expression strings; mode is set to expression before assign.
@@ -278,6 +281,9 @@ pub enum MutateStep {
         /// Parameter names to pulse.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pulse: Option<Vec<String>>,
+        /// Direct OP attribute writes (`node.<name> = val`); allowlist = TD Common Flags subset, see CONTRACT.md.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        flags: Option<Map<String, Value>>,
     },
     /// Destroy a node.
     Delete {

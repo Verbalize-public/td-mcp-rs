@@ -31,6 +31,12 @@ pub const BATCH_SKIPPED_DEPENDENT: &str = "tdmcp.batch.skipped_dependent";
 
 /// Unknown parameter on node.
 pub const PAR_UNKNOWN: &str = "tdmcp.par.unknown";
+/// Unknown operator flag name (not in the operate-relevant Common Flags subset).
+pub const FLAG_UNKNOWN: &str = "tdmcp.flag.unknown";
+/// Lint: name belongs under flags, not values/expressions/pulse.
+pub const PAR_WRONG_COLLECTION: &str = "tdmcp.par.wrong_collection";
+/// Lint: name belongs under values, not flags.
+pub const FLAG_WRONG_COLLECTION: &str = "tdmcp.flag.wrong_collection";
 /// Mutate step failed with a TD-side exception (catch-all).
 pub const MUTATE_STEP_FAILED: &str = "tdmcp.mutate.step_failed";
 /// Connector index out of range for connect/disconnect.
@@ -63,6 +69,9 @@ pub const ALL: &[&str] = &[
     OP_UNKNOWN_TYPE,
     BATCH_SKIPPED_DEPENDENT,
     PAR_UNKNOWN,
+    FLAG_UNKNOWN,
+    PAR_WRONG_COLLECTION,
+    FLAG_WRONG_COLLECTION,
     MUTATE_STEP_FAILED,
     WIRE_BAD_INDEX,
     WIRE_CONNECT_FAILED,

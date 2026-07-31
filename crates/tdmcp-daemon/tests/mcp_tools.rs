@@ -373,7 +373,8 @@ async fn mutate_nodes_detail_level_detailed_echoes_values() {
         "steps": [{
             "ok": true,
             "path": "/project1/noise1",
-            "values": {"resolutionw": 128}
+            "values": {"resolutionw": 128},
+            "flags": {"viewer": true, "display": true}
         }]
     })));
     let state = AppState::new(registry_with_pid(), Catalog::fallback(), bridge);
@@ -392,7 +393,8 @@ async fn mutate_nodes_detail_level_detailed_echoes_values() {
                     "steps": [{
                         "op": "set",
                         "path": "/project1/noise1",
-                        "values": {"resolutionw": 128}
+                        "values": {"resolutionw": 128},
+                        "flags": {"viewer": true, "display": true}
                     }]
                 }
             })
@@ -406,4 +408,161 @@ async fn mutate_nodes_detail_level_detailed_echoes_values() {
     let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(v["ok"], true);
     assert_eq!(v["data"]["steps"][0]["values"]["resolutionw"], 128);
+    assert_eq!(v["data"]["steps"][0]["flags"]["viewer"], true);
+    assert_eq!(v["data"]["steps"][0]["flags"]["display"], true);
+}
+
+#[tokio::test]
+async fn mutate_nodes_flag_unknown_surfaces_diagnostics() {
+    let bridge: Arc<dyn BridgeRpc> = Arc::new(FakeBridgeRpc::responding(json!({
+        "ok": false,
+        "applied": 0,
+        "failedAt": 0,
+        "steps": [
+            {
+                "ok": false,
+                "code": "tdmcp.flag.unknown",
+                "path": "/project1/noise1",
+                "message": "unknown flag: selected",
+                "field": "selected"
+            }
+        ]
+    })));
+    let state = AppState::new(registry_with_pid(), Catalog::fallback(), bridge);
+    let app = build_mcp_router(state);
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/mcp/tools/call")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            json!({
+                "name": "mutate_nodes",
+                "arguments": {
+                    "pid": 34,
+                    "steps": [{
+                        "op": "set",
+                        "path": "/project1/noise1",
+                        "flags": {"selected": true}
+                    }]
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(v["ok"], false);
+    assert_eq!(v["diagnostics"]["items"][0]["code"], "tdmcp.flag.unknown");
+    assert_eq!(v["diagnostics"]["items"][0]["span"]["field"], "selected");
+    assert_eq!(v["data"]["failedAt"], 0);
+    assert_eq!(v["data"]["steps"][0]["code"], "tdmcp.flag.unknown");
+}
+
+#[tokio::test]
+async fn mutate_nodes_wrong_collection_lint_forwarded() {
+    let bridge: Arc<dyn BridgeRpc> = Arc::new(FakeBridgeRpc::responding(json!({
+        "ok": false,
+        "applied": 0,
+        "failedAt": 0,
+        "steps": [{
+            "ok": false,
+            "code": "tdmcp.par.unknown",
+            "path": "/project1/noise1",
+            "field": "viewer",
+            "message": "unknown parameter: viewer (exists as flag — use flags)",
+            "lints": [{
+                "severity": "lint",
+                "code": "tdmcp.par.wrong_collection",
+                "message": "'viewer' is an OP flag; use flags, not values",
+                "confidence": "high",
+                "suggestion": {"replace": "flags.viewer"}
+            }]
+        }]
+    })));
+    let state = AppState::new(registry_with_pid(), Catalog::fallback(), bridge);
+    let app = build_mcp_router(state);
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/mcp/tools/call")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            json!({
+                "name": "mutate_nodes",
+                "arguments": {
+                    "pid": 34,
+                    "steps": [{
+                        "op": "set",
+                        "path": "/project1/noise1",
+                        "values": {"viewer": true}
+                    }]
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(v["ok"], false);
+    let item = &v["diagnostics"]["items"][0];
+    assert_eq!(item["code"], "tdmcp.par.unknown");
+    assert_eq!(item["span"]["field"], "viewer");
+    assert_eq!(item["lints"][0]["code"], "tdmcp.par.wrong_collection");
+    assert_eq!(item["lints"][0]["suggestion"]["replace"], "flags.viewer");
+}
+
+#[tokio::test]
+async fn mutate_nodes_malformed_lints_keep_hard_error() {
+    let bridge: Arc<dyn BridgeRpc> = Arc::new(FakeBridgeRpc::responding(json!({
+        "ok": false,
+        "applied": 0,
+        "failedAt": 0,
+        "steps": [{
+            "ok": false,
+            "code": "tdmcp.flag.unknown",
+            "path": "/project1/noise1",
+            "field": "resolutionw",
+            "message": "unknown flag: resolutionw",
+            "lints": "bogus"
+        }]
+    })));
+    let state = AppState::new(registry_with_pid(), Catalog::fallback(), bridge);
+    let app = build_mcp_router(state);
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/mcp/tools/call")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            json!({
+                "name": "mutate_nodes",
+                "arguments": {
+                    "pid": 34,
+                    "steps": [{
+                        "op": "set",
+                        "path": "/project1/noise1",
+                        "flags": {"resolutionw": 64}
+                    }]
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(v["ok"], false);
+    let item = &v["diagnostics"]["items"][0];
+    assert_eq!(item["code"], "tdmcp.flag.unknown");
+    assert_eq!(item["span"]["field"], "resolutionw");
+    assert!(item["lints"].is_null() || item["lints"].as_array().is_some_and(|a| a.is_empty()));
 }

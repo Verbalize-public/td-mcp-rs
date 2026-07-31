@@ -11,7 +11,7 @@ use tdmcp_core::{OpPath, Pid};
 use tdmcp_diagnostics::codes;
 use tdmcp_diagnostics::{
     Catalog, DiagnosticContext, DiagnosticItem, DiagnosticLayer, DiagnosticSeverity,
-    DiagnosticSpan, Diagnostics,
+    DiagnosticSpan, Diagnostics, LintItem, Suggestion,
 };
 
 use crate::bridge_rpc::BridgeRpcError;
@@ -231,21 +231,23 @@ pub fn map_mutate_outcome(
                     .get("failedAt")
                     .and_then(Value::as_u64)
                     .map(|i| i as u32);
-                let (code, msg, op_path) = mutate_failure_from_steps(&value);
-                let item = build_diag(
+                let failure = mutate_failure_from_steps(&value);
+                let mut item = build_diag(
                     catalog,
-                    code,
+                    failure.code,
                     DiagnosticSpan {
                         tool: "mutate_nodes".into(),
                         mutation_index: failed_at,
-                        field: None,
+                        field: failure.field,
                         line: None,
                         column: None,
                         snippet: None,
                     },
-                    Some(msg),
-                    ctx(pid, op_path, context_path),
+                    Some(failure.message),
+                    ctx(pid, failure.op_path, context_path),
                 );
+                // Best-effort: never let malformed bridge lints drop the hard error.
+                item.lints = failure.lints;
                 let data = Some(serde_json::json!({
                     "applied": value.get("applied").cloned().unwrap_or(Value::from(0)),
                     "failedAt": value.get("failedAt").cloned().unwrap_or(Value::Null),
@@ -265,8 +267,17 @@ pub fn map_mutate_outcome(
     }
 }
 
+/// First hard-failure fields pulled from a mutate envelope (fail-soft extras).
+struct MutateStepFailure {
+    code: &'static str,
+    message: String,
+    op_path: Option<OpPath>,
+    field: Option<String>,
+    lints: Vec<LintItem>,
+}
+
 /// Pull the first hard-failure code/message/path from a mutate envelope.
-fn mutate_failure_from_steps(value: &Value) -> (&'static str, String, Option<OpPath>) {
+fn mutate_failure_from_steps(value: &Value) -> MutateStepFailure {
     let steps = value.get("steps").and_then(Value::as_array);
     if let Some(steps) = steps {
         for step in steps {
@@ -282,28 +293,82 @@ fn mutate_failure_from_steps(value: &Value) -> (&'static str, String, Option<OpP
                     codes::OP_NOT_FOUND => codes::OP_NOT_FOUND,
                     codes::OP_UNKNOWN_TYPE => codes::OP_UNKNOWN_TYPE,
                     codes::PAR_UNKNOWN => codes::PAR_UNKNOWN,
+                    codes::FLAG_UNKNOWN => codes::FLAG_UNKNOWN,
                     codes::BATCH_SKIPPED_DEPENDENT => codes::BATCH_SKIPPED_DEPENDENT,
                     codes::MUTATE_STEP_FAILED => codes::MUTATE_STEP_FAILED,
                     codes::WIRE_BAD_INDEX => codes::WIRE_BAD_INDEX,
                     codes::WIRE_CONNECT_FAILED => codes::WIRE_CONNECT_FAILED,
                     _ => codes::MUTATE_STEP_FAILED,
                 };
-                let msg = step
+                let message = step
                     .get("message")
                     .and_then(Value::as_str)
                     .unwrap_or("mutate step failed")
                     .to_owned();
                 let op_path = step.get("path").and_then(Value::as_str).map(OpPath::from);
-                return (code, msg, op_path);
+                let field = step
+                    .get("field")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned);
+                let lints = parse_step_lints(step);
+                return MutateStepFailure {
+                    code,
+                    message,
+                    op_path,
+                    field,
+                    lints,
+                };
             }
         }
     }
     let env = BridgeResultEnvelope::from_value(value);
-    (
-        codes::MUTATE_STEP_FAILED,
-        env.message_or("mutate_nodes failed"),
-        None,
-    )
+    MutateStepFailure {
+        code: codes::MUTATE_STEP_FAILED,
+        message: env.message_or("mutate_nodes failed"),
+        op_path: None,
+        field: None,
+        lints: Vec::new(),
+    }
+}
+
+/// Best-effort parse of bridge step `lints` (cap 1). Malformed entries are skipped.
+fn parse_step_lints(step: &Value) -> Vec<LintItem> {
+    let Some(arr) = step.get("lints").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    for entry in arr {
+        let Some(obj) = entry.as_object() else {
+            continue;
+        };
+        let Some(code) = obj.get("code").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(message) = obj.get("message").and_then(Value::as_str) else {
+            continue;
+        };
+        let confidence = obj
+            .get("confidence")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
+        let suggestion = obj.get("suggestion").and_then(|s| {
+            let replace = s.get("replace").and_then(Value::as_str)?;
+            Some(Suggestion {
+                op_path: s
+                    .get("opPath")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned),
+                replace: Some(replace.to_owned()),
+            })
+        });
+        return vec![LintItem {
+            severity: DiagnosticSeverity::Lint,
+            code: code.to_owned(),
+            message: message.to_owned(),
+            confidence,
+            suggestion,
+        }];
+    }
+    Vec::new()
 }
 
 fn span(tool: &str, field: Option<String>) -> DiagnosticSpan {
@@ -383,5 +448,101 @@ pub fn build_diag(
             references: Vec::new(),
             raw_traceback: None,
         },
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, reason = "unit tests")]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn fail_item(value: Value) -> DiagnosticItem {
+        let catalog = Catalog::fallback();
+        let err = map_mutate_outcome(
+            &catalog,
+            Pid::new(1),
+            None,
+            BridgeOutcome::Ok(value),
+        )
+        .expect_err("expected mutate soft failure");
+        match err {
+            ToolCallError::Failed(payload) => payload.diagnostics.items[0].clone(),
+            other => panic!("unexpected error: {other}"),
+        }
+    }
+
+    #[test]
+    fn mutate_forwards_field_and_wrong_collection_lint() {
+        let item = fail_item(json!({
+            "ok": false,
+            "applied": 0,
+            "failedAt": 0,
+            "steps": [{
+                "ok": false,
+                "code": "tdmcp.par.unknown",
+                "path": "/project1/noise1",
+                "field": "viewer",
+                "message": "unknown parameter: viewer (exists as flag — use flags)",
+                "lints": [{
+                    "severity": "lint",
+                    "code": "tdmcp.par.wrong_collection",
+                    "message": "'viewer' is an OP flag; use flags, not values",
+                    "confidence": "high",
+                    "suggestion": {"replace": "flags.viewer"}
+                }]
+            }]
+        }));
+        assert_eq!(item.code, codes::PAR_UNKNOWN);
+        assert_eq!(item.span.field.as_deref(), Some("viewer"));
+        assert_eq!(item.lints.len(), 1);
+        assert_eq!(item.lints[0].code, codes::PAR_WRONG_COLLECTION);
+        assert_eq!(
+            item.lints[0]
+                .suggestion
+                .as_ref()
+                .and_then(|s| s.replace.as_deref()),
+            Some("flags.viewer")
+        );
+    }
+
+    #[test]
+    fn mutate_malformed_lints_still_emit_hard_error() {
+        let item = fail_item(json!({
+            "ok": false,
+            "applied": 0,
+            "failedAt": 0,
+            "steps": [{
+                "ok": false,
+                "code": "tdmcp.flag.unknown",
+                "path": "/project1/noise1",
+                "field": "selected",
+                "message": "unknown flag: selected",
+                "lints": "not-an-array"
+            }]
+        }));
+        assert_eq!(item.code, codes::FLAG_UNKNOWN);
+        assert_eq!(item.span.field.as_deref(), Some("selected"));
+        assert!(item.lints.is_empty());
+        assert!(!item.mitigation.is_empty());
+    }
+
+    #[test]
+    fn mutate_lint_entries_missing_code_are_skipped() {
+        let item = fail_item(json!({
+            "ok": false,
+            "applied": 0,
+            "failedAt": 0,
+            "steps": [{
+                "ok": false,
+                "code": "tdmcp.par.unknown",
+                "path": "/project1/noise1",
+                "field": "nope",
+                "message": "unknown parameter: nope",
+                "lints": [{"message": "missing code"}, {"severity": "lint"}]
+            }]
+        }));
+        assert_eq!(item.code, codes::PAR_UNKNOWN);
+        assert!(item.lints.is_empty());
     }
 }

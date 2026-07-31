@@ -107,9 +107,41 @@ entries:
     message: "Unknown parameter on node"
     mitigation:
       - "Query api_help for the OP family"
+      - "values is for .par.* parameters; flags is for direct OP attributes (display, viewer, bypass, …)"
     references:
       - kind: doc
         id: api_help
+
+  - code: tdmcp.flag.unknown
+    layer: mutate
+    message: "Unknown operator flag name (not in the operate-relevant Common Flags subset)"
+    mitigation:
+      - "Allowed flags: activeViewer, allowCooking, bypass, cloneImmune, display, lock, render, viewer"
+      - "values is for .par.* parameters; flags is for direct OP attributes"
+      - "Fix the failedAt step only; later steps are skipped, not replayed"
+    references:
+      - kind: doc
+        id: mutate_nodes
+
+  - code: tdmcp.par.wrong_collection
+    layer: mutate
+    message: "Name is an OP flag, not a .par — use flags"
+    mitigation:
+      - "Move the name into the step's flags object"
+      - "Do not put Common Flags (display, viewer, bypass, …) under values/expressions/pulse"
+    references:
+      - kind: doc
+        id: mutate_nodes
+
+  - code: tdmcp.flag.wrong_collection
+    layer: mutate
+    message: "Name is a .par parameter, not an OP flag — use values"
+    mitigation:
+      - "Move the name into the step's values (or expressions/pulse) object"
+      - "flags only accepts the operate-relevant Common Flags allowlist"
+    references:
+      - kind: doc
+        id: mutate_nodes
 
   - code: tdmcp.op.unknown_type
     layer: mutate
