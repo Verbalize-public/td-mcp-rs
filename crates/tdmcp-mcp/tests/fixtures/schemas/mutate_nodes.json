@@ -16,7 +16,7 @@
       ]
     },
     "MutateStep": {
-      "description": "One ordered mutate step (`create` / `set` / `delete`).",
+      "description": "One ordered mutate step (`create` / `set` / `delete` / `connect` / `disconnect`).",
       "oneOf": [
         {
           "additionalProperties": false,
@@ -106,6 +106,70 @@
             "path": {
               "$ref": "#/$defs/OpPath",
               "description": "Target node path."
+            }
+          },
+          "required": [
+            "op",
+            "path"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Wire `src` output connector to `dst` input connector.",
+          "properties": {
+            "dst": {
+              "$ref": "#/$defs/OpPath",
+              "description": "Destination operator path."
+            },
+            "dstInput": {
+              "default": 0,
+              "description": "Destination input connector index (default 0).",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "op": {
+              "const": "connect",
+              "type": "string"
+            },
+            "src": {
+              "$ref": "#/$defs/OpPath",
+              "description": "Source operator path."
+            },
+            "srcOutput": {
+              "default": 0,
+              "description": "Source output connector index (default 0).",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "op",
+            "src",
+            "dst"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Clear an input connector on `path`.",
+          "properties": {
+            "input": {
+              "default": 0,
+              "description": "Input connector index to clear (default 0).",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "op": {
+              "const": "disconnect",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/$defs/OpPath",
+              "description": "Target operator path (destination side)."
             }
           },
           "required": [

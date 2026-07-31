@@ -36,14 +36,44 @@ class FakeParGroup:
         return None
 
 
+class FakeConnector:
+    def __init__(self, owner: "FakeNode", *, kind: str, index: int) -> None:
+        self.owner = owner
+        self.kind = kind
+        self.index = index
+        self.connections: list[Any] = []
+
+    def connect(self, target: Any) -> None:
+        self.connections.append(target)
+        # Mirror TD: connecting an output to an input also records on the input.
+        if self.kind == "out" and isinstance(target, FakeConnector):
+            target.connections.append(self)
+
+    def disconnect(self) -> None:
+        self.connections.clear()
+
+
 class FakeNode:
-    def __init__(self, path: str, *, op_types: dict[str, Any] | None = None) -> None:
+    def __init__(
+        self,
+        path: str,
+        *,
+        op_types: dict[str, Any] | None = None,
+        n_inputs: int = 1,
+        n_outputs: int = 1,
+    ) -> None:
         self.path = path
         self.par = FakeParGroup()
         self._destroyed = False
         self._children: dict[str, FakeNode] = {}
         self._op_types = op_types or {}
         self.valid = True
+        self.inputConnectors = [
+            FakeConnector(self, kind="in", index=i) for i in range(n_inputs)
+        ]
+        self.outputConnectors = [
+            FakeConnector(self, kind="out", index=i) for i in range(n_outputs)
+        ]
 
     def create(self, op_cls: Any, name: str) -> FakeNode:
         child_path = f"{self.path.rstrip('/')}/{name}"
@@ -212,6 +242,136 @@ class MutateSetTest(unittest.TestCase):
         )
         self.assertFalse(out["ok"])
         self.assertEqual(out["code"], "tdmcp.op.not_found")
+
+
+class MutateWireTest(unittest.TestCase):
+    def _pair(self) -> tuple[FakeCtx, FakeNode, FakeNode]:
+        ctx = FakeCtx()
+        src = FakeNode("/project1/noise1")
+        dst = FakeNode("/project1/null1")
+        ctx.track(src)
+        ctx.track(dst)
+        return ctx, src, dst
+
+    def test_connect_ok(self) -> None:
+        ctx, src, dst = self._pair()
+        out = tdmcp_bridge.apply_step(
+            ctx,
+            {
+                "op": "connect",
+                "src": "/project1/noise1",
+                "dst": "/project1/null1",
+            },
+            detail_level="detailed",
+        )
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["path"], "/project1/null1")
+        self.assertEqual(out["src"], "/project1/noise1")
+        self.assertEqual(out["srcOutput"], 0)
+        self.assertEqual(out["dstInput"], 0)
+        self.assertIn(dst.inputConnectors[0], src.outputConnectors[0].connections)
+
+    def test_disconnect_ok(self) -> None:
+        ctx, src, dst = self._pair()
+        src.outputConnectors[0].connect(dst.inputConnectors[0])
+        out = tdmcp_bridge.apply_step(
+            ctx,
+            {"op": "disconnect", "path": "/project1/null1", "input": 0},
+            detail_level="detailed",
+        )
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["path"], "/project1/null1")
+        self.assertEqual(out["input"], 0)
+        self.assertEqual(dst.inputConnectors[0].connections, [])
+
+    def test_connect_src_missing(self) -> None:
+        ctx = FakeCtx()
+        ctx.track(FakeNode("/project1/null1"))
+        out = tdmcp_bridge.apply_step(
+            ctx,
+            {
+                "op": "connect",
+                "src": "/project1/missing",
+                "dst": "/project1/null1",
+            },
+        )
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["code"], "tdmcp.op.not_found")
+
+    def test_connect_dst_missing(self) -> None:
+        ctx = FakeCtx()
+        ctx.track(FakeNode("/project1/noise1"))
+        out = tdmcp_bridge.apply_step(
+            ctx,
+            {
+                "op": "connect",
+                "src": "/project1/noise1",
+                "dst": "/project1/missing",
+            },
+        )
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["code"], "tdmcp.op.not_found")
+
+    def test_connect_bad_index(self) -> None:
+        ctx, _src, _dst = self._pair()
+        out = tdmcp_bridge.apply_step(
+            ctx,
+            {
+                "op": "connect",
+                "src": "/project1/noise1",
+                "dst": "/project1/null1",
+                "dstInput": 99,
+            },
+        )
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["code"], "tdmcp.wire.bad_index")
+
+    def test_disconnect_bad_index(self) -> None:
+        ctx, _src, dst = self._pair()
+        out = tdmcp_bridge.apply_step(
+            ctx,
+            {"op": "disconnect", "path": dst.path, "input": 99},
+        )
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["code"], "tdmcp.wire.bad_index")
+
+    def test_connect_relative_context(self) -> None:
+        ctx, src, dst = self._pair()
+        out = tdmcp_bridge.apply_step(
+            ctx,
+            {"op": "connect", "src": "noise1", "dst": "null1"},
+            context_path="/project1",
+        )
+        self.assertTrue(out["ok"])
+        self.assertIn(dst.inputConnectors[0], src.outputConnectors[0].connections)
+
+    def test_batch_connect_fail_skips(self) -> None:
+        ctx = FakeCtx()
+        parent = ctx.nodes["/project1"]
+        orig = parent.create
+
+        def create_and_track(op_cls: Any, name: str) -> FakeNode:
+            return ctx.track(orig(op_cls, name))
+
+        parent.create = create_and_track  # type: ignore[method-assign]
+        out = tdmcp_bridge.run_mutate_steps(
+            ctx,
+            [
+                {"op": "create", "path": "/project1/noise1", "opType": "noiseTOP"},
+                {
+                    "op": "connect",
+                    "src": "/project1/noise1",
+                    "dst": "/project1/missing",
+                },
+                {"op": "delete", "path": "/project1/noise1"},
+            ],
+        )
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["applied"], 1)
+        self.assertEqual(out["failedAt"], 1)
+        self.assertEqual(out["steps"][1]["code"], "tdmcp.op.not_found")
+        self.assertTrue(out["steps"][2].get("skipped"))
+        self.assertEqual(out["steps"][2]["code"], "tdmcp.batch.skipped_dependent")
 
 
 class MutateDeleteTest(unittest.TestCase):

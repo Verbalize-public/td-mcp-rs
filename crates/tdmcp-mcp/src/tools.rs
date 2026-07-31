@@ -101,7 +101,7 @@ pub fn tool_descriptors() -> Vec<ToolDescriptor> {
         },
         ToolDescriptor {
             name: "mutate_nodes".into(),
-            description: "Ordered create/set/delete steps; sequential apply, stop on first hard error; later steps skipped (tdmcp.batch.skipped_dependent). Fix from failedAt only.".into(),
+            description: "Ordered create/set/delete/connect/disconnect steps; sequential apply, stop on first hard error; later steps skipped (tdmcp.batch.skipped_dependent). Fix from failedAt only.".into(),
             input_schema: input_schema_for("mutate_nodes"),
         },
         ToolDescriptor {
@@ -250,7 +250,7 @@ pub struct InspectParams {
     pub detail_level: DetailLevel,
 }
 
-/// One ordered mutate step (`create` / `set` / `delete`).
+/// One ordered mutate step (`create` / `set` / `delete` / `connect` / `disconnect`).
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "lowercase", deny_unknown_fields)]
 pub enum MutateStep {
@@ -283,6 +283,27 @@ pub enum MutateStep {
     Delete {
         /// Target node path.
         path: OpPath,
+    },
+    /// Wire `src` output connector to `dst` input connector.
+    Connect {
+        /// Source operator path.
+        src: OpPath,
+        /// Destination operator path.
+        dst: OpPath,
+        /// Source output connector index (default 0).
+        #[serde(default, rename = "srcOutput")]
+        src_output: u32,
+        /// Destination input connector index (default 0).
+        #[serde(default, rename = "dstInput")]
+        dst_input: u32,
+    },
+    /// Clear an input connector on `path`.
+    Disconnect {
+        /// Target operator path (destination side).
+        path: OpPath,
+        /// Input connector index to clear (default 0).
+        #[serde(default)]
+        input: u32,
     },
 }
 

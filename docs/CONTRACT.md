@@ -144,13 +144,13 @@ only — not bridge peer health.
 | `inspect` | Structural subtree read (nodes / params / errors / warnings); summary = direct-child roster | **Shipped** |
 | `capture` | Perception — `top` / `preview` / `auto` | **Shipped** (P0 modes) |
 | `describe_tools` | Manifest of available tools | **Shipped** |
-| `mutate_nodes` | Ordered create / set / delete steps; sequential apply, stop on first hard error | **Shipped** |
+| `mutate_nodes` | Ordered create / set / delete / connect / disconnect steps; sequential apply, stop on first hard error | **Shipped** |
 | `dialogs` | List / dismiss OS dialogs | **Planned** (P1, Win) |
 | `api_help` | Live TD Python API introspection | **Planned** (P1) |
 | `capture` `chop_data` / `pop` / `chop_image` | Extra perception modes | **Planned** (P1 / P1.x) |
 | Lifecycle create/start/stop | Return new `pid` | **Planned** (P2) |
 
-**Not planned (v1):** sticky / `select_target` / `targetId` / ToeDigest / inject / `call_node` (use `execute_python` for node method calls).
+**Not planned (v1):** sticky / `select_target` / `targetId` / ToeDigest / inject / `call_node` (use `execute_python` for other node method calls; connector wiring is `mutate_nodes` `connect` / `disconnect`).
 
 ### Three layers
 
@@ -213,6 +213,10 @@ Step shapes:
 | `create` | `path`, `opType`, `values?` | Parent derived from path resolution; `values` is a convenience (agent may follow with `set`) |
 | `set` | `path`, `values?`, `expressions?`, `pulse?` | Explicit modes — no silent guessing. `values: {name: val}`, `expressions: {name: expr}`, `pulse: [name]` |
 | `delete` | `path` | |
+| `connect` | `src`, `dst`, `srcOutput?` (default 0), `dstInput?` (default 0) | `src.outputConnectors[i].connect(dst.inputConnectors[j])`. Echoes canonical `path` = dst |
+| `disconnect` | `path`, `input?` (default 0) | `path.inputConnectors[input].disconnect()` |
+
+Wire errors: `tdmcp.wire.bad_index` (connector index OOB), `tdmcp.wire.connect_failed` (TD connector exception); missing ops reuse `tdmcp.op.not_found`.
 
 Result (summary):
 
@@ -295,7 +299,7 @@ Daemon CLI: `start` (foreground; tray + toast by default, dashboard hidden until
 | Phase | Ship | Exit green | Status |
 | --- | --- | --- | --- |
 | **P0** | Daemon + IPC + bootstrap + Streamable HTTP: `fleet` + script/errors + `capture` (`top`/`preview`) + diagnostics + per-pid queue + exclusive fail + resurrection | Two connected pids; exclusive fails while busy; perception non-black; structured script failure | **Shipped** (see [`E2E_CHECKLIST.md`](E2E_CHECKLIST.md)) |
-| **P1** | `mutate_nodes`, `capture` `chop_data`, dialogs (Win), op lint engine | `mutate_nodes` sequential apply stops at first bad path with `failedAt`; later steps emit `tdmcp.batch.skipped_dependent`; pure `apply_step` seam unit-covered without TD | Partial (`mutate_nodes` **Shipped** + live E2E M1–M11; remaining P1 items **Planned**) |
+| **P1** | `mutate_nodes` (incl. connect/disconnect), `capture` `chop_data`, dialogs (Win), op lint engine | `mutate_nodes` sequential apply stops at first bad path with `failedAt`; later steps emit `tdmcp.batch.skipped_dependent`; pure `apply_step` seam unit-covered without TD | Partial (`mutate_nodes` **Shipped** + live E2E M1–M17; remaining P1 items **Planned**) |
 | **P1.x** | `capture` `pop`, `chop_image` | Non-TOP heroes via temp converters | **Planned** |
 | **P2** | Lifecycle create/start/stop (tray already shipped) | Operator create/start/stop; new project by pid | Partial (tray **Shipped**; lifecycle **Planned**) |
 | **P3** | WebSocket / remote RFC | Separate design review | **Planned** |

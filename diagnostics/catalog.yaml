@@ -133,12 +133,34 @@ entries:
       - kind: doc
         id: mutate_nodes
 
+  - code: tdmcp.wire.bad_index
+    layer: mutate
+    message: "Connector index out of range for connect/disconnect"
+    mitigation:
+      - "Use srcOutput/dstInput/input within the OP's connector count (usually 0)"
+      - "Re-inspect the node; multi-in/out OPs expose more indices"
+      - "Fix the failedAt step only; later steps are skipped, not replayed"
+    references:
+      - kind: doc
+        id: mutate_nodes
+
+  - code: tdmcp.wire.connect_failed
+    layer: mutate
+    message: "Connector connect/disconnect raised a TD-side error"
+    mitigation:
+      - "Confirm both ops exist and share a compatible family for wiring"
+      - "Read the message for the TD connector error"
+      - "Fix the failedAt step only; later steps are skipped, not replayed"
+    references:
+      - kind: doc
+        id: mutate_nodes
+
   - code: tdmcp.script.execution_failed
     layer: script
     message: "Python script execution failed"
     mitigation:
       - "Fix using span + references"
-      - "Prefer mutate_nodes for simple create/set/delete"
+      - "Prefer mutate_nodes for simple create/set/delete/connect/disconnect"
     references:
       - kind: corpus
         id: corpora/td-software/distilled/python-td-module/README.md

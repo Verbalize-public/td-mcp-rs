@@ -284,6 +284,8 @@ fn mutate_failure_from_steps(value: &Value) -> (&'static str, String, Option<OpP
                     codes::PAR_UNKNOWN => codes::PAR_UNKNOWN,
                     codes::BATCH_SKIPPED_DEPENDENT => codes::BATCH_SKIPPED_DEPENDENT,
                     codes::MUTATE_STEP_FAILED => codes::MUTATE_STEP_FAILED,
+                    codes::WIRE_BAD_INDEX => codes::WIRE_BAD_INDEX,
+                    codes::WIRE_CONNECT_FAILED => codes::WIRE_CONNECT_FAILED,
                     _ => codes::MUTATE_STEP_FAILED,
                 };
                 let msg = step

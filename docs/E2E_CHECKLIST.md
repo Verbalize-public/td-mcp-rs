@@ -65,6 +65,11 @@ See [`DEV_ENV.md`](DEV_ENV.md) § Dev smoke. Does **not** replace rows 1–12 be
 | M10 | Structural errors/warnings clean after the whole pass (`inspect` default `errors`+`warnings` / classic `get_td_node_errors`); when a node warns, `node.warnings` is non-empty | ✅ |
 | M11 | `capture` top on a created TOP → non-black | ✅ |
 | M12 | Create bare `mathCHOP` → immediate `inspect` → `node.errors` non-empty (`Not enough sources`) | ✅ |
+| M13 | Batch: create `noiseTOP` + `nullTOP`, `connect` src→dst → `applied:3`; `capture` top on null **non-black** | ✅ |
+| M14 | `disconnect` that null’s input `0` → `ok`; re-`capture` → `tdmcp.perception.black_frame` | ✅ |
+| M15 | `connect` with `dstInput: 99` → `failedAt` + `tdmcp.wire.bad_index` | ✅ |
+| M16 | `connect` missing `src` → `tdmcp.op.not_found`; following step `tdmcp.batch.skipped_dependent` | ✅ |
+| M17 | Create `mathCHOP` + `constantCHOP`, `connect`, `inspect` → math `node.errors` empty (pairs with M12) | ✅ |
 
 **Run record (P0):** 2026-07-29, TouchDesigner 099.2025.33070 (Windows), two
 `_agent_tdmcprs_e2e*` sandbox projects, daemon `0.1.0` release build. All 12
@@ -88,6 +93,12 @@ All M1–M11 pass over HTTP JSON `/mcp/tools/call`. Notes:
   `layer:fleet` without mitigation until the stamp was deleted and assets
   re-extracted. Workaround for same-version rebuilds: delete
   `%LOCALAPPDATA%/tdmcp-rs/install.version` before `ensure`.
+
+**Run record (`mutate_nodes` connect/disconnect M13–M17):** 2026-07-31,
+`eldenmess.3.toe` (pid 25300), zone `/project1/agent_mutate_probe`, daemon
+`0.1.0` release rebuild after adding wire steps. All M13–M17 pass over HTTP
+`/mcp/tools/call`. Dump: `tmp/mutate_wire_e2e_20260731_125953.jsonl`.
+Connect uses `src.outputConnectors[i].connect(dst.inputConnectors[j])`.
 
 ## Bugs found and fixed during this run
 

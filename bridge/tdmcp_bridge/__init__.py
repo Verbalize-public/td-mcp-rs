@@ -779,11 +779,15 @@ def apply_step(
             return _step_set(ctx, step, context_path, detail_level)
         if op == "delete":
             return _step_delete(ctx, step, context_path)
+        if op == "connect":
+            return _step_connect(ctx, step, context_path, detail_level)
+        if op == "disconnect":
+            return _step_disconnect(ctx, step, context_path, detail_level)
         return {
             "ok": False,
             "code": "tdmcp.mutate.step_failed",
             "message": f"unknown mutate op: {op}",
-            "path": step.get("path"),
+            "path": step.get("path") or step.get("dst"),
         }
     except Exception as exc:  # noqa: BLE001 — never propagate raw
         return {
@@ -912,6 +916,153 @@ def _step_delete(
     return {"ok": True, "path": node_path}
 
 
+def _connector_index(step: dict[str, Any], key: str, default: int = 0) -> int:
+    """Coerce a connector index from a step field; default when missing/null."""
+    raw = step.get(key, default)
+    if raw is None:
+        return default
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return default
+
+
+def _step_connect(
+    ctx: MutateContext,
+    step: dict[str, Any],
+    context_path: str | None,
+    detail_level: str,
+) -> dict[str, Any]:
+    """Wire ``src.outputConnectors[i]`` to ``dst.inputConnectors[j]``."""
+    src_path = _absolutize_path(step.get("src") or "", context_path)
+    dst_path = _absolutize_path(step.get("dst") or "", context_path)
+    src_output = _connector_index(step, "srcOutput", 0)
+    dst_input = _connector_index(step, "dstInput", 0)
+
+    src = ctx.resolve(src_path)
+    if src is None:
+        return {
+            "ok": False,
+            "code": "tdmcp.op.not_found",
+            "message": f"node not found: {src_path}",
+            "path": src_path,
+        }
+    dst = ctx.resolve(dst_path)
+    if dst is None:
+        return {
+            "ok": False,
+            "code": "tdmcp.op.not_found",
+            "message": f"node not found: {dst_path}",
+            "path": dst_path,
+        }
+
+    dst_canon = getattr(dst, "path", None) or dst_path
+    src_canon = getattr(src, "path", None) or src_path
+    try:
+        out_cons = getattr(src, "outputConnectors", None)
+        in_cons = getattr(dst, "inputConnectors", None)
+        if out_cons is None or in_cons is None:
+            return {
+                "ok": False,
+                "code": "tdmcp.wire.connect_failed",
+                "message": "node missing inputConnectors/outputConnectors",
+                "path": dst_canon,
+            }
+        try:
+            out_c = out_cons[src_output]
+            in_c = in_cons[dst_input]
+        except (IndexError, KeyError, TypeError) as exc:
+            return {
+                "ok": False,
+                "code": "tdmcp.wire.bad_index",
+                "message": (
+                    f"bad connector index srcOutput={src_output} "
+                    f"dstInput={dst_input}: {exc}"
+                ),
+                "path": dst_canon,
+            }
+        out_c.connect(in_c)
+    except IndexError as exc:
+        return {
+            "ok": False,
+            "code": "tdmcp.wire.bad_index",
+            "message": str(exc),
+            "path": dst_canon,
+        }
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "ok": False,
+            "code": "tdmcp.wire.connect_failed",
+            "message": str(exc),
+            "path": dst_canon,
+        }
+
+    out: dict[str, Any] = {"ok": True, "path": dst_canon}
+    if detail_level == "detailed":
+        out["src"] = src_canon
+        out["srcOutput"] = src_output
+        out["dstInput"] = dst_input
+    return out
+
+
+def _step_disconnect(
+    ctx: MutateContext,
+    step: dict[str, Any],
+    context_path: str | None,
+    detail_level: str,
+) -> dict[str, Any]:
+    """Clear ``path.inputConnectors[input]``."""
+    full = _absolutize_path(step.get("path") or "", context_path)
+    input_idx = _connector_index(step, "input", 0)
+    node = ctx.resolve(full)
+    if node is None:
+        return {
+            "ok": False,
+            "code": "tdmcp.op.not_found",
+            "message": f"node not found: {full}",
+            "path": full,
+        }
+    node_path = getattr(node, "path", None) or full
+    try:
+        in_cons = getattr(node, "inputConnectors", None)
+        if in_cons is None:
+            return {
+                "ok": False,
+                "code": "tdmcp.wire.connect_failed",
+                "message": "node missing inputConnectors",
+                "path": node_path,
+            }
+        try:
+            in_c = in_cons[input_idx]
+        except (IndexError, KeyError, TypeError) as exc:
+            return {
+                "ok": False,
+                "code": "tdmcp.wire.bad_index",
+                "message": f"bad input connector index {input_idx}: {exc}",
+                "path": node_path,
+            }
+        in_c.disconnect()
+    except IndexError as exc:
+        return {
+            "ok": False,
+            "code": "tdmcp.wire.bad_index",
+            "message": str(exc),
+            "path": node_path,
+        }
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "ok": False,
+            "code": "tdmcp.wire.connect_failed",
+            "message": str(exc),
+            "path": node_path,
+        }
+
+    out: dict[str, Any] = {"ok": True, "path": node_path}
+    if detail_level == "detailed":
+        out["input"] = input_idx
+    return out
+
+
 def run_mutate_steps(
     ctx: MutateContext,
     steps: list[dict[str, Any]],
@@ -930,7 +1081,7 @@ def run_mutate_steps(
                     "ok": False,
                     "skipped": True,
                     "code": "tdmcp.batch.skipped_dependent",
-                    "path": step.get("path"),
+                    "path": step.get("path") or step.get("dst"),
                 }
             )
             continue

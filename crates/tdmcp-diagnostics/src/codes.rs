@@ -33,6 +33,10 @@ pub const BATCH_SKIPPED_DEPENDENT: &str = "tdmcp.batch.skipped_dependent";
 pub const PAR_UNKNOWN: &str = "tdmcp.par.unknown";
 /// Mutate step failed with a TD-side exception (catch-all).
 pub const MUTATE_STEP_FAILED: &str = "tdmcp.mutate.step_failed";
+/// Connector index out of range for connect/disconnect.
+pub const WIRE_BAD_INDEX: &str = "tdmcp.wire.bad_index";
+/// Connector connect/disconnect raised a TD-side error.
+pub const WIRE_CONNECT_FAILED: &str = "tdmcp.wire.connect_failed";
 
 /// Python script execution failed.
 pub const SCRIPT_EXECUTION_FAILED: &str = "tdmcp.script.execution_failed";
@@ -60,6 +64,8 @@ pub const ALL: &[&str] = &[
     BATCH_SKIPPED_DEPENDENT,
     PAR_UNKNOWN,
     MUTATE_STEP_FAILED,
+    WIRE_BAD_INDEX,
+    WIRE_CONNECT_FAILED,
     SCRIPT_EXECUTION_FAILED,
     TD_GLSL_COMPILE,
     PERCEPTION_BLACK_FRAME,
