@@ -6,7 +6,7 @@ use std::process::Command;
 use axum::extract::State;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tracing::{info, warn};
 
@@ -47,6 +47,8 @@ pub fn build_admin_router(state: AppState, restart: RestartArgs) -> Router {
     Router::new()
         .route("/admin/status", get(status))
         .route("/admin/fleet", get(admin_fleet))
+        .route("/admin/mcp-sessions", get(mcp_sessions))
+        .route("/admin/mcp-sessions/annotate", post(annotate_session))
         .route("/admin/shutdown", post(shutdown))
         .route("/admin/restart", post(restart_daemon))
         .route("/admin/history", get(history))
@@ -59,13 +61,28 @@ struct StatusBody {
     ok: bool,
     version: &'static str,
     pid: u32,
+    mcp_session_count: usize,
+    bridge_count: usize,
 }
 
-async fn status() -> Json<StatusBody> {
+async fn status(State(state): State<AdminState>) -> Json<StatusBody> {
+    let registry = state.app.registry.lock().await;
+    let params = FleetParams {
+        pids: None,
+        include: vec![],
+    };
+    let fleet = fleet_summary(&registry, &params);
+    let bridge_count = fleet
+        .processes
+        .iter()
+        .filter(|p| p.bridge == tdmcp_core::BridgeStatus::Connected)
+        .count();
     Json(StatusBody {
         ok: true,
         version: env!("CARGO_PKG_VERSION"),
         pid: std::process::id(),
+        mcp_session_count: state.app.mcp_session_count(),
+        bridge_count,
     })
 }
 
@@ -77,6 +94,50 @@ async fn admin_fleet(State(state): State<AdminState>) -> Json<Value> {
     };
     let fleet = fleet_summary(&registry, &params);
     Json(serde_json::to_value(fleet).unwrap_or(Value::Null))
+}
+
+async fn mcp_sessions(State(state): State<AdminState>) -> Json<Value> {
+    let sessions = state.app.mcp_sessions.list();
+    Json(serde_json::json!({ "sessions": sessions }))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AnnotateBody {
+    /// Exact session id (preferred).
+    #[serde(default)]
+    id: Option<String>,
+    /// Match newest session with this clientName (stdio proxy path).
+    #[serde(default)]
+    match_client_name: Option<String>,
+    client_name: String,
+    #[serde(default)]
+    client_version: String,
+}
+
+async fn annotate_session(
+    State(state): State<AdminState>,
+    Json(body): Json<AnnotateBody>,
+) -> Json<Value> {
+    if let Some(id) = body.id.as_deref().filter(|s| !s.is_empty()) {
+        let ok = state
+            .app
+            .mcp_sessions
+            .annotate(id, body.client_name, body.client_version);
+        return Json(serde_json::json!({ "ok": ok, "id": id }));
+    }
+    if let Some(match_name) = body.match_client_name.as_deref().filter(|s| !s.is_empty()) {
+        match state.app.mcp_sessions.annotate_latest_matching(
+            match_name,
+            body.client_name,
+            body.client_version,
+        ) {
+            Some(id) => Json(serde_json::json!({ "ok": true, "id": id })),
+            None => Json(serde_json::json!({ "ok": false, "error": "no matching session" })),
+        }
+    } else {
+        Json(serde_json::json!({ "ok": false, "error": "id or matchClientName required" }))
+    }
 }
 
 async fn history(State(state): State<AdminState>) -> Json<Value> {

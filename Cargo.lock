@@ -4526,6 +4526,7 @@ dependencies = [
  "async-trait",
  "axum",
  "chrono",
+ "reqwest 0.12.28",
  "rmcp",
  "schemars",
  "serde",
@@ -4536,6 +4537,7 @@ dependencies = [
  "thiserror 2.0.19",
  "tokio",
  "tracing",
+ "uuid",
 ]
 
 [[package]]

@@ -45,8 +45,9 @@ Bridge package and diagnostic catalog ship beside the repo (`bridge/`,
    restarts, and exits on its own after **30s** with no MCP sessions and no
    TD bridges (`TDMCP_IDLE_EXIT_SECS`; `0` disables). By default the detached
    daemon also shows a system-tray icon and a startup toast (dashboard window
-   stays hidden until you open it from the tray; **Stop** ends the process).
-   Use `--no-gui` or `TDMCP_NO_GUI=1` for headless.
+   stays hidden until you left-click the tray icon; right-click has Restart /
+   Stop; **Stop** ends the process). Use `--no-gui` or `TDMCP_NO_GUI=1` for
+   headless.
 
    First run extracts embedded bridge, catalog, and bootstrap `.tox` into the
    data dir (`install` / `ensure` / `start` / `mcp` all do this). Default:
@@ -74,9 +75,9 @@ tdmcp-daemon start --port 9860
 # Health: GET http://127.0.0.1:9860/mcp/health → {"ok":true}
 ```
 
-Tray (default): icon + toast on start; open the dashboard yourself via Show /
-tray click. Closing the window only hides it — use **Stop** /
-`tdmcp-daemon stop` to end the process.
+Tray (default): icon + toast on start; left-click toggles the compact dashboard
+(Docker-style; auto-hides on focus loss). Right-click: Restart / Stop. Closing
+the window only hides it — use **Stop** / `tdmcp-daemon stop` to end the process.
 
 Other CLI helpers: `tdmcp-daemon ensure` (spawn if down; `--force` re-extracts
 embedded assets), `install` (extract assets only; `--force` same-version

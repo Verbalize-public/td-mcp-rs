@@ -1,21 +1,29 @@
 //! td-mcp-rs tray dashboard (egui 0.35 + tray-icon + notify-rust).
 //!
 //! Consumed in-process by `tdmcp-daemon` when the `gui` feature is enabled.
-//! Closing the window or choosing Hide only hides the UI — it does not stop
+//! Closing the window or losing focus only hides the UI — it does not stop
 //! the daemon. Use Stop / `/admin/shutdown` to end the process.
 
-use std::time::{Duration, Instant};
+mod theme;
+
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
 use eframe::egui;
 use serde::Deserialize;
 use tracing::warn;
-use tray_icon::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
-use tray_icon::{Icon, TrayIcon, TrayIconBuilder, TrayIconEvent};
+use tray_icon::menu::{Menu, MenuEvent, MenuItem};
+use tray_icon::{Icon, MouseButton, MouseButtonState, Rect, TrayIcon, TrayIconBuilder, TrayIconEvent};
+
+use theme::{
+    chip, font_label, font_meta, font_mono, font_title, outline_button, section_header, status_led,
+    ACCENT, ACCENT_DIM, BG_HOVER, BG_ROW, BG_ROW_ALT, BORDER, ERR, OK, TEXT, TEXT_DIM, TEXT_FAINT,
+    WARN, WINDOW_MAX_HEIGHT, WINDOW_WIDTH,
+};
 
 /// Run the tray dashboard on the calling thread (must be the process main thread).
 ///
-/// Polls `admin_base` (e.g. `http://127.0.0.1:9860`) for status/fleet.
+/// Polls `admin_base` (e.g. `http://127.0.0.1:9860`) for status/fleet/sessions.
 pub fn run(admin_base: String) -> Result<()> {
     let icon_normal_full = load_rgba(include_bytes!("../assets/icon-normal.png"), None)?;
     let icon_normal = load_rgba(include_bytes!("../assets/icon-normal.png"), Some(32))?;
@@ -28,9 +36,13 @@ pub fn run(admin_base: String) -> Result<()> {
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([720.0, 480.0])
+            .with_inner_size([WINDOW_WIDTH, 320.0])
+            .with_min_inner_size([WINDOW_WIDTH, 200.0])
+            .with_max_inner_size([WINDOW_WIDTH, WINDOW_MAX_HEIGHT])
             .with_title("td-mcp-rs")
             .with_icon(window_icon)
+            .with_decorations(true)
+            .with_resizable(false)
             // Tray + toast only at startup; user opens the dashboard via the tray.
             .with_visible(false),
         ..Default::default()
@@ -38,7 +50,8 @@ pub fn run(admin_base: String) -> Result<()> {
     eframe::run_native(
         "td-mcp-rs",
         options,
-        Box::new(move |_cc| {
+        Box::new(move |cc| {
+            theme::apply(&cc.egui_ctx);
             Ok(Box::new(DashboardApp::new(
                 admin_base,
                 icon_normal,
@@ -63,7 +76,6 @@ fn load_rgba(bytes: &[u8], max_side: Option<u32>) -> Result<RgbaIcon> {
             image::imageops::resize(&img, side, side, image::imageops::FilterType::Lanczos3)
         }
         _ => {
-            // Cap window icons at 256 to keep IconData reasonable.
             if width > 256 || height > 256 {
                 image::imageops::resize(&img, 256, 256, image::imageops::FilterType::Lanczos3)
             } else {
@@ -86,13 +98,12 @@ fn tray_icon_from(rgba: &RgbaIcon) -> Result<Icon> {
 
 struct DashboardApp {
     admin_base: String,
-    status_text: String,
+    status: Option<StatusView>,
     fleet_json: String,
+    sessions_json: String,
     last_poll: Option<Instant>,
     error: Option<String>,
     tray: Option<TrayIcon>,
-    menu_show: MenuItem,
-    menu_hide: MenuItem,
     menu_restart: MenuItem,
     menu_stop: MenuItem,
     icon_normal: RgbaIcon,
@@ -100,15 +111,19 @@ struct DashboardApp {
     attention: bool,
     prev_snapshot: FleetSnapshot,
     visible: bool,
-    /// Apply `Visible(false)` once after the first frame (some platforms ignore
-    /// `with_visible(false)` until the event loop is running).
+    /// Apply `Visible(false)` once after the first frame.
     pending_initial_hide: bool,
     /// Fired once after the first successful `/admin/status` poll.
     startup_notified: bool,
-    /// Fired once when polls fail before any success (daemon thread died / bind fail).
+    /// Fired once when polls fail before any success.
     startup_fail_notified: bool,
-    /// Consecutive failed status polls before the first success.
     fail_polls: u32,
+    /// Drop always-on-top after this instant (transient focus grab).
+    clear_always_on_top_at: Option<Instant>,
+    /// Suppress focus-loss hide briefly after show (tray click focus race).
+    ignore_focus_loss_until: Option<Instant>,
+    /// Last tray icon rect for anchoring.
+    last_tray_rect: Option<Rect>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -117,7 +132,6 @@ struct FleetSnapshot {
     disconnected: usize,
     resurrected: usize,
     cancelled: usize,
-    /// Pids that were connected last poll (for edge-triggered toasts).
     connected_pids: Vec<u32>,
     resurrected_pids: Vec<u32>,
     cancelled_total: usize,
@@ -126,13 +140,8 @@ struct FleetSnapshot {
 impl DashboardApp {
     fn new(admin_base: String, icon_normal: RgbaIcon, icon_attention: RgbaIcon) -> Result<Self> {
         let menu = Menu::new();
-        let menu_show = MenuItem::new("Show dashboard", true, None);
-        let menu_hide = MenuItem::new("Hide dashboard", true, None);
         let menu_restart = MenuItem::new("Restart daemon", true, None);
         let menu_stop = MenuItem::new("Stop daemon", true, None);
-        menu.append(&menu_show)?;
-        menu.append(&menu_hide)?;
-        menu.append(&PredefinedMenuItem::separator())?;
         menu.append(&menu_restart)?;
         menu.append(&menu_stop)?;
 
@@ -145,13 +154,12 @@ impl DashboardApp {
 
         Ok(Self {
             admin_base,
-            status_text: String::new(),
+            status: None,
             fleet_json: String::new(),
+            sessions_json: String::new(),
             last_poll: None,
             error: None,
             tray: Some(tray),
-            menu_show,
-            menu_hide,
             menu_restart,
             menu_stop,
             icon_normal,
@@ -163,6 +171,9 @@ impl DashboardApp {
             startup_notified: false,
             startup_fail_notified: false,
             fail_polls: 0,
+            clear_always_on_top_at: None,
+            ignore_focus_loss_until: None,
+            last_tray_rect: None,
         })
     }
 
@@ -174,25 +185,107 @@ impl DashboardApp {
 
     fn hide_window(&mut self, ctx: &egui::Context) {
         self.visible = false;
+        self.clear_always_on_top_at = None;
         ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+        ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(
+            egui::WindowLevel::Normal,
+        ));
     }
 
-    fn show_window(&mut self, ctx: &egui::Context) {
+    fn show_window(&mut self, ctx: &egui::Context, tray_rect: Option<Rect>) {
+        if let Some(r) = tray_rect {
+            self.last_tray_rect = Some(r);
+        }
         self.visible = true;
+        self.position_near_tray(ctx);
         ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+        // Transient always-on-top to win z-order (Docker-style), then drop.
+        ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(
+            egui::WindowLevel::AlwaysOnTop,
+        ));
         ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+        let now = Instant::now();
+        self.clear_always_on_top_at = Some(now + Duration::from_millis(150));
+        self.ignore_focus_loss_until = Some(now + Duration::from_millis(400));
+    }
+
+    fn toggle_window(&mut self, ctx: &egui::Context, tray_rect: Option<Rect>) {
+        if self.visible {
+            self.hide_window(ctx);
+        } else {
+            self.show_window(ctx, tray_rect);
+        }
+    }
+
+    fn position_near_tray(&self, ctx: &egui::Context) {
+        let Some(rect) = self.last_tray_rect else {
+            return;
+        };
+
+        // tray-icon reports the icon rect in *physical* pixels, but egui's
+        // `OuterPosition` expects *logical* points. On HiDPI displays the raw
+        // physical coords land the window off-screen (it still renders, so the
+        // taskbar preview shows it, but it's invisible). Convert via the OS
+        // scale, then clamp to the current monitor so it can never escape.
+        let scale = ctx
+            .input(|i| i.viewport().native_pixels_per_point)
+            .unwrap_or(1.0) as f64;
+        let scale = if scale > 0.0 { scale } else { 1.0 };
+        let icon_x = rect.position.x / scale;
+        let icon_y = rect.position.y / scale;
+        let icon_w = f64::from(rect.size.width) / scale;
+        let icon_h = f64::from(rect.size.height) / scale;
+
+        // Estimate popup size; height is content-driven but we place with a typical height.
+        let popup_w = f64::from(WINDOW_WIDTH);
+        let popup_h = 360.0_f64;
+
+        // Current monitor bounds in logical points. `monitor_size` is the size of
+        // the monitor the window is on (the window was hidden near the tray last,
+        // so this is normally the tray's monitor). Derive its origin by tiling the
+        // tray position into the monitor grid — good enough for the common
+        // same-sized-monitor case, and far better than landing off-screen.
+        let mon = ctx
+            .input(|i| i.viewport().monitor_size)
+            .map(|m| (m.x as f64, m.y as f64));
+        let (mon_x, mon_y, mon_w, mon_h) = match mon {
+            Some((w, h)) if w > 0.0 && h > 0.0 => {
+                let ox = (icon_x / w).floor() * w;
+                let oy = (icon_y / h).floor() * h;
+                (ox, oy, w, h)
+            }
+            _ => (0.0, 0.0, f64::INFINITY, f64::INFINITY),
+        };
+
+        // Bottom taskbar: grow up-left from icon. Top taskbar: grow down-left.
+        let taskbar_bottom = icon_y > mon_y + mon_h / 2.0;
+        let mut x = icon_x + icon_w - popup_w;
+        let mut y = if taskbar_bottom {
+            icon_y - popup_h - 4.0
+        } else {
+            icon_y + icon_h + 4.0
+        };
+
+        // Clamp so the whole popup stays on the monitor.
+        x = x.max(mon_x).min(mon_x + mon_w - popup_w);
+        y = y.max(mon_y).min(mon_y + mon_h - popup_h);
+
+        ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(
+            x as f32,
+            y as f32,
+        )));
     }
 
     fn poll(&mut self) {
         self.ensure_base();
         let status_ok = match http_get_blocking(&format!("{}/admin/status", self.admin_base)) {
             Ok(body) => {
-                self.status_text = body;
+                self.status = serde_json::from_str(&body).ok();
                 self.error = None;
                 true
             }
             Err(e) => {
-                self.status_text.clear();
+                self.status = None;
                 self.error = Some(e);
                 false
             }
@@ -203,6 +296,14 @@ impl DashboardApp {
                 self.apply_fleet_status();
             }
             Err(e) => self.error = Some(e),
+        }
+        match http_get_blocking(&format!("{}/admin/mcp-sessions", self.admin_base)) {
+            Ok(body) => self.sessions_json = body,
+            Err(e) => {
+                if self.error.is_none() {
+                    self.error = Some(e);
+                }
+            }
         }
 
         if status_ok {
@@ -216,7 +317,6 @@ impl DashboardApp {
             }
         } else if !self.startup_notified {
             self.fail_polls = self.fail_polls.saturating_add(1);
-            // Two failed polls (~2s apart) before any success ⇒ daemon thread likely dead.
             if self.fail_polls >= 2 && !self.startup_fail_notified {
                 self.startup_fail_notified = true;
                 notify(
@@ -252,7 +352,6 @@ impl DashboardApp {
         }
         snap.cancelled_total = snap.cancelled;
 
-        // Edge-triggered toasts.
         if self.startup_notified {
             for pid in &snap.resurrected_pids {
                 if !self.prev_snapshot.resurrected_pids.contains(pid) {
@@ -280,15 +379,21 @@ impl DashboardApp {
         }
 
         let needs_attention = snap.disconnected > 0 || snap.resurrected > 0 || snap.cancelled > 0;
-        let tooltip = if snap.connected + snap.disconnected == 0 {
+        let mcp_n = self
+            .status
+            .as_ref()
+            .map(|s| s.mcp_session_count)
+            .unwrap_or(0);
+        let tooltip = if snap.connected + snap.disconnected == 0 && mcp_n == 0 {
             "td-mcp-rs — no connections".to_owned()
         } else if needs_attention {
             format!(
-                "td-mcp-rs — {} connected, {} disconnected, {} resurrected, {} cancelled",
-                snap.connected, snap.disconnected, snap.resurrected, snap.cancelled
+                "td-mcp-rs — MCP {mcp_n}, TD {} connected, {} attention",
+                snap.connected,
+                snap.disconnected + snap.resurrected + snap.cancelled
             )
         } else {
-            format!("td-mcp-rs — {} connected", snap.connected)
+            format!("td-mcp-rs — MCP {mcp_n}, TD {} connected", snap.connected)
         };
 
         if let Some(tray) = &self.tray {
@@ -321,16 +426,33 @@ impl DashboardApp {
 
     fn handle_tray_events(&mut self, ctx: &egui::Context) {
         while let Ok(event) = TrayIconEvent::receiver().try_recv() {
-            if let TrayIconEvent::DoubleClick { .. } | TrayIconEvent::Click { .. } = event {
-                self.show_window(ctx);
+            match event {
+                TrayIconEvent::Click {
+                    button: MouseButton::Left,
+                    button_state: MouseButtonState::Up,
+                    rect,
+                    ..
+                }
+                | TrayIconEvent::DoubleClick {
+                    button: MouseButton::Left,
+                    rect,
+                    ..
+                } => {
+                    self.toggle_window(ctx, Some(rect));
+                }
+                TrayIconEvent::Click {
+                    button: MouseButton::Right,
+                    rect,
+                    ..
+                } => {
+                    // Keep rect for later show; OS menu handles Restart/Stop.
+                    self.last_tray_rect = Some(rect);
+                }
+                _ => {}
             }
         }
         while let Ok(event) = MenuEvent::receiver().try_recv() {
-            if event.id == self.menu_show.id() {
-                self.show_window(ctx);
-            } else if event.id == self.menu_hide.id() {
-                self.hide_window(ctx);
-            } else if event.id == self.menu_restart.id() {
+            if event.id == self.menu_restart.id() {
                 self.restart_daemon();
             } else if event.id == self.menu_stop.id() {
                 self.shutdown_daemon();
@@ -344,6 +466,265 @@ impl DashboardApp {
             self.hide_window(ctx);
         }
     }
+
+    fn handle_focus_loss(&mut self, ctx: &egui::Context) {
+        if !self.visible {
+            return;
+        }
+        if self
+            .ignore_focus_loss_until
+            .is_some_and(|t| Instant::now() < t)
+        {
+            return;
+        }
+        let focused = ctx.input(|i| i.viewport().focused);
+        if focused == Some(false) {
+            self.hide_window(ctx);
+        }
+    }
+
+    fn draw_header(&self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            status_led(ui, ACCENT);
+            ui.add_space(2.0);
+            ui.label(egui::RichText::new("td-mcp-rs").font(font_title()).color(TEXT));
+            if let Some(st) = &self.status {
+                ui.label(
+                    egui::RichText::new(format!("· v{}", st.version))
+                        .font(font_meta())
+                        .color(TEXT_DIM),
+                );
+                ui.label(
+                    egui::RichText::new(format!("· pid {}", st.pid))
+                        .font(font_mono())
+                        .color(TEXT_FAINT),
+                );
+            }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let ago = self
+                    .last_poll
+                    .map(|t| format!("updated {}s ago", t.elapsed().as_secs()))
+                    .unwrap_or_else(|| "updating…".into());
+                ui.label(egui::RichText::new(ago).font(font_meta()).color(TEXT_FAINT));
+            });
+        });
+    }
+
+    fn draw_chips(&self, ui: &mut egui::Ui) {
+        let mcp_n = self
+            .status
+            .as_ref()
+            .map(|s| s.mcp_session_count)
+            .unwrap_or(0);
+        let td_n = self
+            .status
+            .as_ref()
+            .map(|s| s.bridge_count)
+            .unwrap_or(self.prev_snapshot.connected);
+        let mcp_led = if mcp_n > 0 { OK } else { TEXT_FAINT };
+        let td_led = if self.prev_snapshot.disconnected > 0
+            || self.prev_snapshot.resurrected > 0
+            || self.prev_snapshot.cancelled > 0
+        {
+            WARN
+        } else if td_n > 0 {
+            OK
+        } else {
+            TEXT_FAINT
+        };
+        ui.horizontal(|ui| {
+            chip(ui, mcp_led, "MCP", mcp_n);
+            ui.add_space(8.0);
+            chip(ui, td_led, "TD", td_n);
+            if td_n > 0 {
+                ui.label(
+                    egui::RichText::new("connected")
+                        .font(font_meta())
+                        .color(TEXT_DIM),
+                );
+            }
+        });
+    }
+
+    fn draw_mcp_section(&self, ui: &mut egui::Ui) {
+        section_header(ui, "MCP CLIENTS");
+        let sessions = serde_json::from_str::<SessionsView>(&self.sessions_json)
+            .map(|v| v.sessions)
+            .unwrap_or_default();
+        if sessions.is_empty() {
+            ui.vertical_centered(|ui| {
+                ui.add_space(8.0);
+                ui.label(
+                    egui::RichText::new("No MCP clients connected")
+                        .font(font_meta())
+                        .color(TEXT_DIM),
+                );
+                ui.add_space(8.0);
+            });
+            return;
+        }
+        for (i, s) in sessions.iter().enumerate() {
+            let bg = if i % 2 == 0 { BG_ROW } else { BG_ROW_ALT };
+            let full = ui.available_width();
+            let (rect, response) =
+                ui.allocate_exact_size(egui::vec2(full, 24.0), egui::Sense::hover());
+            let fill = if response.hovered() { BG_HOVER } else { bg };
+            ui.painter().rect_filled(rect, 0.0, fill);
+            ui.painter().hline(
+                rect.x_range(),
+                rect.bottom(),
+                egui::Stroke::new(1.0, BORDER),
+            );
+
+            let mut child = ui.new_child(
+                egui::UiBuilder::new()
+                    .max_rect(rect.shrink2(egui::vec2(12.0, 0.0)))
+                    .layout(egui::Layout::left_to_right(egui::Align::Center)),
+            );
+            status_led(&mut child, OK);
+            child.add_space(6.0);
+            let id_tail = id_tail(&s.id);
+            child.label(
+                egui::RichText::new(id_tail)
+                    .font(font_mono())
+                    .color(TEXT_FAINT),
+            );
+            child.add_space(8.0);
+            child.label(
+                egui::RichText::new(&s.client_name)
+                    .font(font_label())
+                    .color(TEXT),
+            );
+            child.add_space(8.0);
+            if !s.client_version.is_empty() {
+                child.label(
+                    egui::RichText::new(&s.client_version)
+                        .font(font_mono())
+                        .color(TEXT_DIM),
+                );
+            }
+            child.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.label(
+                    egui::RichText::new(format_duration_since(s.connected_at))
+                        .font(font_mono())
+                        .color(TEXT_DIM),
+                );
+            });
+        }
+    }
+
+    fn draw_td_section(&self, ui: &mut egui::Ui) {
+        section_header(ui, "TOUCHDESIGNER");
+        let Ok(fleet) = serde_json::from_str::<FleetView>(&self.fleet_json) else {
+            ui.vertical_centered(|ui| {
+                ui.add_space(8.0);
+                ui.label(
+                    egui::RichText::new("No TouchDesigner bridges")
+                        .font(font_meta())
+                        .color(TEXT_DIM),
+                );
+                ui.add_space(8.0);
+            });
+            return;
+        };
+        if fleet.processes.is_empty() {
+            ui.vertical_centered(|ui| {
+                ui.add_space(8.0);
+                ui.label(
+                    egui::RichText::new("No TouchDesigner bridges")
+                        .font(font_meta())
+                        .color(TEXT_DIM),
+                );
+                ui.add_space(8.0);
+            });
+            return;
+        }
+        for (i, p) in fleet.processes.iter().enumerate() {
+            let bridge = p.bridge.as_str().unwrap_or("?");
+            let led = if p.resurrected || !p.cancelled_tasks.is_empty() || bridge == "disconnected"
+            {
+                WARN
+            } else if bridge == "connected" {
+                OK
+            } else {
+                TEXT_FAINT
+            };
+            let bg = if i % 2 == 0 { BG_ROW } else { BG_ROW_ALT };
+            let full = ui.available_width();
+            let (rect, response) =
+                ui.allocate_exact_size(egui::vec2(full, 24.0), egui::Sense::hover());
+            let fill = if response.hovered() { BG_HOVER } else { bg };
+            ui.painter().rect_filled(rect, 0.0, fill);
+            ui.painter().hline(
+                rect.x_range(),
+                rect.bottom(),
+                egui::Stroke::new(1.0, BORDER),
+            );
+
+            let mut child = ui.new_child(
+                egui::UiBuilder::new()
+                    .max_rect(rect.shrink2(egui::vec2(12.0, 0.0)))
+                    .layout(egui::Layout::left_to_right(egui::Align::Center)),
+            );
+            status_led(&mut child, led);
+            child.add_space(6.0);
+            child.label(
+                egui::RichText::new(p.pid.to_string())
+                    .font(font_mono())
+                    .color(TEXT_FAINT),
+            );
+            child.add_space(8.0);
+            child.label(
+                egui::RichText::new(p.title.as_deref().unwrap_or(""))
+                    .font(font_label())
+                    .color(TEXT),
+            );
+            child.add_space(8.0);
+            child.label(
+                egui::RichText::new(bridge)
+                    .font(font_meta())
+                    .color(TEXT_DIM),
+            );
+            child.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.label(
+                    egui::RichText::new(p.cancelled_tasks.len().to_string())
+                        .font(font_mono())
+                        .color(TEXT_DIM),
+                );
+                ui.add_space(8.0);
+                ui.label(
+                    egui::RichText::new(
+                        p.tasks
+                            .as_ref()
+                            .map(|t| t.len().to_string())
+                            .unwrap_or_else(|| "-".into()),
+                    )
+                    .font(font_mono())
+                    .color(TEXT_DIM),
+                );
+            });
+        }
+    }
+
+    fn draw_footer(&mut self, ui: &mut egui::Ui) {
+        ui.add_space(4.0);
+        let full = ui.available_width();
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(full, 36.0), egui::Sense::hover());
+        let mut child = ui.new_child(
+            egui::UiBuilder::new()
+                .max_rect(rect)
+                .layout(egui::Layout::right_to_left(egui::Align::Center)),
+        );
+        child.add_space(12.0);
+        if outline_button(&mut child, "Stop", ERR, ERR, true).clicked() {
+            self.shutdown_daemon();
+        }
+        child.add_space(8.0);
+        // Restart: accent_dim outline at rest → accent outline+fill on hover.
+        if outline_button(&mut child, "Restart", ACCENT_DIM, ACCENT, true).clicked() {
+            self.restart_daemon();
+        }
+    }
 }
 
 impl eframe::App for DashboardApp {
@@ -352,8 +733,17 @@ impl eframe::App for DashboardApp {
             self.pending_initial_hide = false;
             self.hide_window(ctx);
         }
+        if let Some(at) = self.clear_always_on_top_at {
+            if Instant::now() >= at {
+                ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(
+                    egui::WindowLevel::Normal,
+                ));
+                self.clear_always_on_top_at = None;
+            }
+        }
         self.handle_close_request(ctx);
         self.handle_tray_events(ctx);
+        self.handle_focus_loss(ctx);
         let due = self
             .last_poll
             .is_none_or(|t| t.elapsed() > Duration::from_secs(2));
@@ -364,62 +754,33 @@ impl eframe::App for DashboardApp {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        egui::CentralPanel::default().show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.heading("td-mcp-rs");
-                ui.separator();
-                ui.label("Admin:");
-                ui.text_edit_singleline(&mut self.admin_base);
-                if ui.button("Refresh").clicked() {
-                    self.poll();
-                }
-                if ui.button("Restart daemon").clicked() {
-                    self.restart_daemon();
-                }
-                if ui.button("Stop daemon").clicked() {
-                    self.shutdown_daemon();
-                }
-            });
-            ui.separator();
-
-            if let Some(err) = &self.error {
-                ui.colored_label(egui::Color32::RED, err);
-            }
-            ui.collapsing("Daemon status", |ui| {
-                ui.monospace(&self.status_text);
-            });
-            ui.separator();
-            ui.heading("Connections (fleet)");
-            if let Ok(fleet) = serde_json::from_str::<FleetView>(&self.fleet_json) {
-                egui::Grid::new("conn_grid").striped(true).show(ui, |ui| {
-                    ui.label("pid");
-                    ui.label("title");
-                    ui.label("bridge");
-                    ui.label("tasks");
-                    ui.label("cancelled");
-                    ui.end_row();
-                    for p in &fleet.processes {
-                        ui.label(p.pid.to_string());
-                        ui.label(p.title.as_deref().unwrap_or(""));
-                        ui.label(p.bridge.as_str().unwrap_or("?"));
-                        ui.label(
-                            p.tasks
-                                .as_ref()
-                                .map(|t| t.len().to_string())
-                                .unwrap_or_else(|| "-".into()),
-                        );
-                        ui.label(p.cancelled_tasks.len().to_string());
-                        ui.end_row();
-                    }
+        egui::CentralPanel::default()
+            .frame(egui::Frame::NONE.fill(theme::BG_WINDOW).inner_margin(0.0))
+            .show(ui, |ui| {
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    ui.add_space(12.0);
+                    ui.vertical(|ui| {
+                        self.draw_header(ui);
+                        ui.add_space(6.0);
+                        self.draw_chips(ui);
+                    });
                 });
-            } else {
-                ui.monospace(&self.fleet_json);
-            }
-            ui.separator();
-            ui.label(
-                "Starts hidden (tray + toast only). Tray: Show / Hide · Restart · Stop. Hide does not stop the daemon; Stop ends the process. Icon turns amber on attention.",
-            );
-        });
+                ui.add_space(8.0);
+                if let Some(err) = &self.error {
+                    ui.horizontal(|ui| {
+                        ui.add_space(12.0);
+                        ui.colored_label(ERR, err);
+                    });
+                }
+                egui::ScrollArea::vertical()
+                    .max_height(WINDOW_MAX_HEIGHT - 120.0)
+                    .show(ui, |ui| {
+                        self.draw_mcp_section(ui);
+                        self.draw_td_section(ui);
+                    });
+                self.draw_footer(ui);
+            });
     }
 }
 
@@ -438,6 +799,58 @@ pub fn toast(summary: &str, body: &str) {
 
 fn notify(summary: &str, body: &str) {
     toast(summary, body);
+}
+
+fn id_tail(id: &str) -> String {
+    let compact: String = id.chars().filter(|c| *c != '-').collect();
+    let tail = if compact.len() > 4 {
+        &compact[compact.len() - 4..]
+    } else {
+        &compact
+    };
+    format!("{tail}…")
+}
+
+fn format_duration_since(connected_at_ms: u64) -> String {
+    let now_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    let secs = now_ms.saturating_sub(connected_at_ms) / 1000;
+    if secs < 60 {
+        format!("{secs}s")
+    } else if secs < 3600 {
+        format!("{}m", secs / 60)
+    } else {
+        format!("{}h", secs / 3600)
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StatusView {
+    version: String,
+    pid: u32,
+    #[serde(default)]
+    mcp_session_count: usize,
+    #[serde(default)]
+    bridge_count: usize,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SessionsView {
+    sessions: Vec<SessionRow>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SessionRow {
+    id: String,
+    client_name: String,
+    #[serde(default)]
+    client_version: String,
+    connected_at: u64,
 }
 
 #[derive(Debug, Deserialize)]

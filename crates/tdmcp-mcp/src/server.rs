@@ -3,7 +3,6 @@
 //! A simple `/mcp/*` JSON surface for tests and as a fallback. The rmcp
 //! Streamable HTTP layer nests on top of the same [`AppState`].
 
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use axum::extract::State;
@@ -16,6 +15,7 @@ use tdmcp_diagnostics::Catalog;
 use tokio::sync::Mutex;
 
 use crate::bridge_rpc::BridgeRpc;
+use crate::session_registry::McpSessionRegistry;
 use crate::tools::{dispatch_tool, tool_descriptors, ToolCallError};
 
 /// Shared daemon state for MCP + admin handlers.
@@ -27,8 +27,8 @@ pub struct AppState {
     pub catalog: Arc<Catalog>,
     /// Live bridge transport (daemon-supplied).
     pub bridge: Arc<dyn BridgeRpc>,
-    /// Live Streamable HTTP MCP session leases (see [`crate::McpHandler`]).
-    pub mcp_sessions: Arc<AtomicUsize>,
+    /// Live Streamable HTTP MCP session registry (GUI + idle exit).
+    pub mcp_sessions: Arc<McpSessionRegistry>,
 }
 
 impl AppState {
@@ -39,7 +39,7 @@ impl AppState {
             registry: Arc::new(Mutex::new(registry)),
             catalog: Arc::new(catalog),
             bridge,
-            mcp_sessions: Arc::new(AtomicUsize::new(0)),
+            mcp_sessions: Arc::new(McpSessionRegistry::new()),
         }
     }
 
@@ -55,14 +55,14 @@ impl AppState {
             registry,
             catalog: Arc::new(catalog),
             bridge,
-            mcp_sessions: Arc::new(AtomicUsize::new(0)),
+            mcp_sessions: Arc::new(McpSessionRegistry::new()),
         }
     }
 
     /// Number of live Streamable HTTP MCP session leases.
     #[must_use]
     pub fn mcp_session_count(&self) -> usize {
-        self.mcp_sessions.load(Ordering::Relaxed)
+        self.mcp_sessions.len()
     }
 }
 

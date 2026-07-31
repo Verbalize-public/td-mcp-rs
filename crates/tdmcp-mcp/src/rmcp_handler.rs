@@ -8,39 +8,41 @@
 //! `Arc`s, so cloning it does not duplicate daemon state.
 //!
 //! Each handler acquires one [`McpSessionLease`] on [`AppState::mcp_sessions`].
-//! Clones share the lease `Arc` (no double-count); the counter decrements when
+//! Clones share the lease `Arc` (no double-count); the row is removed when
 //! the last clone of that session's handler is dropped.
 
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use rmcp::model::{
     CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, Implementation,
-    ListToolsResult, PaginatedRequestParams, ServerCapabilities, ServerInfo, Tool,
+    InitializeRequestParams, InitializeResult, ListToolsResult, PaginatedRequestParams,
+    ProtocolVersion, ServerCapabilities, ServerInfo, Tool,
 };
 use rmcp::service::RequestContext;
 use rmcp::{ErrorData, RoleServer, ServerHandler};
 use serde_json::Value;
 
 use crate::schema::input_schema_for;
+use crate::session_registry::McpSessionRegistry;
 use crate::tools::{dispatch_tool, tool_descriptors, ToolCallError};
 use crate::AppState;
 
-/// Decrements [`AppState::mcp_sessions`] when the last `Arc` clone is dropped.
+/// Removes the session row when the last `Arc` clone is dropped.
 struct McpSessionLease {
-    count: Arc<AtomicUsize>,
+    registry: Arc<McpSessionRegistry>,
+    id: String,
 }
 
 impl McpSessionLease {
-    fn acquire(count: Arc<AtomicUsize>) -> Arc<Self> {
-        count.fetch_add(1, Ordering::Relaxed);
-        Arc::new(Self { count })
+    fn acquire(registry: Arc<McpSessionRegistry>) -> Arc<Self> {
+        let id = registry.acquire();
+        Arc::new(Self { registry, id })
     }
 }
 
 impl Drop for McpSessionLease {
     fn drop(&mut self) {
-        self.count.fetch_sub(1, Ordering::Relaxed);
+        self.registry.release(&self.id);
     }
 }
 
@@ -49,7 +51,7 @@ impl Drop for McpSessionLease {
 pub struct McpHandler {
     state: AppState,
     /// Shared across clones of this session's handler; not incremented on clone.
-    _lease: Arc<McpSessionLease>,
+    lease: Arc<McpSessionLease>,
 }
 
 impl McpHandler {
@@ -57,10 +59,13 @@ impl McpHandler {
     #[must_use]
     pub fn new(state: AppState) -> Self {
         let lease = McpSessionLease::acquire(state.mcp_sessions.clone());
-        Self {
-            state,
-            _lease: lease,
-        }
+        Self { state, lease }
+    }
+
+    /// Registry session id for this handler lease.
+    #[must_use]
+    pub fn session_id(&self) -> &str {
+        &self.lease.id
     }
 }
 
@@ -75,6 +80,25 @@ impl ServerHandler for McpHandler {
                 "td-mcp-rs control plane. Call `fleet` to discover connected TouchDesigner \
                  processes by pid, then `execute_python` / `inspect` / `capture` against a pid.",
             )
+    }
+
+    async fn initialize(
+        &self,
+        request: InitializeRequestParams,
+        context: RequestContext<RoleServer>,
+    ) -> Result<InitializeResult, ErrorData> {
+        context.peer.set_peer_info(request.clone());
+        self.state.mcp_sessions.set_client_info(
+            &self.lease.id,
+            request.client_info.name.clone(),
+            request.client_info.version.clone(),
+        );
+        let mut info = self.get_info();
+        info.protocol_version = negotiate_protocol_version(
+            &request.protocol_version,
+            info.protocol_version,
+        );
+        Ok(info)
     }
 
     async fn list_tools(
@@ -124,6 +148,19 @@ impl ServerHandler for McpHandler {
                 Ok(call_tool_error_result(payload, fail.image_jpeg_base64).into())
             }
         }
+    }
+}
+
+/// Echoes the client-requested version if known; otherwise returns `server_fallback`.
+/// Mirrors rmcp's private `negotiate_protocol_version`.
+fn negotiate_protocol_version(
+    client_requested: &ProtocolVersion,
+    server_fallback: ProtocolVersion,
+) -> ProtocolVersion {
+    if ProtocolVersion::KNOWN_VERSIONS.contains(client_requested) {
+        client_requested.clone()
+    } else {
+        server_fallback
     }
 }
 

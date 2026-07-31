@@ -11,6 +11,7 @@ mod outcomes;
 mod rmcp_handler;
 mod schema;
 mod server;
+mod session_registry;
 pub mod stdio_proxy;
 pub mod testing;
 mod tools;
@@ -20,6 +21,7 @@ pub use fleet::{fleet_summary, FleetInclude, FleetParams, FleetProcess, FleetRes
 pub use rmcp_handler::McpHandler;
 pub use schema::input_schema_for;
 pub use server::{build_mcp_router, AppState};
+pub use session_registry::{McpSessionInfo, McpSessionRegistry};
 pub use stdio_proxy::{run as run_stdio_proxy, run_with_rw as run_stdio_proxy_rw, StdioProxyError};
 pub use tools::{
     dispatch_tool, tool_descriptors, BridgeOutcome, CaptureMode, CaptureParams, DetailLevel,

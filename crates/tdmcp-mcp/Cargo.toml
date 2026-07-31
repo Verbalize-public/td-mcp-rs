@@ -19,6 +19,8 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 tdmcp-core = { workspace = true }
 tdmcp-diagnostics = { workspace = true }
+uuid = { workspace = true }
+reqwest = { workspace = true }
 
 [dev-dependencies]
 tdmcp-test-support = { workspace = true }

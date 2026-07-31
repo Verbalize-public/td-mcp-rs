@@ -3,10 +3,10 @@
 //! Env `TDMCP_IDLE_EXIT_SECS` (default 30; `0` disables).
 
 use std::path::Path;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use tdmcp_mcp::McpSessionRegistry;
 use tracing::info;
 
 use crate::bridge::BridgeSessions;
@@ -43,7 +43,7 @@ pub fn idle_exit_timeout_from_env(raw: Option<&str>) -> Option<Duration> {
 /// Poll presence until continuous idle exceeds `timeout`, then toast and exit.
 pub async fn run_idle_watcher(
     bridges: BridgeSessions,
-    mcp_sessions: Arc<AtomicUsize>,
+    mcp_sessions: Arc<McpSessionRegistry>,
     data_dir: impl AsRef<Path>,
     timeout: Duration,
 ) {
@@ -53,7 +53,7 @@ pub async fn run_idle_watcher(
 
     loop {
         let bridge_count = bridges.connected_count().await;
-        let mcp_count = mcp_sessions.load(Ordering::Relaxed);
+        let mcp_count = mcp_sessions.len();
         let busy = bridge_count > 0 || mcp_count > 0;
 
         if busy {

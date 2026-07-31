@@ -6,14 +6,18 @@
 use std::sync::Arc;
 
 use rmcp::model::{
-    CallToolRequestParams, CallToolResponse, Implementation, ListToolsResult,
-    PaginatedRequestParams, ServerCapabilities, ServerInfo, Tool,
+    CallToolRequestParams, CallToolResponse, ClientCapabilities, ClientInfo, Implementation,
+    InitializeRequestParams, InitializeResult, ListToolsResult, PaginatedRequestParams,
+    ProtocolVersion, ServerCapabilities, ServerInfo, Tool,
 };
 use rmcp::service::{RequestContext, RunningService};
 use rmcp::transport::StreamableHttpClientTransport;
 use rmcp::{ErrorData, Peer, RoleClient, RoleServer, ServerHandler, ServiceError, ServiceExt};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tracing::{debug, info, warn};
+
+/// Client name advertised on the HTTP side so the daemon GUI can list the lease.
+pub const STDIO_PROXY_CLIENT_NAME: &str = "tdmcp-stdio-proxy";
 
 /// Errors from the stdio↔HTTP MCP proxy.
 #[derive(Debug, thiserror::Error)]
@@ -53,13 +57,20 @@ where
 {
     info!(%daemon_url, "stdio_proxy: connecting to daemon");
     let http = StreamableHttpClientTransport::from_uri(daemon_url.to_string());
-    let client: RunningService<RoleClient, ()> = ()
+    let client_info = ClientInfo::new(
+        ClientCapabilities::default(),
+        Implementation::new(STDIO_PROXY_CLIENT_NAME, env!("CARGO_PKG_VERSION")),
+    );
+    let client: RunningService<RoleClient, ClientInfo> = client_info
         .serve(http)
         .await
         .map_err(|e| StdioProxyError::Connect(e.to_string()))?;
 
+    let admin_base = admin_base_from_daemon_url(daemon_url);
     let proxy = StdioProxy {
         peer: Arc::new(client.peer().clone()),
+        admin_base,
+        annotated: Arc::new(std::sync::atomic::AtomicBool::new(false)),
     };
 
     let server = proxy
@@ -77,10 +88,22 @@ where
     Ok(())
 }
 
+/// Derive `http://127.0.0.1:9860` from `http://127.0.0.1:9860/mcp/rpc`.
+fn admin_base_from_daemon_url(daemon_url: &str) -> String {
+    let trimmed = daemon_url.trim_end_matches('/');
+    trimmed
+        .strip_suffix("/mcp/rpc")
+        .or_else(|| trimmed.strip_suffix("/mcp"))
+        .unwrap_or(trimmed)
+        .to_owned()
+}
+
 /// Stdio-facing handler that forwards tool ops to a daemon [`Peer`].
 #[derive(Clone)]
 struct StdioProxy {
     peer: Arc<Peer<RoleClient>>,
+    admin_base: String,
+    annotated: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl ServerHandler for StdioProxy {
@@ -96,6 +119,33 @@ impl ServerHandler for StdioProxy {
                  against a pid. v1 proxy forwards tools only — server notifications are not \
                  forwarded.",
             )
+    }
+
+    async fn initialize(
+        &self,
+        request: InitializeRequestParams,
+        context: RequestContext<RoleServer>,
+    ) -> Result<InitializeResult, ErrorData> {
+        context.peer.set_peer_info(request.clone());
+        // Best-effort: annotate the daemon-side HTTP lease with the IDE clientInfo.
+        if !self
+            .annotated
+            .swap(true, std::sync::atomic::Ordering::Relaxed)
+        {
+            let admin_base = self.admin_base.clone();
+            let name = request.client_info.name.clone();
+            let version = request.client_info.version.clone();
+            tokio::spawn(async move {
+                if let Err(e) = annotate_daemon_session(&admin_base, &name, &version).await {
+                    warn!(error = %e, "stdio_proxy: annotate MCP session failed");
+                }
+            });
+        }
+        let mut info = self.get_info();
+        if ProtocolVersion::KNOWN_VERSIONS.contains(&request.protocol_version) {
+            info.protocol_version = request.protocol_version.clone();
+        }
+        Ok(info)
     }
 
     async fn list_tools(
@@ -130,10 +180,52 @@ impl ServerHandler for StdioProxy {
     }
 }
 
+async fn annotate_daemon_session(
+    admin_base: &str,
+    client_name: &str,
+    client_version: &str,
+) -> Result<(), String> {
+    let url = format!("{admin_base}/admin/mcp-sessions/annotate");
+    let body = serde_json::json!({
+        "matchClientName": STDIO_PROXY_CLIENT_NAME,
+        "clientName": client_name,
+        "clientVersion": client_version,
+    });
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(&url)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!("HTTP {}", resp.status()));
+    }
+    Ok(())
+}
+
 fn service_err_to_error_data(err: ServiceError) -> ErrorData {
     match err {
         // Preserve upstream protocol codes (e.g. -32602 invalid_params for bad include).
         ServiceError::McpError(data) => data,
         other => ErrorData::internal_error(other.to_string(), None),
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, reason = "unit tests")]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn admin_base_strips_mcp_rpc() {
+        assert_eq!(
+            admin_base_from_daemon_url("http://127.0.0.1:9860/mcp/rpc"),
+            "http://127.0.0.1:9860"
+        );
+        assert_eq!(
+            admin_base_from_daemon_url("http://127.0.0.1:9860/mcp/rpc/"),
+            "http://127.0.0.1:9860"
+        );
     }
 }
