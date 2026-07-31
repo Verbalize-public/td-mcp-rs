@@ -4,6 +4,7 @@
 #![allow(clippy::expect_used, reason = "test setup/assertions may panic")]
 
 use std::path::PathBuf;
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use serde_json::{json, Value};
@@ -12,6 +13,7 @@ use tdmcp_daemon::admin::{build_admin_router, RestartArgs};
 use tdmcp_diagnostics::Catalog;
 use tdmcp_mcp::testing::FakeBridgeRpc;
 use tdmcp_mcp::{AppState, McpHandler};
+use tokio_util::sync::CancellationToken;
 use tower::ServiceExt;
 
 fn restart_args() -> RestartArgs {
@@ -23,6 +25,15 @@ fn restart_args() -> RestartArgs {
         catalog_path: PathBuf::from("."),
         no_gui: true,
     }
+}
+
+fn admin_router(state: AppState) -> axum::Router {
+    build_admin_router(
+        state,
+        restart_args(),
+        CancellationToken::new(),
+        Arc::new(AtomicBool::new(false)),
+    )
 }
 
 #[tokio::test]
@@ -40,7 +51,7 @@ async fn mcp_sessions_list_and_annotate() {
         .mcp_sessions
         .set_client_info(handler.session_id(), "tdmcp-stdio-proxy", "0.1.0");
 
-    let app = build_admin_router(state.clone(), restart_args());
+    let app = admin_router(state.clone());
 
     let response = app
         .clone()

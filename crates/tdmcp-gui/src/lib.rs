@@ -2,12 +2,14 @@
 //!
 //! Consumed in-process by `tdmcp-daemon` when the `gui` feature is enabled.
 //! Closing the window or losing focus only hides the UI — it does not stop
-//! the daemon. Use Stop / `/admin/shutdown` to end the process.
+//! the daemon. Use Stop / `/admin/shutdown` to end the process (sets `quit`).
 
 mod theme;
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
@@ -34,7 +36,8 @@ const FOCUS_LOSS_CLOSE_GRACE: Duration = Duration::from_millis(400);
 ///
 /// Polls `admin_base` (e.g. `http://127.0.0.1:9860`) for status/fleet/sessions.
 /// `data_dir` is the install root (contains `bootstrap.tox`) for the reveal button.
-pub fn run(admin_base: String, data_dir: PathBuf) -> Result<()> {
+/// When `quit` is set (Stop / idle / admin shutdown), the event loop closes for real.
+pub fn run(admin_base: String, data_dir: PathBuf, quit: Arc<AtomicBool>) -> Result<()> {
     let icon_normal_full = load_rgba(include_bytes!("../assets/icon-normal.png"), None)?;
     let icon_normal = load_rgba(include_bytes!("../assets/icon-normal.png"), Some(32))?;
     let icon_attention = load_rgba(include_bytes!("../assets/icon-attention.png"), Some(32))?;
@@ -68,6 +71,7 @@ pub fn run(admin_base: String, data_dir: PathBuf) -> Result<()> {
                 data_dir,
                 icon_normal,
                 icon_attention,
+                quit,
             )?))
         }),
     )
@@ -141,6 +145,8 @@ struct DashboardApp {
     last_tray_toggle_at: Option<Instant>,
     /// Last tray icon rect for anchoring.
     last_tray_rect: Option<Rect>,
+    /// Shared with the daemon thread — when set, close the event loop for real.
+    quit: Arc<AtomicBool>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -160,6 +166,7 @@ impl DashboardApp {
         data_dir: PathBuf,
         icon_normal: RgbaIcon,
         icon_attention: RgbaIcon,
+        quit: Arc<AtomicBool>,
     ) -> Result<Self> {
         let menu = Menu::new();
         let menu_restart = MenuItem::new("Restart daemon", true, None);
@@ -200,7 +207,12 @@ impl DashboardApp {
             hidden_by_focus_loss_at: None,
             last_tray_toggle_at: None,
             last_tray_rect: None,
+            quit,
         })
+    }
+
+    fn quitting(&self) -> bool {
+        self.quit.load(Ordering::SeqCst)
     }
 
     fn ensure_base(&mut self) {
@@ -510,10 +522,15 @@ impl DashboardApp {
     }
 
     fn handle_close_request(&mut self, ctx: &egui::Context) {
-        if ctx.input(|i| i.viewport().close_requested()) {
-            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-            self.hide_window(ctx);
+        if !ctx.input(|i| i.viewport().close_requested()) {
+            return;
         }
+        if self.quitting() {
+            // Real shutdown — allow the viewport to close.
+            return;
+        }
+        ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+        self.hide_window(ctx);
     }
 
     fn handle_focus_loss(&mut self, ctx: &egui::Context) {
@@ -747,6 +764,13 @@ impl DashboardApp {
 
 impl eframe::App for DashboardApp {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        if self.quitting() {
+            // Drop the tray before closing so the icon does not linger.
+            self.tray = None;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            self.handle_close_request(ctx);
+            return;
+        }
         if self.pending_initial_hide {
             self.pending_initial_hide = false;
             self.hide_window(ctx);

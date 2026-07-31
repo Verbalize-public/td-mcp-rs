@@ -62,7 +62,7 @@ Crate layout: [`ARCHITECTURE.md`](../ARCHITECTURE.md). Engineering law: [`CONSTI
 
 **Singleton:** one owner per listen port. Exclusivity = `daemon.lock` (pid) + TCP bind on `127.0.0.1:{port}`. Stale locks (dead pid) are reclaimed on `start` / `ensure`. A second `start` while healthy refuses with a clear error. `/admin/restart` clears the lock then spawn-then-exit; the replacement retries bind briefly. No distributed leader election — localhost only.
 
-**Idle auto-exit:** after **30s** with zero connected bridges and zero live Streamable HTTP MCP session leases (stdio proxy counts), the daemon toasts and exits (`process::exit`). Admin/health polls and JSON `/mcp/tools/*` do not keep it alive. Assumes session-mode MCP (not per-request handlers). Override: `TDMCP_IDLE_EXIT_SECS` (`0` disables). `ensure` / `mcp` respawn on next use. Tests may set `TDMCP_IPC_PIPE` so a live TD on the production pipe cannot attach.
+**Idle auto-exit:** after **30s** with zero connected bridges and zero live Streamable HTTP MCP session leases (stdio proxy counts), the daemon toasts and cancels the serve loop (same path as `/admin/shutdown` / ctrl_c). Drain is deadline-bounded (~2s); the process then ends on the main thread — never via `process::exit` from a background tokio task. Admin/health polls and JSON `/mcp/tools/*` do not keep it alive. Assumes session-mode MCP (not per-request handlers). Override: `TDMCP_IDLE_EXIT_SECS` (`0` disables). `ensure` / `mcp` respawn on next use. Tests may set `TDMCP_IPC_PIPE` so a live TD on the production pipe cannot attach.
 
 **Listen:** `127.0.0.1:9860` (override via CLI / env / RC); loopback only; no auth.
 

@@ -35,6 +35,7 @@ tdmcp-diagnostics = { workspace = true }
 tdmcp-ipc = { workspace = true }
 tdmcp-mcp = { workspace = true }
 tdmcp-gui = { path = "../tdmcp-gui", optional = true }
+tokio-util = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]

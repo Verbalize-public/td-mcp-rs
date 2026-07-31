@@ -58,7 +58,7 @@ TD bridge status fills the space between title and task counts and is
 | Auto-refresh | ~2s polls `/admin/status` + `/admin/fleet` + `/admin/mcp-sessions` |
 | `.tox` | Reveal `data_dir/bootstrap.tox` in the file manager (Explorer `/select` on Windows) |
 | Restart `↻` | `POST /admin/restart` (ghost; accent on hover) |
-| Stop `■` | `POST /admin/shutdown` (ghost; err on hover) |
+| Stop `■` | `POST /admin/shutdown` → quit flag + cancel serve (ghost; err on hover); process ends after drain |
 | Startup | Tray icon + OS toast only — dashboard starts **hidden** |
 | Tray left-click | **Toggle** popup (Docker-style); flush to taskbar edge; ignore DoubleClick |
 | Tray right-click | Context menu: Restart / Stop only (left-click does **not** open menu) |

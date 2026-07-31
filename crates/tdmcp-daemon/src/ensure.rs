@@ -32,6 +32,8 @@ pub struct EnsureOptions {
     pub idle_exit_secs: Option<u64>,
     /// When true, re-extract embedded bridge/catalog/tox even if already current.
     pub force_install: bool,
+    /// Child `TDMCP_IPC_PIPE` override (tests isolate from the live TD pipe).
+    pub ipc_pipe: Option<String>,
 }
 
 impl Default for EnsureOptions {
@@ -45,6 +47,7 @@ impl Default for EnsureOptions {
             no_gui: false,
             idle_exit_secs: None,
             force_install: false,
+            ipc_pipe: None,
         }
     }
 }
@@ -108,6 +111,7 @@ pub async fn ensure_daemon(opts: EnsureOptions) -> Result<EnsureResult> {
                     &opts.data_dir,
                     opts.no_gui,
                     opts.idle_exit_secs,
+                    opts.ipc_pipe.as_deref(),
                 )?;
                 spawned = true;
                 drop(guard);
@@ -197,6 +201,7 @@ fn spawn_detached(
     data_dir: &Path,
     no_gui: bool,
     idle_exit_secs: Option<u64>,
+    ipc_pipe: Option<&str>,
 ) -> Result<()> {
     let idle_secs = idle_exit_secs.unwrap_or(crate::idle::DEFAULT_IDLE_EXIT_SECS);
     info!(
@@ -205,6 +210,7 @@ fn spawn_detached(
         data_dir = %data_dir.display(),
         no_gui,
         idle_secs,
+        ipc_pipe,
         "ensure: spawning detached daemon"
     );
     let mut cmd = Command::new(exe);
@@ -217,6 +223,9 @@ fn spawn_detached(
         cmd.arg("--no-gui");
     }
     cmd.env("TDMCP_IDLE_EXIT_SECS", idle_secs.to_string());
+    if let Some(pipe) = ipc_pipe {
+        cmd.env("TDMCP_IPC_PIPE", pipe);
+    }
     configure_detached_spawn(&mut cmd, no_gui);
     let child = cmd
         .spawn()
