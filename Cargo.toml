@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/tdmcp-core",
+    "crates/tdmcp-config",
     "crates/tdmcp-diagnostics",
     "crates/tdmcp-ipc",
     "crates/tdmcp-mcp",
@@ -12,6 +13,7 @@ members = [
 ]
 default-members = [
     "crates/tdmcp-core",
+    "crates/tdmcp-config",
     "crates/tdmcp-diagnostics",
     "crates/tdmcp-ipc",
     "crates/tdmcp-mcp",
@@ -27,6 +29,7 @@ rust-version = "1.88"
 
 [workspace.dependencies]
 tdmcp-core = { path = "crates/tdmcp-core" }
+tdmcp-config = { path = "crates/tdmcp-config" }
 tdmcp-diagnostics = { path = "crates/tdmcp-diagnostics" }
 tdmcp-ipc = { path = "crates/tdmcp-ipc" }
 tdmcp-mcp = { path = "crates/tdmcp-mcp" }
@@ -34,11 +37,13 @@ tdmcp-test-support = { path = "crates/tdmcp-test-support" }
 
 anyhow = "1"
 async-trait = "0.1"
+auto-launch = "0.6"
 axum = "0.8"
 bytes = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde", "std"] }
 clap = { version = "4.6", features = ["derive", "env"] }
 dirs = "6"
+toml_edit = { version = "0.22", features = ["serde"] }
 include_dir = "0.7"
 eframe = { version = "0.35", default-features = true }
 egui = "0.35"

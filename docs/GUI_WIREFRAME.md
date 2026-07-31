@@ -29,7 +29,7 @@ Stop only. Tray PNGs stay cyan mark + amber attention badge (brand, not UI).
 ## Layout
 
 ```text
-┌─● td-mcp-rs · v0.1.0 · pid 4218          .tox  ↻  ■ ┐
+┌─● td-mcp-rs · v0.1.0 · pid 4218       ⚙  .tox  ↻  ■ ┐
 ├──────────────────────────────────────────────────────┤
 │ MCP CLIENTS                                           │
 │ ●  a1b2…  Cursor              0.42.1      12m         │
@@ -46,7 +46,12 @@ Empty states (centered meta text): `No MCP clients connected` /
 `No TouchDesigner bridges`.
 
 Header actions are **ghost** (borderless): transparent at rest, `bg_hover` +
-accent/err text on hover. Right-anchored cluster: `.tox` · restart `↻` · stop `■`.
+accent/err text on hover. Right-anchored cluster: gear `⚙` · `.tox` · restart
+`↻` · stop `■`.
+
+Settings is an **in-popup view** (same viewport): Server / Daemon / Advanced
+sections + Save / Discard / Reset / Back. Edits write `config.toml`; apply after
+restart.
 
 TD bridge status fills the space between title and task counts and is
 **right-aligned** so its X does not shift with title length.
@@ -56,13 +61,14 @@ TD bridge status fills the space between title and task counts and is
 | Control | Behavior |
 | --- | --- |
 | Auto-refresh | ~2s polls `/admin/status` + `/admin/fleet` + `/admin/mcp-sessions` |
+| Gear `⚙` | Open Settings view (edit TOML-backed config; Save/Discard/Reset) |
 | `.tox` | Reveal `data_dir/bootstrap.tox` in the file manager (Explorer `/select` on Windows) |
 | Restart `↻` | `POST /admin/restart` (ghost; accent on hover) |
 | Stop `■` | `POST /admin/shutdown` → quit flag + cancel serve (ghost; err on hover); process ends after drain |
 | Startup | Tray icon + OS toast only — dashboard starts **hidden** |
 | Tray left-click | **Toggle** popup (Docker-style); flush to taskbar edge; ignore DoubleClick |
 | Tray right-click | Context menu: Restart / Stop only (left-click does **not** open menu) |
-| Focus loss / click-away | Hide popup; tray click that caused focus-loss does **not** reopen |
+| Focus loss / click-away | Hide popup on Fleet view; Settings stays open while editing; tray click that caused focus-loss does **not** reopen |
 | Window chrome | Borderless (no OS title bar / controls); 1px theme border |
 | Taskbar | No taskbar button while visible — tray icon only |
 | Hide | Tray left-click toggle or focus loss — does **not** stop the daemon |

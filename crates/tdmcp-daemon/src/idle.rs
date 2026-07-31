@@ -1,6 +1,7 @@
 //! Daemon idle auto-exit: leave when no bridges and no MCP session leases.
 //!
-//! Env `TDMCP_IDLE_EXIT_SECS` (default 30; `0` disables).
+//! Gated by config `keep_alive` (see composition root). When armed, timeout
+//! comes from env `TDMCP_IDLE_EXIT_SECS` (default 30; `0` disables).
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;

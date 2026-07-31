@@ -19,6 +19,7 @@ notify-rust = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+tdmcp-config = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tray-icon = { workspace = true }

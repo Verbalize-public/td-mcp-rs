@@ -62,9 +62,9 @@ Crate layout: [`ARCHITECTURE.md`](../ARCHITECTURE.md). Engineering law: [`CONSTI
 
 **Singleton:** one owner per listen port. Exclusivity = `daemon.lock` (pid) + TCP bind on `127.0.0.1:{port}`. Stale locks (dead pid) are reclaimed on `start` / `ensure`. A second `start` while healthy refuses with a clear error. `/admin/restart` clears the lock then spawn-then-exit; the replacement retries bind briefly. No distributed leader election — localhost only.
 
-**Idle auto-exit:** after **30s** with zero connected bridges and zero live Streamable HTTP MCP session leases (stdio proxy counts), the daemon toasts and cancels the serve loop (same path as `/admin/shutdown` / ctrl_c). Drain is deadline-bounded (~2s); the process then ends on the main thread — never via `process::exit` from a background tokio task. Admin/health polls and JSON `/mcp/tools/*` do not keep it alive. Assumes session-mode MCP (not per-request handlers). Override: `TDMCP_IDLE_EXIT_SECS` (`0` disables). `ensure` / `mcp` respawn on next use. Tests may set `TDMCP_IPC_PIPE` so a live TD on the production pipe cannot attach.
+**Idle auto-exit:** after **30s** with zero connected bridges and zero live Streamable HTTP MCP session leases (stdio proxy counts), the daemon toasts and cancels the serve loop (same path as `/admin/shutdown` / ctrl_c). Drain is deadline-bounded (~2s); the process then ends on the main thread — never via `process::exit` from a background tokio task. Admin/health polls and JSON `/mcp/tools/*` do not keep it alive. Assumes session-mode MCP (not per-request handlers). Disable via config `keep_alive = true`, or override timeout with `TDMCP_IDLE_EXIT_SECS` (`0` disables). See [`CONFIG.md`](CONFIG.md). `ensure` / `mcp` respawn on next use. Tests may set `TDMCP_IPC_PIPE` so a live TD on the production pipe cannot attach.
 
-**Listen:** `127.0.0.1:9860` (override via CLI / env / RC); loopback only; no auth.
+**Listen:** `127.0.0.1:9860` (override via config.toml / CLI / env); loopback only; no auth.
 
 **Stdio proxy (v1):** forwards tools request/response only (`list_tools` /
 `call_tool`). Server-initiated notifications are **not** forwarded. The HTTP
@@ -374,11 +374,11 @@ Code families in use today: `tdmcp.bridge.*`, `tdmcp.script.*`, `tdmcp.perceptio
 | macOS | `~/Library/Application Support/tdmcp-rs/` |
 | Linux | `$XDG_DATA_HOME/tdmcp-rs/` or `~/.local/share/tdmcp-rs/` |
 
-Config precedence: **CLI args > env (`TDMCP_*`) > RC file > defaults**.
+Config precedence: **CLI args / env (`TDMCP_*`) > config.toml > defaults**. Full field reference: [`CONFIG.md`](CONFIG.md). `install` always resets `config.toml` to the shipped template; `start` / `ensure` / `mcp` only create-if-missing.
 
-Artifacts: `tdmcp-daemon` (embeds tray UI when built with default `gui` feature), `bridge/`, `diagnostics/catalog.yaml`, bootstrap `.tox`. Bridge, catalog, and bootstrap ship embedded in the daemon binary; `install` / `ensure` / `start` / `mcp` extract into the data dir. Same semver stamp skips re-extract — use `tdmcp-daemon install --force` or `ensure --force` to refresh embedded assets without bumping the package version. `mcp` upsert stays non-force (does not re-extract on every Cursor reconnect). Packaging via `cargo xtask dist` is **Planned** (P2); until then build with `cargo build --release -p tdmcp-daemon`. Headless: `cargo build --release -p tdmcp-daemon --no-default-features`, or runtime `--no-gui` / `TDMCP_NO_GUI=1`.
+Artifacts: `tdmcp-daemon` (embeds tray UI when built with default `gui` feature), `bridge/`, `diagnostics/catalog.yaml`, bootstrap `.tox`. Bridge, catalog, and bootstrap ship embedded in the daemon binary; `install` / `ensure` / `start` / `mcp` extract into the data dir. Same semver stamp skips re-extract — use `tdmcp-daemon install --force` or `ensure --force` to refresh embedded assets without bumping the package version. `mcp` upsert stays non-force (does not re-extract on every Cursor reconnect). Packaging via `cargo xtask dist` is **Planned** (P2); until then build with `cargo build --release -p tdmcp-daemon`. Headless: `cargo build --release -p tdmcp-daemon --no-default-features`, or runtime `--no-gui` / `TDMCP_NO_GUI=1` / `show_tray = false`.
 
-Daemon CLI: `start` (foreground; tray + toast by default, dashboard hidden until opened), `stop`, `status`, `install` (`--force` re-extract), `ensure` (`--force` re-extract then upsert), `mcp` (Cursor entrypoint — `ensure` then stdio proxy). Manual `start` for debugging; Cursor uses `mcp`.
+Daemon CLI: `start` (foreground; tray + toast by default, dashboard hidden until opened; gear opens Settings), `stop`, `status`, `install` (extract + reset config; `--force` re-extract), `ensure` (`--force` re-extract then upsert), `mcp` (Cursor entrypoint — `ensure` then stdio proxy). Manual `start` for debugging; Cursor uses `mcp`.
 
 ---
 

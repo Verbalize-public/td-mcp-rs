@@ -20,8 +20,9 @@ use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
 use tdmcp_daemon::admin::{build_admin_router, RestartArgs};
+use tdmcp_daemon::autostart;
 use tdmcp_daemon::bridge::{run_ipc_accept, BridgeSessions};
-use tdmcp_daemon::config::Config;
+use tdmcp_daemon::config::{Config, ConfigOverrides};
 use tdmcp_daemon::ensure::{
 	daemon_lock_path, ensure_daemon, refuse_if_daemon_owned, EnsureOptions,
 };
@@ -126,11 +127,17 @@ fn main() -> Result<()> {
 			catalog,
 			no_gui,
 		} => {
-			let cfg = Config::load(port, data_dir, bridge_dir, catalog)?;
+			let cfg = Config::load(ConfigOverrides {
+				port,
+				data_dir,
+				bridge_dir,
+				catalog,
+				no_gui,
+			})?;
 			// Ensure embedded assets exist under data_dir (no-op when current).
 			let _ = install::ensure_installed(&cfg.data_dir, false)?;
 			tdmcp_daemon::tracing_init::init(&cfg)?;
-			start_daemon(cfg, no_gui)
+			start_daemon(cfg)
 		}
 		Commands::Install { data_dir, force } => {
 			let data_dir = data_dir.unwrap_or_else(install::default_data_dir);
@@ -150,6 +157,10 @@ fn main() -> Result<()> {
 					);
 				}
 			}
+			// Install always resets the TOML config to the shipped defaults.
+			let config_path = tdmcp_config::default_config_path();
+			tdmcp_config::ensure_default(&config_path, true)?;
+			println!("config reset → {}", config_path.display());
 			Ok(())
 		}
 		Commands::Ensure {
@@ -159,18 +170,25 @@ fn main() -> Result<()> {
 			no_gui,
 			force,
 		} => {
+			let cfg = Config::load(ConfigOverrides {
+				port,
+				data_dir,
+				no_gui,
+				..Default::default()
+			})?;
 			let rt = tokio::runtime::Runtime::new().context("tokio runtime")?;
 			rt.block_on(async {
 				let opts = EnsureOptions {
-					port: port.unwrap_or(9860),
-					data_dir: data_dir.unwrap_or_else(install::default_data_dir),
+					port: cfg.port,
+					data_dir: cfg.data_dir,
 					exe: None,
 					timeout: Duration::from_millis(timeout_ms),
 					poll_only: false,
-					no_gui,
+					no_gui: cfg.no_gui,
 					idle_exit_secs: None,
 					force_install: force,
 					ipc_pipe: None,
+					config_path: Some(cfg.config_path),
 				};
 				let result = ensure_daemon(opts).await?;
 				println!(
@@ -186,19 +204,25 @@ fn main() -> Result<()> {
 			timeout_ms,
 			no_gui,
 		} => {
+			let cfg = Config::load(ConfigOverrides {
+				port,
+				data_dir,
+				no_gui,
+				..Default::default()
+			})?;
 			let rt = tokio::runtime::Runtime::new().context("tokio runtime")?;
 			rt.block_on(async {
-				let port = port.unwrap_or(9860);
 				let opts = EnsureOptions {
-					port,
-					data_dir: data_dir.unwrap_or_else(install::default_data_dir),
+					port: cfg.port,
+					data_dir: cfg.data_dir.clone(),
 					exe: None,
 					timeout: Duration::from_millis(timeout_ms),
 					poll_only: false,
-					no_gui,
+					no_gui: cfg.no_gui,
 					idle_exit_secs: None,
 					force_install: false,
 					ipc_pipe: None,
+					config_path: Some(cfg.config_path.clone()),
 				};
 				// Cold start may race a dying daemon between ensure and the first
 				// HTTP handshake — retry ensure+connect a few times (upsert is
@@ -230,9 +254,9 @@ fn main() -> Result<()> {
 			})
 		}
 		Commands::Status { port } => {
+			let port = resolve_port(port)?;
 			let rt = tokio::runtime::Runtime::new().context("tokio runtime")?;
 			rt.block_on(async {
-				let port = port.unwrap_or(9860);
 				let url = format!("http://127.0.0.1:{port}/mcp/health");
 				match http_get(&url).await {
 					Ok(body) => {
@@ -247,9 +271,9 @@ fn main() -> Result<()> {
 			})
 		}
 		Commands::Stop { port } => {
+			let port = resolve_port(port)?;
 			let rt = tokio::runtime::Runtime::new().context("tokio runtime")?;
 			rt.block_on(async {
-				let port = port.unwrap_or(9860);
 				let url = format!("http://127.0.0.1:{port}/admin/shutdown");
 				match http_post_empty(&url).await {
 					Ok(()) => {
@@ -266,15 +290,24 @@ fn main() -> Result<()> {
 	}
 }
 
-fn start_daemon(cfg: Config, no_gui: bool) -> Result<()> {
+fn resolve_port(port: Option<u16>) -> Result<u16> {
+	if let Some(p) = port {
+		return Ok(p);
+	}
+	Ok(Config::load(ConfigOverrides::default())?.port)
+}
+
+fn start_daemon(cfg: Config) -> Result<()> {
 	let shutdown = CancellationToken::new();
 	let quit = Arc::new(AtomicBool::new(false));
+	let no_gui = cfg.no_gui;
 
 	#[cfg(feature = "gui")]
 	{
 		if !no_gui {
 			let admin_base = format!("http://127.0.0.1:{}", cfg.port);
 			let data_dir = cfg.data_dir.clone();
+			let config_path = cfg.config_path.clone();
 			let daemon_cfg = cfg;
 			let shutdown_bg = shutdown.clone();
 			let quit_bg = Arc::clone(&quit);
@@ -294,7 +327,8 @@ fn start_daemon(cfg: Config, no_gui: bool) -> Result<()> {
 				.context("spawn daemon background thread")?;
 
 			// eframe/winit require the real main thread.
-			let gui_result = tdmcp_gui::run(admin_base, data_dir, Arc::clone(&quit));
+			let gui_result =
+				tdmcp_gui::run(admin_base, data_dir, Arc::clone(&quit), config_path);
 
 			// GUI returned — never join forever on a still-running control plane.
 			quit.store(true, Ordering::SeqCst);
@@ -359,9 +393,15 @@ async fn run_daemon(
 		port = cfg.port,
 		data_dir = %cfg.data_dir.display(),
 		bridge_dir = %cfg.bridge_dir.display(),
+		config = %cfg.config_path.display(),
+		keep_alive = cfg.keep_alive,
+		always_on = cfg.always_on,
 		no_gui,
 		"starting tdmcp-daemon"
 	);
+
+	let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("tdmcp-daemon"));
+	autostart::reconcile_best_effort(cfg.always_on, &exe);
 
 	refuse_if_daemon_owned(&cfg.data_dir, cfg.port).await?;
 
@@ -395,7 +435,7 @@ async fn run_daemon(
 		);
 
 	let restart = RestartArgs {
-		exe: std::env::current_exe().unwrap_or_else(|_| PathBuf::from("tdmcp-daemon")),
+		exe: exe.clone(),
 		port: cfg.port,
 		data_dir: cfg.data_dir.clone(),
 		bridge_dir: cfg.bridge_dir.clone(),
@@ -431,7 +471,10 @@ async fn run_daemon(
 		run_ipc_accept(endpoint, bridge_dir, ipc_registry, ipc_sessions).await;
 	});
 
-	let idle_handle = if let Some(timeout) = idle_exit_timeout() {
+	let idle_handle = if cfg.keep_alive {
+		info!("idle exit disabled (keep_alive=true)");
+		None
+	} else if let Some(timeout) = idle_exit_timeout() {
 		info!(idle_secs = timeout.as_secs(), "idle exit armed");
 		let idle_bridges = sessions.clone();
 		let idle_shutdown = shutdown.clone();

@@ -39,20 +39,25 @@ Bridge package and diagnostic catalog ship beside the repo (`bridge/`,
    }
    ```
 
+   Keep `mcp.json` minimal — settings live in the TOML config file, not in
+   MCP `args` / `env`. See [`docs/CONFIG.md`](docs/CONFIG.md).
+
    Cursor spawns `tdmcp-daemon mcp`, which runs `ensure` (health → lock →
    detached spawn → poll), then serves a stdio MCP proxy to
-   `http://127.0.0.1:9860/mcp/rpc`. The HTTP daemon stays up across MCP client
-   restarts, and exits on its own after **30s** with no MCP sessions and no
-   TD bridges (`TDMCP_IDLE_EXIT_SECS`; `0` disables). By default the detached
-   daemon also shows a system-tray icon and a startup toast (dashboard window
-   stays hidden until you left-click the tray icon; right-click has Restart /
-   Stop; **Stop** ends the process). Use `--no-gui` or `TDMCP_NO_GUI=1` for
+   `http://127.0.0.1:9860/mcp/rpc` (port from config). The HTTP daemon stays
+   up across MCP client restarts. By default it exits after **~30s** with no
+   MCP sessions and no TD bridges; set `keep_alive = true` in the config (or
+   tray Settings) to disable that. The detached daemon shows a system-tray
+   icon and a startup toast (dashboard hidden until you left-click the tray;
+   right-click has Restart / Stop; gear opens Settings). **Stop** ends the
+   process. Use `--no-gui` / `TDMCP_NO_GUI=1` or `show_tray = false` for
    headless.
 
-   First run extracts embedded bridge, catalog, and bootstrap `.tox` into the
-   data dir (`install` / `ensure` / `start` / `mcp` all do this). Default:
+   First run creates the config file (if missing) and extracts embedded
+   bridge, catalog, and bootstrap `.tox` into the data dir. Config default:
+   `%APPDATA%/tdmcp-rs/config.toml` (Windows). Data dir default:
    `%LOCALAPPDATA%/tdmcp-rs/` (Windows), Application Support (macOS), or XDG
-   (Linux).
+   (Linux). `tdmcp-daemon install` resets the config to shipped defaults.
 
 3. Drop the extracted bootstrap tox into a TouchDesigner project
    (`%LOCALAPPDATA%/tdmcp-rs/bootstrap.tox` on Windows — thin dialer COMP
@@ -76,12 +81,14 @@ tdmcp-daemon start --port 9860
 ```
 
 Tray (default): icon + toast on start; left-click toggles the compact dashboard
-(Docker-style; auto-hides on focus loss). Right-click: Restart / Stop. Closing
-the window only hides it — use **Stop** / `tdmcp-daemon stop` to end the process.
+(Docker-style; auto-hides on focus loss). Header: gear (Settings) · `.tox` ·
+Restart · Stop. Right-click: Restart / Stop. Closing the window only hides it —
+use **Stop** / `tdmcp-daemon stop` to end the process. Settings edits write
+`config.toml` and apply after the next restart.
 
 Other CLI helpers: `tdmcp-daemon ensure` (spawn if down; `--force` re-extracts
-embedded assets), `install` (extract assets only; `--force` same-version
-refresh), `status`, `stop`.
+embedded assets), `install` (extract assets **and** reset config to defaults;
+`--force` same-version asset refresh), `status`, `stop`.
 
 ## Tools (P0)
 
@@ -107,7 +114,8 @@ builders never self-grade perception.
 | [`AGENTS.md`](AGENTS.md) | Agent route-first entry |
 | [`CONSTITUTION.md`](CONSTITUTION.md) | Rust engineering law |
 | [`docs/TESTING.md`](docs/TESTING.md) | Test strategy |
-| [`docs/DELIVERY.md`](docs/DELIVERY.md) | Packaging / config |
+| [`docs/CONFIG.md`](docs/CONFIG.md) | TOML config file, Settings GUI, keep_alive / always_on |
+| [`docs/DELIVERY.md`](docs/DELIVERY.md) | Packaging / install |
 | [`docs/E2E_CHECKLIST.md`](docs/E2E_CHECKLIST.md) | Live TD verification |
 | [`TODO_ENFORCE_TYPE.md`](TODO_ENFORCE_TYPE.md) | Typing / schema policy |
 

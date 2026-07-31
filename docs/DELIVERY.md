@@ -13,25 +13,29 @@ The tray dashboard lives in the `tdmcp-gui` **library** crate, linked into
 `tdmcp-daemon` when the default `gui` Cargo feature is enabled. There is no
 separate `tdmcp-gui` binary.
 
-## Config precedence
+## Config
 
-**CLI args > env vars (`TDMCP_*`) > RC file > built-in defaults.**
+Source of truth: TOML file owned by crate `tdmcp-config` (see
+[`docs/CONFIG.md`](CONFIG.md)).
 
-Default MCP listen: `127.0.0.1:9860`. Data dir:
+**CLI args / env (`TDMCP_*`) > config.toml > built-in defaults.**
 
-| OS | Path |
+| Kind | Default path |
 | --- | --- |
-| Windows | `%LOCALAPPDATA%/tdmcp-rs/` |
-| macOS | `~/Library/Application Support/tdmcp-rs/` |
-| Linux | `$XDG_DATA_HOME/tdmcp-rs/` or `~/.local/share/tdmcp-rs/` |
+| Config file | `%APPDATA%/tdmcp-rs/config.toml` (Windows); Application Support / XDG config elsewhere |
+| Data dir | `%LOCALAPPDATA%/tdmcp-rs/` (Windows); Application Support / XDG data elsewhere |
+
+Notable `[daemon]` fields: `keep_alive`, `always_on`, `show_tray`.
+`install` always resets `config.toml` to the embedded template; `start` /
+`ensure` / `mcp` only create-if-missing.
 
 ## GUI feature
 
 | Build / runtime | Behavior |
 | --- | --- |
-| Default (`cargo build -p tdmcp-daemon`) | `gui` feature on; `start` shows tray + toast (dashboard hidden until opened) |
+| Default (`cargo build -p tdmcp-daemon`) | `gui` feature on; `start` shows tray + toast (dashboard hidden until opened); gear opens Settings |
 | `--no-default-features` | Headless binary (no egui/tray linked) |
-| `--no-gui` / `TDMCP_NO_GUI=1` on `start` / `ensure` / `mcp` | Headless even when `gui` is compiled in |
+| `--no-gui` / `TDMCP_NO_GUI=1` / `show_tray = false` | Headless even when `gui` is compiled in |
 
 ## Auto-upsert — Shipped
 

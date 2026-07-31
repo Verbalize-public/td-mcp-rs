@@ -66,6 +66,8 @@ struct DaemonHarness {
 
 impl DaemonHarness {
 	fn spawn_start(port: u16, data_dir: &Path) -> Self {
+		let config_path = data_dir.join("test-config.toml");
+		tdmcp_config::ensure_default(&config_path, true).expect("seed config");
 		let child = Command::new(daemon_bin())
 			.args([
 				"start",
@@ -77,6 +79,7 @@ impl DaemonHarness {
 			])
 			.env("TDMCP_IDLE_EXIT_SECS", "0")
 			.env("TDMCP_IPC_PIPE", ipc_pipe_for(port))
+			.env(tdmcp_config::CONFIG_PATH_ENV, &config_path)
 			.stdin(Stdio::null())
 			.stdout(Stdio::null())
 			.stderr(Stdio::null())
@@ -175,6 +178,8 @@ async fn stop_detached(port: u16, data_dir: &Path) {
 }
 
 fn ensure_opts(port: u16, data_dir: &Path) -> EnsureOptions {
+	let config_path = data_dir.join("test-config.toml");
+	tdmcp_config::ensure_default(&config_path, true).expect("seed config");
 	EnsureOptions {
 		port,
 		data_dir: data_dir.to_path_buf(),
@@ -185,6 +190,7 @@ fn ensure_opts(port: u16, data_dir: &Path) -> EnsureOptions {
 		idle_exit_secs: Some(0),
 		force_install: false,
 		ipc_pipe: Some(ipc_pipe_for(port)),
+		config_path: Some(config_path),
 	}
 }
 
@@ -300,6 +306,7 @@ async fn second_start_refuses_while_healthy() {
 	let mut harness = DaemonHarness::spawn_start(port, dir.path());
 	wait_healthy(port, Duration::from_secs(15)).await;
 
+	let config_path = dir.path().join("test-config.toml");
 	let output = Command::new(daemon_bin())
 		.args([
 			"start",
@@ -311,6 +318,7 @@ async fn second_start_refuses_while_healthy() {
 		])
 		.env("TDMCP_IDLE_EXIT_SECS", "0")
 		.env("TDMCP_IPC_PIPE", ipc_pipe_for(port))
+		.env(tdmcp_config::CONFIG_PATH_ENV, &config_path)
 		.stdout(Stdio::piped())
 		.stderr(Stdio::piped())
 		.output()

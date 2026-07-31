@@ -5,6 +5,7 @@
 #![warn(missing_docs)]
 
 pub mod admin;
+pub mod autostart;
 pub mod bridge;
 pub mod config;
 pub mod ensure;

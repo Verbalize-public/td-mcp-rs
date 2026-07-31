@@ -15,17 +15,24 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use anyhow::Result;
 use eframe::egui;
 use serde::Deserialize;
+use tdmcp_config::{self as cfgfile, ConfigFile, FIELD_DESCS};
 use tracing::warn;
 use tray_icon::menu::{Menu, MenuEvent, MenuItem};
 use tray_icon::{
-    Icon, MouseButton, MouseButtonState, Rect, TrayIcon, TrayIconBuilder, TrayIconEvent,
+	Icon, MouseButton, MouseButtonState, Rect, TrayIcon, TrayIconBuilder, TrayIconEvent,
 };
 
 use theme::{
-    font_label, font_meta, font_mono, font_title, ghost_button, section_header, status_led, ACCENT,
-    BG_HOVER, BG_ROW, BG_ROW_ALT, BORDER, ERR, OK, TEXT, TEXT_DIM, TEXT_FAINT, WARN,
-    WINDOW_MAX_HEIGHT, WINDOW_WIDTH,
+	font_label, font_meta, font_mono, font_title, ghost_button, section_header, status_led, ACCENT,
+	BG_HOVER, BG_PANEL, BG_ROW, BG_ROW_ALT, BORDER, ERR, OK, TEXT, TEXT_DIM, TEXT_FAINT, WARN,
+	WINDOW_MAX_HEIGHT, WINDOW_WIDTH,
 };
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum View {
+	Fleet,
+	Settings,
+}
 
 /// Coalesce tray left-clicks so burst/double events cannot flip twice.
 const TRAY_TOGGLE_DEBOUNCE: Duration = Duration::from_millis(250);
@@ -36,46 +43,53 @@ const FOCUS_LOSS_CLOSE_GRACE: Duration = Duration::from_millis(400);
 ///
 /// Polls `admin_base` (e.g. `http://127.0.0.1:9860`) for status/fleet/sessions.
 /// `data_dir` is the install root (contains `bootstrap.tox`) for the reveal button.
+/// `config_path` is the TOML settings file edited by the Settings view.
 /// When `quit` is set (Stop / idle / admin shutdown), the event loop closes for real.
-pub fn run(admin_base: String, data_dir: PathBuf, quit: Arc<AtomicBool>) -> Result<()> {
-    let icon_normal_full = load_rgba(include_bytes!("../assets/icon-normal.png"), None)?;
-    let icon_normal = load_rgba(include_bytes!("../assets/icon-normal.png"), Some(32))?;
-    let icon_attention = load_rgba(include_bytes!("../assets/icon-attention.png"), Some(32))?;
-    let window_icon = egui::IconData {
-        rgba: icon_normal_full.rgba,
-        width: icon_normal_full.width,
-        height: icon_normal_full.height,
-    };
+pub fn run(
+	admin_base: String,
+	data_dir: PathBuf,
+	quit: Arc<AtomicBool>,
+	config_path: PathBuf,
+) -> Result<()> {
+	let icon_normal_full = load_rgba(include_bytes!("../assets/icon-normal.png"), None)?;
+	let icon_normal = load_rgba(include_bytes!("../assets/icon-normal.png"), Some(32))?;
+	let icon_attention = load_rgba(include_bytes!("../assets/icon-attention.png"), Some(32))?;
+	let window_icon = egui::IconData {
+		rgba: icon_normal_full.rgba,
+		width: icon_normal_full.width,
+		height: icon_normal_full.height,
+	};
 
-    let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_inner_size([WINDOW_WIDTH, 320.0])
-            .with_min_inner_size([WINDOW_WIDTH, 200.0])
-            .with_max_inner_size([WINDOW_WIDTH, WINDOW_MAX_HEIGHT])
-            .with_title("td-mcp-rs")
-            .with_icon(window_icon)
-            .with_decorations(false)
-            .with_taskbar(false)
-            .with_resizable(false)
-            // Tray + toast only at startup; user opens the dashboard via the tray.
-            .with_visible(false),
-        ..Default::default()
-    };
-    eframe::run_native(
-        "td-mcp-rs",
-        options,
-        Box::new(move |cc| {
-            theme::apply(&cc.egui_ctx);
-            Ok(Box::new(DashboardApp::new(
-                admin_base,
-                data_dir,
-                icon_normal,
-                icon_attention,
-                quit,
-            )?))
-        }),
-    )
-    .map_err(|e| anyhow::anyhow!("eframe: {e}"))
+	let options = eframe::NativeOptions {
+		viewport: egui::ViewportBuilder::default()
+			.with_inner_size([WINDOW_WIDTH, 320.0])
+			.with_min_inner_size([WINDOW_WIDTH, 200.0])
+			.with_max_inner_size([WINDOW_WIDTH, WINDOW_MAX_HEIGHT])
+			.with_title("td-mcp-rs")
+			.with_icon(window_icon)
+			.with_decorations(false)
+			.with_taskbar(false)
+			.with_resizable(false)
+			// Tray + toast only at startup; user opens the dashboard via the tray.
+			.with_visible(false),
+		..Default::default()
+	};
+	eframe::run_native(
+		"td-mcp-rs",
+		options,
+		Box::new(move |cc| {
+			theme::apply(&cc.egui_ctx);
+			Ok(Box::new(DashboardApp::new(
+				admin_base,
+				data_dir,
+				icon_normal,
+				icon_attention,
+				quit,
+				config_path,
+			)?))
+		}),
+	)
+	.map_err(|e| anyhow::anyhow!("eframe: {e}"))
 }
 
 struct RgbaIcon {
@@ -113,40 +127,48 @@ fn tray_icon_from(rgba: &RgbaIcon) -> Result<Icon> {
 }
 
 struct DashboardApp {
-    admin_base: String,
-    data_dir: PathBuf,
-    status: Option<StatusView>,
-    fleet_json: String,
-    sessions_json: String,
-    last_poll: Option<Instant>,
-    error: Option<String>,
-    tray: Option<TrayIcon>,
-    menu_restart: MenuItem,
-    menu_stop: MenuItem,
-    icon_normal: RgbaIcon,
-    icon_attention: RgbaIcon,
-    attention: bool,
-    prev_snapshot: FleetSnapshot,
-    visible: bool,
-    /// Apply `Visible(false)` once after the first frame.
-    pending_initial_hide: bool,
-    /// Fired once after the first successful `/admin/status` poll.
-    startup_notified: bool,
-    /// Fired once when polls fail before any success.
-    startup_fail_notified: bool,
-    fail_polls: u32,
-    /// Drop always-on-top after this instant (transient focus grab).
-    clear_always_on_top_at: Option<Instant>,
-    /// Suppress focus-loss hide briefly after show (tray click focus race).
-    ignore_focus_loss_until: Option<Instant>,
-    /// When focus-loss hid the popup (coalesce with tray click close).
-    hidden_by_focus_loss_at: Option<Instant>,
-    /// Last tray toggle gesture (debounce burst events).
-    last_tray_toggle_at: Option<Instant>,
-    /// Last tray icon rect for anchoring.
-    last_tray_rect: Option<Rect>,
-    /// Shared with the daemon thread — when set, close the event loop for real.
-    quit: Arc<AtomicBool>,
+	admin_base: String,
+	data_dir: PathBuf,
+	config_path: PathBuf,
+	view: View,
+	draft: ConfigFile,
+	settings_error: Option<String>,
+	/// Text buffers for optional advanced paths (empty = unset).
+	data_dir_edit: String,
+	bridge_dir_edit: String,
+	catalog_path_edit: String,
+	status: Option<StatusView>,
+	fleet_json: String,
+	sessions_json: String,
+	last_poll: Option<Instant>,
+	error: Option<String>,
+	tray: Option<TrayIcon>,
+	menu_restart: MenuItem,
+	menu_stop: MenuItem,
+	icon_normal: RgbaIcon,
+	icon_attention: RgbaIcon,
+	attention: bool,
+	prev_snapshot: FleetSnapshot,
+	visible: bool,
+	/// Apply `Visible(false)` once after the first frame.
+	pending_initial_hide: bool,
+	/// Fired once after the first successful `/admin/status` poll.
+	startup_notified: bool,
+	/// Fired once when polls fail before any success.
+	startup_fail_notified: bool,
+	fail_polls: u32,
+	/// Drop always-on-top after this instant (transient focus grab).
+	clear_always_on_top_at: Option<Instant>,
+	/// Suppress focus-loss hide briefly after show (tray click focus race).
+	ignore_focus_loss_until: Option<Instant>,
+	/// When focus-loss hid the popup (coalesce with tray click close).
+	hidden_by_focus_loss_at: Option<Instant>,
+	/// Last tray toggle gesture (debounce burst events).
+	last_tray_toggle_at: Option<Instant>,
+	/// Last tray icon rect for anchoring.
+	last_tray_rect: Option<Rect>,
+	/// Shared with the daemon thread — when set, close the event loop for real.
+	quit: Arc<AtomicBool>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -161,55 +183,113 @@ struct FleetSnapshot {
 }
 
 impl DashboardApp {
-    fn new(
-        admin_base: String,
-        data_dir: PathBuf,
-        icon_normal: RgbaIcon,
-        icon_attention: RgbaIcon,
-        quit: Arc<AtomicBool>,
-    ) -> Result<Self> {
-        let menu = Menu::new();
-        let menu_restart = MenuItem::new("Restart daemon", true, None);
-        let menu_stop = MenuItem::new("Stop daemon", true, None);
-        menu.append(&menu_restart)?;
-        menu.append(&menu_stop)?;
+	fn new(
+		admin_base: String,
+		data_dir: PathBuf,
+		icon_normal: RgbaIcon,
+		icon_attention: RgbaIcon,
+		quit: Arc<AtomicBool>,
+		config_path: PathBuf,
+	) -> Result<Self> {
+		let menu = Menu::new();
+		let menu_restart = MenuItem::new("Restart daemon", true, None);
+		let menu_stop = MenuItem::new("Stop daemon", true, None);
+		menu.append(&menu_restart)?;
+		menu.append(&menu_stop)?;
 
-        let tray = TrayIconBuilder::new()
-            .with_menu(Box::new(menu))
-            .with_menu_on_left_click(false)
-            .with_tooltip("td-mcp-rs")
-            .with_icon(tray_icon_from(&icon_normal)?)
-            .build()
-            .map_err(|e| anyhow::anyhow!("tray: {e}"))?;
+		let tray = TrayIconBuilder::new()
+			.with_menu(Box::new(menu))
+			.with_menu_on_left_click(false)
+			.with_tooltip("td-mcp-rs")
+			.with_icon(tray_icon_from(&icon_normal)?)
+			.build()
+			.map_err(|e| anyhow::anyhow!("tray: {e}"))?;
 
-        Ok(Self {
-            admin_base,
-            data_dir,
-            status: None,
-            fleet_json: String::new(),
-            sessions_json: String::new(),
-            last_poll: None,
-            error: None,
-            tray: Some(tray),
-            menu_restart,
-            menu_stop,
-            icon_normal,
-            icon_attention,
-            attention: false,
-            prev_snapshot: FleetSnapshot::default(),
-            visible: false,
-            pending_initial_hide: true,
-            startup_notified: false,
-            startup_fail_notified: false,
-            fail_polls: 0,
-            clear_always_on_top_at: None,
-            ignore_focus_loss_until: None,
-            hidden_by_focus_loss_at: None,
-            last_tray_toggle_at: None,
-            last_tray_rect: None,
-            quit,
-        })
-    }
+		let draft = cfgfile::load(&config_path).unwrap_or_default();
+		let (data_dir_edit, bridge_dir_edit, catalog_path_edit) = path_edits_from(&draft);
+
+		Ok(Self {
+			admin_base,
+			data_dir,
+			config_path,
+			view: View::Fleet,
+			draft,
+			settings_error: None,
+			data_dir_edit,
+			bridge_dir_edit,
+			catalog_path_edit,
+			status: None,
+			fleet_json: String::new(),
+			sessions_json: String::new(),
+			last_poll: None,
+			error: None,
+			tray: Some(tray),
+			menu_restart,
+			menu_stop,
+			icon_normal,
+			icon_attention,
+			attention: false,
+			prev_snapshot: FleetSnapshot::default(),
+			visible: false,
+			pending_initial_hide: true,
+			startup_notified: false,
+			startup_fail_notified: false,
+			fail_polls: 0,
+			clear_always_on_top_at: None,
+			ignore_focus_loss_until: None,
+			hidden_by_focus_loss_at: None,
+			last_tray_toggle_at: None,
+			last_tray_rect: None,
+			quit,
+		})
+	}
+
+	fn open_settings(&mut self) {
+		match cfgfile::load(&self.config_path) {
+			Ok(draft) => {
+				self.draft = draft;
+				self.settings_error = None;
+			}
+			Err(e) => {
+				self.draft = ConfigFile::default();
+				self.settings_error = Some(format!("load failed: {e}"));
+			}
+		}
+		let (d, b, c) = path_edits_from(&self.draft);
+		self.data_dir_edit = d;
+		self.bridge_dir_edit = b;
+		self.catalog_path_edit = c;
+		self.view = View::Settings;
+	}
+
+	fn apply_path_edits(&mut self) {
+		self.draft.advanced.data_dir = nonempty_path(&self.data_dir_edit);
+		self.draft.advanced.bridge_dir = nonempty_path(&self.bridge_dir_edit);
+		self.draft.advanced.catalog_path = nonempty_path(&self.catalog_path_edit);
+	}
+
+	fn save_settings(&mut self) {
+		self.apply_path_edits();
+		match cfgfile::save(&self.config_path, &self.draft) {
+			Ok(()) => {
+				self.settings_error = None;
+				self.view = View::Fleet;
+			}
+			Err(e) => self.settings_error = Some(format!("save failed: {e}")),
+		}
+	}
+
+	fn discard_settings(&mut self) {
+		self.settings_error = None;
+		self.view = View::Fleet;
+	}
+
+	fn reset_settings(&mut self) {
+		match cfgfile::ensure_default(&self.config_path, true) {
+			Ok(_) => self.open_settings(),
+			Err(e) => self.settings_error = Some(format!("reset failed: {e}")),
+		}
+	}
 
     fn quitting(&self) -> bool {
         self.quit.load(Ordering::SeqCst)
@@ -533,22 +613,27 @@ impl DashboardApp {
         self.hide_window(ctx);
     }
 
-    fn handle_focus_loss(&mut self, ctx: &egui::Context) {
-        if !self.visible {
-            return;
-        }
-        if self
-            .ignore_focus_loss_until
-            .is_some_and(|t| Instant::now() < t)
-        {
-            return;
-        }
-        let focused = ctx.input(|i| i.viewport().focused);
-        if focused == Some(false) {
-            self.hide_window(ctx);
-            self.hidden_by_focus_loss_at = Some(Instant::now());
-        }
-    }
+	fn handle_focus_loss(&mut self, ctx: &egui::Context) {
+		if !self.visible {
+			return;
+		}
+		// Keep Settings open while editing — avoid discarding the draft on
+		// accidental focus blips from text fields / OS chrome.
+		if self.view == View::Settings {
+			return;
+		}
+		if self
+			.ignore_focus_loss_until
+			.is_some_and(|t| Instant::now() < t)
+		{
+			return;
+		}
+		let focused = ctx.input(|i| i.viewport().focused);
+		if focused == Some(false) {
+			self.hide_window(ctx);
+			self.hidden_by_focus_loss_at = Some(Instant::now());
+		}
+	}
 
     fn draw_header(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
@@ -571,28 +656,172 @@ impl DashboardApp {
                         .color(TEXT_FAINT),
                 );
             }
-            // Right-anchored ghost actions: Stop · Restart · .tox (RTL paint order).
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let stop = ghost_button(ui, "■", TEXT_DIM, ERR).on_hover_text("Stop daemon");
-                if stop.clicked() {
-                    self.shutdown_daemon();
-                }
-                ui.add_space(2.0);
-                let restart =
-                    ghost_button(ui, "↻", TEXT_DIM, ACCENT).on_hover_text("Restart daemon");
-                if restart.clicked() {
-                    self.restart_daemon();
-                }
-                ui.add_space(4.0);
-                let tox_path = self.data_dir.join("bootstrap.tox");
-                let tip = format!("Reveal {}", tox_path.display());
-                let tox = ghost_button(ui, ".tox", TEXT_DIM, ACCENT).on_hover_text(tip);
-                if tox.clicked() {
-                    self.reveal_tox();
-                }
-            });
-        });
-    }
+			// Right-anchored ghost actions: Stop · Restart · .tox · gear (RTL).
+			ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+				let stop = ghost_button(ui, "■", TEXT_DIM, ERR).on_hover_text("Stop daemon");
+				if stop.clicked() {
+					self.shutdown_daemon();
+				}
+				ui.add_space(2.0);
+				let restart =
+					ghost_button(ui, "↻", TEXT_DIM, ACCENT).on_hover_text("Restart daemon");
+				if restart.clicked() {
+					self.restart_daemon();
+				}
+				ui.add_space(4.0);
+				let tox_path = self.data_dir.join("bootstrap.tox");
+				let tip = format!("Reveal {}", tox_path.display());
+				let tox = ghost_button(ui, ".tox", TEXT_DIM, ACCENT).on_hover_text(tip);
+				if tox.clicked() {
+					self.reveal_tox();
+				}
+				ui.add_space(4.0);
+				let gear = ghost_button(ui, "⚙", TEXT_DIM, ACCENT).on_hover_text("Settings");
+				if gear.clicked() {
+					self.open_settings();
+				}
+			});
+		});
+	}
+
+	fn field_help(key: &str) -> &'static str {
+		FIELD_DESCS
+			.iter()
+			.find(|f| f.key == key)
+			.map(|f| f.help)
+			.unwrap_or("")
+	}
+
+	fn draw_settings(&mut self, ui: &mut egui::Ui) {
+		section_header(ui, "SETTINGS");
+		ui.add_space(4.0);
+		ui.horizontal(|ui| {
+			ui.add_space(12.0);
+			ui.label(
+				egui::RichText::new(self.config_path.display().to_string())
+					.font(font_mono())
+					.color(TEXT_FAINT),
+			);
+		});
+		ui.add_space(4.0);
+		ui.horizontal(|ui| {
+			ui.add_space(12.0);
+			ui.label(
+				egui::RichText::new("Changes apply after the next restart.")
+					.font(font_meta())
+					.color(TEXT_DIM),
+			);
+		});
+		if let Some(err) = &self.settings_error {
+			ui.horizontal(|ui| {
+				ui.add_space(12.0);
+				ui.colored_label(ERR, err.clone());
+			});
+		}
+
+		ui.add_space(8.0);
+		section_header(ui, "SERVER");
+		ui.horizontal(|ui| {
+			ui.add_space(12.0);
+			ui.label(egui::RichText::new("Port").font(font_label()).color(TEXT));
+			ui.add(
+				egui::DragValue::new(&mut self.draft.server.port)
+					.range(1..=65535)
+					.speed(1),
+			)
+			.on_hover_text(Self::field_help("server.port"));
+		});
+
+		ui.add_space(4.0);
+		section_header(ui, "DAEMON");
+		ui.horizontal(|ui| {
+			ui.add_space(12.0);
+			ui.checkbox(&mut self.draft.daemon.keep_alive, "Keep alive")
+				.on_hover_text(Self::field_help("daemon.keep_alive"));
+		});
+		ui.horizontal(|ui| {
+			ui.add_space(12.0);
+			ui.checkbox(&mut self.draft.daemon.always_on, "Always on")
+				.on_hover_text(Self::field_help("daemon.always_on"));
+		});
+		ui.horizontal(|ui| {
+			ui.add_space(12.0);
+			ui.checkbox(&mut self.draft.daemon.show_tray, "Show tray")
+				.on_hover_text(Self::field_help("daemon.show_tray"));
+		});
+
+		ui.add_space(4.0);
+		section_header(ui, "ADVANCED");
+		ui.horizontal(|ui| {
+			ui.add_space(12.0);
+			ui.label(
+				egui::RichText::new("Data dir")
+					.font(font_label())
+					.color(TEXT),
+			);
+			ui.add(
+				egui::TextEdit::singleline(&mut self.data_dir_edit)
+					.desired_width(220.0)
+					.font(font_mono()),
+			)
+			.on_hover_text(Self::field_help("advanced.data_dir"));
+		});
+		ui.horizontal(|ui| {
+			ui.add_space(12.0);
+			ui.label(
+				egui::RichText::new("Bridge dir")
+					.font(font_label())
+					.color(TEXT),
+			);
+			ui.add(
+				egui::TextEdit::singleline(&mut self.bridge_dir_edit)
+					.desired_width(220.0)
+					.font(font_mono()),
+			)
+			.on_hover_text(Self::field_help("advanced.bridge_dir"));
+		});
+		ui.horizontal(|ui| {
+			ui.add_space(12.0);
+			ui.label(
+				egui::RichText::new("Catalog")
+					.font(font_label())
+					.color(TEXT),
+			);
+			ui.add(
+				egui::TextEdit::singleline(&mut self.catalog_path_edit)
+					.desired_width(220.0)
+					.font(font_mono()),
+			)
+			.on_hover_text(Self::field_help("advanced.catalog_path"));
+		});
+
+		ui.add_space(12.0);
+		ui.painter().rect_filled(
+			ui.available_rect_before_wrap().with_max_y(ui.cursor().top() + 28.0),
+			0.0,
+			BG_PANEL,
+		);
+		ui.horizontal(|ui| {
+			ui.add_space(12.0);
+			if ghost_button(ui, "← Back", TEXT_DIM, TEXT).clicked() {
+				self.discard_settings();
+			}
+			ui.add_space(8.0);
+			if ghost_button(ui, "Discard", TEXT_DIM, WARN).clicked() {
+				self.discard_settings();
+			}
+			ui.add_space(8.0);
+			if ghost_button(ui, "Reset", TEXT_DIM, WARN).clicked() {
+				self.reset_settings();
+			}
+			ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+				ui.add_space(12.0);
+				if ghost_button(ui, "Save", TEXT_DIM, ACCENT).clicked() {
+					self.save_settings();
+				}
+			});
+		});
+	}
 
     fn draw_mcp_section(&self, ui: &mut egui::Ui) {
         section_header(ui, "MCP CLIENTS");
@@ -795,42 +1024,82 @@ impl eframe::App for DashboardApp {
         ctx.request_repaint_after(Duration::from_millis(250));
     }
 
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        egui::CentralPanel::default()
-            .frame(
-                egui::Frame::NONE
-                    .fill(theme::BG_WINDOW)
-                    .stroke(egui::Stroke::new(1.0, BORDER))
-                    .inner_margin(0.0),
-            )
-            .show(ui, |ui| {
-                ui.add_space(8.0);
-                ui.horizontal(|ui| {
-                    ui.add_space(12.0);
-                    ui.allocate_ui_with_layout(
-                        egui::vec2(ui.available_width() - 12.0, 24.0),
-                        egui::Layout::left_to_right(egui::Align::Center),
-                        |ui| {
-                            self.draw_header(ui);
-                        },
-                    );
-                });
-                ui.add_space(8.0);
-                if let Some(err) = &self.error {
-                    ui.horizontal(|ui| {
-                        ui.add_space(12.0);
-                        ui.colored_label(ERR, err);
-                    });
-                }
-                egui::ScrollArea::vertical()
-                    .max_height(WINDOW_MAX_HEIGHT - 80.0)
-                    .show(ui, |ui| {
-                        self.draw_mcp_section(ui);
-                        self.draw_td_section(ui);
-                    });
-                ui.add_space(8.0);
-            });
-    }
+	fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+		egui::CentralPanel::default()
+			.frame(
+				egui::Frame::NONE
+					.fill(theme::BG_WINDOW)
+					.stroke(egui::Stroke::new(1.0, BORDER))
+					.inner_margin(0.0),
+			)
+			.show(ui, |ui| {
+				ui.add_space(8.0);
+				ui.horizontal(|ui| {
+					ui.add_space(12.0);
+					ui.allocate_ui_with_layout(
+						egui::vec2(ui.available_width() - 12.0, 24.0),
+						egui::Layout::left_to_right(egui::Align::Center),
+						|ui| {
+							self.draw_header(ui);
+						},
+					);
+				});
+				ui.add_space(8.0);
+				match self.view {
+					View::Settings => {
+						egui::ScrollArea::vertical()
+							.max_height(WINDOW_MAX_HEIGHT - 48.0)
+							.show(ui, |ui| {
+								self.draw_settings(ui);
+							});
+					}
+					View::Fleet => {
+						if let Some(err) = &self.error {
+							ui.horizontal(|ui| {
+								ui.add_space(12.0);
+								ui.colored_label(ERR, err);
+							});
+						}
+						egui::ScrollArea::vertical()
+							.max_height(WINDOW_MAX_HEIGHT - 80.0)
+							.show(ui, |ui| {
+								self.draw_mcp_section(ui);
+								self.draw_td_section(ui);
+							});
+					}
+				}
+				ui.add_space(8.0);
+			});
+	}
+}
+
+fn path_edits_from(cfg: &ConfigFile) -> (String, String, String) {
+	(
+		cfg.advanced
+			.data_dir
+			.as_ref()
+			.map(|p| p.display().to_string())
+			.unwrap_or_default(),
+		cfg.advanced
+			.bridge_dir
+			.as_ref()
+			.map(|p| p.display().to_string())
+			.unwrap_or_default(),
+		cfg.advanced
+			.catalog_path
+			.as_ref()
+			.map(|p| p.display().to_string())
+			.unwrap_or_default(),
+	)
+}
+
+fn nonempty_path(s: &str) -> Option<PathBuf> {
+	let t = s.trim();
+	if t.is_empty() {
+		None
+	} else {
+		Some(PathBuf::from(t))
+	}
 }
 
 /// Show an OS toast (best-effort; failures are logged).

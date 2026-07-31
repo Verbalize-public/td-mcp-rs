@@ -24,12 +24,13 @@ crate boundaries and process topology.
 
 ```text
 tdmcp-core          domain: PidRegistry, TaskQueue, ResurrectionState (zero I/O)
+tdmcp-config        TOML config file (load / save / defaults) — shared by daemon + GUI
 tdmcp-diagnostics   catalog types, YAML loader, envelope builders
 tdmcp-ipc           named pipe / UDS + framing + handshake
 tdmcp-mcp           rmcp tool handlers → core calls → diagnostics envelope
 tdmcp-daemon        bin: clap, tracing, axum wiring, admin API (composition root)
                     optional dep on tdmcp-gui via default `gui` feature
-tdmcp-gui           lib: egui + eframe + tray-icon → admin HTTP client
+tdmcp-gui           lib: egui + eframe + tray-icon → admin HTTP client + Settings
 tdmcp-test-support  fake TD bridge peer (dev / tests)
 xtask               release / packaging helpers
 bridge/             Python package (not a crate) loaded by TD after handshake
@@ -80,6 +81,7 @@ See [`docs/CONTRACT.md`](docs/CONTRACT.md):
 | Doc | Role |
 | --- | --- |
 | [`README.md`](README.md) | Install / quickstart |
+| [`docs/CONFIG.md`](docs/CONFIG.md) | TOML config + Settings GUI |
 | [`docs/CONTRACT.md`](docs/CONTRACT.md) | v1 contract, tool catalogue, phases |
 | [`CONSTITUTION.md`](CONSTITUTION.md) | Rust engineering law |
 | [`AGENTS.md`](AGENTS.md) | Agent route-first entry |

@@ -47,6 +47,8 @@ struct IdleHarness {
 impl IdleHarness {
 	fn spawn(port: u16, data_dir: &Path, idle_secs: u64) -> Self {
 		let pipe = format!(r"\\.\pipe\tdmcp-rs-idle-test-{port}");
+		let config_path = data_dir.join("test-config.toml");
+		tdmcp_config::ensure_default(&config_path, true).expect("seed config");
 		let child = Command::new(daemon_bin())
 			.args([
 				"start",
@@ -58,6 +60,7 @@ impl IdleHarness {
 			])
 			.env("TDMCP_IDLE_EXIT_SECS", idle_secs.to_string())
 			.env("TDMCP_IPC_PIPE", pipe)
+			.env(tdmcp_config::CONFIG_PATH_ENV, &config_path)
 			.stdin(Stdio::null())
 			.stdout(Stdio::null())
 			.stderr(Stdio::null())

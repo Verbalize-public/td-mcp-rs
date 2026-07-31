@@ -1,0 +1,114 @@
+# Configuration
+
+td-mcp-rs reads a curated TOML file as the source of truth for daemon settings.
+Cursor / IDE `mcp.json` should stay minimal (`args: ["mcp"]`) — do not put port,
+idle, or path overrides there.
+
+## File location
+
+| OS | Path |
+| --- | --- |
+| Windows | `%APPDATA%\tdmcp-rs\config.toml` |
+| macOS | `~/Library/Application Support/tdmcp-rs/config.toml` |
+| Linux | `$XDG_CONFIG_HOME/tdmcp-rs/config.toml` or `~/.config/tdmcp-rs/config.toml` |
+
+The **data directory** (bridge, catalog, bootstrap `.tox`) stays separate under
+the OS local data dir (`%LOCALAPPDATA%\tdmcp-rs\` on Windows, etc.). The config
+path never depends on a value inside the config file.
+
+Internal / test override: set `TDMCP_CONFIG_PATH` to an absolute file path so
+tests never touch the user config.
+
+## Creating and resetting
+
+| Action | Config file behavior |
+| --- | --- |
+| First `start` / `ensure` / `mcp` | Create-if-missing from the embedded template |
+| `tdmcp-daemon install` (any) | **Always** overwrite with the shipped defaults |
+| `install --force` | Same config reset + re-extract embedded assets |
+| Tray Settings → Reset | Force-write defaults (same template) |
+
+The template is `crates/tdmcp-config/assets/default.toml`, embedded via
+`include_str!`.
+
+## Precedence
+
+1. CLI flags / env (`--port`, `TDMCP_PORT`, `--data-dir`, `TDMCP_DATA_DIR`,
+   `--bridge-dir`, `--catalog`, `--no-gui` / `TDMCP_NO_GUI`)
+2. TOML config file
+3. Built-in defaults
+
+`keep_alive` and `always_on` are **config/GUI only** (no CLI flags).
+
+`TDMCP_IDLE_EXIT_SECS` remains a test/escape hatch for the idle timeout length
+(`0` disables idle exit even when `keep_alive = false`).
+
+## Fields
+
+### `[server]`
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `port` | `9860` | HTTP listen port (MCP + admin) |
+
+### `[daemon]`
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `keep_alive` | `false` | When `true`, never auto-exit after idle (no MCP sessions and no TD bridges). When `false`, idle exit uses ~30s (or `TDMCP_IDLE_EXIT_SECS`). |
+| `always_on` | `false` | When `true`, register OS login autostart for `tdmcp-daemon start`. Reconciled once at daemon start. |
+| `show_tray` | `true` | When `false`, run headless (gui builds). CLI `--no-gui` still forces headless. |
+
+### `[advanced]`
+
+Optional path overrides. Omit (or leave blank in the GUI) to use defaults under
+the data directory.
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `data_dir` | *(unset)* | Install / data root |
+| `bridge_dir` | *(unset)* | Python bridge package directory |
+| `catalog_path` | *(unset)* | `diagnostics/catalog.yaml` path |
+
+## Keep alive vs idle exit
+
+Idle exit (when not keep-alive) cancels a shared shutdown token and sets the
+process quit flag; the composition root drains axum and ends on the main thread.
+Background / tokio paths do **not** call `process::exit`.
+
+## Always on (autostart)
+
+When `always_on` is true at daemon start, the process registers itself with the
+OS login mechanism via the `auto-launch` crate:
+
+| OS | Mechanism |
+| --- | --- |
+| Windows | Current-user Run registry key |
+| macOS | Launch Agent |
+| Linux | XDG autostart (`.desktop`) |
+
+Turning `always_on` off and restarting removes the registration. Changes are not
+applied until the next start.
+
+## Settings GUI
+
+1. Left-click the tray icon to open the dashboard.
+2. Click **⚙** (gear) in the header.
+3. Edit fields → **Save** or **Discard** (both return to the fleet view).
+4. **Reset** rewrites the file from the shipped template.
+5. Restart the daemon for changes to take effect.
+
+## Example
+
+```toml
+[server]
+port = 9860
+
+[daemon]
+keep_alive = false
+always_on = false
+show_tray = true
+
+[advanced]
+# data_dir = "C:/path/to/tdmcp-rs-data"
+```

@@ -28,28 +28,32 @@ pub struct EnsureOptions {
     pub poll_only: bool,
     /// When true, spawn with `--no-gui` (headless; used by tests / CI).
     pub no_gui: bool,
-    /// Child `TDMCP_IDLE_EXIT_SECS`. `None` → default `30`; tests use `Some(0)`.
+    /// Optional child `TDMCP_IDLE_EXIT_SECS`. `None` → child uses TOML config /
+	/// idle defaults; tests pass `Some(0)` to disable idle exit.
     pub idle_exit_secs: Option<u64>,
     /// When true, re-extract embedded bridge/catalog/tox even if already current.
     pub force_install: bool,
     /// Child `TDMCP_IPC_PIPE` override (tests isolate from the live TD pipe).
     pub ipc_pipe: Option<String>,
+	/// Child `TDMCP_CONFIG_PATH` override (tests isolate from the user config).
+	pub config_path: Option<PathBuf>,
 }
 
 impl Default for EnsureOptions {
-    fn default() -> Self {
-        Self {
-            port: 9860,
-            data_dir: install::default_data_dir(),
-            exe: None,
-            timeout: Duration::from_secs(15),
-            poll_only: false,
-            no_gui: false,
-            idle_exit_secs: None,
-            force_install: false,
-            ipc_pipe: None,
-        }
-    }
+	fn default() -> Self {
+		Self {
+			port: 9860,
+			data_dir: install::default_data_dir(),
+			exe: None,
+			timeout: Duration::from_secs(15),
+			poll_only: false,
+			no_gui: false,
+			idle_exit_secs: None,
+			force_install: false,
+			ipc_pipe: None,
+			config_path: None,
+		}
+	}
 }
 
 /// Result of an ensure pass.
@@ -105,14 +109,15 @@ pub async fn ensure_daemon(opts: EnsureOptions) -> Result<EnsureResult> {
                         spawned: false,
                     });
                 }
-                spawn_detached(
-                    &exe,
-                    opts.port,
-                    &opts.data_dir,
-                    opts.no_gui,
-                    opts.idle_exit_secs,
-                    opts.ipc_pipe.as_deref(),
-                )?;
+				spawn_detached(
+					&exe,
+					opts.port,
+					&opts.data_dir,
+					opts.no_gui,
+					opts.idle_exit_secs,
+					opts.ipc_pipe.as_deref(),
+					opts.config_path.as_deref(),
+				)?;
                 spawned = true;
                 drop(guard);
             }
@@ -196,43 +201,51 @@ pub fn configure_detached_spawn(cmd: &mut Command, no_gui: bool) {
 }
 
 fn spawn_detached(
-    exe: &Path,
-    port: u16,
-    data_dir: &Path,
-    no_gui: bool,
-    idle_exit_secs: Option<u64>,
-    ipc_pipe: Option<&str>,
+	exe: &Path,
+	port: u16,
+	data_dir: &Path,
+	no_gui: bool,
+	idle_exit_secs: Option<u64>,
+	ipc_pipe: Option<&str>,
+	config_path: Option<&Path>,
 ) -> Result<()> {
-    let idle_secs = idle_exit_secs.unwrap_or(crate::idle::DEFAULT_IDLE_EXIT_SECS);
-    info!(
-        exe = %exe.display(),
-        port,
-        data_dir = %data_dir.display(),
-        no_gui,
-        idle_secs,
-        ipc_pipe,
-        "ensure: spawning detached daemon"
-    );
-    let mut cmd = Command::new(exe);
-    cmd.arg("start")
-        .arg("--port")
-        .arg(port.to_string())
-        .arg("--data-dir")
-        .arg(data_dir);
-    if no_gui {
-        cmd.arg("--no-gui");
-    }
-    cmd.env("TDMCP_IDLE_EXIT_SECS", idle_secs.to_string());
-    if let Some(pipe) = ipc_pipe {
-        cmd.env("TDMCP_IPC_PIPE", pipe);
-    }
-    configure_detached_spawn(&mut cmd, no_gui);
-    let child = cmd
-        .spawn()
-        .with_context(|| format!("spawn detached {} start --port {port}", exe.display()))?;
-    info!(child_pid = child.id(), "ensure: detached daemon spawned");
-    // Intentionally leak/drop without wait — child must outlive this process.
-    Ok(())
+	info!(
+		exe = %exe.display(),
+		port,
+		data_dir = %data_dir.display(),
+		no_gui,
+		idle_exit_secs,
+		ipc_pipe,
+		config_path = ?config_path.map(|p| p.display().to_string()),
+		"ensure: spawning detached daemon"
+	);
+	let mut cmd = Command::new(exe);
+	cmd.arg("start")
+		.arg("--port")
+		.arg(port.to_string())
+		.arg("--data-dir")
+		.arg(data_dir);
+	if no_gui {
+		cmd.arg("--no-gui");
+	}
+	// Production keep_alive / idle timeout come from the TOML config the child
+	// loads. Optional env override remains for integration tests.
+	if let Some(secs) = idle_exit_secs {
+		cmd.env("TDMCP_IDLE_EXIT_SECS", secs.to_string());
+	}
+	if let Some(pipe) = ipc_pipe {
+		cmd.env("TDMCP_IPC_PIPE", pipe);
+	}
+	if let Some(cfg) = config_path {
+		cmd.env(tdmcp_config::CONFIG_PATH_ENV, cfg);
+	}
+	configure_detached_spawn(&mut cmd, no_gui);
+	let child = cmd
+		.spawn()
+		.with_context(|| format!("spawn detached {} start --port {port}", exe.display()))?;
+	info!(child_pid = child.id(), "ensure: detached daemon spawned");
+	// Intentionally leak/drop without wait — child must outlive this process.
+	Ok(())
 }
 
 struct LockGuard {

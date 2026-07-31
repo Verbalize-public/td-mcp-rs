@@ -38,11 +38,12 @@ Enforcement: root `Cargo.toml` `[workspace.lints]` inherited by every crate via
 | Crate | May know | Must not know |
 | --- | --- | --- |
 | `tdmcp-core` | domain types, `tdmcp-diagnostics` | `rmcp`, `axum`, IPC transports |
+| `tdmcp-config` | TOML config file I/O + defaults | `rmcp`, axum, egui, IPC |
 | `tdmcp-diagnostics` | catalog YAML, envelope types | MCP / IPC / axum |
 | `tdmcp-ipc` | framing, named pipe / UDS | MCP tool schemas, egui |
 | `tdmcp-mcp` | `rmcp`, core + diagnostics | egui, OS tray |
 | `tdmcp-daemon` | composition root; optional `tdmcp-gui` under `gui` feature | business logic (thin wiring only) |
-| `tdmcp-gui` | admin HTTP client, egui (lib consumed by daemon) | core queue internals, IPC wire |
+| `tdmcp-gui` | admin HTTP client, egui, `tdmcp-config` (lib consumed by daemon) | core queue internals, IPC wire |
 | `tdmcp-test-support` | fake peer speaking real wire protocol | production binary paths |
 
 ## API guidelines

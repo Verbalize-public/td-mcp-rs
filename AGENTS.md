@@ -17,6 +17,7 @@ Law: [`CONSTITUTION.md`](CONSTITUTION.md). User install/quickstart: [`README.md`
 | Live TD verify | [`docs/E2E_CHECKLIST.md`](docs/E2E_CHECKLIST.md) |
 | Interactive TD harness | [`docs/DEV_ENV.md`](docs/DEV_ENV.md) |
 | Testing strategy | [`docs/TESTING.md`](docs/TESTING.md) |
+| Config file / Settings | [`docs/CONFIG.md`](docs/CONFIG.md) |
 | Packaging | [`docs/DELIVERY.md`](docs/DELIVERY.md) |
 | Typing / schema policy | [`TODO_ENFORCE_TYPE.md`](TODO_ENFORCE_TYPE.md) |
 | Operate skill (after P0 green) | creative-operator `cop-*` — **do not update until P0 exits green** |

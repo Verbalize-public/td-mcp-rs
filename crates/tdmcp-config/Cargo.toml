@@ -1,0 +1,19 @@
+[package]
+name = "tdmcp-config"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "td-mcp-rs TOML config file (load / save / defaults)"
+
+[dependencies]
+anyhow = { workspace = true }
+dirs = { workspace = true }
+serde = { workspace = true }
+toml_edit = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

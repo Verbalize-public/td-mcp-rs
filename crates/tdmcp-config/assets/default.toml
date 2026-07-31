@@ -1,0 +1,33 @@
+# td-mcp-rs configuration
+#
+# Location (default):
+#   Windows: %APPDATA%\tdmcp-rs\config.toml
+#   macOS:   ~/Library/Application Support/tdmcp-rs/config.toml
+#   Linux:   $XDG_CONFIG_HOME/tdmcp-rs/config.toml  (or ~/.config/…)
+#
+# Edit with the tray dashboard gear icon, or by hand.
+# Changes apply after the next daemon restart.
+# `tdmcp-daemon install --force` resets this file to the shipped defaults.
+
+[server]
+# HTTP listen port for MCP + admin (default: 9860).
+port = 9860
+
+[daemon]
+# When true, the daemon never auto-exits after idle (no MCP sessions and no TD bridges).
+# Default false: idle exit after ~30s (override timeout with TDMCP_IDLE_EXIT_SECS).
+keep_alive = false
+
+# When true, register the daemon to start at user login (OS autostart).
+# Default false. Applied once at daemon start.
+always_on = false
+
+# When true, show the system-tray dashboard (requires a gui-enabled build).
+# Default true. CLI --no-gui / TDMCP_NO_GUI=1 still forces headless.
+show_tray = true
+
+[advanced]
+# Optional overrides. Leave unset to use built-in defaults under the data dir.
+# data_dir = "C:/path/to/tdmcp-rs-data"
+# bridge_dir = "C:/path/to/bridge"
+# catalog_path = "C:/path/to/diagnostics/catalog.yaml"
