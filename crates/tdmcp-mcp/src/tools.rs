@@ -127,7 +127,7 @@ pub fn tool_descriptors() -> Vec<ToolDescriptor> {
         },
         ToolDescriptor {
             name: "execute_python".into(),
-            description: "Run Python in TD; prints tee to op.Debug.op('debug') and the COMP face LOGS section; response includes logs (disable with includeLogs: false). OpPath-exempt with tdmcp_resolve helper.".into(),
+            description: "Run Python in TD; failures return structured exception (type/frames/syntax); default diagnosticLevel detailed; formatMode debug adds capped locals; prints tee to Debug DAT / logs.".into(),
             input_schema: input_schema_for("execute_python"),
         },
         ToolDescriptor {
@@ -153,6 +153,36 @@ pub fn tool_descriptors() -> Vec<ToolDescriptor> {
     ]
 }
 
+/// Locals capture mode for execute_python exception reports.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum FormatMode {
+    /// Structured exception without frame locals.
+    #[default]
+    Normal,
+    /// Include capped locals on `<string>` frames.
+    Debug,
+}
+
+impl FormatMode {
+    /// Wire string for the bridge.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Normal => "normal",
+            Self::Debug => "debug",
+        }
+    }
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_detailed() -> DiagnosticLevel {
+    DiagnosticLevel::Detailed
+}
+
 /// Args for execute_python.
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -171,12 +201,12 @@ pub struct ExecutePythonParams {
     #[serde(default = "default_true")]
     pub include_logs: bool,
     /// Diagnostic payload size (`summary` omits raw traceback).
-    #[serde(default)]
+    /// Default for this tool is `detailed` (other tools keep global summary default).
+    #[serde(default = "default_detailed")]
     pub diagnostic_level: DiagnosticLevel,
-}
-
-fn default_true() -> bool {
-    true
+    /// Exception report locals mode (`debug` attaches capped frame locals).
+    #[serde(default)]
+    pub format_mode: FormatMode,
 }
 
 /// Capture mode.
@@ -424,10 +454,18 @@ pub async fn dispatch_tool(
                     "script": params.script,
                     "contextPath": params.context_path,
                     "includeLogs": params.include_logs,
+                    "formatMode": params.format_mode.as_str(),
                 }),
             )
             .await;
-            map_script_outcome(catalog, params.pid, outcome, params.diagnostic_level)
+            map_script_outcome(
+                catalog,
+                params.pid,
+                outcome,
+                params.diagnostic_level,
+                params.format_mode,
+                params.context_path.clone(),
+            )
         }
         "capture" => {
             let params: CaptureParams = serde_json::from_value(args)

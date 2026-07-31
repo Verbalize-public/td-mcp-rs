@@ -142,7 +142,7 @@ only — not bridge peer health.
 | Tool | Job | Status |
 | --- | --- | --- |
 | `fleet` | Fleet view — processes by pid, bridge, tasks, cancelled traces | **Shipped** |
-| `execute_python` | Run Python in TD; `result = …`; optional `logs` (stdio capture) | **Shipped** |
+| `execute_python` | Run Python in TD; `result = …`; optional `logs`; structured `exception` on failure | **Shipped** |
 | `inspect` | Structural subtree read (nodes / params / errors / warnings); summary = direct-child roster | **Shipped** |
 | `capture` | Perception — `top` / `preview` / `auto` | **Shipped** (P0 modes) |
 | `describe_tools` | Manifest of available tools | **Shipped** |
@@ -277,7 +277,7 @@ Result (summary):
 - `failedAt` = index of the first hard failure, or `null` if all applied.
 - Steps after `failedAt` are marked `skipped` with `tdmcp.batch.skipped_dependent` — they are **not** replayed; the agent fixes from `failedAt` only. Skipped-step `path` is absolutized against `contextPath`.
 - Canonical absolute `path` is echoed per step so the agent can re-`inspect` without re-resolving.
-- `diagnosticLevel` (default `summary`) on bridge-backed tools gates `rawTraceback` inclusion (`detailed` only).
+- `diagnosticLevel` (default `summary` on most bridge-backed tools) gates `rawTraceback` inclusion (`detailed` only). **`execute_python` defaults to `detailed`** (tool-local only — the global `DiagnosticLevel` default remains `summary`).
 
 **Mutation zones are not enforced by the daemon in v1.** Zone discipline lives in the agent layer (`creative-operator` → `cop-touchdesigner-mcp` → `reference/mutation-zones.md`): the agent only passes paths under a self-created named COMP or an authorized subtree. `tdmcp.op.outside_zone` stays **reserved** in the catalog, not emitted by the daemon. A future P2 may add per-pid zone registration if operate experience demands it.
 
@@ -307,8 +307,34 @@ Canonical output echoes TD’s absolute `node.path`. `execute_python` is OpPath-
 | Face | Operator Viewer ASCII panel includes a **LOGS** section (tail of `./debug`) |
 | `includeLogs` | Default **true**. When true, stdout/stderr during `exec` are teed (Textport still receives them), ring-appended to `./debug` (64 KiB), and returned as `logs` (capped 32 KiB) |
 | Success | `{ ok: true, result, logs? }` — `logs` omitted when `includeLogs: false` |
-| Failure | `diagnostics.context.logs` carries the same capture; `rawTraceback` unchanged |
+| Failure | `diagnostics.context.logs` carries the same capture; see structured `exception` below |
 | Scope | Only stdio (`print` / writes to stdout/stderr). TD `debug()` may bypass stdio |
+
+### `execute_python` structured exception — Shipped
+
+On soft-fail the bridge returns additive `{ error, traceback, exception }` (strings kept for compatibility).
+
+`exception` shape:
+
+```json
+{
+  "type": "AttributeError",
+  "message": "'NoneType' object has no attribute 'name'",
+  "frames": [
+    { "filename": "<string>", "lineno": 2, "name": "<module>", "line": "…" }
+  ],
+  "syntax": null,
+  "raw": "Traceback (most recent call last):\n…"
+}
+```
+
+| Piece | Behavior |
+| --- | --- |
+| `diagnosticLevel` | **Default `detailed`** on this tool only. `summary` omits `rawTraceback` but **keeps** structured `exception`. |
+| `formatMode` | `normal` (default) \| `debug`. `debug` asks the bridge for capped locals on `<string>` frames; daemon strips `locals` unless `debug`. |
+| MCP item | Hard code stays `tdmcp.script.execution_failed`. `items[0].exception` carries the reduced report. `span.line` / `column` / `snippet` filled from `syntax` or last `<string>` frame. |
+| Nested lint | `tdmcp.script.none_op` when `type == AttributeError` and message contains `NoneType` (hints never change the hard code). |
+| Locals policy | Max 8 names / frame, repr ≤ 120 chars, skip callables/modules; never fails the report. |
 
 ### Diagnostics — Shipped
 
@@ -319,6 +345,7 @@ Every tool failure carries a structured `diagnostics` block:
 - `span` (exact tool + step)
 - Stable `code` strings from [`diagnostics/catalog.yaml`](../diagnostics/catalog.yaml)
 - Mitigation + optional corpus / doc references
+- Optional `exception` (execute_python structured report) and `rawTraceback` (`detailed` only)
 
 Code families in use today: `tdmcp.bridge.*`, `tdmcp.script.*`, `tdmcp.perception.*`, `tdmcp.op.*` (catalog also reserves mutate/batch codes for P1).
 

@@ -228,6 +228,16 @@ entries:
       - kind: corpus
         id: corpora/td-software/distilled/python-td-module/README.md
 
+  - code: tdmcp.script.none_op
+    layer: script
+    message: "Attribute access on None — likely a missing op() / bad path"
+    mitigation:
+      - "Confirm the operator path exists via inspect before reading attributes"
+      - "op() returns None when the path is missing — check spelling and parent COMP"
+    references:
+      - kind: corpus
+        id: corpora/td-software/distilled/python-td-module/README.md
+
   - code: tdmcp.td.glsl_compile
     layer: structure
     message: "GLSL compile / cook error reported by TouchDesigner"

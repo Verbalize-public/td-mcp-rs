@@ -55,6 +55,7 @@ class ExecutePythonParams(TypedDict):
     script: str
     contextPath: NotRequired[str | None]
     includeLogs: NotRequired[bool]
+    formatMode: NotRequired[str]
 
 
 # execute_python log capture — MCP payload / DAT ring sizes.
@@ -96,6 +97,7 @@ class BridgeErrResult(TypedDict):
     message: NotRequired[str]
     code: NotRequired[str]
     traceback: NotRequired[str]
+    exception: NotRequired[dict[str, Any]]
 
 
 def _read_frame(stream) -> dict[str, Any]:
@@ -255,6 +257,8 @@ def _append_debug_dat(logs: str) -> None:
 
 def handle_execute_python(params: dict[str, Any]) -> dict[str, Any]:
     global _capture_depth
+    from .exception_report import build_exception_report
+
     script = params.get("script") or ""
     context_path = params.get("contextPath")
     include_logs = params.get("includeLogs")
@@ -262,6 +266,9 @@ def handle_execute_python(params: dict[str, Any]) -> dict[str, Any]:
         include_logs = True
     else:
         include_logs = bool(include_logs)
+    format_mode = params.get("formatMode") or "normal"
+    if format_mode not in ("normal", "debug"):
+        format_mode = "normal"
 
     # Convenience globals for agent scripts. ``td`` / ``op`` are safe here
     # because handle_execute_python only runs on TD's main/cook thread via
@@ -302,10 +309,14 @@ def handle_execute_python(params: dict[str, Any]) -> dict[str, Any]:
                 "ok": True,
             }
         except Exception as exc:  # noqa: BLE001 — surface to diagnostics
+            raw_tb = traceback.format_exc()
             out = {
                 "ok": False,
                 "error": str(exc),
-                "traceback": traceback.format_exc(),
+                "traceback": raw_tb,
+                "exception": build_exception_report(
+                    exc, script, format_mode=format_mode
+                ),
             }
     finally:
         if include_logs:

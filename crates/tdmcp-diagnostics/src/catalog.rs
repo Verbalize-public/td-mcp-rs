@@ -122,6 +122,7 @@ impl Catalog {
             mitigation: entry.mitigation.clone(),
             references: entry.references.clone(),
             raw_traceback: None,
+            exception: None,
         })
     }
 }

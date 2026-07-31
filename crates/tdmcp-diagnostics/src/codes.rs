@@ -52,6 +52,8 @@ pub const WIRE_CONNECT_FAILED: &str = "tdmcp.wire.connect_failed";
 
 /// Python script execution failed.
 pub const SCRIPT_EXECUTION_FAILED: &str = "tdmcp.script.execution_failed";
+/// Lint: AttributeError on None — likely missing op() / bad path.
+pub const SCRIPT_NONE_OP: &str = "tdmcp.script.none_op";
 
 /// GLSL compile / cook error from TD.
 pub const TD_GLSL_COMPILE: &str = "tdmcp.td.glsl_compile";
@@ -87,6 +89,7 @@ pub const ALL: &[&str] = &[
     WIRE_BAD_INDEX,
     WIRE_CONNECT_FAILED,
     SCRIPT_EXECUTION_FAILED,
+    SCRIPT_NONE_OP,
     TD_GLSL_COMPILE,
     PERCEPTION_BLACK_FRAME,
     PERCEPTION_UNIFORM_FRAME,

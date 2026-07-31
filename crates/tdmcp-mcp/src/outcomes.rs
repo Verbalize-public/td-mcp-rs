@@ -15,7 +15,7 @@ use tdmcp_diagnostics::{
 };
 
 use crate::bridge_rpc::BridgeRpcError;
-use crate::tools::{BridgeOutcome, ToolCallError};
+use crate::tools::{BridgeOutcome, FormatMode, ToolCallError};
 
 /// Typed soft-failure / success shell from the bridge (not transport errors).
 #[derive(Debug, Clone, Deserialize)]
@@ -43,6 +43,9 @@ pub struct BridgeResultEnvelope {
     /// Captured stdout/stderr when includeLogs was enabled.
     #[serde(default)]
     pub logs: Option<String>,
+    /// Structured execute_python exception report.
+    #[serde(default)]
+    pub exception: Option<Value>,
 }
 
 impl BridgeResultEnvelope {
@@ -56,6 +59,7 @@ impl BridgeResultEnvelope {
             message: None,
             traceback: None,
             logs: None,
+            exception: None,
         })
     }
 
@@ -114,15 +118,20 @@ pub fn map_script_outcome(
     pid: Pid,
     outcome: BridgeOutcome,
     diagnostic_level: DiagnosticLevel,
+    format_mode: FormatMode,
+    context_path: Option<OpPath>,
 ) -> Result<Value, ToolCallError> {
-    let span = span("execute_python", None);
+    let mut span = span("execute_python", None);
     match outcome {
         BridgeOutcome::Ok(value) => {
             let env = BridgeResultEnvelope::from_value(&value);
             if env.is_error() {
                 let msg = env.message_or("script execution failed");
-                let mut context = ctx(pid, None, None);
+                let mut context = ctx(pid, None, context_path);
                 context.logs = env.logs.clone();
+                let exception =
+                    reduce_exception(env.exception.clone(), format_mode);
+                fill_span_from_exception(&mut span, exception.as_ref());
                 let mut item = build_diag(
                     catalog,
                     codes::SCRIPT_EXECUTION_FAILED,
@@ -130,7 +139,21 @@ pub fn map_script_outcome(
                     Some(msg),
                     context,
                 );
-                item.raw_traceback = raw_traceback_for(diagnostic_level, env.traceback);
+                item.raw_traceback = raw_traceback_for(
+                    diagnostic_level,
+                    env.traceback
+                        .or_else(|| {
+                            exception
+                                .as_ref()
+                                .and_then(|e| e.get("raw"))
+                                .and_then(Value::as_str)
+                                .map(str::to_owned)
+                        }),
+                );
+                item.exception = exception;
+                if let Some(lint) = none_op_lint(item.exception.as_ref()) {
+                    item.lints = vec![lint];
+                }
                 Err(failed_one(item))
             } else {
                 let mut body = serde_json::json!({ "ok": true, "result": value.get("result") });
@@ -145,6 +168,80 @@ pub fn map_script_outcome(
         BridgeOutcome::QueueBusy => Err(queue_busy(catalog, "execute_python", pid)),
         BridgeOutcome::Transport(err) => Err(transport(catalog, "execute_python", pid, err)),
     }
+}
+
+fn reduce_exception(exception: Option<Value>, format_mode: FormatMode) -> Option<Value> {
+    let mut exception = exception?;
+    if format_mode == FormatMode::Debug {
+        return Some(exception);
+    }
+    if let Some(frames) = exception.get_mut("frames").and_then(Value::as_array_mut) {
+        for frame in frames {
+            if let Some(obj) = frame.as_object_mut() {
+                obj.remove("locals");
+            }
+        }
+    }
+    Some(exception)
+}
+
+fn fill_span_from_exception(span: &mut DiagnosticSpan, exception: Option<&Value>) {
+    let Some(exception) = exception else {
+        return;
+    };
+    if let Some(syntax) = exception.get("syntax") {
+        if !syntax.is_null() {
+            span.line = syntax
+                .get("lineno")
+                .and_then(Value::as_u64)
+                .map(|n| n as u32);
+            span.column = syntax
+                .get("offset")
+                .and_then(Value::as_u64)
+                .map(|n| n as u32);
+            span.snippet = syntax
+                .get("text")
+                .and_then(Value::as_str)
+                .map(|s| s.trim_end_matches('\n').to_owned());
+            if span.line.is_some() {
+                return;
+            }
+        }
+    }
+    let Some(frames) = exception.get("frames").and_then(Value::as_array) else {
+        return;
+    };
+    let last_user = frames.iter().rev().find(|f| {
+        f.get("filename")
+            .and_then(Value::as_str)
+            .is_some_and(|p| p == "<string>")
+    });
+    if let Some(frame) = last_user {
+        span.line = frame
+            .get("lineno")
+            .and_then(Value::as_u64)
+            .map(|n| n as u32);
+        span.snippet = frame
+            .get("line")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
+    }
+}
+
+fn none_op_lint(exception: Option<&Value>) -> Option<LintItem> {
+    let exception = exception?;
+    let ty = exception.get("type").and_then(Value::as_str)?;
+    let message = exception.get("message").and_then(Value::as_str).unwrap_or("");
+    if ty != "AttributeError" || !message.contains("NoneType") {
+        return None;
+    }
+    Some(LintItem {
+        severity: DiagnosticSeverity::Lint,
+        code: codes::SCRIPT_NONE_OP.to_owned(),
+        message: "Attribute access on None — likely a missing op() / bad path".to_owned(),
+        confidence: Some("high".to_owned()),
+        suggestion: None,
+    })
 }
 
 fn raw_traceback_for(level: DiagnosticLevel, traceback: Option<String>) -> Option<String> {
@@ -456,6 +553,7 @@ pub fn build_diag(
             mitigation: Vec::new(),
             references: Vec::new(),
             raw_traceback: None,
+            exception: None,
         },
     }
 }
@@ -511,43 +609,120 @@ mod tests {
         assert_eq!(ok["node"]["warnings"], json!([]));
     }
 
-    #[test]
-    fn script_summary_omits_traceback_detailed_keeps_it() {
+    fn script_fail(
+        bridge_val: Value,
+        level: DiagnosticLevel,
+        format_mode: FormatMode,
+    ) -> DiagnosticItem {
         let catalog = Catalog::fallback();
-        let bridge_val = json!({
-            "ok": false,
-            "error": "boom",
-            "traceback": "Traceback (most recent call last):\n  File \"<td>\", line 1"
-        });
-        let summary_err = map_script_outcome(
-            &catalog,
-            Pid::new(1),
-            BridgeOutcome::Ok(bridge_val.clone()),
-            DiagnosticLevel::Summary,
-        )
-        .expect_err("expected script failure");
-        match summary_err {
-            ToolCallError::Failed(payload) => {
-                assert!(payload.diagnostics.items[0].raw_traceback.is_none());
-            }
-            other => panic!("unexpected error: {other}"),
-        }
-        let detailed_err = map_script_outcome(
+        let err = map_script_outcome(
             &catalog,
             Pid::new(1),
             BridgeOutcome::Ok(bridge_val),
-            DiagnosticLevel::Detailed,
+            level,
+            format_mode,
+            Some(OpPath("/project1".into())),
         )
         .expect_err("expected script failure");
-        match detailed_err {
-            ToolCallError::Failed(payload) => {
-                assert!(payload.diagnostics.items[0]
-                    .raw_traceback
-                    .as_deref()
-                    .is_some_and(|t| t.contains("Traceback")));
-            }
+        match err {
+            ToolCallError::Failed(payload) => payload.diagnostics.items[0].clone(),
             other => panic!("unexpected error: {other}"),
         }
+    }
+
+    #[test]
+    fn script_summary_omits_traceback_detailed_keeps_it() {
+        let bridge_val = json!({
+            "ok": false,
+            "error": "boom",
+            "traceback": "Traceback (most recent call last):\n  File \"<td>\", line 1",
+            "exception": {
+                "type": "RuntimeError",
+                "message": "boom",
+                "frames": [{
+                    "filename": "<string>",
+                    "lineno": 1,
+                    "name": "<module>",
+                    "line": "raise RuntimeError('boom')",
+                    "locals": {"x": {"type": "int", "repr": "1"}}
+                }],
+                "syntax": null,
+                "raw": "Traceback (most recent call last):\n  File \"<td>\", line 1"
+            }
+        });
+        let summary = script_fail(
+            bridge_val.clone(),
+            DiagnosticLevel::Summary,
+            FormatMode::Normal,
+        );
+        assert!(summary.raw_traceback.is_none());
+        assert!(summary.exception.is_some());
+        assert_eq!(
+            summary.exception.as_ref().unwrap()["type"],
+            "RuntimeError"
+        );
+        assert!(summary.exception.as_ref().unwrap()["frames"][0]
+            .get("locals")
+            .is_none());
+        assert_eq!(summary.span.line, Some(1));
+        assert_eq!(
+            summary.context.context_path.as_deref(),
+            Some("/project1")
+        );
+
+        let detailed = script_fail(bridge_val, DiagnosticLevel::Detailed, FormatMode::Normal);
+        assert!(detailed
+            .raw_traceback
+            .as_deref()
+            .is_some_and(|t| t.contains("Traceback")));
+    }
+
+    #[test]
+    fn script_debug_keeps_locals() {
+        let bridge_val = json!({
+            "ok": false,
+            "error": "boom",
+            "traceback": "tb",
+            "exception": {
+                "type": "ValueError",
+                "message": "boom",
+                "frames": [{
+                    "filename": "<string>",
+                    "lineno": 1,
+                    "name": "<module>",
+                    "line": "raise ValueError('boom')",
+                    "locals": {"x": {"type": "int", "repr": "1"}}
+                }],
+                "syntax": null,
+                "raw": "tb"
+            }
+        });
+        let item = script_fail(bridge_val, DiagnosticLevel::Detailed, FormatMode::Debug);
+        assert_eq!(
+            item.exception.as_ref().unwrap()["frames"][0]["locals"]["x"]["repr"],
+            "1"
+        );
+    }
+
+    #[test]
+    fn script_none_op_lint() {
+        let bridge_val = json!({
+            "ok": false,
+            "error": "'NoneType' object has no attribute 'name'",
+            "traceback": "tb",
+            "exception": {
+                "type": "AttributeError",
+                "message": "'NoneType' object has no attribute 'name'",
+                "frames": [],
+                "syntax": null,
+                "raw": "tb"
+            }
+        });
+        let item = script_fail(bridge_val, DiagnosticLevel::Detailed, FormatMode::Normal);
+        assert_eq!(item.code, codes::SCRIPT_EXECUTION_FAILED);
+        assert_eq!(item.lints.len(), 1);
+        assert_eq!(item.lints[0].code, codes::SCRIPT_NONE_OP);
+        assert_eq!(item.lints[0].confidence.as_deref(), Some("high"));
     }
 
     #[test]

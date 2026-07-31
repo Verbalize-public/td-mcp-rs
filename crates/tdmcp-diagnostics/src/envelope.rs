@@ -1,6 +1,7 @@
 //! Structured diagnostic envelope (rustc-inspired, agent-oriented).
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 /// Severity ladder for diagnostic items.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -131,7 +132,7 @@ pub struct Reference {
 }
 
 /// One diagnostic item.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DiagnosticItem {
     /// Severity.
@@ -159,6 +160,9 @@ pub struct DiagnosticItem {
     /// Raw traceback (detailed only).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub raw_traceback: Option<String>,
+    /// Structured exception report from execute_python (bridge-shaped JSON).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exception: Option<Value>,
 }
 
 impl DiagnosticContext {
@@ -171,7 +175,7 @@ impl DiagnosticContext {
 }
 
 /// Top-level diagnostics block on a tool response.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Diagnostics {
     /// One-line human summary.

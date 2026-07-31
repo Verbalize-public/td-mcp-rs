@@ -18,6 +18,7 @@ See [`DEV_ENV.md`](DEV_ENV.md) § Dev smoke. Does **not** replace rows 1–12 be
 | S3 | rs `execute_python` → `result = 1` |
 | S3b | rs `execute_python` `print('hi'); result = 1` → response `logs` contains `hi`; COMP face LOGS section shows it; `op.Debug.op('debug')` resolves (or shortcut-conflict warn) |
 | S3c | rs `execute_python` with `includeLogs: false` → no `logs` field |
+| S3d | rs `execute_python` raise → `items[0].exception.type` set; default `rawTraceback` present; `AttributeError` on None → nested `tdmcp.script.none_op` |
 | S4 | rs `capture` top on `/project1/e2e_kit/probe` — non-black; structured success has top-level `path`/`bytes` (not nested under `capture`) |
 | S5 | rs `inspect` summary on `/project1/e2e_kit` — structured success has top-level `node`; `children` is an array of `{name, opType}` (not a count); `childCount` present |
 

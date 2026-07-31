@@ -23,6 +23,6 @@ pub use server::{build_mcp_router, AppState};
 pub use stdio_proxy::{run as run_stdio_proxy, run_with_rw as run_stdio_proxy_rw, StdioProxyError};
 pub use tools::{
     dispatch_tool, tool_descriptors, BridgeOutcome, CaptureMode, CaptureParams, DetailLevel,
-    ExecutePythonParams, InspectInclude, InspectParams, MutateNodesParams, MutateStep,
+    ExecutePythonParams, FormatMode, InspectInclude, InspectParams, MutateNodesParams, MutateStep,
     ToolCallError, ToolDescriptor, ToolFailPayload, BRIDGE_TIMEOUT,
 };

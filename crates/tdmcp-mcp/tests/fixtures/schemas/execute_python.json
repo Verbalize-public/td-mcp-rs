@@ -15,6 +15,21 @@
         }
       ]
     },
+    "FormatMode": {
+      "description": "Locals capture mode for execute_python exception reports.",
+      "oneOf": [
+        {
+          "const": "normal",
+          "description": "Structured exception without frame locals.",
+          "type": "string"
+        },
+        {
+          "const": "debug",
+          "description": "Include capped locals on `<string>` frames.",
+          "type": "string"
+        }
+      ]
+    },
     "OpPath": {
       "description": "Operator path string passed to TD for resolution via `td.op()`.",
       "type": "string"
@@ -43,13 +58,18 @@
     },
     "diagnosticLevel": {
       "$ref": "#/$defs/DiagnosticLevel",
-      "default": "summary",
-      "description": "Diagnostic payload size (`summary` omits raw traceback)."
+      "default": "detailed",
+      "description": "Diagnostic payload size (`summary` omits raw traceback).\nDefault for this tool is `detailed` (other tools keep global summary default)."
     },
     "exclusive": {
       "default": false,
       "description": "Exclusive enqueue.",
       "type": "boolean"
+    },
+    "formatMode": {
+      "$ref": "#/$defs/FormatMode",
+      "default": "normal",
+      "description": "Exception report locals mode (`debug` attaches capped frame locals)."
     },
     "includeLogs": {
       "default": true,

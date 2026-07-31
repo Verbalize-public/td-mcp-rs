@@ -199,7 +199,64 @@ async fn script_failure_returns_diagnostics() {
 #[tokio::test]
 async fn script_failure_summary_omits_raw_traceback() {
     let bridge: Arc<dyn BridgeRpc> = Arc::new(FakeBridgeRpc::responding(
-        json!({"ok": false, "error": "NameError: 'x'", "traceback": "  File \"<td>\", line 1"}),
+        json!({
+            "ok": false,
+            "error": "name 'x' is not defined",
+            "traceback": "  File \"<td>\", line 1",
+            "exception": {
+                "type": "NameError",
+                "message": "name 'x' is not defined",
+                "frames": [],
+                "syntax": null,
+                "raw": "  File \"<td>\", line 1"
+            }
+        }),
+    ));
+    let state = AppState::new(registry_with_pid(), Catalog::fallback(), bridge);
+    let app = build_mcp_router(state);
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/mcp/tools/call")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            json!({
+                "name":"execute_python",
+                "arguments":{
+                    "pid":34,
+                    "script":"x",
+                    "diagnosticLevel":"summary"
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(v["ok"], false);
+    assert_eq!(v["items"][0]["code"], "tdmcp.script.execution_failed");
+    assert!(v["items"][0].get("rawTraceback").is_none());
+    assert_eq!(v["items"][0]["exception"]["type"], "NameError");
+}
+
+#[tokio::test]
+async fn script_failure_default_level_includes_raw_traceback() {
+    let bridge: Arc<dyn BridgeRpc> = Arc::new(FakeBridgeRpc::responding(
+        json!({
+            "ok": false,
+            "error": "boom",
+            "traceback": "Traceback (most recent call last):\n  File \"<td>\", line 1",
+            "exception": {
+                "type": "RuntimeError",
+                "message": "boom",
+                "frames": [],
+                "syntax": null,
+                "raw": "Traceback (most recent call last):\n  File \"<td>\", line 1"
+            }
+        }),
     ));
     let state = AppState::new(registry_with_pid(), Catalog::fallback(), bridge);
     let app = build_mcp_router(state);
@@ -218,8 +275,7 @@ async fn script_failure_summary_omits_raw_traceback() {
         .unwrap();
     let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(v["ok"], false);
-    assert_eq!(v["items"][0]["code"], "tdmcp.script.execution_failed");
-    assert!(v["items"][0].get("rawTraceback").is_none());
+    assert!(v["items"][0]["rawTraceback"].is_string());
 }
 
 #[tokio::test]
