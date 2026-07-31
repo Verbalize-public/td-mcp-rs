@@ -262,6 +262,7 @@ fn start_daemon(cfg: Config, no_gui: bool) -> Result<()> {
     {
         if !no_gui {
             let admin_base = format!("http://127.0.0.1:{}", cfg.port);
+            let data_dir = cfg.data_dir.clone();
             let daemon_cfg = cfg;
             let handle = std::thread::Builder::new()
                 .name("tdmcp-daemon".into())
@@ -279,7 +280,7 @@ fn start_daemon(cfg: Config, no_gui: bool) -> Result<()> {
                 .context("spawn daemon background thread")?;
 
             // eframe/winit require the real main thread.
-            let gui_result = tdmcp_gui::run(admin_base);
+            let gui_result = tdmcp_gui::run(admin_base, data_dir);
             match handle.join() {
                 Ok(Ok(())) => {}
                 Ok(Err(e)) => {

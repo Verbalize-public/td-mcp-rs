@@ -18,7 +18,8 @@ pub use bridge::{
     IDLE_DEAD, PONG_TIMEOUT,
 };
 pub use ensure::{
-    daemon_lock_path, ensure_daemon, health_ok, pid_alive, read_daemon_lock_pid,
-    reclaim_stale_daemon_lock, refuse_if_daemon_owned, EnsureOptions, EnsureResult,
+    configure_detached_spawn, daemon_lock_path, ensure_daemon, health_ok, pid_alive,
+    read_daemon_lock_pid, reclaim_stale_daemon_lock, refuse_if_daemon_owned, EnsureOptions,
+    EnsureResult,
 };
 pub use install::{default_data_dir, ensure_installed, InstallOutcome};

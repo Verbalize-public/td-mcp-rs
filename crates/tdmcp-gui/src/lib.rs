@@ -6,6 +6,8 @@
 
 mod theme;
 
+use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
@@ -16,15 +18,21 @@ use tray_icon::menu::{Menu, MenuEvent, MenuItem};
 use tray_icon::{Icon, MouseButton, MouseButtonState, Rect, TrayIcon, TrayIconBuilder, TrayIconEvent};
 
 use theme::{
-    chip, font_label, font_meta, font_mono, font_title, outline_button, section_header, status_led,
-    ACCENT, ACCENT_DIM, BG_HOVER, BG_ROW, BG_ROW_ALT, BORDER, ERR, OK, TEXT, TEXT_DIM, TEXT_FAINT,
-    WARN, WINDOW_MAX_HEIGHT, WINDOW_WIDTH,
+    font_label, font_meta, font_mono, font_title, ghost_button, section_header, status_led, ACCENT,
+    BG_HOVER, BG_ROW, BG_ROW_ALT, BORDER, ERR, OK, TEXT, TEXT_DIM, TEXT_FAINT, WARN,
+    WINDOW_MAX_HEIGHT, WINDOW_WIDTH,
 };
+
+/// Coalesce tray left-clicks so burst/double events cannot flip twice.
+const TRAY_TOGGLE_DEBOUNCE: Duration = Duration::from_millis(250);
+/// Focus-loss hide within this window counts as the close half of a tray toggle.
+const FOCUS_LOSS_CLOSE_GRACE: Duration = Duration::from_millis(400);
 
 /// Run the tray dashboard on the calling thread (must be the process main thread).
 ///
 /// Polls `admin_base` (e.g. `http://127.0.0.1:9860`) for status/fleet/sessions.
-pub fn run(admin_base: String) -> Result<()> {
+/// `data_dir` is the install root (contains `bootstrap.tox`) for the reveal button.
+pub fn run(admin_base: String, data_dir: PathBuf) -> Result<()> {
     let icon_normal_full = load_rgba(include_bytes!("../assets/icon-normal.png"), None)?;
     let icon_normal = load_rgba(include_bytes!("../assets/icon-normal.png"), Some(32))?;
     let icon_attention = load_rgba(include_bytes!("../assets/icon-attention.png"), Some(32))?;
@@ -55,6 +63,7 @@ pub fn run(admin_base: String) -> Result<()> {
             theme::apply(&cc.egui_ctx);
             Ok(Box::new(DashboardApp::new(
                 admin_base,
+                data_dir,
                 icon_normal,
                 icon_attention,
             )?))
@@ -99,6 +108,7 @@ fn tray_icon_from(rgba: &RgbaIcon) -> Result<Icon> {
 
 struct DashboardApp {
     admin_base: String,
+    data_dir: PathBuf,
     status: Option<StatusView>,
     fleet_json: String,
     sessions_json: String,
@@ -123,6 +133,10 @@ struct DashboardApp {
     clear_always_on_top_at: Option<Instant>,
     /// Suppress focus-loss hide briefly after show (tray click focus race).
     ignore_focus_loss_until: Option<Instant>,
+    /// When focus-loss hid the popup (coalesce with tray click close).
+    hidden_by_focus_loss_at: Option<Instant>,
+    /// Last tray toggle gesture (debounce burst events).
+    last_tray_toggle_at: Option<Instant>,
     /// Last tray icon rect for anchoring.
     last_tray_rect: Option<Rect>,
 }
@@ -139,7 +153,12 @@ struct FleetSnapshot {
 }
 
 impl DashboardApp {
-    fn new(admin_base: String, icon_normal: RgbaIcon, icon_attention: RgbaIcon) -> Result<Self> {
+    fn new(
+        admin_base: String,
+        data_dir: PathBuf,
+        icon_normal: RgbaIcon,
+        icon_attention: RgbaIcon,
+    ) -> Result<Self> {
         let menu = Menu::new();
         let menu_restart = MenuItem::new("Restart daemon", true, None);
         let menu_stop = MenuItem::new("Stop daemon", true, None);
@@ -156,6 +175,7 @@ impl DashboardApp {
 
         Ok(Self {
             admin_base,
+            data_dir,
             status: None,
             fleet_json: String::new(),
             sessions_json: String::new(),
@@ -175,6 +195,8 @@ impl DashboardApp {
             fail_polls: 0,
             clear_always_on_top_at: None,
             ignore_focus_loss_until: None,
+            hidden_by_focus_loss_at: None,
+            last_tray_toggle_at: None,
             last_tray_rect: None,
         })
     }
@@ -199,6 +221,7 @@ impl DashboardApp {
             self.last_tray_rect = Some(r);
         }
         self.visible = true;
+        self.hidden_by_focus_loss_at = None;
         self.position_near_tray(ctx);
         ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
         // Transient always-on-top to win z-order (Docker-style), then drop.
@@ -211,11 +234,31 @@ impl DashboardApp {
         self.ignore_focus_loss_until = Some(now + Duration::from_millis(400));
     }
 
-    fn toggle_window(&mut self, ctx: &egui::Context, tray_rect: Option<Rect>) {
-        if self.visible {
-            self.hide_window(ctx);
+    /// Tray left-click: open when closed; close when open (or when focus-loss
+    /// already closed this gesture — avoids blink-reopen).
+    fn on_tray_left_click(&mut self, ctx: &egui::Context, tray_rect: Rect) {
+        let now = Instant::now();
+        if self
+            .last_tray_toggle_at
+            .is_some_and(|t| now.duration_since(t) < TRAY_TOGGLE_DEBOUNCE)
+        {
+            return;
+        }
+        self.last_tray_toggle_at = Some(now);
+        self.last_tray_rect = Some(tray_rect);
+
+        let recently_closed_by_focus = self
+            .hidden_by_focus_loss_at
+            .is_some_and(|t| now.duration_since(t) < FOCUS_LOSS_CLOSE_GRACE);
+
+        if self.visible || recently_closed_by_focus {
+            if self.visible {
+                self.hide_window(ctx);
+            }
+            // Stay hidden — focus-loss already satisfied the close half.
+            self.hidden_by_focus_loss_at = None;
         } else {
-            self.show_window(ctx, tray_rect);
+            self.show_window(ctx, Some(tray_rect));
         }
     }
 
@@ -260,12 +303,13 @@ impl DashboardApp {
         };
 
         // Bottom taskbar: grow up-left from icon. Top taskbar: grow down-left.
+        // Flush to the dock/taskbar edge (no gap).
         let taskbar_bottom = icon_y > mon_y + mon_h / 2.0;
         let mut x = icon_x + icon_w - popup_w;
         let mut y = if taskbar_bottom {
-            icon_y - popup_h - 4.0
+            icon_y - popup_h
         } else {
-            icon_y + icon_h + 4.0
+            icon_y + icon_h
         };
 
         // Clamp so the whole popup stays on the monitor.
@@ -426,21 +470,23 @@ impl DashboardApp {
         let _ = http_post_blocking(&format!("{}/admin/restart", self.admin_base));
     }
 
+    fn reveal_tox(&self) {
+        if let Err(e) = reveal_bootstrap_tox(&self.data_dir) {
+            warn!(error = %e, "reveal bootstrap.tox failed");
+        }
+    }
+
     fn handle_tray_events(&mut self, ctx: &egui::Context) {
         while let Ok(event) = TrayIconEvent::receiver().try_recv() {
             match event {
+                // Left Click{Up} only — ignore DoubleClick (would double-toggle).
                 TrayIconEvent::Click {
                     button: MouseButton::Left,
                     button_state: MouseButtonState::Up,
                     rect,
                     ..
-                }
-                | TrayIconEvent::DoubleClick {
-                    button: MouseButton::Left,
-                    rect,
-                    ..
                 } => {
-                    self.toggle_window(ctx, Some(rect));
+                    self.on_tray_left_click(ctx, rect);
                 }
                 TrayIconEvent::Click {
                     button: MouseButton::Right,
@@ -482,10 +528,11 @@ impl DashboardApp {
         let focused = ctx.input(|i| i.viewport().focused);
         if focused == Some(false) {
             self.hide_window(ctx);
+            self.hidden_by_focus_loss_at = Some(Instant::now());
         }
     }
 
-    fn draw_header(&self, ui: &mut egui::Ui) {
+    fn draw_header(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             status_led(ui, ACCENT);
             ui.add_space(2.0);
@@ -502,49 +549,26 @@ impl DashboardApp {
                         .color(TEXT_FAINT),
                 );
             }
+            // Right-anchored ghost actions: Stop · Restart · .tox (RTL paint order).
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let ago = self
-                    .last_poll
-                    .map(|t| format!("updated {}s ago", t.elapsed().as_secs()))
-                    .unwrap_or_else(|| "updating…".into());
-                ui.label(egui::RichText::new(ago).font(font_meta()).color(TEXT_FAINT));
+                let stop = ghost_button(ui, "■", TEXT_DIM, ERR).on_hover_text("Stop daemon");
+                if stop.clicked() {
+                    self.shutdown_daemon();
+                }
+                ui.add_space(2.0);
+                let restart =
+                    ghost_button(ui, "↻", TEXT_DIM, ACCENT).on_hover_text("Restart daemon");
+                if restart.clicked() {
+                    self.restart_daemon();
+                }
+                ui.add_space(4.0);
+                let tox_path = self.data_dir.join("bootstrap.tox");
+                let tip = format!("Reveal {}", tox_path.display());
+                let tox = ghost_button(ui, ".tox", TEXT_DIM, ACCENT).on_hover_text(tip);
+                if tox.clicked() {
+                    self.reveal_tox();
+                }
             });
-        });
-    }
-
-    fn draw_chips(&self, ui: &mut egui::Ui) {
-        let mcp_n = self
-            .status
-            .as_ref()
-            .map(|s| s.mcp_session_count)
-            .unwrap_or(0);
-        let td_n = self
-            .status
-            .as_ref()
-            .map(|s| s.bridge_count)
-            .unwrap_or(self.prev_snapshot.connected);
-        let mcp_led = if mcp_n > 0 { OK } else { TEXT_FAINT };
-        let td_led = if self.prev_snapshot.disconnected > 0
-            || self.prev_snapshot.resurrected > 0
-            || self.prev_snapshot.cancelled > 0
-        {
-            WARN
-        } else if td_n > 0 {
-            OK
-        } else {
-            TEXT_FAINT
-        };
-        ui.horizontal(|ui| {
-            chip(ui, mcp_led, "MCP", mcp_n);
-            ui.add_space(8.0);
-            chip(ui, td_led, "TD", td_n);
-            if td_n > 0 {
-                ui.label(
-                    egui::RichText::new("connected")
-                        .font(font_meta())
-                        .color(TEXT_DIM),
-                );
-            }
         });
     }
 
@@ -681,12 +705,7 @@ impl DashboardApp {
                     .font(font_label())
                     .color(TEXT),
             );
-            child.add_space(8.0);
-            child.label(
-                egui::RichText::new(bridge)
-                    .font(font_meta())
-                    .color(TEXT_DIM),
-            );
+            // Right: counts; middle remaining: bridge status right-aligned.
             child.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.label(
                     egui::RichText::new(p.cancelled_tasks.len().to_string())
@@ -704,27 +723,19 @@ impl DashboardApp {
                     .font(font_mono())
                     .color(TEXT_DIM),
                 );
+                ui.add_space(10.0);
+                // Flexible middle: status takes remaining width, aligned right.
+                let avail = ui.available_width();
+                let (status_rect, _) =
+                    ui.allocate_exact_size(egui::vec2(avail, 20.0), egui::Sense::hover());
+                ui.painter().text(
+                    egui::pos2(status_rect.right(), status_rect.center().y),
+                    egui::Align2::RIGHT_CENTER,
+                    bridge,
+                    font_meta(),
+                    TEXT_DIM,
+                );
             });
-        }
-    }
-
-    fn draw_footer(&mut self, ui: &mut egui::Ui) {
-        ui.add_space(4.0);
-        let full = ui.available_width();
-        let (rect, _) = ui.allocate_exact_size(egui::vec2(full, 36.0), egui::Sense::hover());
-        let mut child = ui.new_child(
-            egui::UiBuilder::new()
-                .max_rect(rect)
-                .layout(egui::Layout::right_to_left(egui::Align::Center)),
-        );
-        child.add_space(12.0);
-        if outline_button(&mut child, "Stop", ERR, ERR, true).clicked() {
-            self.shutdown_daemon();
-        }
-        child.add_space(8.0);
-        // Restart: accent_dim outline at rest → accent outline+fill on hover.
-        if outline_button(&mut child, "Restart", ACCENT_DIM, ACCENT, true).clicked() {
-            self.restart_daemon();
         }
     }
 }
@@ -767,11 +778,13 @@ impl eframe::App for DashboardApp {
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
                     ui.add_space(12.0);
-                    ui.vertical(|ui| {
-                        self.draw_header(ui);
-                        ui.add_space(6.0);
-                        self.draw_chips(ui);
-                    });
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(ui.available_width() - 12.0, 24.0),
+                        egui::Layout::left_to_right(egui::Align::Center),
+                        |ui| {
+                            self.draw_header(ui);
+                        },
+                    );
                 });
                 ui.add_space(8.0);
                 if let Some(err) = &self.error {
@@ -781,12 +794,12 @@ impl eframe::App for DashboardApp {
                     });
                 }
                 egui::ScrollArea::vertical()
-                    .max_height(WINDOW_MAX_HEIGHT - 120.0)
+                    .max_height(WINDOW_MAX_HEIGHT - 80.0)
                     .show(ui, |ui| {
                         self.draw_mcp_section(ui);
                         self.draw_td_section(ui);
                     });
-                self.draw_footer(ui);
+                ui.add_space(8.0);
             });
     }
 }
@@ -806,6 +819,55 @@ pub fn toast(summary: &str, body: &str) {
 
 fn notify(summary: &str, body: &str) {
     toast(summary, body);
+}
+
+/// Open the file manager on `bootstrap.tox` (select file when present).
+fn reveal_bootstrap_tox(data_dir: &Path) -> Result<()> {
+    let tox = data_dir.join("bootstrap.tox");
+    #[cfg(windows)]
+    {
+        if tox.is_file() {
+            Command::new("explorer")
+                .arg(format!("/select,{}", tox.display()))
+                .spawn()
+                .map_err(|e| anyhow::anyhow!("explorer /select: {e}"))?;
+        } else {
+            Command::new("explorer")
+                .arg(data_dir.as_os_str())
+                .spawn()
+                .map_err(|e| anyhow::anyhow!("explorer: {e}"))?;
+        }
+        return Ok(());
+    }
+    #[cfg(target_os = "macos")]
+    {
+        if tox.is_file() {
+            Command::new("open")
+                .args(["-R", &tox.to_string_lossy()])
+                .spawn()
+                .map_err(|e| anyhow::anyhow!("open -R: {e}"))?;
+        } else {
+            Command::new("open")
+                .arg(data_dir)
+                .spawn()
+                .map_err(|e| anyhow::anyhow!("open: {e}"))?;
+        }
+        return Ok(());
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        let _ = tox;
+        Command::new("xdg-open")
+            .arg(data_dir)
+            .spawn()
+            .map_err(|e| anyhow::anyhow!("xdg-open: {e}"))?;
+        return Ok(());
+    }
+    #[cfg(not(any(windows, unix)))]
+    {
+        let _ = tox;
+        anyhow::bail!("reveal not supported on this platform");
+    }
 }
 
 fn id_tail(id: &str) -> String {
@@ -840,8 +902,6 @@ struct StatusView {
     pid: u32,
     #[serde(default)]
     mcp_session_count: usize,
-    #[serde(default)]
-    bridge_count: usize,
 }
 
 #[derive(Debug, Deserialize)]

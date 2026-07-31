@@ -168,6 +168,29 @@ fn resolve_exe(override_exe: Option<&PathBuf>) -> Result<PathBuf> {
     std::env::current_exe().context("resolve current_exe for ensure spawn")
 }
 
+/// Null stdio + Windows detach flags so the child does not flash a console.
+///
+/// `CREATE_NO_WINDOW` only when headless — it suppresses the notification-area
+/// tray icon. GUI restarts must use `DETACHED_PROCESS` alone.
+pub fn configure_detached_spawn(cmd: &mut Command, no_gui: bool) {
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const DETACHED_PROCESS: u32 = 0x0000_0008;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let flags = if no_gui {
+            DETACHED_PROCESS | CREATE_NO_WINDOW
+        } else {
+            DETACHED_PROCESS
+        };
+        cmd.creation_flags(flags);
+    }
+}
+
 fn spawn_detached(
     exe: &Path,
     port: u16,
@@ -194,24 +217,7 @@ fn spawn_detached(
         cmd.arg("--no-gui");
     }
     cmd.env("TDMCP_IDLE_EXIT_SECS", idle_secs.to_string());
-    cmd.stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        // DETACHED_PROCESS always. CREATE_NO_WINDOW only when headless — tray needs a
-        // normal process (CREATE_NO_WINDOW suppresses the notification-area icon).
-        const DETACHED_PROCESS: u32 = 0x0000_0008;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        let flags = if no_gui {
-            DETACHED_PROCESS | CREATE_NO_WINDOW
-        } else {
-            DETACHED_PROCESS
-        };
-        cmd.creation_flags(flags);
-    }
+    configure_detached_spawn(&mut cmd, no_gui);
     let child = cmd
         .spawn()
         .with_context(|| format!("spawn detached {} start --port {port}", exe.display()))?;

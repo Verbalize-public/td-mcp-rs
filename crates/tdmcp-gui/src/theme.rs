@@ -18,12 +18,10 @@ pub const BG_ACTIVE: Color32 = Color32::from_rgb(0x2e, 0x2e, 0x2e);
 pub const TEXT: Color32 = Color32::from_rgb(0xe6, 0xe6, 0xe6);
 /// Secondary text (section titles, empty state).
 pub const TEXT_DIM: Color32 = Color32::from_rgb(0x7a, 0x7a, 0x7a);
-/// Tertiary / metadata (id tails, "updated Xs ago").
+/// Tertiary / metadata (id tails, mono meta).
 pub const TEXT_FAINT: Color32 = Color32::from_rgb(0x55, 0x55, 0x55);
 /// Ableton orange — signal only (≤5% of frame).
 pub const ACCENT: Color32 = Color32::from_rgb(0xff, 0x7a, 0x1a);
-/// Accent at rest (Restart outline).
-pub const ACCENT_DIM: Color32 = Color32::from_rgb(0xb8, 0x54, 0x16);
 /// Status LED — healthy.
 pub const OK: Color32 = Color32::from_rgb(0x5f, 0xd3, 0x5f);
 /// Status LED — attention (matches amber tray badge).
@@ -54,7 +52,7 @@ pub fn font_label() -> FontId {
     FontId::new(12.0, FontFamily::Proportional)
 }
 
-/// Section headers, empty state, "updated Xs ago".
+/// Section headers, empty state, meta labels.
 #[must_use]
 pub fn font_meta() -> FontId {
     FontId::new(11.0, FontFamily::Proportional)
@@ -163,62 +161,33 @@ pub fn section_header(ui: &mut egui::Ui, title: &str) {
     );
 }
 
-/// Header chip: LED + meta label + count.
-pub fn chip(ui: &mut egui::Ui, led: Color32, label: &str, count: usize) {
-    let text = format!("{label}  {count}");
-    let galley = ui
-        .painter()
-        .layout_no_wrap(text, font_meta(), TEXT);
-    let pad_x = 4.0;
-    let pad_y = 2.0;
-    let w = LED_SIZE + 4.0 + galley.size().x + pad_x * 2.0;
-    let h = galley.size().y + pad_y * 2.0;
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(w, h), egui::Sense::hover());
-    ui.painter()
-        .rect_stroke(rect, 0.0, Stroke::new(1.0, BORDER), egui::StrokeKind::Inside);
-    ui.painter().rect_filled(rect, 0.0, BG_PANEL);
-    let led_center = egui::pos2(rect.left() + pad_x + LED_SIZE * 0.5, rect.center().y);
-    ui.painter()
-        .circle_filled(led_center, LED_SIZE * 0.5, led);
-    ui.painter().galley(
-        egui::pos2(rect.left() + pad_x + LED_SIZE + 4.0, rect.center().y - galley.size().y * 0.5),
-        galley,
-        TEXT,
-    );
-}
-
-/// Outline button.
+/// Ghost (borderless) text/icon button — transparent at rest, hover fill only.
 ///
-/// * `rest` — stroke/text at rest
-/// * `hot` — stroke/text (and optional fill) on hover/press
-/// * `fill_on_hover` — when true, fill with `hot` on hover/press
-pub fn outline_button(
+/// * `rest` — text color at rest
+/// * `hot` — text color on hover/press
+pub fn ghost_button(
     ui: &mut egui::Ui,
     label: &str,
     rest: Color32,
     hot: Color32,
-    fill_on_hover: bool,
 ) -> egui::Response {
     let galley = ui
         .painter()
         .layout_no_wrap(label.to_owned(), font_label(), rest);
-    let pad = egui::vec2(10.0, 4.0);
-    let size = egui::vec2(galley.size().x + pad.x * 2.0, 24.0);
+    let pad = egui::vec2(6.0, 2.0);
+    let size = egui::vec2(
+        (galley.size().x + pad.x * 2.0).max(22.0),
+        22.0,
+    );
     let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
 
     let hovered = response.hovered();
     let pressed = response.is_pointer_button_down_on();
     let active = hovered || pressed;
-    let stroke = if active { hot } else { rest };
-    let (fill, text_color) = if active && fill_on_hover {
-        (hot, BG_WINDOW)
-    } else {
-        (Color32::TRANSPARENT, stroke)
-    };
+    let fill = if active { BG_HOVER } else { Color32::TRANSPARENT };
+    let text_color = if active { hot } else { rest };
 
     ui.painter().rect_filled(rect, 0.0, fill);
-    ui.painter()
-        .rect_stroke(rect, 0.0, Stroke::new(1.0, stroke), egui::StrokeKind::Inside);
     let text_galley = ui
         .painter()
         .layout_no_wrap(label.to_owned(), font_label(), text_color);

@@ -12,16 +12,16 @@ Dark-only. Flat. Sharp corners (0px radius). Orange is a *signal*, never fill ma
 | Token | Value | Role |
 | --- | --- | --- |
 | `bg_window` | `#131313` | popup fill |
-| `bg_panel` | `#1c1c1c` | section header strips / chips |
+| `bg_panel` | `#1c1c1c` | section header strips |
 | `bg_row` / `bg_row_alt` | `#1a1a1a` / `#1f1f1f` | zebra rows |
-| `bg_hover` | `#262626` | hover only |
+| `bg_hover` | `#262626` | hover only (ghost buttons + rows) |
 | `text` / `text_dim` / `text_faint` | `#e6e6e6` / `#7a7a7a` / `#555555` | primary / secondary / meta |
-| `accent` / `accent_dim` | `#ff7a1a` / `#b85416` | brand + Restart |
-| `ok` / `warn` / `err` | `#5fd35f` / `#f0a830` / `#e85d5d` | LED + Stop |
+| `accent` | `#ff7a1a` | brand + Restart hover |
+| `ok` / `warn` / `err` | `#5fd35f` / `#f0a830` / `#e85d5d` | LED + Stop hover |
 | `border` | `#2a2a2a` | hairlines |
 
 Typography: title 13 bold · label 12 · meta/mono 11. Spacing on a 4px grid.
-Row height 22–24px; section strip 20px; footer 36px. No shadows / elevation.
+Row height 22–24px; section strip 20px. No shadows / elevation.
 
 Native tray menu + OS toasts are unthemeable — keep the tray menu to Restart /
 Stop only. Tray PNGs stay cyan mark + amber attention badge (brand, not UI).
@@ -29,18 +29,15 @@ Stop only. Tray PNGs stay cyan mark + amber attention badge (brand, not UI).
 ## Layout
 
 ```text
-┌─● td-mcp-rs · v0.1.0 · pid 4218        updated 2s ago ┐
-│ ● MCP 2          ● TD 1 connected                     │
+┌─● td-mcp-rs · v0.1.0 · pid 4218          .tox  ↻  ■ ┐
 ├──────────────────────────────────────────────────────┤
 │ MCP CLIENTS                                           │
 │ ●  a1b2…  Cursor              0.42.1      12m         │
 │ ●  c3d4…  tdmcp-stdio-proxy   0.1.0       3m          │
 ├──────────────────────────────────────────────────────┤
 │ TOUCHDESIGNER                                         │
-│ ●  33   TD: project.toe     connected    1     0      │
-│ ●  34   TD: project2.toe    resurrected  0     1      │
-├──────────────────────────────────────────────────────┤
-│                    [ Restart ]   [ Stop ]              │
+│ ●  33   TD: project.toe              connected  1  0 │
+│ ●  34   TD: longer-name.toe          connected  0  1 │
 └──────────────────────────────────────────────────────┘
  380px wide · content-height (max 600px) · 0px radius · flat
 ```
@@ -48,21 +45,31 @@ Stop only. Tray PNGs stay cyan mark + amber attention badge (brand, not UI).
 Empty states (centered meta text): `No MCP clients connected` /
 `No TouchDesigner bridges`.
 
+Header actions are **ghost** (borderless): transparent at rest, `bg_hover` +
+accent/err text on hover. Right-anchored cluster: `.tox` · restart `↻` · stop `■`.
+
+TD bridge status fills the space between title and task counts and is
+**right-aligned** so its X does not shift with title length.
+
 ## Controls
 
 | Control | Behavior |
 | --- | --- |
 | Auto-refresh | ~2s polls `/admin/status` + `/admin/fleet` + `/admin/mcp-sessions` |
-| “updated Xs ago” | Replaces Refresh; dim meta text in header |
-| Restart | `POST /admin/restart` (accent outline → fill on hover) |
-| Stop | `POST /admin/shutdown` (err outline → fill on hover) |
+| `.tox` | Reveal `data_dir/bootstrap.tox` in the file manager (Explorer `/select` on Windows) |
+| Restart `↻` | `POST /admin/restart` (ghost; accent on hover) |
+| Stop `■` | `POST /admin/shutdown` (ghost; err on hover) |
 | Startup | Tray icon + OS toast only — dashboard starts **hidden** |
-| Tray left-click / double-click | **Toggle** popup (Docker-style); anchored near tray icon |
+| Tray left-click | **Toggle** popup (Docker-style); flush to taskbar edge; ignore DoubleClick |
 | Tray right-click | Context menu: Restart / Stop only (left-click does **not** open menu) |
-| Focus loss / click-away | Hide popup (transient always-on-top ~150ms on show only) |
+| Focus loss / click-away | Hide popup; tray click that caused focus-loss does **not** reopen |
 | Window chrome | Borderless (no OS title bar / controls); 1px theme border |
 | Taskbar | No taskbar button while visible — tray icon only |
 | Hide | Tray left-click toggle or focus loss — does **not** stop the daemon |
+
+`/admin/restart` spawns the replacement with the same detached flags as `ensure`
+(null stdio + Windows `DETACHED_PROCESS`; `CREATE_NO_WINDOW` only when `--no-gui`)
+so a console window does not flash.
 
 ## Admin surfaces
 
@@ -75,13 +82,14 @@ Empty states (centered meta text): `No MCP clients connected` /
 
 ## Sign-off
 
-- [x] Compact Ableton-dark layout (LED chips, MCP + TD sections, Restart/Stop footer)
+- [x] Compact Ableton-dark layout (LED rows, MCP + TD sections, ghost header actions)
 - [x] Status + fleet + MCP sessions populate from a running daemon
-- [x] Auto-refresh only (no Refresh button / no editable Admin URL)
+- [x] Auto-refresh only (no Refresh / “updated Xs ago” / summary chips)
 - [x] Tray left-click toggles; right-click Restart / Stop (menu not on left)
-- [x] Borderless popup; no taskbar button (tray only)
-- [x] Focus-loss auto-hide (Docker-style)
+- [x] Borderless popup; no taskbar button (tray only); flush to dock edge
+- [x] Focus-loss auto-hide without tray-click reopen blink
 - [x] Status-reflecting icon / tooltip
 - [x] OS toast notifications on fleet edge transitions + startup
-- [x] Restart daemon via admin API
+- [x] Restart daemon via admin API (detached spawn, no console flash)
+- [x] `.tox` reveal opens install `bootstrap.tox` in the file manager
 - [x] Tray/toasts start with the daemon by default; dashboard opens on demand
