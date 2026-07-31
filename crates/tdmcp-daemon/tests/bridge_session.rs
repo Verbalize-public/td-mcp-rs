@@ -182,7 +182,7 @@ async fn capture_round_trip() {
     .expect("ok");
 
     assert_eq!(v["ok"], true);
-    assert_eq!(v["capture"]["path"], "/project1/out1");
+    assert_eq!(v["path"], "/project1/out1");
     let _ = driver.await;
 }
 

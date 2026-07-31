@@ -108,7 +108,7 @@ fn tool_from_descriptor(d: crate::tools::ToolDescriptor) -> Tool {
     Tool::new(d.name.clone(), d.description, schema)
 }
 
-/// Build an MCP tool result, promoting `capture.jpegBase64` to an image block.
+/// Build an MCP tool result, promoting top-level `jpegBase64` to an image block.
 fn call_tool_result_from_value(tool: &str, value: Value) -> CallToolResult {
     if tool == "capture" {
         return match try_perception_image_result(value) {
@@ -131,26 +131,26 @@ fn call_tool_error_result(payload: Value, image_jpeg_base64: Option<String>) -> 
     CallToolResult::structured_error(payload)
 }
 
-/// Promote JPEG payload to an image content block, or return the value unchanged.
+/// Promote top-level JPEG payload to an image content block, or return the value unchanged.
 fn try_perception_image_result(mut value: Value) -> Result<CallToolResult, Value> {
-    let Some(capture) = value.get_mut("capture").and_then(|c| c.as_object_mut()) else {
+    let Some(obj) = value.as_object_mut() else {
         return Err(value);
     };
-    let b64 = match capture.remove("jpegBase64") {
+    let b64 = match obj.remove("jpegBase64") {
         Some(Value::String(s)) if !s.is_empty() => s,
         other => {
             if let Some(v) = other {
-                capture.insert("jpegBase64".into(), v);
+                obj.insert("jpegBase64".into(), v);
             }
             return Err(value);
         }
     };
-    let path = capture
+    let path = obj
         .get("path")
         .and_then(|v| v.as_str())
         .unwrap_or("capture")
         .to_owned();
-    let bytes = capture.get("bytes").and_then(|v| v.as_u64()).unwrap_or(0);
+    let bytes = obj.get("bytes").and_then(|v| v.as_u64()).unwrap_or(0);
     let note = format!("Captured TOP JPEG from {path} ({bytes} bytes).");
     let mut result = CallToolResult::success(vec![
         ContentBlock::image(b64, "image/jpeg"),
@@ -170,29 +170,26 @@ mod tests {
     fn capture_promotes_jpeg_to_image_content() {
         let value = json!({
             "ok": true,
-            "capture": {
-                "ok": true,
-                "path": "/project1/out1",
-                "bytes": 12,
-                "mimeType": "image/jpeg",
-                "jpegBase64": "AAAA",
-            }
+            "path": "/project1/out1",
+            "bytes": 12,
+            "mimeType": "image/jpeg",
+            "jpegBase64": "AAAA",
         });
         let result = call_tool_result_from_value("capture", value);
         assert_eq!(result.is_error, Some(false));
         assert_eq!(result.content.len(), 2);
         assert!(result.content[0].as_image().is_some());
         let structured = result.structured_content.expect("structured");
-        assert!(structured.pointer("/capture/jpegBase64").is_none());
+        assert!(structured.pointer("/jpegBase64").is_none());
         assert_eq!(
-            structured.pointer("/capture/path").and_then(|v| v.as_str()),
+            structured.pointer("/path").and_then(|v| v.as_str()),
             Some("/project1/out1")
         );
     }
 
     #[test]
     fn non_capture_stays_structured_only() {
-        let value = json!({"ok": true, "inspect": {"node": {"path": "/project1"}}});
+        let value = json!({"ok": true, "node": {"path": "/project1"}});
         let result = call_tool_result_from_value("inspect", value);
         assert!(result.content.iter().all(|c| c.as_image().is_none()));
     }

@@ -186,7 +186,8 @@ pub fn map_perception_outcome(
                     .map(str::to_owned);
                 Err(failed_one_with_image(item, jpeg))
             } else {
-                Ok(serde_json::json!({ "ok": true, "capture": value }))
+                // Bridge already returns flat {ok, path, bytes, mimeType, jpegBase64?, …}.
+                Ok(value)
             }
         }
         BridgeOutcome::QueueBusy => Err(queue_busy(catalog, "capture", pid)),
@@ -219,7 +220,8 @@ pub fn map_inspect_outcome(
                 );
                 Err(failed_one(item))
             } else {
-                Ok(serde_json::json!({ "ok": true, "inspect": value }))
+                // Bridge already returns flat {ok, node}.
+                Ok(value)
             }
         }
         BridgeOutcome::QueueBusy => Err(queue_busy(catalog, "inspect", pid)),

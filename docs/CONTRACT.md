@@ -162,6 +162,23 @@ only — not bridge peer health.
 
 Typical loop: `fleet` → pick connected `pid` → `inspect` → mutate → `inspect` errors/warnings → `capture` (when look is the claim) → perception-critic for look PASS/FAIL.
 
+### MCP tool result shapes (stdio / rmcp)
+
+Structured success is **flat tool fields** with a single outer `ok` (bridge may still return a mini-envelope; mappers pass it through without nesting under the tool name):
+
+| Tool | Structured success |
+| --- | --- |
+| `execute_python` | `{ ok: true, result, logs? }` |
+| `mutate_nodes` | `{ ok: true, applied, failedAt, steps }` |
+| `inspect` | `{ ok: true, node }` |
+| `capture` | `{ ok: true, path, bytes, mimeType, jpegBase64?, maxSize? }` + MCP image content when JPEG present (`jpegBase64` stripped from structured after promotion) |
+| `fleet` | tool-specific fleet object (no shared shell) |
+| `describe_tools` | tool-specific catalog object (no shared shell) |
+
+Failures (all bridge-backed tools): `{ ok: false, summary, items, … }` via diagnostics flatten. Mutate soft-fail splices `applied` / `failedAt` / `steps` **flat** (not under `data`). Soft perception fails (black/uniform frame) use `isError` + diagnostics + image content — that path is separate from success nesting.
+
+**Transport note:** Streamable HTTP JSON fallback (`/mcp/tools/call`) still wraps success as `{ ok: true, data: <above> }`; stdio/rmcp does not. Failures are not double-wrapped.
+
 ### `inspect` / `include`
 
 | `include` | Sections |
@@ -180,7 +197,7 @@ Typical loop: `fleet` → pick connected `pid` → `inspect` → mutate → `ins
 | `summary` (default) | `{name, opType}` | Always `childCount` + `childrenReturned`; roster capped at **64** |
 | `detailed` | `{path, family, opType}` | Same cap — **does not** raise the limit |
 
-When `childrenReturned < childCount`, the node includes `childrenTruncated: true` and a `truncation` object (`field`, `limit`, `code: tdmcp.op.children_truncated`, `message`, `mitigation`). Soft limit — response stays `ok: true`. Mitigation: inspect a child COMP, or `execute_python` for a full name list — not `detailLevel: detailed`.
+When `childrenReturned < childCount`, the node includes `childrenTruncated: true` and a `truncation` object (`field`, `limit`, `code: tdmcp.op.children_truncated`, `message`, `mitigation`). Soft limit — MCP success stays `{ ok: true, node }` (see result shapes). Mitigation: inspect a child COMP, or `execute_python` for a full name list — not `detailLevel: detailed`.
 
 `children` is always an array (never a bare count).
 
@@ -188,7 +205,7 @@ When `childrenReturned < childCount`, the node includes `childrenTruncated: true
 
 | Mode | Status | Behavior |
 | --- | --- | --- |
-| `top` | **Shipped** | TOP → JPEG (`jpegBase64` + MCP image content); optional `maxSize` (default 256); black or uniform solid frame = perception fail (`tdmcp.perception.black_frame` / `tdmcp.perception.uniform_frame`; image still returned) |
+| `top` | **Shipped** | TOP → JPEG (flat success fields + MCP image content; see result shapes); optional `maxSize` (default 256); black or uniform solid frame = perception fail (`tdmcp.perception.black_frame` / `tdmcp.perception.uniform_frame`; image still returned) |
 | `preview` | **Shipped** | COMP face: `opviewer` → `./out1` → TOP child → error |
 | `auto` | **Shipped** | TOP → `top`; COMP → `preview` |
 | `chop_data` | **Planned** | CHOP → capped JSON |
@@ -317,3 +334,4 @@ Daemon CLI: `start` (foreground; tray + toast by default, dashboard hidden until
 - Perception: `capture` only; builders never self-grade look.
 - Paths: `OpPath` + optional `contextPath`; TD resolves; default base `/project1`.
 - Diagnostics: catalog-backed codes; free-string-only failures forbidden.
+- MCP success: flat tool fields (`node` / `path` / `result` / `steps` at top level); bridge mini-envelopes are passed through by mappers, not nested under the tool name. HTTP JSON fallback still wraps success in `{ ok, data }`.
