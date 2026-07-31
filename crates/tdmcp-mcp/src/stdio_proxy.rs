@@ -131,5 +131,9 @@ impl ServerHandler for StdioProxy {
 }
 
 fn service_err_to_error_data(err: ServiceError) -> ErrorData {
-    ErrorData::internal_error(err.to_string(), None)
+    match err {
+        // Preserve upstream protocol codes (e.g. -32602 invalid_params for bad include).
+        ServiceError::McpError(data) => data,
+        other => ErrorData::internal_error(other.to_string(), None),
+    }
 }

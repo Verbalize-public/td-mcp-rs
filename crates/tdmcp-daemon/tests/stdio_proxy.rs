@@ -5,10 +5,10 @@
 
 use std::sync::Arc;
 
-use rmcp::model::CallToolRequestParams;
+use rmcp::model::{CallToolRequestParams, ErrorCode};
 use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
 use rmcp::transport::streamable_http_server::{StreamableHttpServerConfig, StreamableHttpService};
-use rmcp::ServiceExt;
+use rmcp::{ServiceError, ServiceExt};
 use serde_json::json;
 use tdmcp_core::{PidRegistry, ProcessAttrs, ProcessFingerprint};
 use tdmcp_diagnostics::Catalog;
@@ -91,6 +91,55 @@ async fn stdio_proxy_fleet_round_trip() {
         .expect("processes array");
     assert_eq!(processes.len(), 1);
     assert_eq!(processes[0].get("pid"), Some(&json!(34)));
+
+    let _ = client.cancel().await;
+    let proxy_result = proxy_task.await.expect("join proxy");
+    assert!(
+        proxy_result.is_ok(),
+        "proxy should exit cleanly: {proxy_result:?}"
+    );
+    ct.cancel();
+}
+
+#[tokio::test]
+async fn stdio_proxy_preserves_invalid_params_code() {
+    let bridge: Arc<dyn BridgeRpc> = Arc::new(FakeBridgeRpc::responding(json!({})));
+    let (url, ct) = spawn_http_daemon(bridge).await;
+
+    let (client_side, server_side) = tokio::io::duplex(64 * 1024);
+    let (server_read, server_write) = tokio::io::split(server_side);
+    let proxy_task =
+        tokio::spawn(async move { run_stdio_proxy_rw(&url, server_read, server_write).await });
+
+    let client = ().serve(client_side).await.expect("stdio client initialize");
+
+    let err = client
+        .call_tool(
+            CallToolRequestParams::new("fleet").with_arguments(
+                json!({"include": ["typo"]})
+                    .as_object()
+                    .cloned()
+                    .unwrap_or_default(),
+            ),
+        )
+        .await
+        .expect_err("typo include must fail");
+
+    match err {
+        ServiceError::McpError(data) => {
+            assert_eq!(
+                data.code,
+                ErrorCode::INVALID_PARAMS,
+                "stdio proxy must forward -32602, not remap to internal_error: {data}"
+            );
+            let msg = data.message.to_string();
+            assert!(
+                msg.contains("typo"),
+                "message should mention typo: {msg}"
+            );
+        }
+        other => panic!("expected ServiceError::McpError, got {other:?}"),
+    }
 
     let _ = client.cancel().await;
     let proxy_result = proxy_task.await.expect("join proxy");
