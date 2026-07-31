@@ -249,8 +249,8 @@ When the roster is loaded, `children` is always an array (never a bare count).
 | `preview` | **Shipped** | COMP face: `opviewer` → `./out1` → error (`tdmcp.perception.no_path`) |
 | `auto` | **Shipped** | TOP → `top`; COMP → `preview`; CHOP → `chop_data`; POP → `pop` |
 | `chop_data` | **Shipped** | CHOP → capped JSON (32 channels, 256 samples/channel, 4096 scalars); soft `truncation` + `tdmcp.perception.chop_truncated` when capped; empty → `tdmcp.perception.empty_chop`; wrong family → `tdmcp.perception.wrong_family`; all-zero non-empty = success; ignores `maxSize` |
-| `chop_image` | **Shipped** | CHOP → temp `choptoTOP` (`__tdmcp_tmp_chopimg__*`) → JPEG path; temp always destroyed; converter failure → `tdmcp.perception.converter_failed` |
-| `pop` | **Shipped** | POP → temp `poptoTOP` (`__tdmcp_tmp_pop__*`) → JPEG path; temp always destroyed; converter failure → `tdmcp.perception.converter_failed` |
+| `chop_image` | **Shipped** | CHOP → temp `choptoTOP` (`__tdmcp_tmp_chopimg__*`, bound via `par.chop`) → JPEG path; temp always destroyed (including bind failures); converter failure → `tdmcp.perception.converter_failed` |
+| `pop` | **Shipped** | POP → temp `poptoTOP` (`__tdmcp_tmp_pop__*`, bound via `par.pop`) → JPEG path; temp always destroyed; converter failure → `tdmcp.perception.converter_failed` |
 
 ### `mutate_nodes` — Shipped (P1)
 

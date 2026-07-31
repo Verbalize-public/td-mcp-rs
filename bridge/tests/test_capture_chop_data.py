@@ -6,6 +6,7 @@ import os
 import sys
 import unittest
 from types import SimpleNamespace
+from typing import Any
 from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -207,8 +208,8 @@ class CaptureConverterLifecycleTests(unittest.TestCase):
             family = "TOP"
 
             def __init__(self) -> None:
-                self.inputConnectors = [SimpleNamespace(connect=lambda _src: None)]
-                self.par = SimpleNamespace()
+                self.inputConnectors = []
+                self.par = SimpleNamespace(chop=SimpleNamespace(val=None))
 
             def cook(self, force: bool = False) -> None:
                 return None
@@ -267,10 +268,12 @@ class CaptureConverterLifecycleTests(unittest.TestCase):
             expect_family="CHOP",
             op_attr="choptoTOP",
             tmp_prefix="__tdmcp_tmp_chopimg__",
+            source_par="chop",
         )
         self.assertTrue(out["ok"], out)
         self.assertEqual(out["path"], source.path)
         self.assertEqual(out["mode"], "chop_image")
+        self.assertIs(converter.par.chop.val, source)
         self.assertEqual(destroyed, ["converter"])
 
     def test_converter_destroyed_on_failure(self) -> None:
@@ -281,7 +284,10 @@ class CaptureConverterLifecycleTests(unittest.TestCase):
             path = "/project1/zone/__tdmcp_tmp_chopimg__const1"
             width = 8
             height = 8
-            inputConnectors = [SimpleNamespace(connect=lambda _src: None)]
+            inputConnectors: list[Any] = []
+
+            def __init__(self) -> None:
+                self.par = SimpleNamespace(chop=SimpleNamespace(val=None))
 
             def cook(self, force: bool = False) -> None:
                 return None
@@ -313,6 +319,46 @@ class CaptureConverterLifecycleTests(unittest.TestCase):
             expect_family="CHOP",
             op_attr="choptoTOP",
             tmp_prefix="__tdmcp_tmp_chopimg__",
+            source_par="chop",
+        )
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["code"], "tdmcp.perception.converter_failed")
+        self.assertEqual(destroyed, ["converter"])
+
+    def test_converter_bind_failure_destroys_orphan(self) -> None:
+        destroyed: list[str] = []
+
+        class NoBindConverter:
+            name = "tmp"
+            inputConnectors: list[Any] = []
+
+            def __init__(self) -> None:
+                self.par = SimpleNamespace()  # no chop par
+
+            def destroy(self) -> None:
+                destroyed.append("converter")
+
+        converter = NoBindConverter()
+        parent = SimpleNamespace(
+            op=lambda _n: None,
+            create=lambda _cls, _name: converter,
+        )
+        source = SimpleNamespace(
+            family="CHOP",
+            path="/project1/zone/const1",
+            name="const1",
+            parent=lambda: parent,
+        )
+        out = tdmcp_bridge._capture_via_converter(
+            SimpleNamespace(choptoTOP=object()),
+            source,
+            source.path,
+            256,
+            mode="chop_image",
+            expect_family="CHOP",
+            op_attr="choptoTOP",
+            tmp_prefix="__tdmcp_tmp_chopimg__",
+            source_par="chop",
         )
         self.assertFalse(out["ok"])
         self.assertEqual(out["code"], "tdmcp.perception.converter_failed")
@@ -333,6 +379,7 @@ class CaptureConverterLifecycleTests(unittest.TestCase):
             expect_family="CHOP",
             op_attr="choptoTOP",
             tmp_prefix="__tdmcp_tmp_chopimg__",
+            source_par="chop",
         )
         self.assertFalse(out["ok"])
         self.assertEqual(out["code"], "tdmcp.perception.wrong_family")
@@ -352,6 +399,7 @@ class CaptureConverterLifecycleTests(unittest.TestCase):
             expect_family="POP",
             op_attr="poptoTOP",
             tmp_prefix="__tdmcp_tmp_pop__",
+            source_par="pop",
         )
         self.assertFalse(out["ok"])
         self.assertEqual(out["code"], "tdmcp.perception.converter_failed")

@@ -587,10 +587,36 @@ def _capture_top_jpeg(
                 pass
 
 
+def _bind_converter_source(tmp: Any, source: Any, *, source_par: str | None) -> None:
+    """Point a converter at ``source`` via named OP par, else first input wire."""
+    if source_par:
+        par = getattr(getattr(tmp, "par", None), source_par, None)
+        if par is not None:
+            par.val = source
+            return
+    connectors = getattr(tmp, "inputConnectors", None)
+    if connectors:
+        connectors[0].connect(source)
+        return
+    raise RuntimeError(
+        f"converter has no {source_par or 'input'} binding path"
+    )
+
+
 def _create_temp_converter(
-    td_mod: Any, source: Any, op_class: Any, tmp_name: str
+    td_mod: Any,
+    source: Any,
+    op_class: Any,
+    tmp_name: str,
+    *,
+    source_par: str | None,
 ) -> Any:
-    """Create a temp converter under ``source``'s parent; destroy name collision."""
+    """Create a temp converter under ``source``'s parent; destroy name collision.
+
+    ``choptoTOP`` / ``poptoTOP`` use OP parameters (``chop`` / ``pop``), not
+    wired inputs. Always destroy the temp if binding fails after create.
+    """
+    _ = td_mod
     parent = source.parent() if hasattr(source, "parent") else None
     if parent is None:
         raise RuntimeError("converter parent missing")
@@ -598,14 +624,18 @@ def _create_temp_converter(
     if existing is not None:
         existing.destroy()
     tmp = parent.create(op_class, tmp_name)
-    tmp.inputConnectors[0].connect(source)
     try:
+        _bind_converter_source(tmp, source, source_par=source_par)
         cook = getattr(tmp, "cook", None)
         if callable(cook):
             cook(force=True)
-    except Exception:  # noqa: BLE001
-        pass
-    return tmp
+        return tmp
+    except Exception:
+        try:
+            tmp.destroy()
+        except Exception:  # noqa: BLE001
+            pass
+        raise
 
 
 def _capture_via_converter(
@@ -618,6 +648,7 @@ def _capture_via_converter(
     expect_family: str,
     op_attr: str,
     tmp_prefix: str,
+    source_par: str | None,
 ) -> dict[str, Any]:
     """Temp converter → TOP JPEG path; always destroy the converter."""
     family = _op_family(source)
@@ -646,27 +677,25 @@ def _capture_via_converter(
 
     tmp_name = tmp_prefix + str(getattr(source, "name", "src"))
     converter = None
+    parent = source.parent() if hasattr(source, "parent") else None
     try:
-        converter = _create_temp_converter(td_mod, source, op_class, tmp_name)
+        converter = _create_temp_converter(
+            td_mod, source, op_class, tmp_name, source_par=source_par
+        )
         result = _capture_top_jpeg(td_mod, converter, path, max_size)
         # Report the source path agents asked for, not the temp converter.
         result["path"] = getattr(source, "path", path)
         result["mode"] = mode
-        if result.get("ok") is False and result.get("code") in (
-            None,
-            "tdmcp.perception.no_path",
-        ):
-            if "error" in result or result.get("code") == "tdmcp.perception.no_path":
-                if "error" in result:
-                    return {
-                        "ok": False,
-                        "code": "tdmcp.perception.converter_failed",
-                        "message": str(result.get("error") or "converter capture failed"),
-                        "path": getattr(source, "path", path),
-                        "mode": mode,
-                        "family": family,
-                        "traceback": result.get("traceback"),
-                    }
+        if result.get("ok") is False and "error" in result:
+            return {
+                "ok": False,
+                "code": "tdmcp.perception.converter_failed",
+                "message": str(result.get("error") or "converter capture failed"),
+                "path": getattr(source, "path", path),
+                "mode": mode,
+                "family": family,
+                "traceback": result.get("traceback"),
+            }
         return result
     except Exception as exc:  # noqa: BLE001
         return {
@@ -684,6 +713,14 @@ def _capture_via_converter(
                 converter.destroy()
             except Exception:  # noqa: BLE001
                 pass
+        elif parent is not None and hasattr(parent, "op"):
+            # Create succeeded but bind failed before assignment — sweep by name.
+            orphan = parent.op(tmp_name)
+            if orphan is not None:
+                try:
+                    orphan.destroy()
+                except Exception:  # noqa: BLE001
+                    pass
 
 
 def handle_capture(params: dict[str, Any]) -> dict[str, Any]:
@@ -719,6 +756,7 @@ def handle_capture(params: dict[str, Any]) -> dict[str, Any]:
             expect_family="CHOP",
             op_attr="choptoTOP",
             tmp_prefix="__tdmcp_tmp_chopimg__",
+            source_par="chop",
         )
 
     if effective == "pop":
@@ -731,6 +769,7 @@ def handle_capture(params: dict[str, Any]) -> dict[str, Any]:
             expect_family="POP",
             op_attr="poptoTOP",
             tmp_prefix="__tdmcp_tmp_pop__",
+            source_par="pop",
         )
 
     target = node
