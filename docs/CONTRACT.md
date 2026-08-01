@@ -277,6 +277,8 @@ When the roster is loaded, `children` is always an array (never a bare count).
 
 ### `capture` modes
 
+Every capture force-cooks the resolved path best-effort before read (`_force_cook`; failures ignored). Shared-viewer modes also force-cook `./capture_viewer` after retarget; temp downscale TOPs are force-cooked after create.
+
 
 | Mode         | Status      | Behavior                                                                                                                                                                                                                                                                                            |
 | ------------ | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

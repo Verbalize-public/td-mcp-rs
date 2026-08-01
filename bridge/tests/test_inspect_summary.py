@@ -420,11 +420,40 @@ class InspectMessagesTest(unittest.TestCase):
             calls.append((args, kwargs))
 
         node = SimpleNamespace(cook=cook)
-        tdmcp_bridge._force_cook(node)
+        self.assertTrue(tdmcp_bridge._force_cook(node))
         self.assertEqual(calls, [((True,), {})])
 
     def test_force_cook_missing_is_noop(self) -> None:
-        tdmcp_bridge._force_cook(SimpleNamespace())  # no cook attr
+        self.assertFalse(tdmcp_bridge._force_cook(SimpleNamespace()))  # no cook attr
+
+    def test_force_cook_none_returns_false(self) -> None:
+        self.assertFalse(tdmcp_bridge._force_cook(None))
+
+    def test_force_cook_runtime_error_swallowed(self) -> None:
+        def cook(*, force: bool = False) -> None:  # noqa: ARG001
+            raise RuntimeError("cook boom")
+
+        self.assertFalse(tdmcp_bridge._force_cook(SimpleNamespace(cook=cook)))
+
+    def test_force_cook_bare_call_fallback(self) -> None:
+        calls: list[str] = []
+
+        def cook(*args: object, **kwargs: object) -> None:
+            if kwargs or args:
+                raise TypeError("signature mismatch")
+            calls.append("bare")
+
+        self.assertTrue(tdmcp_bridge._force_cook(SimpleNamespace(cook=cook)))
+        self.assertEqual(calls, ["bare"])
+
+    def test_force_cook_kw_success(self) -> None:
+        seen: list[bool] = []
+
+        def cook(*, force: bool = False) -> None:
+            seen.append(force)
+
+        self.assertTrue(tdmcp_bridge._force_cook(SimpleNamespace(cook=cook)))
+        self.assertEqual(seen, [True])
 
 
 if __name__ == "__main__":

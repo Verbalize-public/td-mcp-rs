@@ -395,12 +395,7 @@ def _chan_samples(chan: Any, n_samples: int) -> list[float]:
 
 def _capture_chop_data(node: Any, path: str) -> dict[str, Any]:
     """CHOP → capped JSON. Pure enough for unit tests with fake CHOPs."""
-    try:
-        cook = getattr(node, "cook", None)
-        if callable(cook):
-            cook(force=True)
-    except Exception:  # noqa: BLE001 — best-effort, like inspect
-        pass
+    _force_cook(node)
 
     resolved = getattr(node, "path", None) or path
     family = _op_family(node) or "CHOP"
@@ -648,18 +643,11 @@ def _capture_via_shared_viewer(
             source.viewer = True
         except Exception:  # noqa: BLE001
             pass
-        try:
-            cook_src = getattr(source, "cook", None)
-            if callable(cook_src):
-                cook_src(force=True)
-        except Exception:  # noqa: BLE001
-            pass
+        _force_cook(source)
         par.val = source
-        cook = getattr(viewer, "cook", None)
-        if callable(cook):
-            cook(force=True)
-            # OP Viewer sometimes needs a second cook after retarget.
-            cook(force=True)
+        # OP Viewer sometimes needs a second cook after retarget.
+        _force_cook(viewer)
+        _force_cook(viewer)
     except Exception as exc:  # noqa: BLE001
         return {
             "ok": False,
@@ -706,6 +694,9 @@ def handle_capture(params: dict[str, Any]) -> dict[str, Any]:
     node = tdmcp_resolve(path, context_path)
     if node is None or not getattr(node, "valid", False):
         return {"ok": False, "code": "tdmcp.op.not_found", "path": path}
+
+    # All families / modes — best-effort; never fails the capture.
+    _force_cook(node)
 
     effective = _effective_capture_mode(str(mode), node)
 
@@ -787,6 +778,7 @@ def _maybe_downscale_top(td_mod, target, max_size: int):
     tmp_top.par.outputresolution = "custom"
     tmp_top.par.resolutionw = new_w
     tmp_top.par.resolutionh = new_h
+    _force_cook(tmp_top)
     return tmp_top, tmp_top
 
 
@@ -890,25 +882,51 @@ def _op_messages(fn: Any) -> list[str]:
     return out
 
 
-def _force_cook(node: Any) -> None:
-    """Best-effort ``OP.cook(force=True)`` so inspect sees post-cook errors.
+def _force_cook(node: Any) -> bool:
+    """Best-effort ``OP.cook(force=True)``. Never raises.
 
-    Missing ``cook``, TypeError on kwargs, and cook failures are swallowed —
-    inspect still returns structure. Positional ``cook(True)`` is a fallback
-    for fakes / older signatures.
+    Used by inspect and capture. Returns ``True`` if a cook call succeeded.
+    Resilience ladder (each step isolated):
+
+    1. Reject ``None`` / non-objects
+    2. Missing / non-callable ``cook``
+    3. ``cook(force=True)``
+    4. On ``TypeError`` → ``cook(True)`` (positional)
+    5. On further ``TypeError`` → bare ``cook()``
+    6. Any other ``Exception`` → swallow, return ``False``
+
+    Does not catch ``BaseException`` (KeyboardInterrupt / SystemExit).
     """
-    cook = getattr(node, "cook", None)
+    if node is None:
+        return False
+    try:
+        cook = getattr(node, "cook", None)
+    except Exception:  # noqa: BLE001
+        return False
     if not callable(cook):
-        return
+        return False
+
     try:
         cook(force=True)
+        return True
     except TypeError:
-        try:
-            cook(True)
-        except Exception:  # noqa: BLE001
-            return
+        pass
     except Exception:  # noqa: BLE001
-        return
+        return False
+
+    try:
+        cook(True)
+        return True
+    except TypeError:
+        pass
+    except Exception:  # noqa: BLE001
+        return False
+
+    try:
+        cook()
+        return True
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def _par_mode_name(p: Any) -> str:

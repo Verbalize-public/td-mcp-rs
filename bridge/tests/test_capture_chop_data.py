@@ -203,6 +203,58 @@ class CaptureChopDataTests(unittest.TestCase):
         self.assertFalse(out["ok"])
         self.assertEqual(out["code"], "tdmcp.perception.wrong_family")
 
+    def test_handle_capture_top_force_cooks_resolved_node(self) -> None:
+        cooked: list[Any] = []
+
+        class Arr:
+            shape = (2, 2, 3)
+            ndim = 3
+            size = 12
+
+            def mean(self, axis=None):  # noqa: ANN001
+                if axis == (0, 1):
+                    return [0.2, 0.5, 0.8]
+                return 0.5
+
+            def max(self, axis=None):  # noqa: ANN001
+                if axis == (0, 1):
+                    return [0.9, 0.9, 0.9]
+                return 0.9
+
+            def min(self, axis=None):  # noqa: ANN001
+                if axis == (0, 1):
+                    return [0.1, 0.1, 0.1]
+                return 0.1
+
+            def __getitem__(self, key: object) -> Arr:
+                return self
+
+        node = SimpleNamespace(
+            family="TOP",
+            path="/project1/noise1",
+            name="noise1",
+            valid=True,
+            width=16,
+            height=16,
+            parent=lambda: None,
+            saveByteArray=lambda _ext: b"x" * 300,
+            numpyArray=lambda delayed=False: Arr(),  # noqa: ARG005
+        )
+        with mock.patch.object(tdmcp_bridge, "tdmcp_resolve", return_value=node):
+            with mock.patch.object(
+                tdmcp_bridge,
+                "_force_cook",
+                side_effect=lambda n: cooked.append(n) or True,
+            ):
+                with mock.patch.dict(sys.modules, {"td": SimpleNamespace()}):
+                    out = tdmcp_bridge.handle_capture({
+                        "path": node.path,
+                        "mode": "top",
+                        "maxSize": None,
+                    })
+        self.assertTrue(out["ok"], out)
+        self.assertIs(cooked[0], node)
+
 
 def _non_uniform_arr():
     class Arr:
