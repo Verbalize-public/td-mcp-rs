@@ -20,7 +20,7 @@ See [`DEV_ENV.md`](DEV_ENV.md) § Dev smoke. Does **not** replace rows 1–12 be
 | S3c | rs `execute_python` with `includeLogs: false` → no `logs` field |
 | S3d | rs `execute_python` raise → `items[0].exception.type` set; default `rawTraceback` present; `AttributeError` on None → nested `tdmcp.script.none_op` |
 | S4 | rs `capture` top on `/project1/e2e_kit/probe` — non-black; structured success has top-level `path`/`bytes` (not nested under `capture`) |
-| S5 | rs `inspect` summary on `/project1/e2e_kit` — structured success has top-level `node`; `children` is an array of `{name, opType}` (not a count); `childCount` present |
+| S5 | rs `inspect` `paths:["/project1/e2e_kit"]` summary — structured success has top-level `nodes` array; entry `ok:true`; `children` is an array of `{name, opType}` (not a count); `childCount` present |
 
 ## Prerequisites
 
@@ -47,15 +47,16 @@ See [`DEV_ENV.md`](DEV_ENV.md) § Dev smoke. Does **not** replace rows 1–12 be
 | 9 | Script failure returns `diagnostics` with `tdmcp.script.execution_failed` | ✅ |
 | 9b | Script failure after `print` includes `diagnostics.context.logs` | |
 | 10 | `capture` mode `top` on a non-black TOP → ok | ✅ |
-| 11 | `capture` mode `preview` on zone COMP with `out1` → non-black | ✅ |
+| 11 | `capture` mode `preview` on any non-TOP (zone COMP / CHOP / SOP) → JPEG via shared `./capture_viewer` (may soft-fail `uniform_frame` for empty viewers); bridge host has `capture_viewer` child | ✅ (2026-08-01: SOP `preview` non-black `ok:true` via shared viewer) |
 | 12 | Black TOP → `tdmcp.perception.black_frame` | ✅ |
 | 12b | Constant TOP non-black solid (e.g. white) → `tdmcp.perception.uniform_frame` | |
 | 13 | Create ephemeral non-empty `constantCHOP` under `/project1/e2e_kit/zone` → `capture` mode `chop_data` → `ok`; top-level `channels` / `numChans` / `numSamples` (not nested); no `jpegBase64` | ✅ |
 | 14 | `capture` mode `chop_data` on a TOP (e.g. `/project1/e2e_kit/probe`) → `tdmcp.perception.wrong_family` | ✅ |
 | 15 | `capture` mode `auto` on that CHOP → same chop_data success shape (`mode: chop_data`) | ✅ |
 | 16 | Empty CHOP (`numChans` or `numSamples` 0) → `tdmcp.perception.empty_chop` | ✅ |
-| 17 | `capture` mode `chop_image` on non-empty CHOP → non-black JPEG; no leftover `__tdmcp_tmp_chopimg__*` under parent | ✅ |
-| 18 | `capture` mode `pop` on a POP (ephemeral under zone) → JPEG via temp `poptoTOP` (may soft-fail `black_frame` / `uniform_frame` depending on extract); no leftover `__tdmcp_tmp_pop__*`; or `converter_failed` if `poptoTOP` absent | ✅ |
+| 17 | `capture` mode `chop_image` on non-empty CHOP → JPEG via shared `capture_viewer` (alias of preview); no leftover `__tdmcp_tmp_chopimg__*` under parent | ✅ |
+| 18 | `capture` mode `pop` / `auto` on a POP or SOP → JPEG via shared `capture_viewer` (may soft-fail `black_frame` / `uniform_frame`); no leftover `__tdmcp_tmp_pop__*` | ✅ |
+| 19 | `inspect` `paths:[a, b, missing]` → top-level `ok:true`; two ok entries + one `tdmcp.op.not_found` inline; no auto-recursion beyond direct-child roster | ✅ (2026-08-01) |
 
 ### `mutate_nodes` (P1)
 
@@ -63,7 +64,7 @@ See [`DEV_ENV.md`](DEV_ENV.md) § Dev smoke. Does **not** replace rows 1–12 be
 | --- | --- | --- |
 | M1 | `fleet` shows the connected pid | ✅ |
 | M2 | 1-step `create` of a `noiseTOP` under `/project1` → `ok:true, applied:1, failedAt:null`; echoed path matches | ✅ |
-| M3 | `inspect` confirms the created node's `opType` | ✅ |
+| M3 | `inspect` `paths:[created]` confirms the created node's `opType` | ✅ |
 | M4 | 2-step batch `create` + `set` (`values:{resolutionw:128}`) → both ok | ✅ |
 | M5 | `set` with `expressions:{resolutionw:"absTime.seconds*4"}` → re-`inspect` `include:["params"]` shows `mode=="EXPRESSION"` and `expr` matching the string set | ✅ |
 | M6 | `set` with `pulse` on a Pulse par → no error (used `timerCHOP` + `start`) | ✅ |

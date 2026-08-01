@@ -288,28 +288,22 @@ pub fn map_perception_outcome(
 pub fn map_inspect_outcome(
     catalog: &Catalog,
     pid: Pid,
-    path: OpPath,
+    path: Option<OpPath>,
     context_path: Option<OpPath>,
     outcome: BridgeOutcome,
     _diagnostic_level: DiagnosticLevel,
 ) -> Result<Value, ToolCallError> {
-    let span = span("inspect", Some("path".into()));
+    let span = span("inspect", Some("paths".into()));
     match outcome {
         BridgeOutcome::Ok(value) => {
             let env = BridgeResultEnvelope::from_value(&value);
             if env.is_error() {
                 let code = env.code.as_deref().unwrap_or(codes::OP_NOT_FOUND);
                 let msg = env.message_or("inspect failed");
-                let item = build_diag(
-                    catalog,
-                    code,
-                    span,
-                    Some(msg),
-                    ctx(pid, Some(path), context_path),
-                );
+                let item = build_diag(catalog, code, span, Some(msg), ctx(pid, path, context_path));
                 Err(failed_one(item))
             } else {
-                // Bridge already returns flat {ok, node}.
+                // Bridge already returns flat {ok, nodes: [...]}.
                 Ok(value)
             }
         }
@@ -583,22 +577,23 @@ mod tests {
         let ok = map_inspect_outcome(
             &catalog,
             Pid::new(1),
-            OpPath::new("/project1"),
+            Some(OpPath::new("/project1")),
             None,
             BridgeOutcome::Ok(json!({
                 "ok": true,
-                "node": {
+                "nodes": [{
+                    "ok": true,
                     "path": "/project1",
                     "errors": [],
                     "warnings": []
-                }
+                }]
             })),
             DiagnosticLevel::Summary,
         )
         .expect("empty TD message arrays must not fail the tool");
         assert_eq!(ok["ok"], true);
-        assert_eq!(ok["node"]["errors"], json!([]));
-        assert_eq!(ok["node"]["warnings"], json!([]));
+        assert_eq!(ok["nodes"][0]["errors"], json!([]));
+        assert_eq!(ok["nodes"][0]["warnings"], json!([]));
     }
 
     fn script_fail(

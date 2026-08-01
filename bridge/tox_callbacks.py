@@ -151,6 +151,37 @@ def _debug_log_lines(comp, max_lines: int = _LOG_PANEL_LINES) -> list[str]:
 	return raw[-max_lines:]
 
 
+def ensure_capture_viewer(comp=None) -> bool:
+	"""Idempotent: persistent OP Viewer TOP used by bridge ``capture`` (preview).
+
+	Retargeted per call via ``par.opviewer``; sits off the status-face cluster so
+	it never replaces the COMP Operator Viewer face.
+	"""
+	comp = comp or _comp()
+	if comp is None:
+		return False
+	try:
+		_ov = opviewerTOP  # noqa: F821
+	except NameError:
+		import td  # type: ignore
+
+		_ov = getattr(td, "opviewerTOP", None)
+		if _ov is None:
+			print("tdmcp-rs: ensure_capture_viewer: td.opviewerTOP unavailable")
+			return False
+	try:
+		viewer = _ensure_child(comp, "capture_viewer", _ov)
+	except Exception as exc:  # noqa: BLE001
+		print("tdmcp-rs: ensure_capture_viewer create failed:", exc)
+		return False
+	viewer.nodeX, viewer.nodeY = 400, 0
+	# Prefer source-native resolution — fixed custom size letterboxes and
+	# can look black for small viewers. Capture still downscales via temp
+	# resolutionTOP when maxSize is set.
+	_set_par(viewer, ("outputresolution", "Outputresolution"), "useinput")
+	return True
+
+
 def ensure_ui(comp=None) -> bool:
 	"""Idempotent: Bridge custom pars + color-banded Operator Viewer face."""
 	global _ui_ready
@@ -211,6 +242,8 @@ def ensure_ui(comp=None) -> bool:
 	except Exception as exc:  # noqa: BLE001
 		print("tdmcp-rs: ensure_ui create failed:", exc)
 		return False
+	# Shared OP Viewer for capture(preview) — self-heals if missing.
+	ensure_capture_viewer(comp)
 
 	bg.nodeX, bg.nodeY = -400, 200
 	txt.nodeX, txt.nodeY = -200, 200

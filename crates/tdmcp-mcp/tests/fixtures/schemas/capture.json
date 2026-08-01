@@ -5,32 +5,32 @@
       "oneOf": [
         {
           "const": "top",
-          "description": "TOP → JPEG.",
+          "description": "TOP → JPEG (native `saveByteArray`).",
           "type": "string"
         },
         {
           "const": "preview",
-          "description": "COMP face fallback chain.",
+          "description": "Any family → shared bridge OP Viewer TOP (`capture_viewer`).",
           "type": "string"
         },
         {
           "const": "auto",
-          "description": "TOP → top; COMP → preview; CHOP → chop_data; POP → pop.",
+          "description": "TOP → top; CHOP → chop_data; everything else → preview.",
           "type": "string"
         },
         {
           "const": "chop_data",
-          "description": "CHOP → capped JSON.",
+          "description": "CHOP → capped JSON (no image).",
           "type": "string"
         },
         {
           "const": "chop_image",
-          "description": "CHOP → temp choptoTOP → JPEG.",
+          "description": "Alias of `preview` (shared OP Viewer); kept for existing callers.",
           "type": "string"
         },
         {
           "const": "pop",
-          "description": "POP → temp poptoTOP → JPEG.",
+          "description": "Alias of `preview` (shared OP Viewer); kept for existing callers.",
           "type": "string"
         }
       ]

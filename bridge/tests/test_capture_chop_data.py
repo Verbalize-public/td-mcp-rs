@@ -146,7 +146,15 @@ class CaptureChopDataTests(unittest.TestCase):
 
     def test_effective_mode_auto_pop(self) -> None:
         node = SimpleNamespace(family="POP")
-        self.assertEqual(tdmcp_bridge._effective_capture_mode("auto", node), "pop")
+        self.assertEqual(tdmcp_bridge._effective_capture_mode("auto", node), "preview")
+
+    def test_effective_mode_auto_sop_preview(self) -> None:
+        node = SimpleNamespace(family="SOP")
+        self.assertEqual(tdmcp_bridge._effective_capture_mode("auto", node), "preview")
+
+    def test_effective_mode_auto_dat_preview(self) -> None:
+        node = SimpleNamespace(family="DAT")
+        self.assertEqual(tdmcp_bridge._effective_capture_mode("auto", node), "preview")
 
     def test_handle_capture_dispatch_chop_data(self) -> None:
         node = _fake_chop(num_chans=1, num_samples=2)
@@ -196,213 +204,180 @@ class CaptureChopDataTests(unittest.TestCase):
         self.assertEqual(out["code"], "tdmcp.perception.wrong_family")
 
 
-class CaptureConverterLifecycleTests(unittest.TestCase):
-    def test_converter_destroyed_on_success(self) -> None:
-        destroyed: list[str] = []
+def _non_uniform_arr():
+    class Arr:
+        shape = (2, 2, 3)
+        ndim = 3
+        size = 12
 
-        class FakeConverter:
-            name = "tmp"
-            path = "/project1/zone/__tdmcp_tmp_chopimg__const1"
-            width = 8
-            height = 8
-            family = "TOP"
+        def mean(self, axis=None):  # noqa: ANN001
+            if axis == (0, 1):
+                return [0.2, 0.5, 0.8]
+            return 0.5
 
-            def __init__(self) -> None:
-                self.inputConnectors = []
-                self.par = SimpleNamespace(chop=SimpleNamespace(val=None))
+        def max(self, axis=None):  # noqa: ANN001
+            if axis == (0, 1):
+                return [0.9, 0.9, 0.9]
+            return 0.9
 
-            def cook(self, force: bool = False) -> None:
-                return None
+        def min(self, axis=None):  # noqa: ANN001
+            if axis == (0, 1):
+                return [0.1, 0.1, 0.1]
+            return 0.1
 
-            def saveByteArray(self, _ext: str) -> bytes:
-                return b"x" * 300
+        def __getitem__(self, key: object) -> Arr:
+            return self
 
-            def numpyArray(self, delayed: bool = False):  # noqa: ARG002
-                # Non-uniform so classify returns ok
-                class Arr:
-                    shape = (2, 2, 3)
-                    ndim = 3
-                    size = 12
+    return Arr()
 
-                    def mean(self, axis=None):  # noqa: ANN001
-                        if axis == (0, 1):
-                            return [0.2, 0.5, 0.8]
-                        return 0.5
 
-                    def max(self, axis=None):  # noqa: ANN001
-                        if axis == (0, 1):
-                            return [0.9, 0.9, 0.9]
-                        return 0.9
+class FakeSharedViewer:
+    """Minimal OP Viewer TOP stand-in for shared-viewer capture tests."""
 
-                    def min(self, axis=None):  # noqa: ANN001
-                        if axis == (0, 1):
-                            return [0.1, 0.1, 0.1]
-                        return 0.1
+    path = "/project1/tdmcp_rs/capture_viewer"
+    width = 8
+    height = 8
+    family = "TOP"
 
-                    def __getitem__(self, key: object) -> Arr:
-                        return self
+    def __init__(self) -> None:
+        self.par = SimpleNamespace(opviewer=SimpleNamespace(val=None))
+        self.cook_calls = 0
 
-                return Arr()
+    def cook(self, force: bool = False) -> None:  # noqa: ARG002
+        self.cook_calls += 1
 
-            def destroy(self) -> None:
-                destroyed.append("converter")
+    def saveByteArray(self, _ext: str) -> bytes:
+        return b"x" * 300
 
-        converter = FakeConverter()
-        parent = SimpleNamespace(
-            op=lambda _n: None,
-            create=lambda _cls, _name: converter,
+    def numpyArray(self, delayed: bool = False):  # noqa: ARG002
+        return _non_uniform_arr()
+
+
+class CaptureSharedViewerTests(unittest.TestCase):
+    def setUp(self) -> None:
+        tdmcp_bridge.set_bridge_host(SimpleNamespace(path="/project1/tdmcp_rs"))
+
+    def tearDown(self) -> None:
+        tdmcp_bridge._bridge_host_path = None  # type: ignore[attr-defined]
+
+    def test_shared_viewer_preview_success(self) -> None:
+        viewer = FakeSharedViewer()
+        host = SimpleNamespace(
+            path="/project1/tdmcp_rs",
+            op=lambda name: viewer if name == "capture_viewer" else None,
         )
         source = SimpleNamespace(
-            family="CHOP",
-            path="/project1/zone/const1",
-            name="const1",
-            parent=lambda: parent,
+            family="SOP",
+            path="/project1/zone/sphere1",
+            name="sphere1",
+            valid=True,
         )
-        td_mod = SimpleNamespace(choptoTOP=object())
-        out = tdmcp_bridge._capture_via_converter(
-            td_mod,
-            source,
-            source.path,
-            256,
-            mode="chop_image",
-            expect_family="CHOP",
-            op_attr="choptoTOP",
-            tmp_prefix="__tdmcp_tmp_chopimg__",
-            source_par="chop",
+        td_mod = SimpleNamespace(op=lambda p: host if p == "/project1/tdmcp_rs" else None)
+        out = tdmcp_bridge._capture_via_shared_viewer(
+            td_mod, source, source.path, 256, mode="preview"
         )
         self.assertTrue(out["ok"], out)
         self.assertEqual(out["path"], source.path)
+        self.assertEqual(out["mode"], "preview")
+        self.assertEqual(out["family"], "SOP")
+        self.assertIs(viewer.par.opviewer.val, source)
+        # Shared viewer force-cooks twice after retarget (TD needs a second cook).
+        self.assertEqual(viewer.cook_calls, 2)
+
+    def test_shared_viewer_missing_host(self) -> None:
+        tdmcp_bridge._bridge_host_path = None  # type: ignore[attr-defined]
+        source = SimpleNamespace(family="DAT", path="/project1/table1", name="table1")
+        out = tdmcp_bridge._capture_via_shared_viewer(
+            SimpleNamespace(op=lambda _p: None),
+            source,
+            source.path,
+            256,
+            mode="preview",
+        )
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["code"], "tdmcp.perception.no_path")
+
+    def test_sequential_preview_retargets(self) -> None:
+        """Two back-to-back preview captures must not leak each other's target."""
+        viewer = FakeSharedViewer()
+        host = SimpleNamespace(
+            path="/project1/tdmcp_rs",
+            op=lambda name: viewer if name == "capture_viewer" else None,
+        )
+        td_mod = SimpleNamespace(op=lambda p: host if p == "/project1/tdmcp_rs" else None)
+        a = SimpleNamespace(family="MAT", path="/project1/a", name="a", valid=True)
+        b = SimpleNamespace(family="DAT", path="/project1/b", name="b", valid=True)
+        out_a = tdmcp_bridge._capture_via_shared_viewer(
+            td_mod, a, a.path, None, mode="preview"
+        )
+        self.assertTrue(out_a["ok"], out_a)
+        self.assertIs(viewer.par.opviewer.val, a)
+        out_b = tdmcp_bridge._capture_via_shared_viewer(
+            td_mod, b, b.path, None, mode="preview"
+        )
+        self.assertTrue(out_b["ok"], out_b)
+        self.assertIs(viewer.par.opviewer.val, b)
+        self.assertEqual(viewer.cook_calls, 4)
+
+    def test_handle_capture_chop_image_alias(self) -> None:
+        source = SimpleNamespace(
+            family="CHOP",
+            path="/project1/zone/const1",
+            name="const1",
+            valid=True,
+        )
+        called: list[str] = []
+
+        def _shared(td_mod, node, path, max_size, *, mode):  # noqa: ANN001, ARG001
+            called.append(mode)
+            return {
+                "ok": True,
+                "path": path,
+                "mode": mode,
+                "family": "CHOP",
+                "bytes": 1,
+                "mimeType": "image/jpeg",
+                "jpegBase64": "QQ==",
+                "maxSize": max_size,
+            }
+
+        with mock.patch.object(tdmcp_bridge, "tdmcp_resolve", return_value=source):
+            with mock.patch.object(
+                tdmcp_bridge, "_capture_via_shared_viewer", side_effect=_shared
+            ):
+                with mock.patch.dict(sys.modules, {"td": SimpleNamespace()}):
+                    out = tdmcp_bridge.handle_capture({
+                        "path": source.path,
+                        "mode": "chop_image",
+                    })
+        self.assertTrue(out["ok"], out)
         self.assertEqual(out["mode"], "chop_image")
-        self.assertIs(converter.par.chop.val, source)
-        self.assertEqual(destroyed, ["converter"])
+        self.assertEqual(called, ["chop_image"])
 
-    def test_converter_destroyed_on_failure(self) -> None:
-        destroyed: list[str] = []
-
-        class BoomConverter:
-            name = "tmp"
-            path = "/project1/zone/__tdmcp_tmp_chopimg__const1"
-            width = 8
-            height = 8
-            inputConnectors: list[Any] = []
-
-            def __init__(self) -> None:
-                self.par = SimpleNamespace(chop=SimpleNamespace(val=None))
-
-            def cook(self, force: bool = False) -> None:
-                return None
-
-            def saveByteArray(self, _ext: str) -> bytes:
-                raise RuntimeError("save failed")
-
-            def destroy(self) -> None:
-                destroyed.append("converter")
-
-        converter = BoomConverter()
-        parent = SimpleNamespace(
-            op=lambda _n: None,
-            create=lambda _cls, _name: converter,
-        )
-        source = SimpleNamespace(
-            family="CHOP",
-            path="/project1/zone/const1",
-            name="const1",
-            parent=lambda: parent,
-        )
-        td_mod = SimpleNamespace(choptoTOP=object())
-        out = tdmcp_bridge._capture_via_converter(
-            td_mod,
-            source,
-            source.path,
-            None,
-            mode="chop_image",
-            expect_family="CHOP",
-            op_attr="choptoTOP",
-            tmp_prefix="__tdmcp_tmp_chopimg__",
-            source_par="chop",
-        )
-        self.assertFalse(out["ok"])
-        self.assertEqual(out["code"], "tdmcp.perception.converter_failed")
-        self.assertEqual(destroyed, ["converter"])
-
-    def test_converter_bind_failure_destroys_orphan(self) -> None:
-        destroyed: list[str] = []
-
-        class NoBindConverter:
-            name = "tmp"
-            inputConnectors: list[Any] = []
-
-            def __init__(self) -> None:
-                self.par = SimpleNamespace()  # no chop par
-
-            def destroy(self) -> None:
-                destroyed.append("converter")
-
-        converter = NoBindConverter()
-        parent = SimpleNamespace(
-            op=lambda _n: None,
-            create=lambda _cls, _name: converter,
-        )
-        source = SimpleNamespace(
-            family="CHOP",
-            path="/project1/zone/const1",
-            name="const1",
-            parent=lambda: parent,
-        )
-        out = tdmcp_bridge._capture_via_converter(
-            SimpleNamespace(choptoTOP=object()),
-            source,
-            source.path,
-            256,
-            mode="chop_image",
-            expect_family="CHOP",
-            op_attr="choptoTOP",
-            tmp_prefix="__tdmcp_tmp_chopimg__",
-            source_par="chop",
-        )
-        self.assertFalse(out["ok"])
-        self.assertEqual(out["code"], "tdmcp.perception.converter_failed")
-        self.assertEqual(destroyed, ["converter"])
-
-    def test_converter_wrong_family(self) -> None:
-        source = SimpleNamespace(
-            family="TOP",
-            path="/project1/probe",
-            name="probe",
-        )
-        out = tdmcp_bridge._capture_via_converter(
-            SimpleNamespace(choptoTOP=object()),
-            source,
-            source.path,
-            256,
-            mode="chop_image",
-            expect_family="CHOP",
-            op_attr="choptoTOP",
-            tmp_prefix="__tdmcp_tmp_chopimg__",
-            source_par="chop",
-        )
-        self.assertFalse(out["ok"])
-        self.assertEqual(out["code"], "tdmcp.perception.wrong_family")
-
-    def test_converter_missing_op_class(self) -> None:
+    def test_handle_capture_pop_alias(self) -> None:
         source = SimpleNamespace(
             family="POP",
             path="/project1/zone/pop1",
             name="pop1",
+            valid=True,
         )
-        out = tdmcp_bridge._capture_via_converter(
-            SimpleNamespace(),  # no poptoTOP
-            source,
-            source.path,
-            256,
-            mode="pop",
-            expect_family="POP",
-            op_attr="poptoTOP",
-            tmp_prefix="__tdmcp_tmp_pop__",
-            source_par="pop",
-        )
-        self.assertFalse(out["ok"])
-        self.assertEqual(out["code"], "tdmcp.perception.converter_failed")
+        called: list[str] = []
+
+        def _shared(td_mod, node, path, max_size, *, mode):  # noqa: ANN001, ARG001
+            called.append(mode)
+            return {"ok": True, "path": path, "mode": mode, "family": "POP"}
+
+        with mock.patch.object(tdmcp_bridge, "tdmcp_resolve", return_value=source):
+            with mock.patch.object(
+                tdmcp_bridge, "_capture_via_shared_viewer", side_effect=_shared
+            ):
+                with mock.patch.dict(sys.modules, {"td": SimpleNamespace()}):
+                    out = tdmcp_bridge.handle_capture({
+                        "path": source.path,
+                        "mode": "pop",
+                    })
+        self.assertTrue(out["ok"], out)
+        self.assertEqual(called, ["pop"])
 
 
 if __name__ == "__main__":

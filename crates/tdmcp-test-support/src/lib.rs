@@ -100,7 +100,9 @@ impl FakeTdPeer {
                             "jpegBase64": "/9j/4AAQ",
                         })
                     }
-                    "inspect" => serde_json::json!({"ok": true, "node": {"path": "/project1"}}),
+                    "inspect" => {
+                        serde_json::json!({"ok": true, "nodes": [{"ok": true, "path": "/project1"}]})
+                    }
                     _ => serde_json::json!({"ok": true}),
                 };
                 if self.send_response(id, result).await.is_err() {

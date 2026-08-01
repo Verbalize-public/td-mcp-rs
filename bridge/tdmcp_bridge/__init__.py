@@ -74,10 +74,15 @@ class CaptureParams(TypedDict):
 
 
 class InspectParams(TypedDict):
-    path: str
+    paths: list[str]
     contextPath: NotRequired[str | None]
     include: NotRequired[list[str]]
     detailLevel: NotRequired[str]
+
+
+# Soft cap on inspect batch size (each path force-cooks).
+INSPECT_PATHS_LIMIT = 32
+CAPTURE_VIEWER_NAME = "capture_viewer"
 
 
 class MutateNodesParams(TypedDict):
@@ -356,19 +361,19 @@ def _op_family(node: Any) -> str | None:
 
 
 def _effective_capture_mode(mode: str, node: Any) -> str:
-    """Resolve ``auto`` (and pass-through explicit modes) from operator family."""
+    """Resolve ``auto`` (and pass-through explicit modes) from operator family.
+
+    ``TOP`` → ``top``; ``CHOP`` → ``chop_data`` (numeric default); everything
+    else (COMP/POP/SOP/MAT/DAT/unrecognized) → ``preview`` via shared OP Viewer.
+    """
     if mode != "auto":
         return mode
     family = _op_family(node)
     if family == "CHOP":
         return "chop_data"
-    if family == "POP":
-        return "pop"
-    if family == "COMP":
-        return "preview"
     if family == "TOP" or hasattr(node, "saveByteArray"):
         return "top"
-    return mode
+    return "preview"
 
 
 def _chan_samples(chan: Any, n_samples: int) -> list[float]:
@@ -517,26 +522,6 @@ def _capture_chop_data(node: Any, path: str) -> dict[str, Any]:
     return out
 
 
-def _resolve_preview_face(td_mod: Any, node: Any) -> Any:
-    """COMP face fallback: opviewer → ./out1 (leave node if neither resolves)."""
-    target = node
-    if not hasattr(node, "par"):
-        return target
-    opviewer = getattr(node.par, "opviewer", None)
-    if opviewer is not None and getattr(opviewer, "eval", None):
-        try:
-            ref = opviewer.eval()
-            if ref:
-                target = td_mod.op(ref) or target
-        except Exception:  # noqa: BLE001
-            pass
-    if target is node:
-        child = node.op("out1") if hasattr(node, "op") else None
-        if child is not None:
-            target = child
-    return target
-
-
 def _capture_top_jpeg(
     td_mod: Any, target: Any, path: str, max_size: Any
 ) -> dict[str, Any]:
@@ -587,140 +572,122 @@ def _capture_top_jpeg(
                 pass
 
 
-def _bind_converter_source(tmp: Any, source: Any, *, source_par: str | None) -> None:
-    """Point a converter at ``source`` via named OP par, else first input wire."""
-    if source_par:
-        par = getattr(getattr(tmp, "par", None), source_par, None)
-        if par is not None:
-            par.val = source
-            return
-    connectors = getattr(tmp, "inputConnectors", None)
-    if connectors:
-        connectors[0].connect(source)
-        return
-    raise RuntimeError(
-        f"converter has no {source_par or 'input'} binding path"
-    )
-
-
-def _create_temp_converter(
-    td_mod: Any,
-    source: Any,
-    op_class: Any,
-    tmp_name: str,
-    *,
-    source_par: str | None,
-) -> Any:
-    """Create a temp converter under ``source``'s parent; destroy name collision.
-
-    ``choptoTOP`` / ``poptoTOP`` use OP parameters (``chop`` / ``pop``), not
-    wired inputs. Always destroy the temp if binding fails after create.
-    """
-    _ = td_mod
-    parent = source.parent() if hasattr(source, "parent") else None
-    if parent is None:
-        raise RuntimeError("converter parent missing")
-    existing = parent.op(tmp_name) if hasattr(parent, "op") else None
-    if existing is not None:
-        existing.destroy()
-    tmp = parent.create(op_class, tmp_name)
+def _bridge_host(td_mod: Any) -> Any:
+    """Resolve the bootstrap COMP that owns ``capture_viewer`` / ``debug``."""
+    if not _bridge_host_path:
+        return None
     try:
-        _bind_converter_source(tmp, source, source_par=source_par)
-        cook = getattr(tmp, "cook", None)
-        if callable(cook):
-            cook(force=True)
-        return tmp
-    except Exception:
+        return td_mod.op(_bridge_host_path)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _ensure_capture_viewer(td_mod: Any) -> Any:
+    """Return the shared OP Viewer TOP under the bridge host (create if missing)."""
+    host = _bridge_host(td_mod)
+    if host is None:
+        return None
+    existing = host.op(CAPTURE_VIEWER_NAME) if hasattr(host, "op") else None
+    if existing is not None:
+        return existing
+    op_class = getattr(td_mod, "opviewerTOP", None)
+    if op_class is None or not hasattr(host, "create"):
+        return None
+    try:
+        viewer = host.create(op_class, CAPTURE_VIEWER_NAME)
         try:
-            tmp.destroy()
+            viewer.nodeX, viewer.nodeY = 400, 0
         except Exception:  # noqa: BLE001
             pass
-        raise
+        return viewer
+    except Exception:  # noqa: BLE001
+        return None
 
 
-def _capture_via_converter(
+def _capture_via_shared_viewer(
     td_mod: Any,
     source: Any,
     path: str,
     max_size: Any,
     *,
     mode: str,
-    expect_family: str,
-    op_attr: str,
-    tmp_prefix: str,
-    source_par: str | None,
 ) -> dict[str, Any]:
-    """Temp converter → TOP JPEG path; always destroy the converter."""
+    """Retarget bridge ``capture_viewer`` at ``source`` → JPEG (any family).
+
+    Safe under the per-pid FIFO: only one bridge dispatch runs at a time, so
+    ``par.opviewer`` retarget + cook + save is not raced by concurrent capture.
+    """
     family = _op_family(source)
-    if family != expect_family:
+    viewer = _ensure_capture_viewer(td_mod)
+    if viewer is None:
         return {
             "ok": False,
-            "code": "tdmcp.perception.wrong_family",
+            "code": "tdmcp.perception.no_path",
             "message": (
-                f"mode {mode} requires {expect_family}; "
-                f"resolved family is {family!r}"
+                "shared capture_viewer missing "
+                "(bridge host not registered or opviewerTOP unavailable)"
             ),
             "path": getattr(source, "path", path),
             "mode": mode,
             "family": family,
         }
-    op_class = getattr(td_mod, op_attr, None)
-    if op_class is None:
-        return {
-            "ok": False,
-            "code": "tdmcp.perception.converter_failed",
-            "message": f"td.{op_attr} unavailable in this TouchDesigner build",
-            "path": getattr(source, "path", path),
-            "mode": mode,
-            "family": family,
-        }
 
-    tmp_name = tmp_prefix + str(getattr(source, "name", "src"))
-    converter = None
-    parent = source.parent() if hasattr(source, "parent") else None
     try:
-        converter = _create_temp_converter(
-            td_mod, source, op_class, tmp_name, source_par=source_par
-        )
-        result = _capture_top_jpeg(td_mod, converter, path, max_size)
-        # Report the source path agents asked for, not the temp converter.
-        result["path"] = getattr(source, "path", path)
-        result["mode"] = mode
-        if result.get("ok") is False and "error" in result:
-            return {
-                "ok": False,
-                "code": "tdmcp.perception.converter_failed",
-                "message": str(result.get("error") or "converter capture failed"),
-                "path": getattr(source, "path", path),
-                "mode": mode,
-                "family": family,
-                "traceback": result.get("traceback"),
-            }
-        return result
+        par = getattr(getattr(viewer, "par", None), "opviewer", None)
+        if par is None:
+            raise RuntimeError("capture_viewer has no par.opviewer")
+        # Prefer source-native resolution (avoid letterboxed black frames).
+        out_res = getattr(getattr(viewer, "par", None), "outputresolution", None)
+        if out_res is not None:
+            try:
+                out_res.val = "useinput"
+            except Exception:  # noqa: BLE001
+                pass
+        # Node Viewer must be enabled for OP Viewer TOP to rasterize content.
+        try:
+            source.viewer = True
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            cook_src = getattr(source, "cook", None)
+            if callable(cook_src):
+                cook_src(force=True)
+        except Exception:  # noqa: BLE001
+            pass
+        par.val = source
+        cook = getattr(viewer, "cook", None)
+        if callable(cook):
+            cook(force=True)
+            # OP Viewer sometimes needs a second cook after retarget.
+            cook(force=True)
     except Exception as exc:  # noqa: BLE001
         return {
             "ok": False,
-            "code": "tdmcp.perception.converter_failed",
-            "message": str(exc),
+            "code": "tdmcp.perception.no_path",
+            "message": f"failed to bind capture_viewer: {exc}",
             "path": getattr(source, "path", path),
             "mode": mode,
             "family": family,
             "traceback": traceback.format_exc(),
         }
-    finally:
-        if converter is not None:
-            try:
-                converter.destroy()
-            except Exception:  # noqa: BLE001
-                pass
-        elif parent is not None and hasattr(parent, "op"):
-            # Create succeeded but bind failed before assignment — sweep by name.
-            orphan = parent.op(tmp_name)
-            if orphan is not None:
-                try:
-                    orphan.destroy()
-                except Exception:  # noqa: BLE001
-                    pass
+
+    result = _capture_top_jpeg(td_mod, viewer, path, max_size)
+    # Report the source path agents asked for, not the shared viewer.
+    result["path"] = getattr(source, "path", path)
+    result["mode"] = mode
+    if family is not None:
+        result["family"] = family
+    if result.get("ok") is False and "error" in result and "code" not in result:
+        return {
+            "ok": False,
+            "code": "tdmcp.perception.no_path",
+            "message": str(result.get("error") or "shared viewer capture failed"),
+            "path": getattr(source, "path", path),
+            "mode": mode,
+            "family": family,
+            "traceback": result.get("traceback"),
+        }
+    return result
 
 
 def handle_capture(params: dict[str, Any]) -> dict[str, Any]:
@@ -729,7 +696,8 @@ def handle_capture(params: dict[str, Any]) -> dict[str, Any]:
     JPEG modes return ``jpegBase64`` for MCP image promotion. ``chop_data``
     returns capped channel JSON (no image). Optional ``maxSize`` (default 256)
     applies to JPEG paths only via a temp ``resolutionTOP`` that is always
-    destroyed. Converter temps for ``chop_image`` / ``pop`` are also destroyed.
+    destroyed. ``preview`` (and aliases ``chop_image`` / ``pop``) retarget the
+    bridge's shared ``capture_viewer`` OP Viewer TOP — any family.
     """
     path = params.get("path") or ""
     mode = params.get("mode") or "auto"
@@ -744,41 +712,17 @@ def handle_capture(params: dict[str, Any]) -> dict[str, Any]:
     if effective == "chop_data":
         return _capture_chop_data(node, path)
 
-    import td  # type: ignore  # JPEG / converter paths need the TD module
+    import td  # type: ignore  # JPEG / shared-viewer paths need the TD module
 
-    if effective == "chop_image":
-        return _capture_via_converter(
-            td,
-            node,
-            path,
-            max_size,
-            mode="chop_image",
-            expect_family="CHOP",
-            op_attr="choptoTOP",
-            tmp_prefix="__tdmcp_tmp_chopimg__",
-            source_par="chop",
+    # chop_image / pop are aliases of preview (shared OP Viewer path).
+    if effective in ("preview", "chop_image", "pop"):
+        return _capture_via_shared_viewer(
+            td, node, path, max_size, mode=effective
         )
 
-    if effective == "pop":
-        return _capture_via_converter(
-            td,
-            node,
-            path,
-            max_size,
-            mode="pop",
-            expect_family="POP",
-            op_attr="poptoTOP",
-            tmp_prefix="__tdmcp_tmp_pop__",
-            source_par="pop",
-        )
-
-    target = node
-    if effective == "preview":
-        target = _resolve_preview_face(td, node)
-
-    if effective in ("top", "preview"):
+    if effective == "top":
         # Explicit top on non-TOP → wrong_family (not no_path).
-        if effective == "top" and _op_family(node) not in (None, "TOP") and not hasattr(
+        if _op_family(node) not in (None, "TOP") and not hasattr(
             node, "saveByteArray"
         ):
             fam = _op_family(node)
@@ -790,11 +734,9 @@ def handle_capture(params: dict[str, Any]) -> dict[str, Any]:
                 "mode": "top",
                 "family": fam,
             }
-        result = _capture_top_jpeg(td, target, path, max_size)
-        # preview face miss stays no_path (COMP-oriented).
+        result = _capture_top_jpeg(td, node, path, max_size)
         if (
-            effective == "top"
-            and result.get("code") == "tdmcp.perception.no_path"
+            result.get("code") == "tdmcp.perception.no_path"
             and _op_family(node) not in (None, "TOP")
         ):
             fam = _op_family(node)
@@ -808,7 +750,7 @@ def handle_capture(params: dict[str, Any]) -> dict[str, Any]:
             }
         return result
 
-    # Unknown mode or unresolved auto family.
+    # Unknown mode string (should not happen for schema-validated callers).
     fam = _op_family(node)
     return {
         "ok": False,
@@ -1081,17 +1023,28 @@ def build_inspect_node(
 
 
 def handle_inspect(params: dict[str, Any]) -> dict[str, Any]:
-    """Structural subtree read (nodes/params/errors/warnings). Requires live TD."""
+    """Structural read for an explicit list of paths (no auto-recursion).
+
+    Requires live TD. Each path is force-cooked and shaped independently;
+    a bad path does not fail the whole batch (partial success). Soft-caps
+    at ``INSPECT_PATHS_LIMIT`` with ``tdmcp.op.paths_truncated``.
+    """
     import td  # type: ignore  # noqa: F401 — ensure TD runtime is importable
 
-    path = params.get("path") or ""
+    raw_paths = params.get("paths")
+    if raw_paths is None and params.get("path") is not None:
+        # Backward-compat: single path → one-element batch (Rust schema requires paths).
+        raw_paths = [params.get("path")]
+    if not isinstance(raw_paths, list) or len(raw_paths) == 0:
+        return {
+            "ok": False,
+            "code": "tdmcp.op.paths_required",
+            "message": "inspect requires a non-empty paths array",
+        }
+
     context_path = params.get("contextPath")
     include = params.get("include") or []
     detail_level = params.get("detailLevel") or "summary"
-
-    node = tdmcp_resolve(path, context_path)
-    if node is None or not getattr(node, "valid", False):
-        return {"ok": False, "code": "tdmcp.op.not_found", "path": path}
 
     if not include:
         want_nodes = want_errors = want_warnings = True
@@ -1102,22 +1055,61 @@ def handle_inspect(params: dict[str, Any]) -> dict[str, Any]:
         want_errors = "errors" in include
         want_warnings = "warnings" in include
 
-    _force_cook(node)
+    path_list = [str(p) for p in raw_paths]
+    truncated = False
+    if len(path_list) > INSPECT_PATHS_LIMIT:
+        path_list = path_list[:INSPECT_PATHS_LIMIT]
+        truncated = True
 
-    try:
-        return {
-            "ok": True,
-            "node": build_inspect_node(
+    nodes_out: list[dict[str, Any]] = []
+    for path in path_list:
+        node = tdmcp_resolve(path, context_path)
+        if node is None or not getattr(node, "valid", False):
+            nodes_out.append({
+                "ok": False,
+                "path": path,
+                "code": "tdmcp.op.not_found",
+                "message": f"operator not found: {path}",
+            })
+            continue
+        try:
+            _force_cook(node)
+            shaped = build_inspect_node(
                 node,
                 detail_level=detail_level,
                 want_nodes=want_nodes,
                 want_params=want_params,
                 want_errors=want_errors,
                 want_warnings=want_warnings,
+            )
+            shaped["ok"] = True
+            nodes_out.append(shaped)
+        except Exception as exc:  # noqa: BLE001
+            nodes_out.append({
+                "ok": False,
+                "path": getattr(node, "path", path),
+                "code": "tdmcp.op.inspect_failed",
+                "message": str(exc),
+                "traceback": traceback.format_exc(),
+            })
+
+    out: dict[str, Any] = {"ok": True, "nodes": nodes_out}
+    if truncated:
+        out["pathsTruncated"] = True
+        out["truncation"] = {
+            "field": "paths",
+            "limit": INSPECT_PATHS_LIMIT,
+            "code": "tdmcp.op.paths_truncated",
+            "message": (
+                f"Inspect paths batch capped at {INSPECT_PATHS_LIMIT} "
+                f"of {len(raw_paths)}"
             ),
+            "mitigation": [
+                "Split into multiple inspect calls",
+                "Each path is force-cooked — keep batches small",
+            ],
         }
-    except Exception as exc:  # noqa: BLE001
-        return {"ok": False, "error": str(exc), "traceback": traceback.format_exc()}
+    return out
 
 
 # --- mutate_nodes (pure apply_step seam + live handle_mutate wrapper) --------
@@ -2466,6 +2458,11 @@ def summarize_request(msg: dict[str, Any]) -> str:
                 return _short_text(line)
         return "execute_python"
     if method == "inspect":
+        paths = params.get("paths")
+        if isinstance(paths, list) and paths:
+            if len(paths) == 1:
+                return _short_text(str(paths[0]))
+            return _short_text(f"inspect×{len(paths)}")
         return _short_text(str(params.get("path") or "inspect"))
     if method == "capture":
         path = str(params.get("path") or "capture")

@@ -113,6 +113,37 @@ entries:
       - kind: doc
         id: inspect
 
+  - code: tdmcp.op.paths_truncated
+    layer: structure
+    message: "Inspect paths batch capped"
+    mitigation:
+      - "Split into multiple inspect calls"
+      - "Each path is force-cooked — keep batches small"
+      - "Soft cap is 32 paths per call"
+    references:
+      - kind: doc
+        id: inspect
+
+  - code: tdmcp.op.paths_required
+    layer: structure
+    message: "Inspect requires a non-empty paths array"
+    mitigation:
+      - "Pass paths: [\"/project1/...\"] with at least one OpPath"
+      - "No single-path shortcut — paths is required"
+    references:
+      - kind: doc
+        id: inspect
+
+  - code: tdmcp.op.inspect_failed
+    layer: structure
+    message: "Per-path inspect shaping failed after resolve"
+    mitigation:
+      - "Re-inspect that single path"
+      - "Check diagnostics.context / traceback at detailed level"
+    references:
+      - kind: doc
+        id: inspect
+
   - code: tdmcp.batch.skipped_dependent
     layer: mutate
     message: "Later mutate step skipped because a prior step failed"
@@ -275,16 +306,18 @@ entries:
     mitigation:
       - "Re-inspect wiring and zone face"
       - "Re-capture; perception-critic FAIL until fixed"
+      - "SOP/MAT/DAT viewer capture reflects TD's default viewport framing; use a Render TOP chain for a true look claim"
     references:
       - kind: doc
         id: capture
 
   - code: tdmcp.perception.no_path
     layer: perception
-    message: "No perception path for this COMP (opviewer / out1 / TOP child missing)"
+    message: "No perception path (shared capture_viewer missing or bind failed)"
     mitigation:
-      - "Wire zone out1 / opviewer"
-      - "Then capture mode: preview"
+      - "Ensure the tdmcp_rs bridge COMP is loaded and Connected"
+      - "Re-run ensure_ui / ensure_capture_viewer so ./capture_viewer exists"
+      - "Then capture mode: preview (or auto)"
     references:
       - kind: doc
         id: capture
@@ -293,7 +326,7 @@ entries:
     layer: perception
     message: "Capture mode does not match the resolved operator family"
     mitigation:
-      - "Use mode chop_data on a CHOP, top/preview on a TOP/COMP, or auto"
+      - "Use mode chop_data on a CHOP, top on a TOP, preview (or auto) for any other family"
       - "Re-inspect the path family, then re-capture with the matching mode"
     references:
       - kind: doc
@@ -321,10 +354,11 @@ entries:
 
   - code: tdmcp.perception.converter_failed
     layer: perception
-    message: "Temp converter for chop_image / pop capture failed"
+    message: "Shared OP Viewer / legacy converter capture path failed"
     mitigation:
-      - "Confirm the source is a CHOP (chop_image) or POP (pop)"
-      - "Re-capture; temps are destroyed — no project residue expected"
+      - "Prefer mode preview (or auto) — chop_image/pop are aliases of preview"
+      - "Confirm the tdmcp_rs bridge has ./capture_viewer (OP Viewer TOP)"
+      - "Re-capture; shared viewer is persistent — no temp residue expected"
     references:
       - kind: doc
         id: capture

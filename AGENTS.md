@@ -31,14 +31,15 @@ Law: [`CONSTITUTION.md`](CONSTITUTION.md). User install/quickstart: [`README.md`
 2. `fleet` → pick connected `pid` → `inspect` → mutate → `inspect` errors/warnings →
  `capture` (perception) → perception-critic for look claims.
 3. Pass `pid` every process-scoped call. Use `contextPath` for relative
-   `OpPath`s (default base = `/project1`).
+ `OpPath`s (default base = `/project1`).
 4. On failure, read **`diagnostics`** (codes, lints, mitigation) — not raw
-   strings alone.
+ strings alone.
 5. Prefer `detailLevel: summary` / `diagnosticLevel: summary`; store-first for
-   `capture`. Summary `inspect` includes a direct-child roster (capped at 64;
-   when truncated see `node.truncation` — `detailed` does not raise the cap).
-   `inspect` force-cooks its target before reporting errors/warnings (COMP =
-   network cook).
+ `capture`. `inspect` requires explicit `paths[]` (no auto-recursion; soft-cap
+ 32). Each node’s direct-child roster is capped at 64 (`node.truncation` —
+ `detailed` does not raise the cap). `inspect` force-cooks each path before
+ reporting errors/warnings (COMP = network cook). `capture` mode `preview`
+ (and `auto` for non-TOP/non-CHOP) uses the bridge’s shared OP Viewer TOP.
 
 ## Operate vs Document
 

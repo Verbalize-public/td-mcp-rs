@@ -93,7 +93,7 @@ fn fleet_unknown_include_rejected() {
 fn inspect_unknown_include_rejected() {
     let err = serde_json::from_value::<tdmcp_mcp::InspectParams>(serde_json::json!({
         "pid": 1,
-        "path": "/project1",
+        "paths": ["/project1"],
         "include": ["typo"]
     }));
     assert!(

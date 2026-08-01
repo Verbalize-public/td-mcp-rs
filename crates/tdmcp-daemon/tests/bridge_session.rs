@@ -130,7 +130,7 @@ async fn drive_peer(mut peer: FakeTdPeer, n: usize) {
                 "mimeType": "image/jpeg",
                 "jpegBase64": "/9j/4AAQ",
             }),
-            "inspect" => json!({"ok": true, "node": {"path": "/project1"}}),
+            "inspect" => json!({"ok": true, "nodes": [{"ok": true, "path": "/project1"}]}),
             "ping" => json!({"ok": true, "pong": true}),
             _ => json!({"ok": true}),
         };

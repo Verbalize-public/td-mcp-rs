@@ -31,5 +31,5 @@ pub use stdio_proxy::{
 pub use tools::{
     dispatch_tool, tool_descriptors, BridgeOutcome, CaptureMode, CaptureParams, DetailLevel,
     ExecutePythonParams, FormatMode, InspectInclude, InspectParams, MutateNodesParams, MutateStep,
-    ToolCallError, ToolDescriptor, ToolFailPayload, BRIDGE_TIMEOUT,
+    ToolCallError, ToolDescriptor, ToolFailPayload, BRIDGE_TIMEOUT, INSPECT_PATHS_LIMIT,
 };

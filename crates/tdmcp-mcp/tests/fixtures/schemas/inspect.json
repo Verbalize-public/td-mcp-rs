@@ -79,7 +79,7 @@
         }
       ],
       "default": null,
-      "description": "Resolution base for relative `path`."
+      "description": "Resolution base for relative entries in `paths`."
     },
     "detailLevel": {
       "$ref": "#/$defs/DetailLevel",
@@ -99,9 +99,12 @@
       },
       "type": "array"
     },
-    "path": {
-      "$ref": "#/$defs/OpPath",
-      "description": "Operator path (OpPath)."
+    "paths": {
+      "description": "Explicit operator paths to inspect (required, non-empty). Soft-capped at 32.\nNo auto-recursion — caller chooses exactly which nodes to fetch.",
+      "items": {
+        "$ref": "#/$defs/OpPath"
+      },
+      "type": "array"
     },
     "pid": {
       "$ref": "#/$defs/Pid",
@@ -110,7 +113,7 @@
   },
   "required": [
     "pid",
-    "path"
+    "paths"
   ],
   "type": "object"
 }

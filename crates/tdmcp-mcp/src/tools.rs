@@ -132,7 +132,7 @@ pub fn tool_descriptors() -> Vec<ToolDescriptor> {
         },
         ToolDescriptor {
             name: "inspect".into(),
-            description: "Structural subtree read (nodes/params/errors/warnings). Empty include defaults to nodes+errors+warnings; params opt-in; non-empty include is an allowlist. Params entries are {name, mode, val, expr?} (expr only when mode is EXPRESSION; val is evaluated and JSON-safe). Default summary includes a direct-child roster ({name, opType}); detailed adds path+family. Roster capped at 64 — when truncated see node.truncation (detailLevel does not raise the cap).".into(),
+            description: "Structural read for an explicit paths[] batch (required, non-empty; soft-capped at 32). No auto-recursion — caller chooses nodes. Empty include defaults to nodes+errors+warnings; params opt-in; non-empty include is an allowlist. Params entries are {name, mode, val, expr?} (expr only when mode is EXPRESSION; val is evaluated and JSON-safe). Per-node summary includes a direct-child roster ({name, opType}); detailed adds path+family. Roster capped at 64 — when truncated see node.truncation. Bad paths return ok:false inline; siblings still succeed.".into(),
             input_schema: input_schema_for("inspect"),
         },
         ToolDescriptor {
@@ -142,7 +142,7 @@ pub fn tool_descriptors() -> Vec<ToolDescriptor> {
         },
         ToolDescriptor {
             name: "capture".into(),
-            description: "Perception capture (top/preview/…)".into(),
+            description: "Perception capture. top=native TOP JPEG; preview=any family via shared bridge OP Viewer TOP; chop_data=CHOP JSON; chop_image/pop=aliases of preview; auto=TOP→top, CHOP→chop_data, else preview.".into(),
             input_schema: input_schema_for("capture"),
         },
         ToolDescriptor {
@@ -213,20 +213,23 @@ pub struct ExecutePythonParams {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum CaptureMode {
-    /// TOP → JPEG.
+    /// TOP → JPEG (native `saveByteArray`).
     Top,
-    /// COMP face fallback chain.
+    /// Any family → shared bridge OP Viewer TOP (`capture_viewer`).
     Preview,
-    /// TOP → top; COMP → preview; CHOP → chop_data; POP → pop.
+    /// TOP → top; CHOP → chop_data; everything else → preview.
     #[default]
     Auto,
-    /// CHOP → capped JSON.
+    /// CHOP → capped JSON (no image).
     ChopData,
-    /// CHOP → temp choptoTOP → JPEG.
+    /// Alias of `preview` (shared OP Viewer); kept for existing callers.
     ChopImage,
-    /// POP → temp poptoTOP → JPEG.
+    /// Alias of `preview` (shared OP Viewer); kept for existing callers.
     Pop,
 }
+
+/// Soft cap on inspect `paths` batch size (each path force-cooks).
+pub const INSPECT_PATHS_LIMIT: usize = 32;
 
 impl CaptureMode {
     /// Wire string for the bridge.
@@ -315,9 +318,10 @@ impl DetailLevel {
 pub struct InspectParams {
     /// Target pid.
     pub pid: Pid,
-    /// Operator path (OpPath).
-    pub path: OpPath,
-    /// Resolution base for relative `path`.
+    /// Explicit operator paths to inspect (required, non-empty). Soft-capped at 32.
+    /// No auto-recursion — caller chooses exactly which nodes to fetch.
+    pub paths: Vec<OpPath>,
+    /// Resolution base for relative entries in `paths`.
     #[serde(default)]
     pub context_path: Option<OpPath>,
     /// Sections to include. Empty/omitted = nodes+errors+warnings; params opt-in; non-empty = allowlist.
@@ -503,6 +507,11 @@ pub async fn dispatch_tool(
         "inspect" => {
             let params: InspectParams = serde_json::from_value(args)
                 .map_err(|e| ToolCallError::InvalidArgs(e.to_string()))?;
+            if params.paths.is_empty() {
+                return Err(ToolCallError::InvalidArgs(
+                    "inspect requires a non-empty paths array".into(),
+                ));
+            }
             let method = BridgeMethod::Inspect;
             let include: Vec<&str> = params
                 .include
@@ -514,6 +523,8 @@ pub async fn dispatch_tool(
                     InspectInclude::Warnings => "warnings",
                 })
                 .collect();
+            // Soft-cap is enforced on the bridge; still forward the full list
+            // so truncation metadata can report the requested count.
             let outcome = enqueue_and_call(
                 registry,
                 bridge,
@@ -521,17 +532,18 @@ pub async fn dispatch_tool(
                 method,
                 TaskMode::Shared,
                 serde_json::json!({
-                    "path": params.path,
+                    "paths": params.paths,
                     "contextPath": params.context_path,
                     "include": include,
                     "detailLevel": params.detail_level.as_str(),
                 }),
             )
             .await;
+            let span_path = params.paths.first().cloned();
             map_inspect_outcome(
                 catalog,
                 params.pid,
-                params.path,
+                span_path,
                 params.context_path,
                 outcome,
                 params.diagnostic_level,

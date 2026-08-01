@@ -277,27 +277,29 @@ class InspectMessagesTest(unittest.TestCase):
         with patch.dict(sys.modules, {"td": SimpleNamespace()}):
             with patch.object(tdmcp_bridge, "tdmcp_resolve", return_value=node):
                 result = tdmcp_bridge.handle_inspect({
-                    "path": "/project1",
+                    "paths": ["/project1"],
                     "include": [],
                 })
         self.assertTrue(result["ok"])
-        self.assertEqual(result["node"]["errors"], ["err1"])
-        self.assertEqual(result["node"]["warnings"], ["warn1"])
-        self.assertIn("children", result["node"])
-        self.assertNotIn("params", result["node"])
+        self.assertEqual(len(result["nodes"]), 1)
+        self.assertTrue(result["nodes"][0]["ok"])
+        self.assertEqual(result["nodes"][0]["errors"], ["err1"])
+        self.assertEqual(result["nodes"][0]["warnings"], ["warn1"])
+        self.assertIn("children", result["nodes"][0])
+        self.assertNotIn("params", result["nodes"][0])
 
     def test_handle_inspect_allowlist_nodes_only(self) -> None:
         node = _fake_node([], errors="err1", warnings="warn1")
         with patch.dict(sys.modules, {"td": SimpleNamespace()}):
             with patch.object(tdmcp_bridge, "tdmcp_resolve", return_value=node):
                 result = tdmcp_bridge.handle_inspect({
-                    "path": "/project1",
+                    "paths": ["/project1"],
                     "include": ["nodes"],
                 })
         self.assertTrue(result["ok"])
-        self.assertNotIn("errors", result["node"])
-        self.assertNotIn("warnings", result["node"])
-        self.assertIn("children", result["node"])
+        self.assertNotIn("errors", result["nodes"][0])
+        self.assertNotIn("warnings", result["nodes"][0])
+        self.assertIn("children", result["nodes"][0])
 
     def test_handle_inspect_allowlist_warnings_only(self) -> None:
         child = SimpleNamespace(name="n1", opType="nullTOP", path="/project1/n1")
@@ -305,15 +307,15 @@ class InspectMessagesTest(unittest.TestCase):
         with patch.dict(sys.modules, {"td": SimpleNamespace()}):
             with patch.object(tdmcp_bridge, "tdmcp_resolve", return_value=node):
                 result = tdmcp_bridge.handle_inspect({
-                    "path": "/project1",
+                    "paths": ["/project1"],
                     "include": ["warnings"],
                 })
         self.assertTrue(result["ok"])
-        self.assertEqual(result["node"]["warnings"], ["warn1"])
-        self.assertNotIn("errors", result["node"])
-        self.assertNotIn("children", result["node"])
-        self.assertNotIn("childCount", result["node"])
-        self.assertNotIn("childrenReturned", result["node"])
+        self.assertEqual(result["nodes"][0]["warnings"], ["warn1"])
+        self.assertNotIn("errors", result["nodes"][0])
+        self.assertNotIn("children", result["nodes"][0])
+        self.assertNotIn("childCount", result["nodes"][0])
+        self.assertNotIn("childrenReturned", result["nodes"][0])
 
     def test_handle_inspect_allowlist_errors_only(self) -> None:
         child = SimpleNamespace(name="n1", opType="nullTOP", path="/project1/n1")
@@ -321,17 +323,17 @@ class InspectMessagesTest(unittest.TestCase):
         with patch.dict(sys.modules, {"td": SimpleNamespace()}):
             with patch.object(tdmcp_bridge, "tdmcp_resolve", return_value=node):
                 result = tdmcp_bridge.handle_inspect({
-                    "path": "/project1",
+                    "paths": ["/project1"],
                     "include": ["errors"],
                 })
         self.assertTrue(result["ok"])
-        self.assertEqual(result["node"]["errors"], ["err1"])
-        self.assertEqual(result["node"]["path"], "/project1")
-        self.assertEqual(result["node"]["opType"], "baseCOMP")
-        self.assertNotIn("warnings", result["node"])
-        self.assertNotIn("children", result["node"])
-        self.assertNotIn("childCount", result["node"])
-        self.assertNotIn("childrenReturned", result["node"])
+        self.assertEqual(result["nodes"][0]["errors"], ["err1"])
+        self.assertEqual(result["nodes"][0]["path"], "/project1")
+        self.assertEqual(result["nodes"][0]["opType"], "baseCOMP")
+        self.assertNotIn("warnings", result["nodes"][0])
+        self.assertNotIn("children", result["nodes"][0])
+        self.assertNotIn("childCount", result["nodes"][0])
+        self.assertNotIn("childrenReturned", result["nodes"][0])
 
     def test_handle_inspect_force_cooks_target(self) -> None:
         cook = MagicMock()
@@ -339,12 +341,12 @@ class InspectMessagesTest(unittest.TestCase):
         with patch.dict(sys.modules, {"td": SimpleNamespace()}):
             with patch.object(tdmcp_bridge, "tdmcp_resolve", return_value=node):
                 result = tdmcp_bridge.handle_inspect({
-                    "path": "/project1",
+                    "paths": ["/project1"],
                     "include": [],
                 })
         self.assertTrue(result["ok"])
         cook.assert_called_once_with(force=True)
-        self.assertEqual(result["node"]["errors"], ["err1"])
+        self.assertEqual(result["nodes"][0]["errors"], ["err1"])
 
     def test_handle_inspect_cook_raise_still_ok(self) -> None:
         cook = MagicMock(side_effect=RuntimeError("cook boom"))
@@ -352,13 +354,62 @@ class InspectMessagesTest(unittest.TestCase):
         with patch.dict(sys.modules, {"td": SimpleNamespace()}):
             with patch.object(tdmcp_bridge, "tdmcp_resolve", return_value=node):
                 result = tdmcp_bridge.handle_inspect({
-                    "path": "/project1",
+                    "paths": ["/project1"],
                     "include": [],
                 })
         self.assertTrue(result["ok"])
         cook.assert_called_once_with(force=True)
-        self.assertEqual(result["node"]["errors"], ["err1"])
-        self.assertEqual(result["node"]["warnings"], ["warn1"])
+        self.assertEqual(result["nodes"][0]["errors"], ["err1"])
+        self.assertEqual(result["nodes"][0]["warnings"], ["warn1"])
+
+    def test_handle_inspect_paths_required(self) -> None:
+        with patch.dict(sys.modules, {"td": SimpleNamespace()}):
+            result = tdmcp_bridge.handle_inspect({"include": []})
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["code"], "tdmcp.op.paths_required")
+
+    def test_handle_inspect_partial_success(self) -> None:
+        good = _fake_node([], errors="", warnings="")
+        with patch.dict(sys.modules, {"td": SimpleNamespace()}):
+            with patch.object(
+                tdmcp_bridge,
+                "tdmcp_resolve",
+                side_effect=[good, None],
+            ):
+                result = tdmcp_bridge.handle_inspect({
+                    "paths": ["/project1", "/missing"],
+                    "include": ["nodes"],
+                })
+        self.assertTrue(result["ok"])
+        self.assertEqual(len(result["nodes"]), 2)
+        self.assertTrue(result["nodes"][0]["ok"])
+        self.assertFalse(result["nodes"][1]["ok"])
+        self.assertEqual(result["nodes"][1]["code"], "tdmcp.op.not_found")
+
+    def test_handle_inspect_paths_truncated(self) -> None:
+        node = _fake_node([])
+        paths = [f"/project1/op{i}" for i in range(tdmcp_bridge.INSPECT_PATHS_LIMIT + 3)]
+        with patch.dict(sys.modules, {"td": SimpleNamespace()}):
+            with patch.object(tdmcp_bridge, "tdmcp_resolve", return_value=node):
+                result = tdmcp_bridge.handle_inspect({
+                    "paths": paths,
+                    "include": ["nodes"],
+                })
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["pathsTruncated"])
+        self.assertEqual(result["truncation"]["code"], "tdmcp.op.paths_truncated")
+        self.assertEqual(len(result["nodes"]), tdmcp_bridge.INSPECT_PATHS_LIMIT)
+
+    def test_handle_inspect_legacy_path_compat(self) -> None:
+        node = _fake_node([])
+        with patch.dict(sys.modules, {"td": SimpleNamespace()}):
+            with patch.object(tdmcp_bridge, "tdmcp_resolve", return_value=node):
+                result = tdmcp_bridge.handle_inspect({
+                    "path": "/project1",
+                    "include": ["nodes"],
+                })
+        self.assertTrue(result["ok"])
+        self.assertEqual(len(result["nodes"]), 1)
 
     def test_force_cook_positional_fallback(self) -> None:
         calls: list[tuple] = []

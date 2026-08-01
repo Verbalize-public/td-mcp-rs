@@ -96,14 +96,16 @@ embedded assets), `install` (extract assets **and** reset config to defaults;
 | --- | --- |
 | `fleet` | List TD processes by `pid`, bridge status, tasks, resurrection traces |
 | `execute_python` | Run Python in TD (`result = …`) |
-| `inspect` | Structural subtree read (nodes / params / errors / warnings; empty include defaults to nodes+errors+warnings) |
-| `capture` | Perception (`top` / `preview` / `auto` / `chop_data` / `chop_image` / `pop`) |
+| `inspect` | Structural read for explicit `paths[]` (nodes / params / errors / warnings; empty include defaults to nodes+errors+warnings) |
+| `capture` | Perception (`top` / `preview` / `auto` / `chop_data`; `chop_image`/`pop` = preview aliases) |
 | `describe_tools` | Tool manifest |
 
-Process-scoped tools require `pid`. Prefer `detailLevel: summary` — `inspect`
-summary returns a direct-child roster (`name` + `opType`, capped at 64; see
-`node.truncation` when truncated). Use `capture` when look is the claim;
-builders never self-grade perception.
+Process-scoped tools require `pid`. `inspect` takes a required non-empty
+`paths` array (soft-capped at 32; no auto-recursion). Prefer
+`detailLevel: summary` — each node’s direct-child roster is `name` + `opType`,
+capped at 64 (`node.truncation` when truncated). Use `capture` when look is
+the claim (`preview` rasterizes any family via the bridge’s shared OP Viewer
+TOP); builders never self-grade perception.
 
 ## Docs
 

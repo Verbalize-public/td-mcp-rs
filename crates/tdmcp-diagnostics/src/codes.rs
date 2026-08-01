@@ -28,6 +28,12 @@ pub const OP_RENAMED: &str = "tdmcp.op.renamed";
 pub const OP_OUTSIDE_ZONE: &str = "tdmcp.op.outside_zone";
 /// Inspect direct-child roster capped (soft; payload `truncation` block).
 pub const OP_CHILDREN_TRUNCATED: &str = "tdmcp.op.children_truncated";
+/// Inspect `paths` batch capped (soft; payload `truncation` block).
+pub const OP_PATHS_TRUNCATED: &str = "tdmcp.op.paths_truncated";
+/// Inspect called without a non-empty `paths` array.
+pub const OP_PATHS_REQUIRED: &str = "tdmcp.op.paths_required";
+/// Per-path inspect shaping failed after resolve.
+pub const OP_INSPECT_FAILED: &str = "tdmcp.op.inspect_failed";
 /// Unknown or unresolved opType for create.
 pub const OP_UNKNOWN_TYPE: &str = "tdmcp.op.unknown_type";
 
@@ -73,7 +79,7 @@ pub const PERCEPTION_WRONG_FAMILY: &str = "tdmcp.perception.wrong_family";
 pub const PERCEPTION_EMPTY_CHOP: &str = "tdmcp.perception.empty_chop";
 /// CHOP capture capped (soft; payload `truncation` block).
 pub const PERCEPTION_CHOP_TRUNCATED: &str = "tdmcp.perception.chop_truncated";
-/// Temp converter for chop_image / pop failed.
+/// Shared OP Viewer / legacy converter capture path failed.
 pub const PERCEPTION_CONVERTER_FAILED: &str = "tdmcp.perception.converter_failed";
 
 /// All codes that must exist in the catalog (compile-time enumeration).
@@ -89,6 +95,9 @@ pub const ALL: &[&str] = &[
     OP_RENAMED,
     OP_OUTSIDE_ZONE,
     OP_CHILDREN_TRUNCATED,
+    OP_PATHS_TRUNCATED,
+    OP_PATHS_REQUIRED,
+    OP_INSPECT_FAILED,
     OP_UNKNOWN_TYPE,
     BATCH_SKIPPED_DEPENDENT,
     PAR_UNKNOWN,
