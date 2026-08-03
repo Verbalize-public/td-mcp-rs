@@ -140,16 +140,26 @@ Handshake returns a local FS path to the bridge package directory. TD reloads fr
 
 **Idle heartbeat (liveness):** after handshake, the daemon session actor probes
 the peer with wire `ping` outside the task queue (not visible in `fleet`
-tasks). Defaults: interval **5s**, pong wait **5s**, idle-dead **15s** (no
-inbound framed traffic). Any successful request/response (including ping/pong)
-resets the inactivity clock. Missed pong or idle-dead → same teardown as IPC
-loss. The bridge answers `ping` on the IPC worker thread (no main-thread
-`process_pending`) and exits its serve loop after **15s** inbound silence when
-read timeouts are available. Mid-frame reads tolerate short poll stalls; the
-bridge only treats a transfer as dead after **15s** with **no byte progress**
-(then disconnects and closes the stream). Idle detection and fleet eviction are
-separate clocks (each up to **15s**). IPC frames are hard-capped at **16 MiB**.
-`GET /mcp/health` remains daemon-process liveness only — not bridge peer health.
+tasks). Defaults (configurable via `[bridge]` in `config.toml`): interval
+**5s**, pong wait **8s**, idle-dead **20s** (no inbound framed traffic). Any
+successful request/response (including ping/pong) resets the inactivity clock.
+Missed pong or idle-dead → same teardown as IPC loss. The bridge answers `ping`
+on the IPC worker thread (no main-thread `process_pending`) and exits its serve
+loop after the handshake-forwarded idle-dead budget (default **20s**) when read
+timeouts are available. Mid-frame reads tolerate short poll stalls; the bridge
+only treats a transfer as dead after idle-dead with **no byte progress** (then
+disconnects and closes the stream). Idle detection and fleet eviction are
+separate clocks (eviction TTL remains **15s**). IPC frames are hard-capped at
+**16 MiB**. `GET /mcp/health` remains daemon-process liveness only — not bridge
+peer health.
+
+**Per-call wait budgets:** `ping` / `inspect` / `capture` default to **45s**;
+`execute_python` / `mutate_nodes` default to **120s** (`[bridge].call_timeout_secs`
+/ `script_timeout_secs`). A timeout fails the wait (`tdmcp.bridge.timeout`) and
+does **not** tear down the session. Stale late responses from a timed-out call
+are discarded on the next receive so they cannot surface as `tdmcp.bridge.lost`.
+The MCP dispatch layer keeps a separate **180s** oneshot ceiling as a hang
+safety net only — the daemon owns the real per-method budgets.
 
 ---
 

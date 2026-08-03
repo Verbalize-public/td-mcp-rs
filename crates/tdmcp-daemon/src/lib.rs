@@ -15,8 +15,8 @@ pub mod tracing_init;
 
 pub use admin::RestartArgs;
 pub use bridge::{
-    run_ipc_accept, BridgeSessions, HeartbeatConfig, DISCONNECTED_TTL, HEARTBEAT_INTERVAL,
-    IDLE_DEAD, PONG_TIMEOUT,
+    run_ipc_accept, BridgeSessions, BridgeTimeouts, HeartbeatConfig, CALL_TIMEOUT,
+    DISCONNECTED_TTL, HEARTBEAT_INTERVAL, IDLE_DEAD, PONG_TIMEOUT, SCRIPT_TIMEOUT,
 };
 pub use ensure::{
     configure_detached_spawn, daemon_lock_path, ensure_daemon, health_ok, pid_alive,

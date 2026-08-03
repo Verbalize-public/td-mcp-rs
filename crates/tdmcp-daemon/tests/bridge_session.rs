@@ -15,7 +15,7 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 use tdmcp_core::{PidRegistry, ProcessAttrs, ProcessFingerprint};
-use tdmcp_daemon::bridge::{BridgeSessions, HeartbeatConfig};
+use tdmcp_daemon::bridge::{BridgeSessions, BridgeTimeouts, HeartbeatConfig};
 use tdmcp_diagnostics::Catalog;
 use tdmcp_ipc::{IpcStream, Message};
 use tdmcp_mcp::dispatch_tool;
@@ -425,4 +425,183 @@ async fn superseding_spawn_does_not_mark_new_session_disconnected() {
         tdmcp_core::BridgeStatus::Connected,
         "stale teardown must not clobber a newer session"
     );
+}
+
+async fn setup_with_timeouts(
+    pid: u32,
+    timeouts: BridgeTimeouts,
+) -> (Arc<Mutex<PidRegistry>>, BridgeSessions, FakeTdPeer) {
+    let registry = Arc::new(Mutex::new(PidRegistry::new()));
+    let sessions = BridgeSessions::new(registry.clone())
+        .with_heartbeat(HeartbeatConfig::disabled())
+        .with_timeouts(timeouts);
+    let (peer, server) = FakeTdPeer::pair(pid);
+
+    let server_task = tokio::spawn(async move {
+        IpcStream::accept_memory_handshake(server, "/bridge", "0.1.0")
+            .await
+            .expect("server handshake")
+    });
+    let mut peer = peer;
+    peer.handshake("proj").await.expect("client handshake");
+    let ipc_stream = server_task.await.expect("join server");
+
+    {
+        let mut reg = registry.lock().await;
+        reg.handshake(pid, attrs(), Some("1".into()), chrono::Utc::now());
+    }
+    sessions.spawn(pid, ipc_stream).await;
+    (registry, sessions, peer)
+}
+
+#[tokio::test]
+async fn timeout_does_not_desync_next_call() {
+    // Short call budget so the first response arrives after timeout.
+    let timeouts = BridgeTimeouts {
+        call: Duration::from_millis(80),
+        script: Duration::from_millis(80),
+    };
+    let (registry, sessions, peer) = setup_with_timeouts(52, timeouts).await;
+    let catalog = Catalog::fallback();
+
+    let driver = tokio::spawn(async move {
+        let mut peer = peer;
+        // First request: respond late (after call timeout).
+        let msg = peer.recv_message().await.expect("recv request 1");
+        let Message::Request { id: id1, .. } = msg else {
+            panic!("expected request, got {msg:?}");
+        };
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        peer.send_response(id1, json!({"ok": true, "result": "late"}))
+            .await
+            .expect("send late response");
+
+        // Second request: respond promptly with a distinct payload.
+        let msg = peer.recv_message().await.expect("recv request 2");
+        let Message::Request { id: id2, .. } = msg else {
+            panic!("expected request, got {msg:?}");
+        };
+        peer.send_response(id2, json!({"ok": true, "result": "fresh"}))
+            .await
+            .expect("send fresh response");
+    });
+
+    let first = dispatch_tool(
+        &registry,
+        &catalog,
+        &sessions,
+        "execute_python",
+        json!({"pid": 52, "script": "result=1"}),
+    )
+    .await;
+    match first {
+        Err(tdmcp_mcp::ToolCallError::Failed(fail)) => {
+            assert_eq!(fail.diagnostics.items[0].code, "tdmcp.bridge.timeout");
+        }
+        other => panic!("expected timeout Failed, got {other:?}"),
+    }
+
+    // Give the late response time to land on the wire before the next call.
+    tokio::time::sleep(Duration::from_millis(150)).await;
+
+    let second = dispatch_tool(
+        &registry,
+        &catalog,
+        &sessions,
+        "execute_python",
+        json!({"pid": 52, "script": "result=2"}),
+    )
+    .await
+    .expect("second call must succeed after draining stale response");
+    assert_eq!(second["ok"], true);
+    assert_eq!(second["result"], "fresh");
+
+    {
+        let reg = registry.lock().await;
+        let entry = reg.get(52).expect("entry");
+        assert_eq!(
+            entry.bridge,
+            tdmcp_core::BridgeStatus::Connected,
+            "timeout must not tear down the session"
+        );
+    }
+
+    let _ = driver.await;
+}
+
+#[tokio::test]
+async fn script_method_gets_longer_timeout() {
+    // Delay sits between call and script budgets.
+    let timeouts = BridgeTimeouts {
+        call: Duration::from_millis(80),
+        script: Duration::from_millis(400),
+    };
+    let delay = Duration::from_millis(200);
+
+    // execute_python must succeed under the script budget.
+    {
+        let (registry, sessions, peer) = setup_with_timeouts(53, timeouts).await;
+        let catalog = Catalog::fallback();
+        let driver = tokio::spawn(async move {
+            let mut peer = peer;
+            let msg = peer.recv_message().await.expect("recv");
+            let Message::Request { id, method, .. } = msg else {
+                panic!("expected request, got {msg:?}");
+            };
+            assert_eq!(method, "execute_python");
+            tokio::time::sleep(delay).await;
+            peer.send_response(id, json!({"ok": true, "result": 1}))
+                .await
+                .expect("send");
+        });
+        let v = dispatch_tool(
+            &registry,
+            &catalog,
+            &sessions,
+            "execute_python",
+            json!({"pid": 53, "script": "result=1"}),
+        )
+        .await
+        .expect("script method should wait longer");
+        assert_eq!(v["result"], 1);
+        let _ = driver.await;
+    }
+
+    // inspect must time out under the shorter call budget with the same delay.
+    {
+        let (registry, sessions, peer) = setup_with_timeouts(54, timeouts).await;
+        let catalog = Catalog::fallback();
+        let driver = tokio::spawn(async move {
+            let mut peer = peer;
+            let msg = peer.recv_message().await.expect("recv");
+            let Message::Request { id, method, .. } = msg else {
+                panic!("expected request, got {msg:?}");
+            };
+            assert_eq!(method, "inspect");
+            tokio::time::sleep(delay).await;
+            // Late response — discarded / ignored after timeout.
+            let _ = peer
+                .send_response(
+                    id,
+                    json!({"ok": true, "nodes": [{"ok": true, "path": "/project1"}]}),
+                )
+                .await;
+        });
+        let err = dispatch_tool(
+            &registry,
+            &catalog,
+            &sessions,
+            "inspect",
+            json!({"pid": 54, "paths": ["/project1"]}),
+        )
+        .await
+        .expect_err("inspect should use the shorter call timeout");
+        match err {
+            tdmcp_mcp::ToolCallError::Failed(fail) => {
+                assert_eq!(fail.diagnostics.items[0].code, "tdmcp.bridge.timeout");
+            }
+            other => panic!("expected timeout Failed, got {other:?}"),
+        }
+        let _ = driver.await;
+    }
 }

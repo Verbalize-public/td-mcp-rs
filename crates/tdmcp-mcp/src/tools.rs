@@ -23,9 +23,13 @@ use crate::outcomes::{
 };
 use crate::schema::input_schema_for;
 
-/// Per-call bridge wait budget. A timeout fails the **wait** — it does not
-/// claim TD cancelled the work.
-pub const BRIDGE_TIMEOUT: Duration = Duration::from_secs(30);
+/// Outer safety ceiling for awaiting a daemon bridge oneshot.
+///
+/// The daemon owns the real per-method budgets (`[bridge].call_timeout_secs` /
+/// `script_timeout_secs`). This ceiling only fires if the oneshot never
+/// completes (e.g. actor crash without reply). Keep it above the max script
+/// timeout default (120s).
+pub const BRIDGE_TIMEOUT: Duration = Duration::from_secs(180);
 
 /// Static tool descriptor for `describe_tools` / MCP list.
 #[derive(Debug, Clone, Serialize)]

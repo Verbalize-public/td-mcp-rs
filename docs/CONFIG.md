@@ -59,6 +59,24 @@ The template is `crates/tdmcp-config/assets/default.toml`, embedded via
 | `always_on` | `false` | When `true`, register OS login autostart for `tdmcp-daemon start`. Reconciled once at daemon start. |
 | `show_tray` | `true` | When `false`, run headless (gui builds). CLI `--no-gui` still forces headless. |
 
+### `[bridge]`
+
+IPC call budgets and idle heartbeat. Changes apply after the next daemon restart.
+`idle_dead_secs` is also forwarded to connecting Python bridges via handshake
+`idleDeadSecs` so both sides share the same silence budget.
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `call_timeout_secs` | `45` | Wait for `ping` / `inspect` / `capture` responses |
+| `script_timeout_secs` | `120` | Wait for `execute_python` / `mutate_nodes` |
+| `heartbeat_interval_secs` | `5` | Idle bridge ping cadence |
+| `pong_timeout_secs` | `8` | Max wait for a heartbeat pong |
+| `idle_dead_secs` | `20` | Tear down after this much inbound silence |
+
+A call timeout fails the **wait** (`tdmcp.bridge.timeout`); it does not tear down
+the bridge. Stale late responses are discarded on the next call so they cannot
+masquerade as `tdmcp.bridge.lost`.
+
 ### `[advanced]`
 
 Optional path overrides. Omit (or leave blank in the GUI) to use defaults under
@@ -108,6 +126,13 @@ port = 9860
 keep_alive = false
 always_on = false
 show_tray = true
+
+[bridge]
+call_timeout_secs = 45
+script_timeout_secs = 120
+heartbeat_interval_secs = 5
+pong_timeout_secs = 8
+idle_dead_secs = 20
 
 [advanced]
 # data_dir = "C:/path/to/tdmcp-rs-data"

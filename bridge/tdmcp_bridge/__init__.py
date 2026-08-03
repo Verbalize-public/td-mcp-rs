@@ -26,8 +26,8 @@ __min_daemon__ = "0.1.0"
 
 # Idle liveness — must match tdmcp-daemon HeartbeatConfig::production.
 HEARTBEAT_INTERVAL_S = 5.0
-PONG_TIMEOUT_S = 5.0
-IDLE_DEAD_S = 15.0
+PONG_TIMEOUT_S = 8.0
+IDLE_DEAD_S = 20.0
 # Short poll so serve_queued can notice IDLE_DEAD without blocking forever.
 _READ_POLL_S = 1.0
 # execute_python payload caps — keep framed JSON well under the 16 MiB IPC MAX_FRAME.
@@ -2430,6 +2430,26 @@ def handshake(
     return _read_frame(stream)
 
 
+def idle_dead_from_handshake(resp: dict[str, Any] | None) -> float:
+    """Map handshake ``idleDeadSecs`` to a ``serve_queued`` idle-dead budget.
+
+    Missing / invalid values fall back to [`IDLE_DEAD_S`] so older daemons
+    that omit the field remain compatible.
+    """
+    if not isinstance(resp, dict):
+        return IDLE_DEAD_S
+    raw = resp.get("idleDeadSecs")
+    if raw is None:
+        return IDLE_DEAD_S
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return IDLE_DEAD_S
+    if value <= 0:
+        return IDLE_DEAD_S
+    return value
+
+
 def _td_pid() -> int:
     try:
         import td  # type: ignore
@@ -2861,7 +2881,13 @@ def bootstrap_threaded(bridge_dir: str | None = None) -> dict[str, Any]:
     _load_bridge_package(pkg_dir)
     # Bind serve_queued from the (possibly reloaded) module object.
     serve_fn = sys.modules[__name__].serve_queued
-    thread = threading.Thread(target=serve_fn, args=(stream,), daemon=True)
+    idle_dead_s = idle_dead_from_handshake(resp)
+    thread = threading.Thread(
+        target=serve_fn,
+        args=(stream,),
+        kwargs={"idle_dead_s": idle_dead_s},
+        daemon=True,
+    )
     thread.start()
     _active_stream = stream
     _active_thread = thread

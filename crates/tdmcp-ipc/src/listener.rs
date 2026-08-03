@@ -88,15 +88,26 @@ impl IpcStream {
 
     /// Perform handshake over a memory duplex pair end.
     pub async fn accept_memory_handshake(
+        stream: tokio::io::DuplexStream,
+        bridge_package_dir: impl Into<String>,
+        daemon_version: impl Into<String>,
+    ) -> Result<Self, IpcError> {
+        Self::accept_memory_handshake_with(stream, bridge_package_dir, daemon_version, None).await
+    }
+
+    /// Memory handshake with optional idle-dead budget forwarded to the peer.
+    pub async fn accept_memory_handshake_with(
         mut stream: tokio::io::DuplexStream,
         bridge_package_dir: impl Into<String>,
         daemon_version: impl Into<String>,
+        idle_dead_secs: Option<u64>,
     ) -> Result<Self, IpcError> {
         let req: HandshakeRequest = read_msg(&mut stream).await?;
         let resp = HandshakeResponse {
             bridge_package_dir: bridge_package_dir.into(),
             daemon_version: daemon_version.into(),
             min_daemon: None,
+            idle_dead_secs,
         };
         write_msg(&mut stream, &resp).await?;
         Ok(Self::from_memory(stream, req))
@@ -176,6 +187,7 @@ impl IpcListener {
         &self,
         bridge_package_dir: impl Into<String>,
         daemon_version: impl Into<String>,
+        idle_dead_secs: Option<u64>,
     ) -> Result<IpcStream, IpcError> {
         let bridge_package_dir = bridge_package_dir.into();
         let daemon_version = daemon_version.into();
@@ -196,6 +208,7 @@ impl IpcListener {
                 bridge_package_dir,
                 daemon_version,
                 min_daemon: None,
+                idle_dead_secs,
             };
             write_msg(&mut server, &resp).await?;
             Ok(IpcStream {
@@ -213,6 +226,7 @@ impl IpcListener {
                 bridge_package_dir,
                 daemon_version,
                 min_daemon: None,
+                idle_dead_secs,
             };
             write_msg(&mut stream, &resp).await?;
             Ok(IpcStream {

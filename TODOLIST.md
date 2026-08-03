@@ -28,3 +28,5 @@ Eg: `Warning: FPS drop: 30, last healty before: unknown`, `Warning: FPS drop: 30
 # Force gpu noise if resoluton > 64px (almost laways)
 
 # Error on custom component are not always seen (e.g error from the parameter customisation)
+
+# Comment support (the agent could be much faster by storing comment/reading theme)

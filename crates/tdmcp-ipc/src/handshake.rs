@@ -35,4 +35,10 @@ pub struct HandshakeResponse {
     /// Minimum daemon version this package requires (echo / advisory).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub min_daemon: Option<String>,
+    /// Idle-dead budget (seconds) the bridge should use in its serve loop.
+    ///
+    /// Optional for back-compat with older bridges; when set, the Python
+    /// bridge passes it to `serve_queued(idle_dead_s=…)`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idle_dead_secs: Option<u64>,
 }

@@ -455,6 +455,30 @@ class MidFrameTimeoutServeTest(unittest.TestCase):
         self.assertEqual(closed["n"], 1)
 
 
+class IdleDeadFromHandshakeTest(unittest.TestCase):
+    """Handshake idleDeadSecs maps to serve_queued budget with safe fallbacks."""
+
+    def test_present_positive(self) -> None:
+        self.assertEqual(tdmcp_bridge.idle_dead_from_handshake({"idleDeadSecs": 30}), 30.0)
+        self.assertEqual(tdmcp_bridge.idle_dead_from_handshake({"idleDeadSecs": 12.5}), 12.5)
+
+    def test_missing_or_invalid_falls_back(self) -> None:
+        self.assertEqual(tdmcp_bridge.idle_dead_from_handshake({}), tdmcp_bridge.IDLE_DEAD_S)
+        self.assertEqual(tdmcp_bridge.idle_dead_from_handshake(None), tdmcp_bridge.IDLE_DEAD_S)
+        self.assertEqual(
+            tdmcp_bridge.idle_dead_from_handshake({"idleDeadSecs": 0}),
+            tdmcp_bridge.IDLE_DEAD_S,
+        )
+        self.assertEqual(
+            tdmcp_bridge.idle_dead_from_handshake({"idleDeadSecs": -1}),
+            tdmcp_bridge.IDLE_DEAD_S,
+        )
+        self.assertEqual(
+            tdmcp_bridge.idle_dead_from_handshake({"idleDeadSecs": "nope"}),
+            tdmcp_bridge.IDLE_DEAD_S,
+        )
+
+
 class WriteFrameTest(unittest.TestCase):
     """_write_frame must require a full write (guards Windows partial WriteFile)."""
 

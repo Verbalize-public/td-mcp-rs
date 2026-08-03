@@ -11,6 +11,10 @@
 //! from the fleet when [`DISCONNECTED_TTL`] elapses or any handshake succeeds.
 //! Session generations prevent a superseded actor's teardown from clobbering a
 //! newer connection for the same pid.
+//!
+//! On call timeout the wait fails but the session stays up. Stale responses
+//! from timed-out calls are discarded under the next call's budget so they
+//! cannot be mistaken for `bridge_lost`.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -28,14 +32,17 @@ use tracing::{info, warn};
 
 use tdmcp_mcp::{BridgeRpc, BridgeRpcError};
 
-const CALL_TIMEOUT: Duration = Duration::from_secs(30);
+/// Production default for `ping` / `inspect` / `capture` waits.
+pub const CALL_TIMEOUT: Duration = Duration::from_secs(45);
+/// Production default for `execute_python` / `mutate_nodes` waits.
+pub const SCRIPT_TIMEOUT: Duration = Duration::from_secs(120);
 
-/// Production idle heartbeat: ping every 5s; dead after 15s silence.
+/// Production idle heartbeat: ping every 5s; dead after 20s silence.
 pub const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
 /// Max wait for a heartbeat pong.
-pub const PONG_TIMEOUT: Duration = Duration::from_secs(5);
+pub const PONG_TIMEOUT: Duration = Duration::from_secs(8);
 /// Either side assumes the bridge dead after this much inbound silence.
-pub const IDLE_DEAD: Duration = Duration::from_secs(15);
+pub const IDLE_DEAD: Duration = Duration::from_secs(20);
 /// After bridge loss, drop the pid from the fleet if still disconnected.
 pub const DISCONNECTED_TTL: Duration = Duration::from_secs(15);
 
@@ -57,7 +64,7 @@ pub struct HeartbeatConfig {
 }
 
 impl HeartbeatConfig {
-    /// Production defaults (5s / 5s / 15s).
+    /// Production defaults (5s / 8s / 20s).
     #[must_use]
     pub const fn production() -> Self {
         Self {
@@ -75,13 +82,48 @@ impl HeartbeatConfig {
         Self {
             enabled: false,
             interval: Duration::from_secs(5),
-            pong_timeout: Duration::from_secs(5),
-            idle_dead: Duration::from_secs(15),
+            pong_timeout: Duration::from_secs(8),
+            idle_dead: Duration::from_secs(20),
         }
     }
 }
 
 impl Default for HeartbeatConfig {
+    fn default() -> Self {
+        Self::production()
+    }
+}
+
+/// Per-call wait budgets (default vs long-running script/mutate methods).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BridgeTimeouts {
+    /// Budget for `ping` / `inspect` / `capture`.
+    pub call: Duration,
+    /// Budget for `execute_python` / `mutate_nodes`.
+    pub script: Duration,
+}
+
+impl BridgeTimeouts {
+    /// Production defaults (45s call / 120s script).
+    #[must_use]
+    pub const fn production() -> Self {
+        Self {
+            call: CALL_TIMEOUT,
+            script: SCRIPT_TIMEOUT,
+        }
+    }
+
+    /// Resolve the wait budget for a wire method name.
+    #[must_use]
+    pub fn for_method(self, method: &str) -> Duration {
+        match BridgeMethod::from_wire(method) {
+            Some(BridgeMethod::ExecutePython | BridgeMethod::MutateNodes) => self.script,
+            _ => self.call,
+        }
+    }
+}
+
+impl Default for BridgeTimeouts {
     fn default() -> Self {
         Self::production()
     }
@@ -109,18 +151,20 @@ pub struct BridgeSessions {
     sessions: Arc<Mutex<HashMap<u32, BridgeHandle>>>,
     registry: Arc<Mutex<PidRegistry>>,
     heartbeat: HeartbeatConfig,
+    timeouts: BridgeTimeouts,
     disconnected_ttl: Duration,
 }
 
 impl BridgeSessions {
     /// Construct with the shared registry (same Arc the MCP layer uses).
-    /// Uses production heartbeat defaults.
+    /// Uses production heartbeat and call-timeout defaults.
     #[must_use]
     pub fn new(registry: Arc<Mutex<PidRegistry>>) -> Self {
         Self {
             sessions: Arc::new(Mutex::new(HashMap::new())),
             registry,
             heartbeat: HeartbeatConfig::production(),
+            timeouts: BridgeTimeouts::production(),
             disconnected_ttl: DISCONNECTED_TTL,
         }
     }
@@ -132,11 +176,24 @@ impl BridgeSessions {
         self
     }
 
+    /// Override per-call wait budgets (tests: short call/script timeouts).
+    #[must_use]
+    pub fn with_timeouts(mut self, timeouts: BridgeTimeouts) -> Self {
+        self.timeouts = timeouts;
+        self
+    }
+
     /// Override post-disconnect fleet eviction TTL (tests: short grace).
     #[must_use]
     pub fn with_disconnected_ttl(mut self, ttl: Duration) -> Self {
         self.disconnected_ttl = ttl;
         self
+    }
+
+    /// Idle-dead budget forwarded to connecting bridges via handshake.
+    #[must_use]
+    pub fn idle_dead_secs(&self) -> u64 {
+        self.heartbeat.idle_dead.as_secs().max(1)
     }
 
     /// Number of live bridge session actors (connected IPC peers).
@@ -155,6 +212,7 @@ impl BridgeSessions {
         let sessions = self.sessions.clone();
         let registry = self.registry.clone();
         let heartbeat = self.heartbeat;
+        let timeouts = self.timeouts;
         let disconnected_ttl = self.disconnected_ttl;
         tokio::spawn(async move {
             run_session(
@@ -165,6 +223,7 @@ impl BridgeSessions {
                 registry,
                 sessions,
                 heartbeat,
+                timeouts,
                 disconnected_ttl,
             )
             .await;
@@ -205,6 +264,7 @@ async fn run_session(
     registry: Arc<Mutex<PidRegistry>>,
     sessions: Arc<Mutex<HashMap<u32, BridgeHandle>>>,
     heartbeat: HeartbeatConfig,
+    timeouts: BridgeTimeouts,
     disconnected_ttl: Duration,
 ) {
     info!(pid, generation, "bridge session started");
@@ -235,7 +295,7 @@ async fn run_session(
                 let Some(job) = job else {
                     break;
                 };
-                match run_tool_job(pid, &mut stream, &registry, job).await {
+                match run_tool_job(pid, &mut stream, &registry, timeouts, job).await {
                     JobLoop::Continue { activity } => {
                         if activity {
                             last_activity = Instant::now();
@@ -276,6 +336,7 @@ async fn run_tool_job(
     pid: u32,
     stream: &mut IpcStream,
     registry: &Arc<Mutex<PidRegistry>>,
+    timeouts: BridgeTimeouts,
     job: TaskJob,
 ) -> JobLoop {
     // Promote the head pending task (this job, FIFO) to in-flight.
@@ -284,6 +345,7 @@ async fn run_tool_job(
         let _ = reg.start_next(pid);
     }
 
+    let budget = timeouts.for_method(&job.method);
     let id = CALL_ID.fetch_add(1, Ordering::Relaxed).to_string();
     let req = Message::Request {
         id: id.clone(),
@@ -292,12 +354,8 @@ async fn run_tool_job(
     };
 
     let outcome = match stream.send(&req).await {
-        Ok(()) => match timeout(CALL_TIMEOUT, stream.recv_message()).await {
-            Ok(Ok(Message::Response {
-                id: rid,
-                result,
-                error,
-            })) if rid == id => {
+        Ok(()) => match await_matching_response(pid, stream, &id, budget).await {
+            RecvOutcome::Matched(result, error) => {
                 if let Some(err) = error {
                     let msg = err
                         .get("message")
@@ -310,16 +368,14 @@ async fn run_tool_job(
                     Ok(result.unwrap_or(Value::Null))
                 }
             }
-            Ok(Ok(_other)) => Err(BridgeRpcError::Disconnected { pid }),
-            Ok(Err(_e)) => {
-                // Leave the in-flight task for `on_bridge_lost` → cancelled stack.
+            RecvOutcome::TimedOut => Err(BridgeRpcError::Timeout {
+                pid,
+                budget_ms: budget.as_millis() as u64,
+            }),
+            RecvOutcome::Disconnected => {
                 let _ = job.reply.send(Err(BridgeRpcError::Disconnected { pid }));
                 return JobLoop::Disconnect;
             }
-            Err(_) => Err(BridgeRpcError::Timeout {
-                pid,
-                budget_ms: CALL_TIMEOUT.as_millis() as u64,
-            }),
         },
         Err(_e) => {
             let _ = job.reply.send(Err(BridgeRpcError::Disconnected { pid }));
@@ -344,6 +400,59 @@ async fn run_tool_job(
     JobLoop::Continue { activity }
 }
 
+enum RecvOutcome {
+    Matched(Option<Value>, Option<Value>),
+    TimedOut,
+    Disconnected,
+}
+
+/// Wait for the response whose `id` matches `want_id`, discarding stale frames.
+///
+/// Single-flight wire: a mismatched Response is always a leftover from an
+/// earlier timed-out call — discard and keep reading until match, IO error,
+/// or the budget elapses.
+async fn await_matching_response(
+    pid: u32,
+    stream: &mut IpcStream,
+    want_id: &str,
+    budget: Duration,
+) -> RecvOutcome {
+    let deadline = Instant::now() + budget;
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return RecvOutcome::TimedOut;
+        }
+        match timeout(remaining, stream.recv_message()).await {
+            Ok(Ok(Message::Response {
+                id: rid,
+                result,
+                error,
+            })) if rid == want_id => {
+                return RecvOutcome::Matched(result, error);
+            }
+            Ok(Ok(Message::Response { id: rid, .. })) => {
+                warn!(
+                    pid,
+                    want = %want_id,
+                    got = %rid,
+                    "discarding stale bridge response (prior timeout)"
+                );
+                continue;
+            }
+            Ok(Ok(_other)) => {
+                warn!(
+                    pid,
+                    "unexpected non-response frame while awaiting tool reply"
+                );
+                return RecvOutcome::Disconnected;
+            }
+            Ok(Err(_e)) => return RecvOutcome::Disconnected,
+            Err(_) => return RecvOutcome::TimedOut,
+        }
+    }
+}
+
 /// Internal liveness probe — not registered on the task queue / fleet.
 async fn run_heartbeat_ping(
     pid: u32,
@@ -360,12 +469,8 @@ async fn run_heartbeat_ping(
         warn!(pid, "bridge heartbeat send failed");
         return Err(());
     }
-    match timeout(pong_timeout, stream.recv_message()).await {
-        Ok(Ok(Message::Response {
-            id: rid,
-            result,
-            error,
-        })) if rid == id && error.is_none() => {
+    match await_matching_response(pid, stream, &id, pong_timeout).await {
+        RecvOutcome::Matched(result, None) => {
             let ok = result
                 .as_ref()
                 .and_then(|v| v.get("ok"))
@@ -378,16 +483,16 @@ async fn run_heartbeat_ping(
                 Err(())
             }
         }
-        Ok(Ok(_other)) => {
-            warn!(pid, "bridge heartbeat unexpected frame");
+        RecvOutcome::Matched(_, Some(_)) => {
+            warn!(pid, "bridge heartbeat pong carried error");
             Err(())
         }
-        Ok(Err(_)) => {
-            warn!(pid, "bridge heartbeat recv failed");
-            Err(())
-        }
-        Err(_) => {
+        RecvOutcome::TimedOut => {
             warn!(pid, "bridge heartbeat pong timeout");
+            Err(())
+        }
+        RecvOutcome::Disconnected => {
+            warn!(pid, "bridge heartbeat recv failed");
             Err(())
         }
     }
@@ -459,10 +564,14 @@ pub async fn run_ipc_accept(
     };
     let bridge_dir_str = bridge_dir.to_string_lossy().to_string();
     let version = env!("CARGO_PKG_VERSION").to_string();
+    let idle_dead_secs = Some(sessions.idle_dead_secs());
     info!("ipc listener bound — waiting for TD bridges");
 
     loop {
-        match listener.accept_handshake(&bridge_dir_str, &version).await {
+        match listener
+            .accept_handshake(&bridge_dir_str, &version, idle_dead_secs)
+            .await
+        {
             Ok(stream) => {
                 let pid = stream.pid;
                 let handshake = stream.handshake.clone();

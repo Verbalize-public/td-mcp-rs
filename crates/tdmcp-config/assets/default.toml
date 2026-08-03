@@ -26,6 +26,23 @@ always_on = false
 # Default true. CLI --no-gui / TDMCP_NO_GUI=1 still forces headless.
 show_tray = true
 
+[bridge]
+# Seconds to wait for ping / inspect / capture responses (default: 45).
+call_timeout_secs = 45
+
+# Seconds to wait for execute_python / mutate_nodes (default: 120).
+script_timeout_secs = 120
+
+# Seconds between idle bridge ping probes (default: 5).
+heartbeat_interval_secs = 5
+
+# Seconds to wait for a heartbeat pong before treating the peer as dead (default: 8).
+pong_timeout_secs = 8
+
+# Seconds of inbound silence before tearing down a bridge session (default: 20).
+# Also forwarded to the Python bridge via handshake idleDeadSecs.
+idle_dead_secs = 20
+
 [advanced]
 # Optional overrides. Leave unset to use built-in defaults under the data dir.
 # data_dir = "C:/path/to/tdmcp-rs-data"
