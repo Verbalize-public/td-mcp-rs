@@ -259,6 +259,15 @@ Child roster fields (`childCount`, `childrenReturned`, `children`, and when trun
 
 Many TD cook problems (invalid select path, missing movie file, …) surface as **warnings**, not `errors` — live DoD for structural messages should not assume a non-empty `errors` array.
 
+**Enable-expr enrichment:** when the `warnings` section is loaded and any warning matches TD’s enable-parm wording (case-insensitive substring: `enable parm expressions` / `enable expression`), the bridge may attach structured siblings on that node:
+
+| Field | Content |
+| ----- | ------- |
+| `parmExprIssues` | `[{ kind: "enableExpr", par, label, expr, errorType, message }, …]` — failures from `OP.evalExpression(enableExpr)` over unique non-empty custom `enableExpr`s (`customParGroups`, else `customPars`), capped at **32** evals |
+| `diagnostics` | Soft catalog-shaped entries (`code: tdmcp.par.enable_expr_failed`, `severity: "warning"`, mitigation, `context: { par, expr }`) — **not** a tool-failure envelope |
+
+Both keys are **omitted when empty**. Independent of `include: params`. Never flips node or top-level `ok`. Coarse `warnings[]` strings are always kept.
+
 When `params` is included, each entry is `{ name, mode, val, expr? }`:
 
 

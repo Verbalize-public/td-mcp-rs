@@ -72,6 +72,7 @@ See [`DEV_ENV.md`](DEV_ENV.md) § Dev smoke. Does **not** replace rows 1–12 be
 | M8 | First-step failure — `create` with bad `opType` → `failedAt:0, applied:0`; `tdmcp.op.unknown_type` | ✅ |
 | M9 | `delete` a previously created node → `ok:true`; re-`inspect` confirms gone | ✅ |
 | M10 | Structural errors/warnings clean after the whole pass (`inspect` default `errors`+`warnings` / classic `get_td_node_errors`); when a node warns, `node.warnings` is non-empty | ✅ |
+| M10b | Broken custom `enableExpr` (e.g. `app(1`) on a COMP → default `inspect` keeps coarse enable-parm `warnings[]`, attaches `parmExprIssues` (`kind: enableExpr`, `errorType`, `message`) + soft `diagnostics` (`tdmcp.par.enable_expr_failed`); top-level and node `ok: true` | |
 | M11 | `capture` top on a created TOP → non-black | ✅ |
 | M12 | Create bare `mathCHOP` → immediate `inspect` → `node.errors` non-empty (`Not enough sources`) | ✅ |
 | M13 | Batch: create `noiseTOP` + `nullTOP`, `connect` src→dst → `applied:3`; `capture` top on null **non-black** | ✅ |

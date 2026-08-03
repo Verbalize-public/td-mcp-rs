@@ -908,6 +908,14 @@ def _classify_frame(
 
 # Direct-child roster cap for inspect (summary and detailed).
 CHILDREN_ROSTER_LIMIT = 64
+# Unique enableExpr evals per node when enriching enable-parm warnings.
+ENABLE_EXPR_EVAL_LIMIT = 32
+ENABLE_PARM_WARN_MARKERS = ("enable parm expressions", "enable expression")
+_ENABLE_EXPR_FAILED_CODE = "tdmcp.par.enable_expr_failed"
+_ENABLE_EXPR_MITIGATION = [
+    "Fix custom parameter enableExpr (Component Editor)",
+    "Re-inspect after correcting the expression",
+]
 
 
 def _child_name(child: Any) -> str:
@@ -939,6 +947,57 @@ def _op_messages(fn: Any) -> list[str]:
         s = str(item).strip()
         if s:
             out.append(s)
+    return out
+
+
+def _is_enable_parm_warning(msg: str) -> bool:
+    """True when a TD warning string mentions enable-parm expression failures."""
+    lower = msg.lower()
+    return any(marker in lower for marker in ENABLE_PARM_WARN_MARKERS)
+
+
+def _collect_enable_expr_issues(n: Any) -> list[dict[str, Any]]:
+    """Eval unique custom enableExprs; return structured failures (capped)."""
+    issues: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    groups = list(getattr(n, "customParGroups", None) or [])
+    targets = groups or list(getattr(n, "customPars", None) or [])
+    eval_fn = getattr(n, "evalExpression", None)
+    for item in targets:
+        if len(seen) >= ENABLE_EXPR_EVAL_LIMIT:
+            break
+        expr = (getattr(item, "enableExpr", None) or "").strip()
+        if not expr or expr in seen:
+            continue
+        seen.add(expr)
+        if not callable(eval_fn):
+            continue
+        try:
+            eval_fn(expr)
+        except Exception as e:  # noqa: BLE001 — surface type/message only
+            issues.append({
+                "kind": "enableExpr",
+                "par": getattr(item, "name", None),
+                "label": getattr(item, "label", None),
+                "expr": expr,
+                "errorType": type(e).__name__,
+                "message": str(e),
+            })
+    return issues
+
+
+def _enable_expr_diagnostics(issues: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Catalog-shaped soft diagnostics parallel to parmExprIssues."""
+    out: list[dict[str, Any]] = []
+    for issue in issues:
+        par = issue.get("par")
+        out.append({
+            "code": _ENABLE_EXPR_FAILED_CODE,
+            "severity": "warning",
+            "message": f"Enable expression failed on {par}",
+            "mitigation": list(_ENABLE_EXPR_MITIGATION),
+            "context": {"par": par, "expr": issue.get("expr")},
+        })
     return out
 
 
@@ -1049,7 +1108,16 @@ def build_inspect_node(
     if want_errors:
         out["errors"] = _op_messages(getattr(n, "errors", lambda: ""))
     if want_warnings:
-        out["warnings"] = _op_messages(getattr(n, "warnings", lambda: ""))
+        warnings = _op_messages(getattr(n, "warnings", lambda: ""))
+        out["warnings"] = warnings
+        if any(_is_enable_parm_warning(w) for w in warnings):
+            try:
+                issues = _collect_enable_expr_issues(n)
+            except Exception:  # noqa: BLE001 — enrichment must never fail inspect
+                issues = []
+            if issues:
+                out["parmExprIssues"] = issues
+                out["diagnostics"] = _enable_expr_diagnostics(issues)
     return out
 
 

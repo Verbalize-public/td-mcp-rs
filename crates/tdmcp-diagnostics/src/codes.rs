@@ -50,6 +50,8 @@ pub const PAR_WRONG_COLLECTION: &str = "tdmcp.par.wrong_collection";
 pub const FLAG_WRONG_COLLECTION: &str = "tdmcp.flag.wrong_collection";
 /// Lint: similar .par name found (typo / near-miss).
 pub const PAR_SIMILAR_NAME: &str = "tdmcp.par.similar_name";
+/// Soft inspect enrichment: custom parameter enableExpr failed to evaluate.
+pub const PAR_ENABLE_EXPR_FAILED: &str = "tdmcp.par.enable_expr_failed";
 /// Lint: similar opType found (case / near-miss).
 pub const OP_SIMILAR_TYPE: &str = "tdmcp.op.similar_type";
 /// Mutate step failed with a TD-side exception (catch-all).
@@ -109,6 +111,7 @@ pub const ALL: &[&str] = &[
     PAR_WRONG_COLLECTION,
     FLAG_WRONG_COLLECTION,
     PAR_SIMILAR_NAME,
+    PAR_ENABLE_EXPR_FAILED,
     OP_SIMILAR_TYPE,
     MUTATE_STEP_FAILED,
     WIRE_BAD_INDEX,

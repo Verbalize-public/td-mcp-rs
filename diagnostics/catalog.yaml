@@ -206,6 +206,16 @@ entries:
       - kind: doc
         id: mutate_nodes
 
+  - code: tdmcp.par.enable_expr_failed
+    layer: structure
+    message: "Custom parameter enableExpr failed to evaluate"
+    mitigation:
+      - "Fix custom parameter enableExpr (Component Editor)"
+      - "Re-inspect after correcting the expression"
+    references:
+      - kind: doc
+        id: inspect
+
   - code: tdmcp.op.similar_type
     layer: mutate
     message: "Similar opType found (case or near-miss)"

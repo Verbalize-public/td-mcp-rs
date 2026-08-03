@@ -47,6 +47,21 @@ class FakeInspectPar:
         return self._val
 
 
+class FakeEnableParGroup:
+    """Minimal custom ParGroup with enableExpr for inspect enrichment."""
+
+    def __init__(
+        self,
+        name: str,
+        *,
+        label: str | None = None,
+        enable_expr: str = "",
+    ) -> None:
+        self.name = name
+        self.label = label if label is not None else name.lower()
+        self.enableExpr = enable_expr
+
+
 def _fake_node(
     children: list[SimpleNamespace],
     *,
@@ -54,9 +69,21 @@ def _fake_node(
     warnings: object = "",
     cook: object | None = None,
     pars: list[Any] | None = None,
+    custom_par_groups: list[Any] | None = None,
+    custom_pars: list[Any] | None = None,
+    eval_expression: Any | None = None,
+    eval_expression_raises: Exception | None = None,
 ) -> SimpleNamespace:
     par_list = list(pars) if pars is not None else []
-    return SimpleNamespace(
+
+    def _eval_expression(expr: str) -> Any:
+        if eval_expression_raises is not None:
+            raise eval_expression_raises
+        if callable(eval_expression):
+            return eval_expression(expr)
+        return None
+
+    ns = SimpleNamespace(
         path="/project1",
         family="COMP",
         opType="baseCOMP",
@@ -66,7 +93,13 @@ def _fake_node(
         warnings=lambda: warnings,
         valid=True,
         cook=cook if cook is not None else MagicMock(),
+        evalExpression=_eval_expression,
     )
+    if custom_par_groups is not None:
+        ns.customParGroups = custom_par_groups
+    if custom_pars is not None:
+        ns.customPars = custom_pars
+    return ns
 
 
 class InspectSummaryRosterTest(unittest.TestCase):
@@ -399,6 +432,174 @@ class InspectMessagesTest(unittest.TestCase):
                 })
         self.assertTrue(result["ok"])
         self.assertEqual(len(result["nodes"]), 1)
+
+
+ENABLE_PARM_WARN = (
+    "Warning: Error(s) in enable parm expressions. (/project1/container1)"
+)
+
+
+class InspectEnableExprEnrichmentTest(unittest.TestCase):
+    def test_match_and_eval_raise(self) -> None:
+        def _eval(expr: str) -> None:
+            raise SyntaxError("'(' was never closed (, line 1)")
+
+        node = _fake_node(
+            [],
+            warnings=ENABLE_PARM_WARN,
+            custom_par_groups=[
+                FakeEnableParGroup("Sad", label="sad", enable_expr="app(1"),
+            ],
+            eval_expression=_eval,
+        )
+        out = tdmcp_bridge.build_inspect_node(
+            node, want_nodes=False, want_warnings=True
+        )
+        self.assertEqual(out["warnings"], [ENABLE_PARM_WARN])
+        self.assertEqual(
+            out["parmExprIssues"],
+            [{
+                "kind": "enableExpr",
+                "par": "Sad",
+                "label": "sad",
+                "expr": "app(1",
+                "errorType": "SyntaxError",
+                "message": "'(' was never closed (, line 1)",
+            }],
+        )
+        self.assertEqual(out["diagnostics"][0]["code"], "tdmcp.par.enable_expr_failed")
+        self.assertEqual(out["diagnostics"][0]["severity"], "warning")
+        self.assertEqual(out["diagnostics"][0]["context"]["par"], "Sad")
+        self.assertEqual(out["diagnostics"][0]["context"]["expr"], "app(1")
+
+    def test_no_match_omits_enrichment(self) -> None:
+        def _eval(expr: str) -> None:
+            raise SyntaxError("bad")
+
+        node = _fake_node(
+            [],
+            warnings="missing input",
+            custom_par_groups=[
+                FakeEnableParGroup("Sad", enable_expr="app(1"),
+            ],
+            eval_expression=_eval,
+        )
+        out = tdmcp_bridge.build_inspect_node(
+            node, want_nodes=False, want_warnings=True
+        )
+        self.assertEqual(out["warnings"], ["missing input"])
+        self.assertNotIn("parmExprIssues", out)
+        self.assertNotIn("diagnostics", out)
+
+    def test_clean_enable_expr_omits_keys(self) -> None:
+        node = _fake_node(
+            [],
+            warnings=ENABLE_PARM_WARN,
+            custom_par_groups=[
+                FakeEnableParGroup("Sad", enable_expr="1"),
+            ],
+            eval_expression=lambda expr: True,
+        )
+        out = tdmcp_bridge.build_inspect_node(
+            node, want_nodes=False, want_warnings=True
+        )
+        self.assertEqual(out["warnings"], [ENABLE_PARM_WARN])
+        self.assertNotIn("parmExprIssues", out)
+        self.assertNotIn("diagnostics", out)
+
+    def test_dedupe_same_expr(self) -> None:
+        def _eval(expr: str) -> None:
+            raise NameError("app")
+
+        node = _fake_node(
+            [],
+            warnings=ENABLE_PARM_WARN,
+            custom_par_groups=[
+                FakeEnableParGroup("Sad", enable_expr="app(1"),
+                FakeEnableParGroup("Glad", enable_expr="app(1"),
+            ],
+            eval_expression=_eval,
+        )
+        out = tdmcp_bridge.build_inspect_node(
+            node, want_nodes=False, want_warnings=True
+        )
+        self.assertEqual(len(out["parmExprIssues"]), 1)
+        self.assertEqual(out["parmExprIssues"][0]["par"], "Sad")
+
+    def test_eval_cap(self) -> None:
+        calls: list[str] = []
+
+        def _eval(expr: str) -> None:
+            calls.append(expr)
+            raise SyntaxError(expr)
+
+        groups = [
+            FakeEnableParGroup(f"P{i}", enable_expr=f"bad{i}(")
+            for i in range(tdmcp_bridge.ENABLE_EXPR_EVAL_LIMIT + 5)
+        ]
+        node = _fake_node(
+            [],
+            warnings=ENABLE_PARM_WARN,
+            custom_par_groups=groups,
+            eval_expression=_eval,
+        )
+        out = tdmcp_bridge.build_inspect_node(
+            node, want_nodes=False, want_warnings=True
+        )
+        self.assertEqual(len(calls), tdmcp_bridge.ENABLE_EXPR_EVAL_LIMIT)
+        self.assertEqual(len(out["parmExprIssues"]), tdmcp_bridge.ENABLE_EXPR_EVAL_LIMIT)
+
+    def test_collect_throws_still_shapes(self) -> None:
+        node = _fake_node([], warnings=ENABLE_PARM_WARN)
+        # Force gather path to raise outside per-expr try (bad iterable).
+        node.customParGroups = object()  # type: ignore[assignment]
+        out = tdmcp_bridge.build_inspect_node(
+            node, want_nodes=False, want_warnings=True
+        )
+        self.assertEqual(out["warnings"], [ENABLE_PARM_WARN])
+        self.assertNotIn("parmExprIssues", out)
+        self.assertNotIn("diagnostics", out)
+
+    def test_fallback_custom_pars(self) -> None:
+        def _eval(expr: str) -> None:
+            raise SyntaxError("bad")
+
+        node = _fake_node(
+            [],
+            warnings="Enable expression error",
+            custom_pars=[FakeEnableParGroup("Sad", enable_expr="app(1")],
+            eval_expression=_eval,
+        )
+        out = tdmcp_bridge.build_inspect_node(
+            node, want_nodes=False, want_warnings=True
+        )
+        self.assertEqual(out["parmExprIssues"][0]["par"], "Sad")
+
+    def test_handle_inspect_ok_with_enrichment(self) -> None:
+        def _eval(expr: str) -> None:
+            raise SyntaxError("bad")
+
+        node = _fake_node(
+            [],
+            warnings=ENABLE_PARM_WARN,
+            custom_par_groups=[
+                FakeEnableParGroup("Sad", enable_expr="app(1"),
+            ],
+            eval_expression=_eval,
+        )
+        with patch.dict(sys.modules, {"td": SimpleNamespace()}):
+            with patch.object(tdmcp_bridge, "tdmcp_resolve", return_value=node):
+                result = tdmcp_bridge.handle_inspect({
+                    "paths": ["/project1"],
+                    "include": [],
+                })
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["nodes"][0]["ok"])
+        self.assertIn("parmExprIssues", result["nodes"][0])
+        self.assertEqual(
+            result["nodes"][0]["diagnostics"][0]["code"],
+            "tdmcp.par.enable_expr_failed",
+        )
 
 
 if __name__ == "__main__":
