@@ -19,7 +19,8 @@ use tokio::sync::Mutex;
 use crate::bridge_rpc::{BridgeRpc, BridgeRpcError};
 use crate::fleet::{fleet_summary, FleetParams};
 use crate::outcomes::{
-    map_inspect_outcome, map_mutate_outcome, map_perception_outcome, map_script_outcome,
+    map_api_help_outcome, map_inspect_outcome, map_mutate_outcome, map_perception_outcome,
+    map_script_outcome,
 };
 use crate::schema::input_schema_for;
 
@@ -37,6 +38,9 @@ pub const INSPECT_PATHS_LIMIT: usize = 32;
 /// Soft-cap on each inspect node's direct-child roster.
 pub const CHILDREN_ROSTER_LIMIT: usize = 64;
 
+/// Soft-cap on `api_help` `queries[]` (bridge enforces; mirrored in docs).
+pub const API_HELP_QUERIES_LIMIT: usize = 32;
+
 /// MCP tool names — one enum for descriptors, dispatch, and schemas.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ToolName {
@@ -50,6 +54,8 @@ pub enum ToolName {
     MutateNodes,
     /// Perception capture.
     Capture,
+    /// Live TD Python API cards / class index.
+    ApiHelp,
     /// Tool manifest.
     DescribeTools,
 }
@@ -64,6 +70,7 @@ impl ToolName {
             Self::Inspect => "inspect",
             Self::MutateNodes => "mutate_nodes",
             Self::Capture => "capture",
+            Self::ApiHelp => "api_help",
             Self::DescribeTools => "describe_tools",
         }
     }
@@ -87,6 +94,9 @@ impl ToolName {
             Self::Capture => {
                 "Perception capture. top=native TOP JPEG; preview=any family via shared bridge OP Viewer TOP; chop_data=CHOP JSON; chop_image/pop=aliases of preview; auto=TOP→top, CHOP→chop_data, else preview."
             }
+            Self::ApiHelp => {
+                "Live TD Python API cards (not wiki dumps). Batch queries[] (soft-cap 32): class (doc/opType/family/mro/members), classes (op-like index + family/prefix), module (td thin). No help() / no param listing — use inspect include params for .par names. Case-sensitive class names."
+            }
             Self::DescribeTools => "Manifest of available tools",
         }
     }
@@ -98,6 +108,7 @@ impl ToolName {
         Self::Inspect,
         Self::MutateNodes,
         Self::Capture,
+        Self::ApiHelp,
         Self::DescribeTools,
     ];
 
@@ -110,6 +121,7 @@ impl ToolName {
             "inspect" => Some(Self::Inspect),
             "mutate_nodes" => Some(Self::MutateNodes),
             "capture" => Some(Self::Capture),
+            "api_help" => Some(Self::ApiHelp),
             "describe_tools" => Some(Self::DescribeTools),
             _ => None,
         }
@@ -485,6 +497,83 @@ pub struct MutateNodesParams {
     pub diagnostic_level: DiagnosticLevel,
 }
 
+/// Operator family filter for `api_help` `classes` queries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "UPPERCASE")]
+pub enum ApiHelpFamily {
+    /// COMP family.
+    Comp,
+    /// TOP family.
+    Top,
+    /// CHOP family.
+    Chop,
+    /// SOP family.
+    Sop,
+    /// POP family.
+    Pop,
+    /// MAT family.
+    Mat,
+    /// DAT family.
+    Dat,
+}
+
+impl ApiHelpFamily {
+    /// Wire string for the bridge.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Comp => "COMP",
+            Self::Top => "TOP",
+            Self::Chop => "CHOP",
+            Self::Sop => "SOP",
+            Self::Pop => "POP",
+            Self::Mat => "MAT",
+            Self::Dat => "DAT",
+        }
+    }
+}
+
+/// One `api_help` query entry (class card / classes index / thin module).
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "lowercase", deny_unknown_fields)]
+pub enum ApiHelpQuery {
+    /// Single `td.<name>` class / type card.
+    Class {
+        /// Exact `td` attribute name (case-sensitive; e.g. `noiseTOP`).
+        name: String,
+    },
+    /// Filtered index of op-like type names on `td`.
+    Classes {
+        /// Optional family filter (TOP / CHOP / …).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        family: Option<ApiHelpFamily>,
+        /// Optional casefold prefix filter on the type name.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        prefix: Option<String>,
+    },
+    /// Thin module card (`td` only in v1).
+    Module {
+        /// Module name (`td`).
+        name: String,
+    },
+}
+
+/// Args for api_help.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ApiHelpParams {
+    /// Target pid.
+    pub pid: Pid,
+    /// Batch of API card / index queries (required, non-empty). Soft-capped at 32.
+    pub queries: Vec<ApiHelpQuery>,
+    /// Caps member lists / whether wikiUrl + full mro appear (not help prose).
+    #[serde(default)]
+    pub detail_level: DetailLevel,
+    /// Diagnostic payload size (`summary` omits raw traceback).
+    #[serde(default)]
+    pub diagnostic_level: DiagnosticLevel,
+}
+
 /// Outcome of a bridge-driven tool call, as reported to the mapper.
 #[derive(Debug)]
 pub enum BridgeOutcome {
@@ -659,6 +748,30 @@ pub async fn dispatch_tool(
                 outcome,
                 params.diagnostic_level,
             )
+        }
+        ToolName::ApiHelp => {
+            let params: ApiHelpParams = serde_json::from_value(args)
+                .map_err(|e| ToolCallError::InvalidArgs(e.to_string()))?;
+            if params.queries.is_empty() {
+                return Err(ToolCallError::InvalidArgs(
+                    "api_help requires a non-empty queries array".into(),
+                ));
+            }
+            let queries = serde_json::to_value(&params.queries)
+                .map_err(|e| ToolCallError::InvalidArgs(e.to_string()))?;
+            let outcome = enqueue_and_call(
+                registry,
+                bridge,
+                params.pid,
+                BridgeMethod::ApiHelp,
+                TaskMode::Shared,
+                serde_json::json!({
+                    "queries": queries,
+                    "detailLevel": params.detail_level.as_str(),
+                }),
+            )
+            .await;
+            map_api_help_outcome(catalog, params.pid, outcome, params.diagnostic_level)
         }
     }
 }

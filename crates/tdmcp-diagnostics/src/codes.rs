@@ -37,6 +37,15 @@ pub const OP_INSPECT_FAILED: &str = "tdmcp.op.inspect_failed";
 /// Unknown or unresolved opType for create.
 pub const OP_UNKNOWN_TYPE: &str = "tdmcp.op.unknown_type";
 
+/// api_help query target not found / unsupported.
+pub const API_HELP_NOT_FOUND: &str = "tdmcp.api_help.not_found";
+/// api_help called without a non-empty `queries` array.
+pub const API_HELP_QUERIES_REQUIRED: &str = "tdmcp.api_help.queries_required";
+/// api_help `queries` batch capped (soft; payload `truncation` block).
+pub const API_HELP_QUERIES_TRUNCATED: &str = "tdmcp.api_help.queries_truncated";
+/// api_help `classes` names index capped (soft; payload `truncation` block).
+pub const API_HELP_CLASSES_TRUNCATED: &str = "tdmcp.api_help.classes_truncated";
+
 /// Later batch step skipped after prior failure.
 pub const BATCH_SKIPPED_DEPENDENT: &str = "tdmcp.batch.skipped_dependent";
 
@@ -105,6 +114,10 @@ pub const ALL: &[&str] = &[
     OP_PATHS_REQUIRED,
     OP_INSPECT_FAILED,
     OP_UNKNOWN_TYPE,
+    API_HELP_NOT_FOUND,
+    API_HELP_QUERIES_REQUIRED,
+    API_HELP_QUERIES_TRUNCATED,
+    API_HELP_CLASSES_TRUNCATED,
     BATCH_SKIPPED_DEPENDENT,
     PAR_UNKNOWN,
     FLAG_UNKNOWN,

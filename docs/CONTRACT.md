@@ -156,7 +156,7 @@ separate clocks (eviction TTL remains **15s**). IPC frames are hard-capped at
 **16 MiB**. `GET /mcp/health` remains daemon-process liveness only — not bridge
 peer health.
 
-**Per-call wait budgets:** `ping` / `inspect` / `capture` default to **45s**;
+**Per-call wait budgets:** `ping` / `inspect` / `capture` / `api_help` default to **45s**;
 `execute_python` / `mutate_nodes` default to **120s** (`[bridge].call_timeout_secs`
 / `script_timeout_secs`). A timeout fails the wait (`tdmcp.bridge.timeout`) and
 does **not** tear down the session. Stale late responses from a timed-out call
@@ -190,8 +190,8 @@ safety net only — the daemon owns the real per-method budgets.
 | `capture`                   | Perception — `top` / `preview` / `auto` / `chop_data` / `chop_image`† / `pop`† († aliases of preview)  | **Shipped**           |
 | `describe_tools`            | Manifest of available tools                                                                            | **Shipped**           |
 | `mutate_nodes`              | Ordered create / set / delete / connect / disconnect steps; sequential apply, stop on first hard error | **Shipped**           |
+| `api_help`                  | Live TD Python API cards (class / classes index / thin module) — not wiki/help dumps                   | **Shipped**           |
 | `dialogs`                   | List / dismiss OS dialogs                                                                              | **Planned** (P1, Win) |
-| `api_help`                  | Live TD Python API introspection                                                                       | **Planned** (P1)      |
 | Lifecycle create/start/stop | Return new `pid`                                                                                       | **Planned** (P2)      |
 
 
@@ -219,6 +219,7 @@ Structured success is **flat tool fields** with a single outer `ok` (bridge may 
 | `execute_python` | `{ ok: true, result, logs? }`                                                                                                                                                                                                                                                                                                    |
 | `mutate_nodes`   | `{ ok: true, applied, failedAt, steps }`                                                                                                                                                                                                                                                                                         |
 | `inspect`        | `{ ok: true, nodes: [{ ok, path, …node fields or error }], pathsTruncated?, truncation? }`                                                                                                                                                                                                                                         |
+| `api_help`       | `{ ok: true, results: [{ ok, kind, …card or error }], queriesTruncated?, truncation? }` — structured API cards / names index (no `helpText` / wiki body; parameter names via `inspect` include params)                                                                                                                              |
 | `capture`        | Image modes: `{ ok: true, path, bytes, mimeType, imageBase64?, maxSize?, mode?, family? }` + MCP image content when PNG present (`imageBase64` stripped from structured after promotion). `chop_data`: `{ ok: true, path, mode, family, numChans, numSamples, rate?, channels:[{name, samples}], truncation? }` (structured only; no image) |
 | `fleet`          | tool-specific fleet object (no shared shell)                                                                                                                                                                                                                                                                                     |
 | `describe_tools` | tool-specific catalog object (no shared shell)                                                                                                                                                                                                                                                                                   |
@@ -298,6 +299,22 @@ Applies **only when `nodes` is included** (see `inspect` / `include` — default
 When `childrenReturned < childCount`, the node includes `childrenTruncated: true` and a `truncation` object (`field`, `limit`, `code: tdmcp.op.children_truncated`, `message`, `mitigation`). Soft limit — MCP success stays `{ ok: true, nodes }` (see result shapes). Mitigation: add the child COMP path to a follow-up `paths` batch, or `execute_python` for a full name list — not `detailLevel: detailed`.
 
 When the roster is loaded, `children` is always an array (never a bare count).
+
+### `api_help` — Shipped
+
+Live TD Python API **cards** via bridge introspection (`getattr(td,…)`, `dir`, short `__doc__`, class `opType`/`family`/`mro`). **Not** a documentation fetcher: no raw `help()` dumps, no wiki HTML body, no bundled OP parameter corpus.
+
+Requires `pid` and a non-empty `queries[]` (soft-cap **32**; `queriesTruncated` + `truncation` when exceeded). Partial success: a bad query is `{ ok: false, code: "tdmcp.api_help.not_found", … }`; siblings still succeed; top-level stays `{ ok: true, results: [...] }`.
+
+| `queries[].kind` | Shape |
+| --- | --- |
+| `class` | Requires `name` (exact, case-sensitive). Card: `doc`, `opType?`, `family?`, capped `members` + `memberCount`, `mro`; `detailed` adds fuller members + `wikiUrl` (best-effort string only) |
+| `classes` | Optional `family` (TOP/CHOP/SOP/DAT/MAT/COMP/POP) + `prefix` (casefold). Returns op-like type **names** index |
+| `module` | `name: "td"` only in v1 — thin `{ doc, publicCount, typeCount, sample }` |
+
+**Parameter names** are **not** listed by `api_help` (class `.par` is not enumerable). Use `inspect` with `include: ["params"]` on an existing node. Conceptual “when to use X” stays in creative-corpus / Derivative wiki.
+
+Diagnostic references may include `{ kind: "api_help", query: "<opType>" }` on `tdmcp.op.unknown_type` / `tdmcp.par.unknown` (params mitigation still points at `inspect`).
 
 ### `capture` modes
 
@@ -472,7 +489,7 @@ Daemon CLI: `start` (foreground; tray + toast by default, dashboard hidden until
 | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
 | **P0**   | Daemon + IPC + bootstrap + Streamable HTTP: `fleet` + script/errors + `capture` (`top`/`preview`) + diagnostics + per-pid queue + exclusive fail + resurrection | Two connected pids; exclusive fails while busy; perception non-black; structured script failure                                                                           | **Shipped** (see `[E2E_CHECKLIST.md](E2E_CHECKLIST.md)`)                                    |
 | **P1**   | `mutate_nodes` (incl. connect/disconnect), `capture` `chop_data`, dialogs (Win), op lint engine                                                                 | `mutate_nodes` sequential apply stops at first bad path with `failedAt`; later steps emit `tdmcp.batch.skipped_dependent`; pure `apply_step` seam unit-covered without TD | Partial (`mutate_nodes` + `capture` `chop_data` **Shipped**; dialogs / op lint **Planned**) |
-| **P1.x** | Universal `capture` via shared OP Viewer; `inspect` explicit `paths[]`                                                                                          | Any-family preview; chop_image/pop aliases; inspect batch + partial success                                                                                               | **Shipped** (unit + E2E rows 17–19)                                                         |
+| **P1.x** | Universal `capture` via shared OP Viewer; `inspect` explicit `paths[]`; `api_help` live API cards                                                              | Any-family preview; chop_image/pop aliases; inspect batch + partial success; api_help class/classes/module                                                                 | **Shipped** (unit + FakeTdPeer; E2E rows 17–19 for inspect/capture)                         |
 | **P2**   | Lifecycle create/start/stop (tray already shipped)                                                                                                              | Operator create/start/stop; new project by pid                                                                                                                            | Partial (tray **Shipped**; lifecycle **Planned**)                                           |
 | **P3**   | WebSocket / remote RFC                                                                                                                                          | Separate design review                                                                                                                                                    | **Planned**                                                                                 |
 

@@ -4586,7 +4586,7 @@ dependencies = [
 
 [[package]]
 name = "tdmcp-config"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "dirs",
@@ -4597,7 +4597,7 @@ dependencies = [
 
 [[package]]
 name = "tdmcp-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "chrono",
  "schemars",
@@ -4608,7 +4608,7 @@ dependencies = [
 
 [[package]]
 name = "tdmcp-daemon"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4642,7 +4642,7 @@ dependencies = [
 
 [[package]]
 name = "tdmcp-diagnostics"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "schemars",
  "serde",
@@ -4654,7 +4654,7 @@ dependencies = [
 
 [[package]]
 name = "tdmcp-gui"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "eframe",
@@ -4672,7 +4672,7 @@ dependencies = [
 
 [[package]]
 name = "tdmcp-ipc"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "bytes",
  "serde",
@@ -4684,7 +4684,7 @@ dependencies = [
 
 [[package]]
 name = "tdmcp-mcp"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-trait",
  "axum",
@@ -4706,7 +4706,7 @@ dependencies = [
 
 [[package]]
 name = "tdmcp-test-support"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -6376,7 +6376,7 @@ checksum = "3ae8337f8a065cfc972643663ea4279e04e7256de865aa66fe25cec5fb912d3f"
 
 [[package]]
 name = "xtask"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "clap",

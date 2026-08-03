@@ -6,7 +6,7 @@ use serde_json::Value;
 
 use crate::fleet::FleetParams;
 use crate::tools::{
-    CaptureParams, ExecutePythonParams, InspectParams, MutateNodesParams, ToolName,
+    ApiHelpParams, CaptureParams, ExecutePythonParams, InspectParams, MutateNodesParams, ToolName,
 };
 
 /// Empty object schema for tools with no parameters.
@@ -25,6 +25,7 @@ pub fn input_schema_for(tool: ToolName) -> JsonObject {
         ToolName::Capture => schema_value::<CaptureParams>(),
         ToolName::Inspect => schema_value::<InspectParams>(),
         ToolName::MutateNodes => schema_value::<MutateNodesParams>(),
+        ToolName::ApiHelp => schema_value::<ApiHelpParams>(),
         ToolName::DescribeTools => Value::Object(empty_object_schema()),
     };
     // schemars may wrap with $schema / definitions — MCP wants a plain object schema.

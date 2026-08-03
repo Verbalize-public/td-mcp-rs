@@ -131,6 +131,20 @@ async fn drive_peer(mut peer: FakeTdPeer, n: usize) {
                 "imageBase64": "iVBORw0KGgo=",
             }),
             "inspect" => json!({"ok": true, "nodes": [{"ok": true, "path": "/project1"}]}),
+            "api_help" => json!({
+                "ok": true,
+                "results": [{
+                    "ok": true,
+                    "kind": "class",
+                    "name": "noiseTOP",
+                    "doc": "Noise TOP",
+                    "opType": "noiseTOP",
+                    "family": "TOP",
+                    "members": ["cook", "par"],
+                    "memberCount": 2
+                }],
+                "queriesTruncated": false
+            }),
             "ping" => json!({"ok": true, "pong": true}),
             _ => json!({"ok": true}),
         };
@@ -183,6 +197,91 @@ async fn capture_round_trip() {
 
     assert_eq!(v["ok"], true);
     assert_eq!(v["path"], "/project1/out1");
+    let _ = driver.await;
+}
+
+#[tokio::test]
+async fn api_help_round_trip() {
+    let (registry, sessions, peer) = setup(143).await;
+    let driver = tokio::spawn(drive_peer(peer, 1));
+    let catalog = Catalog::fallback();
+
+    let v = dispatch_tool(
+        &registry,
+        &catalog,
+        &sessions,
+        "api_help",
+        json!({
+            "pid": 143,
+            "queries": [{"kind": "class", "name": "noiseTOP"}]
+        }),
+    )
+    .await
+    .expect("ok");
+
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["results"][0]["name"], "noiseTOP");
+    assert_eq!(v["results"][0]["ok"], true);
+    let _ = driver.await;
+}
+
+#[tokio::test]
+async fn api_help_partial_entry_failure_still_ok() {
+    let (registry, sessions, peer) = setup(144).await;
+    let driver = tokio::spawn(async move {
+        let mut peer = peer;
+        let msg = peer.recv_message().await.expect("recv request");
+        let Message::Request { id, method, .. } = msg else {
+            panic!("expected request, got {msg:?}");
+        };
+        assert_eq!(method, "api_help");
+        peer.send_response(
+            id,
+            json!({
+                "ok": true,
+                "results": [
+                    {
+                        "ok": true,
+                        "kind": "class",
+                        "name": "noiseTOP",
+                        "members": [],
+                        "memberCount": 0
+                    },
+                    {
+                        "ok": false,
+                        "kind": "class",
+                        "name": "missingTOP",
+                        "code": "tdmcp.api_help.not_found",
+                        "message": "name not found on td: missingTOP"
+                    }
+                ]
+            }),
+        )
+        .await
+        .expect("send response");
+    });
+    let catalog = Catalog::fallback();
+
+    let v = dispatch_tool(
+        &registry,
+        &catalog,
+        &sessions,
+        "api_help",
+        json!({
+            "pid": 144,
+            "queries": [
+                {"kind": "class", "name": "noiseTOP"},
+                {"kind": "class", "name": "missingTOP"}
+            ]
+        }),
+    )
+    .await
+    .expect("top-level ok with partial entry failure");
+
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["results"][0]["ok"], true);
+    assert_eq!(v["results"][1]["ok"], false);
+    assert_eq!(v["results"][1]["code"], "tdmcp.api_help.not_found");
     let _ = driver.await;
 }
 

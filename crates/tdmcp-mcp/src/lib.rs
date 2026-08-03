@@ -29,8 +29,8 @@ pub use stdio_proxy::{
     run_with_rw_config as run_stdio_proxy_rw_config, StdioProxyError,
 };
 pub use tools::{
-    dispatch_tool, tool_descriptors, BridgeOutcome, CaptureMode, CaptureParams, DetailLevel,
-    ExecutePythonParams, FormatMode, InspectInclude, InspectParams, MutateNodesParams, MutateStep,
-    ToolCallError, ToolDescriptor, ToolFailPayload, ToolName, BRIDGE_TIMEOUT, CHILDREN_ROSTER_LIMIT,
-    INSPECT_PATHS_LIMIT,
+    dispatch_tool, tool_descriptors, ApiHelpFamily, ApiHelpParams, ApiHelpQuery, BridgeOutcome,
+    CaptureMode, CaptureParams, DetailLevel, ExecutePythonParams, FormatMode, InspectInclude,
+    InspectParams, MutateNodesParams, MutateStep, ToolCallError, ToolDescriptor, ToolFailPayload,
+    ToolName, API_HELP_QUERIES_LIMIT, BRIDGE_TIMEOUT, CHILDREN_ROSTER_LIMIT, INSPECT_PATHS_LIMIT,
 };

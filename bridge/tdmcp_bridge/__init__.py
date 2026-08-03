@@ -20,6 +20,7 @@ _bridge_host_path: str | None = None
 _capture_depth = 0
 
 from . import (
+    api_help as _api_help,
     capture as _capture,
     constants as _constants,
     execute as _execute,
@@ -67,6 +68,7 @@ for _mod in (
     _capture,
     _inspect,
     _mutate,
+    _api_help,
     _identity,
     _task_queue,
 ):
@@ -125,6 +127,7 @@ HANDLERS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "capture": handle_capture,
     "inspect": handle_inspect,
     "mutate_nodes": handle_mutate,
+    "api_help": handle_api_help,
     "ping": lambda _p: {"ok": True, "pong": True},
 }
 

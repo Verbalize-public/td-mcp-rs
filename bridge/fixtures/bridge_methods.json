@@ -1,7 +1,1 @@
-[
-  "execute_python",
-  "capture",
-  "inspect",
-  "mutate_nodes",
-  "ping"
-]
+["execute_python", "capture", "inspect", "mutate_nodes", "api_help", "ping"]

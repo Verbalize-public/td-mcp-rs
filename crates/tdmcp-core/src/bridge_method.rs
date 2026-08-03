@@ -19,6 +19,8 @@ pub enum BridgeMethod {
     Inspect,
     /// Ordered create / set / delete.
     MutateNodes,
+    /// Live TD Python API cards / class index.
+    ApiHelp,
     /// Liveness ping.
     Ping,
 }
@@ -32,6 +34,7 @@ impl BridgeMethod {
             Self::Capture => "capture",
             Self::Inspect => "inspect",
             Self::MutateNodes => "mutate_nodes",
+            Self::ApiHelp => "api_help",
             Self::Ping => "ping",
         }
     }
@@ -44,6 +47,7 @@ impl BridgeMethod {
             Self::Capture => "Capture",
             Self::Inspect => "Inspect",
             Self::MutateNodes => "Mutate",
+            Self::ApiHelp => "ApiHelp",
             Self::Ping => "Ping",
         }
     }
@@ -54,6 +58,7 @@ impl BridgeMethod {
         Self::Capture,
         Self::Inspect,
         Self::MutateNodes,
+        Self::ApiHelp,
         Self::Ping,
     ];
 
@@ -64,6 +69,7 @@ impl BridgeMethod {
             "capture" => Some(Self::Capture),
             "inspect" => Some(Self::Inspect),
             "mutate_nodes" => Some(Self::MutateNodes),
+            "api_help" => Some(Self::ApiHelp),
             "ping" => Some(Self::Ping),
             _ => None,
         }

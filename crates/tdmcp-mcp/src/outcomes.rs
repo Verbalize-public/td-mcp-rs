@@ -11,7 +11,7 @@ use tdmcp_core::{OpPath, Pid};
 use tdmcp_diagnostics::codes;
 use tdmcp_diagnostics::{
     Catalog, DiagnosticContext, DiagnosticItem, DiagnosticLayer, DiagnosticLevel,
-    DiagnosticSeverity, DiagnosticSpan, Diagnostics, LintItem, Suggestion,
+    DiagnosticSeverity, DiagnosticSpan, Diagnostics, LintItem, Reference, Suggestion,
 };
 
 use crate::bridge_rpc::BridgeRpcError;
@@ -360,6 +360,43 @@ pub fn map_inspect_outcome(
     }
 }
 
+/// Map an `api_help` outcome.
+pub fn map_api_help_outcome(
+    catalog: &Catalog,
+    pid: Pid,
+    outcome: BridgeOutcome,
+    _diagnostic_level: DiagnosticLevel,
+) -> Result<Value, ToolCallError> {
+    let span = span("api_help", Some("queries".into()));
+    match outcome {
+        BridgeOutcome::Ok(value) => {
+            let env = BridgeResultEnvelope::from_value(&value);
+            if env.is_error() {
+                let code = match env.code.as_deref() {
+                    Some(codes::API_HELP_QUERIES_REQUIRED) => codes::API_HELP_QUERIES_REQUIRED,
+                    Some(codes::API_HELP_NOT_FOUND) => codes::API_HELP_NOT_FOUND,
+                    _ => codes::API_HELP_QUERIES_REQUIRED,
+                };
+                let msg = env.message_or("api_help failed");
+                let item = build_diag(
+                    catalog,
+                    code,
+                    span,
+                    Some(msg),
+                    ctx(pid, None, None),
+                    DiagnosticLayer::Structure,
+                );
+                Err(failed_one(item))
+            } else {
+                // Bridge returns flat {ok, results: [...], queriesTruncated?}.
+                Ok(value)
+            }
+        }
+        BridgeOutcome::QueueBusy => Err(queue_busy(catalog, "api_help", pid)),
+        BridgeOutcome::Transport(err) => Err(transport(catalog, "api_help", pid, err)),
+    }
+}
+
 /// Map a `mutate_nodes` outcome.
 pub fn map_mutate_outcome(
     catalog: &Catalog,
@@ -384,16 +421,17 @@ pub fn map_mutate_outcome(
                     DiagnosticSpan {
                         tool: "mutate_nodes".into(),
                         mutation_index: failed_at,
-                        field: failure.field,
+                        field: failure.field.clone(),
                         line: None,
                         column: None,
                         snippet: None,
                     },
-                    Some(failure.message),
-                    ctx(pid, failure.op_path, context_path),
+                    Some(failure.message.clone()),
+                    ctx(pid, failure.op_path.clone(), context_path),
                     DiagnosticLayer::Mutate,
                 );
                 // Best-effort: never let malformed bridge lints drop the hard error.
+                splice_api_help_references(&mut item, &failure);
                 item.lints = failure.lints;
                 let data = Some(serde_json::json!({
                     "applied": value.get("applied").cloned().unwrap_or(Value::from(0)),
@@ -420,6 +458,8 @@ struct MutateStepFailure {
     message: String,
     op_path: Option<OpPath>,
     field: Option<String>,
+    /// Echoed node/create opType when present (for api_help refs on par.unknown).
+    op_type: Option<String>,
     lints: Vec<LintItem>,
 }
 
@@ -454,12 +494,17 @@ fn mutate_failure_from_steps(value: &Value) -> MutateStepFailure {
                     .to_owned();
                 let op_path = step.get("path").and_then(Value::as_str).map(OpPath::from);
                 let field = step.get("field").and_then(Value::as_str).map(str::to_owned);
+                let op_type = step
+                    .get("opType")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned);
                 let lints = parse_step_lints(step);
                 return MutateStepFailure {
                     code,
                     message,
                     op_path,
                     field,
+                    op_type,
                     lints,
                 };
             }
@@ -471,7 +516,62 @@ fn mutate_failure_from_steps(value: &Value) -> MutateStepFailure {
         message: env.message_or("mutate_nodes failed"),
         op_path: None,
         field: None,
+        op_type: None,
         lints: Vec::new(),
+    }
+}
+
+/// Attach dynamic `Reference{kind:api_help,query}` after catalog build.
+fn splice_api_help_references(item: &mut DiagnosticItem, failure: &MutateStepFailure) {
+    let mut queries: Vec<String> = Vec::new();
+    match failure.code {
+        codes::OP_UNKNOWN_TYPE => {
+            if let Some(field) = failure.field.as_ref().filter(|s| !s.is_empty()) {
+                queries.push(field.clone());
+            }
+        }
+        codes::PAR_UNKNOWN => {
+            if let Some(op_type) = failure.op_type.as_ref().filter(|s| !s.is_empty()) {
+                queries.push(op_type.clone());
+            }
+        }
+        _ => {}
+    }
+    for lint in &failure.lints {
+        if lint.code == codes::OP_SIMILAR_TYPE || lint.code == codes::PAR_SIMILAR_NAME {
+            if let Some(replace) = lint
+                .suggestion
+                .as_ref()
+                .and_then(|s| s.replace.as_ref())
+                .filter(|s| !s.is_empty())
+            {
+                // similar_type → api_help on suggested opType; similar_name is a
+                // param name — still useful as a second class-card query only for
+                // opType suggestions.
+                if lint.code == codes::OP_SIMILAR_TYPE && !queries.iter().any(|q| q == replace) {
+                    queries.push(replace.clone());
+                }
+            }
+        }
+    }
+    if queries.is_empty() {
+        return;
+    }
+    item.references
+        .retain(|r| !(r.kind == "api_help" && r.query.is_none()));
+    for q in queries {
+        if item
+            .references
+            .iter()
+            .any(|r| r.kind == "api_help" && r.query.as_deref() == Some(q.as_str()))
+        {
+            continue;
+        }
+        item.references.push(Reference {
+            kind: "api_help".into(),
+            id: None,
+            query: Some(q),
+        });
     }
 }
 
@@ -858,6 +958,71 @@ mod tests {
         }));
         assert_eq!(item.code, codes::PAR_UNKNOWN);
         assert!(item.lints.is_empty());
+    }
+
+    #[test]
+    fn mutate_unknown_type_splices_api_help_query() {
+        let item = fail_item(json!({
+            "ok": false,
+            "applied": 0,
+            "failedAt": 0,
+            "steps": [{
+                "ok": false,
+                "code": "tdmcp.op.unknown_type",
+                "path": "/project1/x",
+                "field": "hsvAdjustTOP",
+                "opType": "hsvAdjustTOP",
+                "message": "unknown opType: hsvAdjustTOP",
+                "lints": [{
+                    "severity": "lint",
+                    "code": "tdmcp.op.similar_type",
+                    "message": "similar opType 'hsvadjustTOP' found",
+                    "confidence": "medium",
+                    "suggestion": {"replace": "hsvadjustTOP"}
+                }]
+            }]
+        }));
+        assert_eq!(item.code, codes::OP_UNKNOWN_TYPE);
+        let queries: Vec<&str> = item
+            .references
+            .iter()
+            .filter(|r| r.kind == "api_help")
+            .filter_map(|r| r.query.as_deref())
+            .collect();
+        assert!(queries.contains(&"hsvAdjustTOP"));
+        assert!(queries.contains(&"hsvadjustTOP"));
+    }
+
+    #[test]
+    fn mutate_par_unknown_splices_api_help_on_op_type() {
+        let item = fail_item(json!({
+            "ok": false,
+            "applied": 0,
+            "failedAt": 0,
+            "steps": [{
+                "ok": false,
+                "code": "tdmcp.par.unknown",
+                "path": "/project1/noise1",
+                "field": "nope",
+                "opType": "noiseTOP",
+                "message": "unknown parameter: nope"
+            }]
+        }));
+        assert_eq!(item.code, codes::PAR_UNKNOWN);
+        let api_help: Vec<_> = item
+            .references
+            .iter()
+            .filter(|r| r.kind == "api_help")
+            .collect();
+        assert_eq!(api_help.len(), 1);
+        assert_eq!(api_help[0].query.as_deref(), Some("noiseTOP"));
+        assert!(
+            item.mitigation
+                .iter()
+                .any(|m| m.contains("include: params") || m.contains("inspect")),
+            "par.unknown mitigation should steer to inspect params: {:?}",
+            item.mitigation
+        );
     }
 
     #[test]

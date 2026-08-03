@@ -159,8 +159,50 @@ entries:
     layer: mutate
     message: "Unknown parameter on node"
     mitigation:
-      - "Query api_help for the OP family"
+      - "Re-inspect the node with include: params for live .par names (api_help does not list parameters)"
+      - "Use suggestion.replace when a similar_name lint is present"
       - "values is for .par.* parameters; flags is for direct OP attributes (display, viewer, bypass, …)"
+      - "Optional: api_help class query on the node's opType for Python members (not .par names)"
+    references:
+      - kind: api_help
+      - kind: doc
+        id: inspect
+
+  - code: tdmcp.api_help.not_found
+    layer: structure
+    message: "api_help query target not found or unsupported"
+    mitigation:
+      - "Class names are case-sensitive (e.g. noiseTOP, not noise)"
+      - "Use kind: classes with family/prefix to explore op-like names"
+      - "module queries support only name 'td' in v1"
+    references:
+      - kind: doc
+        id: api_help
+
+  - code: tdmcp.api_help.queries_required
+    layer: structure
+    message: "api_help requires a non-empty queries array"
+    mitigation:
+      - "Pass queries: [{kind: class, name: …}] or classes/module entries"
+    references:
+      - kind: doc
+        id: api_help
+
+  - code: tdmcp.api_help.queries_truncated
+    layer: structure
+    message: "api_help queries batch exceeded the soft cap"
+    mitigation:
+      - "Split into multiple api_help calls"
+      - "Prefer classes with family/prefix filters"
+    references:
+      - kind: doc
+        id: api_help
+
+  - code: tdmcp.api_help.classes_truncated
+    layer: structure
+    message: "api_help classes index exceeded the soft name cap"
+    mitigation:
+      - "Narrow with family and/or prefix filters"
     references:
       - kind: doc
         id: api_help
@@ -230,10 +272,11 @@ entries:
     layer: mutate
     message: "Unknown or unresolved opType for create"
     mitigation:
-      - "Fix the opType string (e.g. noiseTOP, not noise)"
-      - "Query api_help / TD docs for the OP family name"
+      - "Fix the opType string (e.g. noiseTOP, not noise) — names are case-sensitive"
+      - "Query api_help with kind: class (exact name) or kind: classes + family/prefix"
       - "Fix the failedAt step only; later steps are skipped, not replayed"
     references:
+      - kind: api_help
       - kind: doc
         id: mutate_nodes
 

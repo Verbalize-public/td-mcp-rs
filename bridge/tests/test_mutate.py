@@ -92,6 +92,8 @@ class FakeNode:
                 n += 1
         child_path = f"{self.path.rstrip('/')}/{actual}"
         child = FakeNode(child_path, op_types=self._op_types)
+        # Echo create opType for api_help diagnostic refs (matches live TD).
+        child.opType = getattr(op_cls, "__name__", None) or str(op_cls)
         # Seed a few common pars for set tests.
         child.par = FakeParGroup(
             {
@@ -112,7 +114,7 @@ class FakeNode:
 class FakeCtx(tdmcp_bridge.MutateContext):
     def __init__(self) -> None:
         self.nodes: dict[str, FakeNode] = {}
-        self.op_types: dict[str, Any] = {"noiseTOP": object()}
+        self.op_types: dict[str, Any] = {"noiseTOP": type("noiseTOP", (), {})}
         root = FakeNode("/project1", op_types=self.op_types)
         self.nodes["/project1"] = root
 
@@ -297,6 +299,7 @@ class MutateCreateTest(unittest.TestCase):
         self.assertFalse(out["ok"])
         self.assertEqual(out["code"], "tdmcp.par.unknown")
         self.assertEqual(out["field"], "nope")
+        self.assertEqual(out.get("opType"), "noiseTOP")
         self.assertEqual(len(created_holder), 1)
         self.assertTrue(created_holder[0]._destroyed)
         self.assertIsNone(ctx.resolve("/project1/noise1"))

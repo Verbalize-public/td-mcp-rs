@@ -129,21 +129,37 @@ def _with_collection_hint(
         return err
 
 
+def _echo_op_type(err: dict[str, Any], node: Any) -> dict[str, Any]:
+    """Best-effort echo of node.opType for api_help diagnostic refs. Never raises."""
+    try:
+        ot = getattr(node, "opType", None)
+        if isinstance(ot, str) and ot:
+            out = dict(err)
+            out["opType"] = ot
+            return out
+    except Exception:  # noqa: BLE001
+        pass
+    return err
+
+
 def _apply_values(node: Any, values: dict[str, Any]) -> dict[str, Any] | None:
     """Assign plain parameter values. Returns an error step dict, or None on ok."""
     for name, val in values.items():
         par = _get_par(node, name)
         if par is None:
-            return _with_collection_hint(
-                {
-                    "ok": False,
-                    "code": "tdmcp.par.unknown",
-                    "path": getattr(node, "path", None),
-                    "message": f"unknown parameter: {name}",
-                    "field": name,
-                },
+            return _echo_op_type(
+                _with_collection_hint(
+                    {
+                        "ok": False,
+                        "code": "tdmcp.par.unknown",
+                        "path": getattr(node, "path", None),
+                        "message": f"unknown parameter: {name}",
+                        "field": name,
+                    },
+                    node,
+                    as_param=True,
+                ),
                 node,
-                as_param=True,
             )
         try:
             if hasattr(par, "val"):
@@ -151,13 +167,16 @@ def _apply_values(node: Any, values: dict[str, Any]) -> dict[str, Any] | None:
             else:
                 setattr(node.par, name, val)
         except Exception as exc:  # noqa: BLE001
-            return {
-                "ok": False,
-                "code": "tdmcp.mutate.step_failed",
-                "path": getattr(node, "path", None),
-                "message": str(exc),
-                "field": name,
-            }
+            return _echo_op_type(
+                {
+                    "ok": False,
+                    "code": "tdmcp.mutate.step_failed",
+                    "path": getattr(node, "path", None),
+                    "message": str(exc),
+                    "field": name,
+                },
+                node,
+            )
     return None
 
 
@@ -196,28 +215,34 @@ def _apply_expressions(
     for name, expr in expressions.items():
         par = _get_par(node, name)
         if par is None:
-            return _with_collection_hint(
-                {
-                    "ok": False,
-                    "code": "tdmcp.par.unknown",
-                    "path": getattr(node, "path", None),
-                    "message": f"unknown parameter: {name}",
-                    "field": name,
-                },
+            return _echo_op_type(
+                _with_collection_hint(
+                    {
+                        "ok": False,
+                        "code": "tdmcp.par.unknown",
+                        "path": getattr(node, "path", None),
+                        "message": f"unknown parameter: {name}",
+                        "field": name,
+                    },
+                    node,
+                    as_param=True,
+                ),
                 node,
-                as_param=True,
             )
         try:
             par.mode = expression_mode
             par.expr = expr
         except Exception as exc:  # noqa: BLE001
-            return {
-                "ok": False,
-                "code": "tdmcp.mutate.step_failed",
-                "path": getattr(node, "path", None),
-                "message": str(exc),
-                "field": name,
-            }
+            return _echo_op_type(
+                {
+                    "ok": False,
+                    "code": "tdmcp.mutate.step_failed",
+                    "path": getattr(node, "path", None),
+                    "message": str(exc),
+                    "field": name,
+                },
+                node,
+            )
     return None
 
 
@@ -226,36 +251,45 @@ def _apply_pulse(node: Any, pulse: list[str]) -> dict[str, Any] | None:
     for name in pulse:
         par = _get_par(node, name)
         if par is None:
-            return _with_collection_hint(
-                {
-                    "ok": False,
-                    "code": "tdmcp.par.unknown",
-                    "path": getattr(node, "path", None),
-                    "message": f"unknown parameter: {name}",
-                    "field": name,
-                },
+            return _echo_op_type(
+                _with_collection_hint(
+                    {
+                        "ok": False,
+                        "code": "tdmcp.par.unknown",
+                        "path": getattr(node, "path", None),
+                        "message": f"unknown parameter: {name}",
+                        "field": name,
+                    },
+                    node,
+                    as_param=True,
+                ),
                 node,
-                as_param=True,
             )
         try:
             pulse_fn = getattr(par, "pulse", None)
             if not callable(pulse_fn):
-                return {
+                return _echo_op_type(
+                    {
+                        "ok": False,
+                        "code": "tdmcp.mutate.step_failed",
+                        "path": getattr(node, "path", None),
+                        "message": f"parameter {name} has no pulse()",
+                        "field": name,
+                    },
+                    node,
+                )
+            pulse_fn()
+        except Exception as exc:  # noqa: BLE001
+            return _echo_op_type(
+                {
                     "ok": False,
                     "code": "tdmcp.mutate.step_failed",
                     "path": getattr(node, "path", None),
-                    "message": f"parameter {name} has no pulse()",
+                    "message": str(exc),
                     "field": name,
-                }
-            pulse_fn()
-        except Exception as exc:  # noqa: BLE001
-            return {
-                "ok": False,
-                "code": "tdmcp.mutate.step_failed",
-                "path": getattr(node, "path", None),
-                "message": str(exc),
-                "field": name,
-            }
+                },
+                node,
+            )
     return None
 
 
@@ -398,6 +432,7 @@ def _step_create(
                 "message": f"unknown opType: {op_type}",
                 "path": full,
                 "field": op_type,
+                "opType": op_type,
             },
             ctx,
         )

@@ -1,0 +1,185 @@
+{
+  "$defs": {
+    "ApiHelpFamily": {
+      "description": "Operator family filter for `api_help` `classes` queries.",
+      "oneOf": [
+        {
+          "const": "COMP",
+          "description": "COMP family.",
+          "type": "string"
+        },
+        {
+          "const": "TOP",
+          "description": "TOP family.",
+          "type": "string"
+        },
+        {
+          "const": "CHOP",
+          "description": "CHOP family.",
+          "type": "string"
+        },
+        {
+          "const": "SOP",
+          "description": "SOP family.",
+          "type": "string"
+        },
+        {
+          "const": "POP",
+          "description": "POP family.",
+          "type": "string"
+        },
+        {
+          "const": "MAT",
+          "description": "MAT family.",
+          "type": "string"
+        },
+        {
+          "const": "DAT",
+          "description": "DAT family.",
+          "type": "string"
+        }
+      ]
+    },
+    "ApiHelpQuery": {
+      "description": "One `api_help` query entry (class card / classes index / thin module).",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Single `td.<name>` class / type card.",
+          "properties": {
+            "kind": {
+              "const": "class",
+              "type": "string"
+            },
+            "name": {
+              "description": "Exact `td` attribute name (case-sensitive; e.g. `noiseTOP`).",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "name"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Filtered index of op-like type names on `td`.",
+          "properties": {
+            "family": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ApiHelpFamily"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional family filter (TOP / CHOP / …)."
+            },
+            "kind": {
+              "const": "classes",
+              "type": "string"
+            },
+            "prefix": {
+              "description": "Optional casefold prefix filter on the type name.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Thin module card (`td` only in v1).",
+          "properties": {
+            "kind": {
+              "const": "module",
+              "type": "string"
+            },
+            "name": {
+              "description": "Module name (`td`).",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "name"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "DetailLevel": {
+      "description": "Structural detail level.",
+      "oneOf": [
+        {
+          "const": "summary",
+          "description": "Direct-child roster as `{name, opType}` (capped at 64; see `node.truncation`).",
+          "type": "string"
+        },
+        {
+          "const": "detailed",
+          "description": "Direct-child roster as `{path, family, opType}` (same 64 cap — does not uncap).",
+          "type": "string"
+        }
+      ]
+    },
+    "DiagnosticLevel": {
+      "description": "Payload size for diagnostics (independent of structural `detailLevel`).",
+      "oneOf": [
+        {
+          "const": "summary",
+          "description": "Codes, messages, capped lints, mitigation.",
+          "type": "string"
+        },
+        {
+          "const": "detailed",
+          "description": "Plus raw traceback / full TD dumps.",
+          "type": "string"
+        }
+      ]
+    },
+    "Pid": {
+      "description": "OS process id — sole address for tools and queues.",
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Args for api_help.",
+  "properties": {
+    "detailLevel": {
+      "$ref": "#/$defs/DetailLevel",
+      "default": "summary",
+      "description": "Caps member lists / whether wikiUrl + full mro appear (not help prose)."
+    },
+    "diagnosticLevel": {
+      "$ref": "#/$defs/DiagnosticLevel",
+      "default": "summary",
+      "description": "Diagnostic payload size (`summary` omits raw traceback)."
+    },
+    "pid": {
+      "$ref": "#/$defs/Pid",
+      "description": "Target pid."
+    },
+    "queries": {
+      "description": "Batch of API card / index queries (required, non-empty). Soft-capped at 32.",
+      "items": {
+        "$ref": "#/$defs/ApiHelpQuery"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "pid",
+    "queries"
+  ],
+  "type": "object"
+}

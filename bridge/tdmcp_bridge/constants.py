@@ -24,12 +24,20 @@ BRIDGE_METHODS: tuple[str, ...] = (
     "capture",
     "inspect",
     "mutate_nodes",
+    "api_help",
     "ping",
 )
 
 INSPECT_PATHS_LIMIT = 32
 CHILDREN_ROSTER_LIMIT = 64
 CAPTURE_VIEWER_NAME = "capture_viewer"
+
+# api_help batch / payload caps (mirrored in Rust tools.rs).
+API_HELP_QUERIES_LIMIT = 32
+API_HELP_MEMBERS_SUMMARY = 40
+API_HELP_MEMBERS_DETAILED = 512
+API_HELP_CLASSES_LIMIT = 1024
+API_HELP_MODULE_SAMPLE = 32
 
 CHOP_DATA_MAX_CHANNELS = 32
 CHOP_DATA_MAX_SAMPLES = 256
