@@ -104,6 +104,27 @@ fn build_release_daemon_with_gui(workspace: &Path) -> Result<PathBuf> {
     Ok(src)
 }
 
+/// Soft-stop + force-kill workspace `tdmcp-daemon` processes locking
+/// `target/release` / `target/dist` so cargo can overwrite the binary.
+fn kill_workspace_daemons(workspace: &Path) -> Result<()> {
+    let status = if cfg!(windows) {
+        Command::new("pwsh")
+            .args(["-File", "scripts/kill-daemons.ps1"])
+            .current_dir(workspace)
+            .status()
+    } else {
+        Command::new("bash")
+            .args(["scripts/kill-daemons.sh"])
+            .current_dir(workspace)
+            .status()
+    }
+    .context("run kill-daemons script")?;
+    if !status.success() {
+        bail!("kill-daemons failed");
+    }
+    Ok(())
+}
+
 fn dist(out: PathBuf) -> Result<()> {
     let workspace = workspace_root()?;
     let out_dir = if out.is_absolute() {
@@ -111,6 +132,9 @@ fn dist(out: PathBuf) -> Result<()> {
     } else {
         workspace.join(out)
     };
+
+    // Unlock release/dist binaries before rebuild (leftover mcp shims hold locks).
+    kill_workspace_daemons(&workspace)?;
 
     let daemon_src = build_release_daemon_with_gui(&workspace)?;
     let daemon_dest = copy_binary(&daemon_src, &out_dir)?;

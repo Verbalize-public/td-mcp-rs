@@ -65,7 +65,13 @@ builds).
 
 ## Packaging
 
-`cargo run -p xtask -- dist` always rebuilds `tdmcp-daemon` with
-`--features gui`, then copies it into `target/dist/` (bridge, catalog, and
-bootstrap `.tox` are embedded in the binary). This avoids shipping a stale
-headless binary from a prior `--no-default-features` build.
+`cargo run -p xtask -- dist` first runs [`scripts/kill-daemons`](../scripts/kill-daemons.ps1)
+(soft `/admin/shutdown`, then force-kills only workspace `target/release` /
+`target/dist` images) so leftover Cursor `mcp` shims do not lock the exe.
+It then rebuilds `tdmcp-daemon` with `--features gui` and copies it into
+`target/dist/` (bridge, catalog, and bootstrap `.tox` are embedded in the
+binary). This avoids shipping a stale headless binary from a prior
+`--no-default-features` build.
+
+If Cursor still has the MCP server connected, it may respawn `tdmcp-daemon mcp`
+and re-lock the file — pause/reload MCP when rebuild still fails after kill.

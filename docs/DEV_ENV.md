@@ -17,6 +17,25 @@ Interactive harness for testing the TouchDesigner side of td-mcp-rs.
 
 Do not invent sticky `targetId` for rs calls — **pid only**.
 
+### Rebuild when the binary is locked
+
+Cursor leaves two `tdmcp-daemon` processes (`start` + stdio `mcp`). UI Stop
+only ends `start`; the leftover `mcp` locks `target/release` or `target/dist`
+and blocks `cargo build`. Unlock before rebuild:
+
+```text
+# Windows
+pwsh -File scripts/kill-daemons.ps1
+# Unix
+bash scripts/kill-daemons.sh
+
+# or package path (kills, then rebuilds + copies to target/dist)
+cargo run -p xtask -- dist
+```
+
+If Cursor MCP is still connected it may respawn `mcp` immediately — pause or
+reload the MCP server when the lock returns after kill.
+
 After editing `bridge/tdmcp_bridge/`, sync the package into `%LOCALAPPDATA%/tdmcp-rs/bridge/` and reload `/project1/tdmcp_rs` (destroy + `loadTox` bootstrap) so live TD picks up the change — same idea as `pack_bootstrap_tox` force re-extract.
 
 ## Kit layout
