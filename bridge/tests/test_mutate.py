@@ -536,6 +536,41 @@ class MutateSetTest(unittest.TestCase):
         self.assertIn("saturationmult", near)
         self.assertEqual(tdmcp_bridge._suggest_names("zzzz", ["amp", "freq"]), [])
 
+    def test_is_op_type_name(self) -> None:
+        self.assertTrue(tdmcp_bridge._is_op_type_name("noiseTOP"))
+        self.assertTrue(tdmcp_bridge._is_op_type_name("geometryCOMP"))
+        self.assertFalse(tdmcp_bridge._is_op_type_name("math"))
+        self.assertFalse(tdmcp_bridge._is_op_type_name("_private"))
+        self.assertFalse(tdmcp_bridge._is_op_type_name("TOP"))
+
+    def test_suggest_op_types_keep_list_and_garbage(self) -> None:
+        roster = [
+            "hsvadjustTOP",
+            "noiseTOP",
+            "blurTOP",
+            "levelTOP",
+            "nullTOP",
+            "geometryCOMP",
+            "nullCOMP",
+            "nullCHOP",
+            "mathCHOP",
+        ]
+        self.assertEqual(
+            tdmcp_bridge._suggest_op_types(
+                "hsvAdjustTOP", ["hsvadjustTOP", "noiseTOP"]
+            ),
+            ["hsvadjustTOP"],
+        )
+        self.assertEqual(
+            tdmcp_bridge._suggest_op_types("noizeTOP", ["noiseTOP", "blurTOP"]),
+            ["noiseTOP"],
+        )
+        bare = tdmcp_bridge._suggest_op_types("noise", ["noiseTOP", "blurTOP"])
+        self.assertIn("noiseTOP", bare)
+        self.assertEqual(tdmcp_bridge._suggest_op_types("fooTOP", roster), [])
+        self.assertEqual(tdmcp_bridge._suggest_op_types("xyzTOP", roster), [])
+        self.assertEqual(tdmcp_bridge._suggest_op_types("geo", roster), [])
+
     def test_set_similar_param_name_hint(self) -> None:
         ctx = FakeCtx()
         node = FakeNode("/project1/hsv1")
@@ -568,6 +603,17 @@ class MutateSetTest(unittest.TestCase):
         self.assertIn("hsvadjustTOP", out["message"])
         self.assertEqual(out["lints"][0]["code"], "tdmcp.op.similar_type")
         self.assertEqual(out["lints"][0]["suggestion"]["replace"], "hsvadjustTOP")
+
+    def test_create_garbage_op_type_no_similar_lint(self) -> None:
+        ctx = FakeCtx()
+        out = tdmcp_bridge.apply_step(
+            ctx,
+            {"op": "create", "path": "/project1/x", "opType": "fooTOP"},
+        )
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["code"], "tdmcp.op.unknown_type")
+        self.assertNotIn("lints", out)
+        self.assertNotIn("did you mean", out["message"])
 
     def test_similar_param_hint_enrich_failure_returns_base(self) -> None:
         class BoomNode:
