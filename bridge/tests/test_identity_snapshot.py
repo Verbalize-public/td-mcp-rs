@@ -52,5 +52,38 @@ class IdentitySnapshotTest(unittest.TestCase):
         self.assertTrue(snap["start_time"] is None or isinstance(snap["start_time"], str))
 
 
+class HandshakeFramingTest(unittest.TestCase):
+    def test_handshake_writes_and_reads_frames(self) -> None:
+        """Regression: identity.handshake must import transport frame helpers."""
+        import json
+        import struct
+
+        class _HandStream:
+            def __init__(self) -> None:
+                self.written = bytearray()
+                body = json.dumps({"type": "handshakeResult", "ok": True}).encode()
+                self._resp = struct.pack("<I", len(body)) + body
+                self._pos = 0
+
+            def write(self, data: bytes) -> int:
+                self.written.extend(data)
+                return len(data)
+
+            def flush(self) -> None:
+                pass
+
+            def read(self, n: int) -> bytes:
+                chunk = self._resp[self._pos : self._pos + n]
+                self._pos += len(chunk)
+                return chunk
+
+        hs = _HandStream()
+        resp = tdmcp_bridge.handshake(
+            hs, title="t", toe_path=None, image="TouchDesigner.exe", start_time=None
+        )
+        self.assertEqual(resp.get("ok"), True)
+        self.assertGreater(len(hs.written), 4)
+
+
 if __name__ == "__main__":
     unittest.main()

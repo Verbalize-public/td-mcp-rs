@@ -21,7 +21,8 @@ pub enum FrameError {
     Io(#[from] std::io::Error),
 }
 
-const MAX_FRAME: usize = 16 * 1024 * 1024;
+/// Hard cap on a single framed IPC payload (body bytes).
+pub(crate) const MAX_FRAME: usize = 16 * 1024 * 1024;
 
 /// Encode a serializable message as `u32 LE length + utf8 json`.
 pub fn encode<T: Serialize>(msg: &T) -> Result<Vec<u8>, FrameError> {

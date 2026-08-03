@@ -408,6 +408,79 @@ async fn any_handshake_evicts_other_disconnected() {
 }
 
 #[tokio::test]
+async fn superseding_while_in_flight_clears_queue_for_exclusive() {
+    // Peer receives the tool request but never replies — leaves in-flight.
+    let (registry, sessions, mut peer_old) = setup(71).await;
+    let catalog = Catalog::fallback();
+
+    let call = {
+        let registry = registry.clone();
+        let sessions = sessions.clone();
+        let catalog = catalog.clone();
+        tokio::spawn(async move {
+            dispatch_tool(
+                &registry,
+                &catalog,
+                &sessions,
+                "execute_python",
+                json!({"pid": 71, "script": "result=1"}),
+            )
+            .await
+        })
+    };
+
+    // Drain the request so the actor promotes the task to in-flight.
+    let msg = peer_old.recv_message().await.expect("recv request");
+    assert!(matches!(msg, Message::Request { .. }));
+
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+    loop {
+        {
+            let reg = registry.lock().await;
+            let entry = reg.get(71).expect("entry");
+            if !entry.queue.is_empty() {
+                break;
+            }
+        }
+        if tokio::time::Instant::now() >= deadline {
+            panic!("expected non-empty queue while tool wait is blocked");
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+
+    let peer_new = rehandshake_and_spawn(&registry, &sessions, 71).await;
+    let _driver = peer_new.spawn_auto_pong();
+
+    // Superseded teardown must clear the zombie slot.
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    {
+        let mut reg = registry.lock().await;
+        let entry = reg.get(71).expect("entry");
+        assert_eq!(entry.bridge, tdmcp_core::BridgeStatus::Connected);
+        assert!(
+            entry.queue.is_empty(),
+            "supersede must cancel in-flight queue slots"
+        );
+        // Exclusive enqueue must succeed now (would Busy if slot lingered).
+        reg.enqueue(71, "ExclusiveProbe", tdmcp_core::TaskMode::Exclusive)
+            .expect("exclusive after supersede queue clear");
+        let _ = reg.cancel_queue_keep_connected(71);
+    }
+
+    let _ = call.await;
+    let v = dispatch_tool(
+        &registry,
+        &catalog,
+        &sessions,
+        "execute_python",
+        json!({"pid": 71, "script": "result=1", "exclusive": true}),
+    )
+    .await
+    .expect("exclusive call after supersede must not queue_busy");
+    assert_eq!(v["ok"], true);
+}
+
+#[tokio::test]
 async fn superseding_spawn_does_not_mark_new_session_disconnected() {
     let (registry, sessions, _peer_old) = setup(51).await;
 

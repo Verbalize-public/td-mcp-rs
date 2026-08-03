@@ -297,7 +297,7 @@ impl DashboardApp {
 
     fn ensure_base(&mut self) {
         if self.admin_base.is_empty() {
-            self.admin_base = "http://127.0.0.1:9860".into();
+            self.admin_base = format!("http://127.0.0.1:{}", tdmcp_config::DEFAULT_PORT);
         }
     }
 

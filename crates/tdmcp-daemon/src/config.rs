@@ -63,7 +63,7 @@ impl Config {
         file: ConfigFile,
         overrides: ConfigOverrides,
     ) -> Result<Self> {
-        let default_data = default_data_dir();
+        let default_data = crate::install::default_data_dir();
         let data_dir = overrides
             .data_dir
             .or(file.advanced.data_dir)
@@ -94,12 +94,6 @@ impl Config {
             bridge: file.bridge,
         })
     }
-}
-
-fn default_data_dir() -> PathBuf {
-    dirs::data_local_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("tdmcp-rs")
 }
 
 fn default_bridge_dir(data_dir: &Path) -> PathBuf {

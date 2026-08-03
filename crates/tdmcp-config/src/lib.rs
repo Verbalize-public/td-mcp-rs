@@ -19,6 +19,12 @@ pub const DEFAULT_TOML: &str = include_str!("../assets/default.toml");
 /// Env var that overrides [`default_config_path`] (tests / isolation).
 pub const CONFIG_PATH_ENV: &str = "TDMCP_CONFIG_PATH";
 
+/// Default HTTP listen port (MCP + admin).
+pub const DEFAULT_PORT: u16 = 9860;
+
+/// App directory name under OS config/data dirs.
+pub const APP_DIR_NAME: &str = "tdmcp-rs";
+
 /// Full on-disk config document.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -43,7 +49,7 @@ pub struct ServerSection {
 
 impl Default for ServerSection {
     fn default() -> Self {
-        Self { port: 9860 }
+        Self { port: DEFAULT_PORT }
     }
 }
 
@@ -197,7 +203,7 @@ pub fn default_config_path() -> PathBuf {
     }
     dirs::config_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join("tdmcp-rs")
+        .join(APP_DIR_NAME)
         .join("config.toml")
 }
 

@@ -3,13 +3,18 @@
 use std::path::Path;
 #[cfg(unix)]
 use std::path::PathBuf;
+use std::time::Duration;
 
 use thiserror::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::time::timeout;
 use tracing::{debug, info};
 
-use crate::framing::{self, FrameError, Message};
+use crate::framing::{self, FrameError, Message, MAX_FRAME};
 use crate::handshake::{HandshakeOffer, HandshakeRequest, HandshakeResponse};
+
+/// Budget for post-connect handshake frame read + response write.
+pub const HANDSHAKE_IO_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// IPC endpoint errors.
 #[derive(Debug, Error)]
@@ -23,6 +28,9 @@ pub enum IpcError {
     /// Handshake rejected.
     #[error("handshake rejected: {0}")]
     Handshake(String),
+    /// Peer connected but did not complete handshake frames in time.
+    #[error("handshake I/O timed out after {0:?}")]
+    HandshakeTimeout(Duration),
 }
 
 /// Resolved endpoint for this platform.
@@ -103,20 +111,18 @@ impl IpcStream {
 
     /// Memory handshake with optional budgets forwarded to the peer.
     pub async fn accept_memory_handshake_with(
-        mut stream: tokio::io::DuplexStream,
+        stream: tokio::io::DuplexStream,
         bridge_package_dir: impl Into<String>,
         daemon_version: impl Into<String>,
         offer: HandshakeOffer,
     ) -> Result<Self, IpcError> {
-        let req: HandshakeRequest = read_msg(&mut stream).await?;
-        let resp = HandshakeResponse {
-            bridge_package_dir: bridge_package_dir.into(),
-            daemon_version: daemon_version.into(),
-            min_daemon: None,
-            idle_dead_secs: offer.idle_dead_secs,
-            max_call_wait_secs: offer.max_call_wait_secs,
-        };
-        write_msg(&mut stream, &resp).await?;
+        let (req, stream) = complete_handshake_io(
+            stream,
+            bridge_package_dir.into(),
+            daemon_version.into(),
+            offer,
+        )
+        .await?;
         Ok(Self::from_memory(stream, req))
     }
 
@@ -190,6 +196,8 @@ impl IpcListener {
     }
 
     /// Accept one connection and complete handshake.
+    ///
+    /// Post-connect handshake I/O is bounded by [`HANDSHAKE_IO_TIMEOUT`].
     pub async fn accept_handshake(
         &self,
         bridge_package_dir: impl Into<String>,
@@ -204,21 +212,16 @@ impl IpcListener {
             use std::sync::atomic::Ordering;
             use tokio::net::windows::named_pipe::ServerOptions;
             let BridgeEndpoint::NamedPipe(ref name) = self.endpoint;
-            let first = self.first.swap(false, Ordering::SeqCst);
-            let mut server = ServerOptions::new()
+            let first = self.first.load(Ordering::SeqCst);
+            let server = ServerOptions::new()
                 .first_pipe_instance(first)
                 .create(name)?;
+            // Only spend the first-instance claim after create succeeds.
+            self.first.store(false, Ordering::SeqCst);
             debug!(%name, first, "waiting for named pipe client");
             server.connect().await?;
-            let req: HandshakeRequest = read_msg(&mut server).await?;
-            let resp = HandshakeResponse {
-                bridge_package_dir,
-                daemon_version,
-                min_daemon: None,
-                idle_dead_secs: offer.idle_dead_secs,
-                max_call_wait_secs: offer.max_call_wait_secs,
-            };
-            write_msg(&mut server, &resp).await?;
+            let (req, server) =
+                complete_handshake_io(server, bridge_package_dir, daemon_version, offer).await?;
             Ok(IpcStream {
                 pid: req.pid,
                 handshake: req,
@@ -228,16 +231,9 @@ impl IpcListener {
 
         #[cfg(unix)]
         {
-            let (mut stream, _) = self.uds.accept().await?;
-            let req: HandshakeRequest = read_msg(&mut stream).await?;
-            let resp = HandshakeResponse {
-                bridge_package_dir,
-                daemon_version,
-                min_daemon: None,
-                idle_dead_secs: offer.idle_dead_secs,
-                max_call_wait_secs: offer.max_call_wait_secs,
-            };
-            write_msg(&mut stream, &resp).await?;
+            let (stream, _) = self.uds.accept().await?;
+            let (req, stream) =
+                complete_handshake_io(stream, bridge_package_dir, daemon_version, offer).await?;
             Ok(IpcStream {
                 pid: req.pid,
                 handshake: req,
@@ -247,13 +243,42 @@ impl IpcListener {
     }
 }
 
+/// Read handshake request + write response under [`HANDSHAKE_IO_TIMEOUT`].
+async fn complete_handshake_io<S>(
+    mut stream: S,
+    bridge_package_dir: String,
+    daemon_version: String,
+    offer: HandshakeOffer,
+) -> Result<(HandshakeRequest, S), IpcError>
+where
+    S: AsyncReadExt + AsyncWriteExt + Unpin,
+{
+    match timeout(HANDSHAKE_IO_TIMEOUT, async {
+        let req: HandshakeRequest = read_msg(&mut stream).await?;
+        let resp = HandshakeResponse {
+            bridge_package_dir,
+            daemon_version,
+            min_daemon: None,
+            idle_dead_secs: offer.idle_dead_secs,
+            max_call_wait_secs: offer.max_call_wait_secs,
+        };
+        write_msg(&mut stream, &resp).await?;
+        Ok::<_, IpcError>((req, stream))
+    })
+    .await
+    {
+        Ok(inner) => inner,
+        Err(_) => Err(IpcError::HandshakeTimeout(HANDSHAKE_IO_TIMEOUT)),
+    }
+}
+
 async fn read_msg<R: AsyncReadExt + Unpin, T: serde::de::DeserializeOwned>(
     r: &mut R,
 ) -> Result<T, IpcError> {
     let mut len_buf = [0u8; 4];
     r.read_exact(&mut len_buf).await?;
     let len = u32::from_le_bytes(len_buf) as usize;
-    if len > 16 * 1024 * 1024 {
+    if len > MAX_FRAME {
         return Err(IpcError::Frame(FrameError::TooLarge(len)));
     }
     let mut body = vec![0u8; len];
@@ -268,4 +293,31 @@ async fn write_msg<W: AsyncWriteExt + Unpin, T: serde::Serialize>(
     let bytes = framing::encode(msg)?;
     w.write_all(&bytes).await?;
     Ok(())
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, reason = "unit tests")]
+mod tests {
+    use super::*;
+    use std::time::Instant;
+
+    #[tokio::test]
+    async fn memory_handshake_times_out_when_peer_silent() {
+        let (_client, server) = tokio::io::duplex(64 * 1024);
+        let start = Instant::now();
+        match IpcStream::accept_memory_handshake(server, "/bridge", "0.1.0").await {
+            Err(IpcError::HandshakeTimeout(_)) => {}
+            Ok(_) => panic!("silent peer must not complete handshake"),
+            Err(other) => panic!("expected HandshakeTimeout, got {other}"),
+        }
+        let elapsed = start.elapsed();
+        assert!(
+            elapsed >= HANDSHAKE_IO_TIMEOUT,
+            "elapsed {elapsed:?} shorter than timeout"
+        );
+        assert!(
+            elapsed < HANDSHAKE_IO_TIMEOUT + Duration::from_secs(3),
+            "elapsed {elapsed:?} hung past timeout budget"
+        );
+    }
 }

@@ -64,7 +64,6 @@ pub fn build_admin_router(
         .route("/admin/mcp-sessions/annotate", post(annotate_session))
         .route("/admin/shutdown", post(shutdown_handler))
         .route("/admin/restart", post(restart_daemon))
-        .route("/admin/history", get(history))
         .with_state(state)
 }
 
@@ -159,16 +158,6 @@ async fn annotate_session(
     } else {
         Json(serde_json::json!({ "ok": false, "error": "id or matchClientName required" }))
     }
-}
-
-async fn history(State(state): State<AdminState>) -> Json<Value> {
-    let registry = state.app.registry.lock().await;
-    let params = FleetParams {
-        pids: None,
-        include: vec![FleetInclude::Tasks, FleetInclude::Cancelled],
-    };
-    let fleet = fleet_summary(&registry, &params, &[]);
-    Json(serde_json::json!({ "history": fleet.processes }))
 }
 
 /// Request process shutdown: set quit flag and cancel the serve loop.

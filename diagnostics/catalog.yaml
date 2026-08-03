@@ -45,7 +45,7 @@ entries:
     layer: fleet
     message: "Bridge package version incompatible with daemon"
     mitigation:
-      - "Upgrade daemon or bridge package so minDaemon is satisfied"
+      - "Reserved in v1; not emitted. Upgrade daemon or bridge package so minDaemon is satisfied when a future compat gate lands."
     references:
       - kind: doc
         id: bridge_package

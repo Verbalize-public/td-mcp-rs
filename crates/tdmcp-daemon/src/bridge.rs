@@ -37,18 +37,19 @@ use tdmcp_mcp::{BridgeRpc, BridgeRpcError};
 pub const JOB_CHANNEL_CAPACITY: usize = 32;
 
 /// Production default for `ping` / `inspect` / `capture` waits.
-pub const CALL_TIMEOUT: Duration = Duration::from_secs(45);
-/// Production default for `execute_python` / `mutate_nodes` waits.
-pub const SCRIPT_TIMEOUT: Duration = Duration::from_secs(120);
-
-/// Production idle heartbeat: ping every 5s; dead after 20s silence.
-pub const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
-/// Max wait for a heartbeat pong.
-pub const PONG_TIMEOUT: Duration = Duration::from_secs(8);
-/// Either side assumes the bridge dead after this much inbound silence.
-pub const IDLE_DEAD: Duration = Duration::from_secs(20);
 /// After bridge loss, drop the pid from the fleet if still disconnected.
 pub const DISCONNECTED_TTL: Duration = Duration::from_secs(15);
+
+/// Must match [`tdmcp_config::BridgeSection::default`] (enforced by unit test).
+pub const CALL_TIMEOUT: Duration = Duration::from_secs(45);
+/// Must match [`tdmcp_config::BridgeSection::default`].
+pub const SCRIPT_TIMEOUT: Duration = Duration::from_secs(120);
+/// Must match [`tdmcp_config::BridgeSection::default`].
+pub const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
+/// Must match [`tdmcp_config::BridgeSection::default`].
+pub const PONG_TIMEOUT: Duration = Duration::from_secs(8);
+/// Must match [`tdmcp_config::BridgeSection::default`].
+pub const IDLE_DEAD: Duration = Duration::from_secs(20);
 
 static CALL_ID: AtomicU64 = AtomicU64::new(1);
 static SESSION_GENERATION: AtomicU64 = AtomicU64::new(1);
@@ -68,26 +69,30 @@ pub struct HeartbeatConfig {
 }
 
 impl HeartbeatConfig {
-    /// Production defaults (5s / 8s / 20s).
+    /// Production defaults from [`tdmcp_config::BridgeSection::default`].
     #[must_use]
-    pub const fn production() -> Self {
-        Self {
-            enabled: true,
-            interval: HEARTBEAT_INTERVAL,
-            pong_timeout: PONG_TIMEOUT,
-            idle_dead: IDLE_DEAD,
-        }
+    pub fn production() -> Self {
+        Self::from(&tdmcp_config::BridgeSection::default())
     }
 
     /// Disable idle probes (existing integration tests that only touch the
     /// stream during tool calls).
     #[must_use]
-    pub const fn disabled() -> Self {
+    pub fn disabled() -> Self {
         Self {
             enabled: false,
-            interval: Duration::from_secs(5),
-            pong_timeout: Duration::from_secs(8),
-            idle_dead: Duration::from_secs(20),
+            ..Self::production()
+        }
+    }
+}
+
+impl From<&tdmcp_config::BridgeSection> for HeartbeatConfig {
+    fn from(b: &tdmcp_config::BridgeSection) -> Self {
+        Self {
+            enabled: true,
+            interval: Duration::from_secs(b.heartbeat_interval_secs),
+            pong_timeout: Duration::from_secs(b.pong_timeout_secs),
+            idle_dead: Duration::from_secs(b.idle_dead_secs),
         }
     }
 }
@@ -108,13 +113,10 @@ pub struct BridgeTimeouts {
 }
 
 impl BridgeTimeouts {
-    /// Production defaults (45s call / 120s script).
+    /// Production defaults from [`tdmcp_config::BridgeSection::default`].
     #[must_use]
-    pub const fn production() -> Self {
-        Self {
-            call: CALL_TIMEOUT,
-            script: SCRIPT_TIMEOUT,
-        }
+    pub fn production() -> Self {
+        Self::from(&tdmcp_config::BridgeSection::default())
     }
 
     /// Resolve the wait budget for a wire method name.
@@ -123,6 +125,15 @@ impl BridgeTimeouts {
         match BridgeMethod::from_wire(method) {
             Some(BridgeMethod::ExecutePython | BridgeMethod::MutateNodes) => self.script,
             _ => self.call,
+        }
+    }
+}
+
+impl From<&tdmcp_config::BridgeSection> for BridgeTimeouts {
+    fn from(b: &tdmcp_config::BridgeSection) -> Self {
+        Self {
+            call: Duration::from_secs(b.call_timeout_secs),
+            script: Duration::from_secs(b.script_timeout_secs),
         }
     }
 }
@@ -570,21 +581,31 @@ async fn teardown(
     sessions: Arc<Mutex<HashMap<u32, BridgeHandle>>>,
     disconnected_ttl: Duration,
 ) {
-    {
+    let superseded = {
         let mut s = sessions.lock().await;
         match s.get(&pid) {
             Some(handle) if handle.generation == generation => {
                 s.remove(&pid);
+                false
             }
-            _ => {
-                // Superseded by a newer session for this pid — do not touch registry.
-                warn!(
-                    pid,
-                    generation, "bridge session ended — superseded, skip loss"
-                );
-                return;
-            }
+            _ => true,
         }
+    };
+    if superseded {
+        // Do not mark Disconnected / start eviction TTL (a newer actor owns
+        // the pid), but clear stale queue slots so exclusive calls are not
+        // wedged forever.
+        let cancelled = {
+            let mut reg = registry.lock().await;
+            reg.cancel_queue_keep_connected(pid)
+        };
+        warn!(
+            pid,
+            generation,
+            cancelled = cancelled.len(),
+            "bridge session ended — superseded, queue cleared"
+        );
+        return;
     }
     {
         let mut reg = registry.lock().await;
@@ -641,27 +662,33 @@ pub async fn run_ipc_accept(
             .await
         {
             Ok(stream) => {
-                let pid = stream.pid;
-                let handshake = stream.handshake.clone();
-                {
-                    let mut reg = registry.lock().await;
-                    reg.handshake(
-                        pid,
-                        ProcessAttrs {
-                            title: handshake.title.clone(),
-                            toe_path: handshake.toe_path.clone(),
-                            fingerprint: tdmcp_core::ProcessFingerprint {
+                // Registry + session spawn off the accept loop so the next
+                // pipe/UDS accept can proceed immediately.
+                let registry = registry.clone();
+                let sessions = sessions.clone();
+                tokio::spawn(async move {
+                    let pid = stream.pid;
+                    let handshake = stream.handshake.clone();
+                    {
+                        let mut reg = registry.lock().await;
+                        reg.handshake(
+                            pid,
+                            ProcessAttrs {
                                 title: handshake.title.clone(),
-                                image: handshake.image.clone(),
-                                start_time: handshake.start_time.clone(),
+                                toe_path: handshake.toe_path.clone(),
+                                fingerprint: tdmcp_core::ProcessFingerprint {
+                                    title: handshake.title.clone(),
+                                    image: handshake.image.clone(),
+                                    start_time: handshake.start_time.clone(),
+                                },
+                                ..Default::default()
                             },
-                            ..Default::default()
-                        },
-                        Some(handshake.protocol_version.clone()),
-                        chrono::Utc::now(),
-                    );
-                }
-                sessions.spawn(pid, stream).await;
+                            Some(handshake.protocol_version.clone()),
+                            chrono::Utc::now(),
+                        );
+                    }
+                    sessions.spawn(pid, stream).await;
+                });
             }
             Err(e) => {
                 warn!(error = %e, "ipc accept_handshake failed — retrying");

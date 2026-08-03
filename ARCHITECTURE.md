@@ -44,7 +44,8 @@ testable without network or process mocking.
 `tdmcp-mcp` is the only crate that knows MCP tool schemas; it translates JSON
 args into core calls and core results into the `diagnostics` envelope.
 
-`tdmcp-daemon` is a **composition root** only (wiring, no business logic).
+`tdmcp-daemon` owns bridge session runtime (accept loop, per-pid actors,
+timeouts, teardown) plus process wiring (axum, admin, GUI spawn).
 
 ## Surfaces
 

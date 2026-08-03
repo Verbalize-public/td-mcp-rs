@@ -132,7 +132,7 @@ fn should_skip_path(rel: &Path) -> bool {
 pub fn default_data_dir() -> PathBuf {
     dirs::data_local_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join("tdmcp-rs")
+        .join(tdmcp_config::APP_DIR_NAME)
 }
 
 #[cfg(test)]

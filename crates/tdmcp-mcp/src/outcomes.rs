@@ -145,7 +145,14 @@ pub fn map_script_outcome(
                     Some(codes::SCRIPT_EXECUTION_FAILED) => codes::SCRIPT_EXECUTION_FAILED,
                     _ => codes::SCRIPT_EXECUTION_FAILED,
                 };
-                let mut item = build_diag(catalog, code, span, Some(msg), context);
+                let mut item = build_diag(
+                    catalog,
+                    code,
+                    span,
+                    Some(msg),
+                    context,
+                    DiagnosticLayer::Script,
+                );
                 item.raw_traceback = raw_traceback_for(
                     diagnostic_level,
                     env.traceback.or_else(|| {
@@ -271,11 +278,28 @@ pub fn map_perception_outcome(
         BridgeOutcome::Ok(value) => {
             let env = BridgeResultEnvelope::from_value(&value);
             if env.is_error() {
-                let code = env.code.as_deref().unwrap_or(codes::PERCEPTION_NO_PATH);
+                let code = match env.code.as_deref() {
+                    Some(codes::PERCEPTION_BLACK_FRAME) => codes::PERCEPTION_BLACK_FRAME,
+                    Some(codes::PERCEPTION_UNIFORM_FRAME) => codes::PERCEPTION_UNIFORM_FRAME,
+                    Some(codes::PERCEPTION_NO_PATH) => codes::PERCEPTION_NO_PATH,
+                    Some(codes::PERCEPTION_WRONG_FAMILY) => codes::PERCEPTION_WRONG_FAMILY,
+                    Some(codes::PERCEPTION_EMPTY_CHOP) => codes::PERCEPTION_EMPTY_CHOP,
+                    Some(codes::PERCEPTION_CHOP_TRUNCATED) => codes::PERCEPTION_CHOP_TRUNCATED,
+                    Some(codes::PERCEPTION_CONVERTER_FAILED) => codes::PERCEPTION_CONVERTER_FAILED,
+                    Some(codes::OP_NOT_FOUND) => codes::OP_NOT_FOUND,
+                    _ => codes::PERCEPTION_NO_PATH,
+                };
                 // Prefer bridge message/error; otherwise let catalog text win
                 // (avoids stomping e.g. black_frame with a generic fallback).
                 let msg = env.message.clone().or_else(|| env.error.clone());
-                let item = build_diag(catalog, code, span, msg, ctx(pid, Some(path), context_path));
+                let item = build_diag(
+                    catalog,
+                    code,
+                    span,
+                    msg,
+                    ctx(pid, Some(path), context_path),
+                    DiagnosticLayer::Perception,
+                );
                 let image = value
                     .get("imageBase64")
                     .and_then(|v| v.as_str())
@@ -311,9 +335,20 @@ pub fn map_inspect_outcome(
         BridgeOutcome::Ok(value) => {
             let env = BridgeResultEnvelope::from_value(&value);
             if env.is_error() {
-                let code = env.code.as_deref().unwrap_or(codes::OP_NOT_FOUND);
+                let code = match env.code.as_deref() {
+                    Some(codes::OP_NOT_FOUND) => codes::OP_NOT_FOUND,
+                    Some(codes::OP_INSPECT_FAILED) => codes::OP_INSPECT_FAILED,
+                    _ => codes::OP_NOT_FOUND,
+                };
                 let msg = env.message_or("inspect failed");
-                let item = build_diag(catalog, code, span, Some(msg), ctx(pid, path, context_path));
+                let item = build_diag(
+                    catalog,
+                    code,
+                    span,
+                    Some(msg),
+                    ctx(pid, path, context_path),
+                    DiagnosticLayer::Structure,
+                );
                 Err(failed_one(item))
             } else {
                 // Bridge already returns flat {ok, nodes: [...]}.
@@ -356,6 +391,7 @@ pub fn map_mutate_outcome(
                     },
                     Some(failure.message),
                     ctx(pid, failure.op_path, context_path),
+                    DiagnosticLayer::Mutate,
                 );
                 // Best-effort: never let malformed bridge lints drop the hard error.
                 item.lints = failure.lints;
@@ -505,6 +541,7 @@ fn queue_busy(catalog: &Catalog, tool: &str, pid: Pid) -> ToolCallError {
             "exclusive request rejected — queue non-empty (pid {pid})"
         )),
         ctx(pid, None, None),
+        DiagnosticLayer::Fleet,
     );
     failed_one(item)
 }
@@ -523,6 +560,7 @@ fn transport(catalog: &Catalog, tool: &str, pid: Pid, err: BridgeRpcError) -> To
         span(tool, None),
         Some(err.to_string()),
         ctx(pid, None, None),
+        DiagnosticLayer::Fleet,
     );
     failed_one(item)
 }
@@ -535,6 +573,7 @@ pub fn build_diag(
     span: DiagnosticSpan,
     message: Option<String>,
     context: DiagnosticContext,
+    fallback_layer: DiagnosticLayer,
 ) -> DiagnosticItem {
     match catalog.build_error(code, span.clone(), message.clone()) {
         Ok(mut item) => {
@@ -544,7 +583,7 @@ pub fn build_diag(
         Err(_) => DiagnosticItem {
             severity: DiagnosticSeverity::Error,
             code: code.to_owned(),
-            layer: DiagnosticLayer::Fleet,
+            layer: fallback_layer,
             message: message.unwrap_or_else(|| code.to_owned()),
             span,
             context,

@@ -1,7 +1,16 @@
 # td-mcp-rs
 
-Rust control plane for live TouchDesigner MCP. Multi-instance first: every call
-addresses a TD process by OS `pid`. No sticky target, no offline `.toe` editing.
+This is not another cheap MCP for touchdesigner.
+In this repo wou will find an curated MCP that focus on the following:
+
+- Support multiple touchdesigner window
+- Support multiple MCP consumer (eg: cursor + claude can coexists)
+- Strong IPC allowing reliable and resilient MCP<>DAEMON<>TD networking
+- Can orchestrate multiple machine (master/slave system, control two machine as one) (WIP - Architecture ready)
+- Offline toe/tox edition (eg offline injection of the MCP bridge)
+- Open/close touchdesigner window (WIP - POC ready, need clean implementaiton)
+- Dialog detection/auto-approval (WIP, POC read, need clean implementation)
+- Compatible with MAC OS and windows
 
 ## Install
 

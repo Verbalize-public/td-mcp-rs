@@ -144,6 +144,15 @@ impl PidRegistry {
         entry.resurrection.on_bridge_lost(cancelled, now);
     }
 
+    /// Clear pending/in-flight tasks without marking Disconnected or stacking
+    /// resurrection (same-pid supersede: new actor already owns the connection).
+    pub fn cancel_queue_keep_connected(&mut self, pid: u32) -> Vec<TaskInfo> {
+        let Some(entry) = self.entries.get_mut(&pid) else {
+            return Vec::new();
+        };
+        entry.queue.cancel_all()
+    }
+
     /// Remove `pid` only when it is still disconnected. Returns whether removed.
     pub fn evict_if_disconnected(&mut self, pid: u32) -> bool {
         match self.entries.get(&pid) {
@@ -267,6 +276,22 @@ mod tests {
             .enqueue(34, "ExclusiveB", TaskMode::Exclusive)
             .unwrap_err();
         assert!(matches!(err, EnqueueError::Queue(QueueError::Busy { .. })));
+    }
+
+    #[test]
+    fn cancel_queue_keep_connected_clears_without_disconnect() {
+        let mut r = PidRegistry::new();
+        let now = Utc::now();
+        r.handshake(34, attrs("proj"), Some("1".into()), now);
+        r.enqueue(34, "PythonEval", TaskMode::Shared).unwrap();
+        r.start_next(34).unwrap();
+        let cancelled = r.cancel_queue_keep_connected(34);
+        assert_eq!(cancelled.len(), 1);
+        let e = r.get(34).unwrap();
+        assert_eq!(e.bridge, BridgeStatus::Connected);
+        assert!(e.queue.is_empty());
+        assert!(e.resurrection.cancelled_tasks.is_empty());
+        r.enqueue(34, "ExclusiveB", TaskMode::Exclusive).unwrap();
     }
 
     #[test]

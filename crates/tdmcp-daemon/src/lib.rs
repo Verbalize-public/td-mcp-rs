@@ -9,6 +9,7 @@ pub mod autostart;
 pub mod bridge;
 pub mod config;
 pub mod ensure;
+pub mod http_util;
 pub mod idle;
 pub mod install;
 pub mod tracing_init;

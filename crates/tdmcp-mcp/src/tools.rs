@@ -31,6 +31,91 @@ use crate::schema::input_schema_for;
 /// timeout default (120s).
 pub const BRIDGE_TIMEOUT: Duration = Duration::from_secs(180);
 
+/// Soft-cap on `inspect` `paths[]` (bridge enforces; mirrored in docs).
+pub const INSPECT_PATHS_LIMIT: usize = 32;
+
+/// Soft-cap on each inspect node's direct-child roster.
+pub const CHILDREN_ROSTER_LIMIT: usize = 64;
+
+/// MCP tool names — one enum for descriptors, dispatch, and schemas.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ToolName {
+    /// Fleet discovery.
+    Fleet,
+    /// Run Python in TD.
+    ExecutePython,
+    /// Structural inspect.
+    Inspect,
+    /// Ordered mutate steps.
+    MutateNodes,
+    /// Perception capture.
+    Capture,
+    /// Tool manifest.
+    DescribeTools,
+}
+
+impl ToolName {
+    /// Wire / MCP tool name string.
+    #[must_use]
+    pub const fn wire_str(self) -> &'static str {
+        match self {
+            Self::Fleet => "fleet",
+            Self::ExecutePython => "execute_python",
+            Self::Inspect => "inspect",
+            Self::MutateNodes => "mutate_nodes",
+            Self::Capture => "capture",
+            Self::DescribeTools => "describe_tools",
+        }
+    }
+
+    /// One-line description for list/describe.
+    #[must_use]
+    pub const fn description(self) -> &'static str {
+        match self {
+            Self::Fleet => {
+                "Fleet view — TD processes by pid, bridge, tasks, cancelled traces"
+            }
+            Self::ExecutePython => {
+                "Run Python in TD; failures return structured exception (type/frames/syntax); default diagnosticLevel detailed; formatMode debug adds capped locals; prints tee to Debug DAT / logs."
+            }
+            Self::Inspect => {
+                "Structural read for an explicit paths[] batch (required, non-empty; soft-capped at 32). No auto-recursion — caller chooses nodes. Empty include defaults to nodes+errors+warnings; params opt-in; non-empty include is an allowlist. Params entries are {name, mode, val, expr?} (expr only when mode is EXPRESSION; val is evaluated and JSON-safe). Per-node summary includes a direct-child roster ({name, opType}); detailed adds path+family. Roster capped at 64 — when truncated see node.truncation. Bad paths return ok:false inline; siblings still succeed."
+            }
+            Self::MutateNodes => {
+                "Ordered create/set/delete/connect/disconnect steps; sequential apply, stop on first hard error; later steps skipped (tdmcp.batch.skipped_dependent). Fix from failedAt only."
+            }
+            Self::Capture => {
+                "Perception capture. top=native TOP JPEG; preview=any family via shared bridge OP Viewer TOP; chop_data=CHOP JSON; chop_image/pop=aliases of preview; auto=TOP→top, CHOP→chop_data, else preview."
+            }
+            Self::DescribeTools => "Manifest of available tools",
+        }
+    }
+
+    /// All v1 tools (descriptor / parity order).
+    pub const ALL: &[Self] = &[
+        Self::Fleet,
+        Self::ExecutePython,
+        Self::Inspect,
+        Self::MutateNodes,
+        Self::Capture,
+        Self::DescribeTools,
+    ];
+
+    /// Parse a wire tool name.
+    #[must_use]
+    pub fn from_wire(s: &str) -> Option<Self> {
+        match s {
+            "fleet" => Some(Self::Fleet),
+            "execute_python" => Some(Self::ExecutePython),
+            "inspect" => Some(Self::Inspect),
+            "mutate_nodes" => Some(Self::MutateNodes),
+            "capture" => Some(Self::Capture),
+            "describe_tools" => Some(Self::DescribeTools),
+            _ => None,
+        }
+    }
+}
+
 /// Static tool descriptor for `describe_tools` / MCP list.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -125,38 +210,15 @@ impl ToolFailPayload {
 /// Catalogue of v1 tools with derived schemas.
 #[must_use]
 pub fn tool_descriptors() -> Vec<ToolDescriptor> {
-    vec![
-        ToolDescriptor {
-            name: "fleet".into(),
-            description: "Fleet view — TD processes by pid, bridge, tasks, cancelled traces".into(),
-            input_schema: input_schema_for("fleet"),
-        },
-        ToolDescriptor {
-            name: "execute_python".into(),
-            description: "Run Python in TD; failures return structured exception (type/frames/syntax); default diagnosticLevel detailed; formatMode debug adds capped locals; prints tee to Debug DAT / logs.".into(),
-            input_schema: input_schema_for("execute_python"),
-        },
-        ToolDescriptor {
-            name: "inspect".into(),
-            description: "Structural read for an explicit paths[] batch (required, non-empty; soft-capped at 32). No auto-recursion — caller chooses nodes. Empty include defaults to nodes+errors+warnings; params opt-in; non-empty include is an allowlist. Params entries are {name, mode, val, expr?} (expr only when mode is EXPRESSION; val is evaluated and JSON-safe). Per-node summary includes a direct-child roster ({name, opType}); detailed adds path+family. Roster capped at 64 — when truncated see node.truncation. Bad paths return ok:false inline; siblings still succeed.".into(),
-            input_schema: input_schema_for("inspect"),
-        },
-        ToolDescriptor {
-            name: "mutate_nodes".into(),
-            description: "Ordered create/set/delete/connect/disconnect steps; sequential apply, stop on first hard error; later steps skipped (tdmcp.batch.skipped_dependent). Fix from failedAt only.".into(),
-            input_schema: input_schema_for("mutate_nodes"),
-        },
-        ToolDescriptor {
-            name: "capture".into(),
-            description: "Perception capture. top=native TOP JPEG; preview=any family via shared bridge OP Viewer TOP; chop_data=CHOP JSON; chop_image/pop=aliases of preview; auto=TOP→top, CHOP→chop_data, else preview.".into(),
-            input_schema: input_schema_for("capture"),
-        },
-        ToolDescriptor {
-            name: "describe_tools".into(),
-            description: "Manifest of available tools".into(),
-            input_schema: input_schema_for("describe_tools"),
-        },
-    ]
+    ToolName::ALL
+        .iter()
+        .copied()
+        .map(|tool| ToolDescriptor {
+            name: tool.wire_str().into(),
+            description: tool.description().into(),
+            input_schema: input_schema_for(tool),
+        })
+        .collect()
 }
 
 /// Locals capture mode for execute_python exception reports.
@@ -233,9 +295,6 @@ pub enum CaptureMode {
     /// Alias of `preview` (shared OP Viewer); kept for existing callers.
     Pop,
 }
-
-/// Soft cap on inspect `paths` batch size.
-pub const INSPECT_PATHS_LIMIT: usize = 32;
 
 impl CaptureMode {
     /// Wire string for the bridge.
@@ -447,8 +506,10 @@ pub async fn dispatch_tool(
     name: &str,
     args: Value,
 ) -> Result<Value, ToolCallError> {
-    match name {
-        "fleet" => {
+    let tool = ToolName::from_wire(name)
+        .ok_or_else(|| ToolCallError::UnknownTool(name.to_owned()))?;
+    match tool {
+        ToolName::Fleet => {
             let params: FleetParams = serde_json::from_value(args)
                 .map_err(|e| ToolCallError::InvalidArgs(e.to_string()))?;
             let want_tasks = params.include.contains(&crate::fleet::FleetInclude::Tasks);
@@ -472,8 +533,8 @@ pub async fn dispatch_tool(
                     .map_err(|e| ToolCallError::InvalidArgs(e.to_string()))?,
             )
         }
-        "describe_tools" => Ok(serde_json::json!({ "tools": tool_descriptors() })),
-        "execute_python" => {
+        ToolName::DescribeTools => Ok(serde_json::json!({ "tools": tool_descriptors() })),
+        ToolName::ExecutePython => {
             let params: ExecutePythonParams = serde_json::from_value(args)
                 .map_err(|e| ToolCallError::InvalidArgs(e.to_string()))?;
             let method = BridgeMethod::ExecutePython;
@@ -500,7 +561,7 @@ pub async fn dispatch_tool(
                 params.context_path.clone(),
             )
         }
-        "capture" => {
+        ToolName::Capture => {
             let params: CaptureParams = serde_json::from_value(args)
                 .map_err(|e| ToolCallError::InvalidArgs(e.to_string()))?;
             let method = BridgeMethod::Capture;
@@ -527,7 +588,7 @@ pub async fn dispatch_tool(
                 params.diagnostic_level,
             )
         }
-        "inspect" => {
+        ToolName::Inspect => {
             let params: InspectParams = serde_json::from_value(args)
                 .map_err(|e| ToolCallError::InvalidArgs(e.to_string()))?;
             if params.paths.is_empty() {
@@ -572,7 +633,7 @@ pub async fn dispatch_tool(
                 params.diagnostic_level,
             )
         }
-        "mutate_nodes" => {
+        ToolName::MutateNodes => {
             let params: MutateNodesParams = serde_json::from_value(args)
                 .map_err(|e| ToolCallError::InvalidArgs(e.to_string()))?;
             let method = BridgeMethod::MutateNodes;
@@ -599,7 +660,6 @@ pub async fn dispatch_tool(
                 params.diagnostic_level,
             )
         }
-        other => Err(ToolCallError::UnknownTool(other.to_owned())),
     }
 }
 

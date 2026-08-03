@@ -23,6 +23,7 @@ use rmcp::{ErrorData, RoleServer, ServerHandler};
 use serde_json::Value;
 
 use crate::schema::input_schema_for;
+use crate::tools::ToolName;
 use crate::session_registry::McpSessionRegistry;
 use crate::tools::{dispatch_tool, tool_descriptors, ToolCallError};
 use crate::AppState;
@@ -165,7 +166,8 @@ fn negotiate_protocol_version(
 fn tool_from_descriptor(d: crate::tools::ToolDescriptor) -> Tool {
     // Prefer the schema already attached to the descriptor (same SSOT as JSON fallback).
     let schema = if d.input_schema.is_empty() {
-        Arc::new(input_schema_for(&d.name))
+        let tool = ToolName::from_wire(&d.name).unwrap_or(ToolName::DescribeTools);
+        Arc::new(input_schema_for(tool))
     } else {
         Arc::new(d.input_schema)
     };

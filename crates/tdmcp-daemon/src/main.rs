@@ -258,7 +258,7 @@ fn main() -> Result<()> {
             let rt = tokio::runtime::Runtime::new().context("tokio runtime")?;
             rt.block_on(async {
                 let url = format!("http://127.0.0.1:{port}/mcp/health");
-                match http_get(&url).await {
+                match tdmcp_daemon::http_util::get_text(&url).await {
                     Ok(body) => {
                         println!("ok {body}");
                         Ok(())
@@ -275,7 +275,7 @@ fn main() -> Result<()> {
             let rt = tokio::runtime::Runtime::new().context("tokio runtime")?;
             rt.block_on(async {
                 let url = format!("http://127.0.0.1:{port}/admin/shutdown");
-                match http_post_empty(&url).await {
+                match tdmcp_daemon::http_util::post_empty(&url).await {
                     Ok(()) => {
                         println!("shutdown requested");
                         Ok(())
@@ -370,7 +370,7 @@ fn join_daemon_thread(
         }
         Ok(Err(_)) => {
             warn!("daemon thread panicked");
-            Ok(())
+            Err(anyhow::anyhow!("daemon thread panicked"))
         }
         Err(_) => {
             warn!(
@@ -586,32 +586,3 @@ async fn bind_with_retry(addr: SocketAddr) -> Result<tokio::net::TcpListener> {
     }
 }
 
-fn port_from_url(url: &str) -> u16 {
-    url.rsplit('/')
-        .nth(1)
-        .and_then(|hostport| hostport.rsplit(':').next())
-        .and_then(|p| p.parse().ok())
-        .unwrap_or(9860)
-}
-
-async fn http_get(url: &str) -> Result<String> {
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    let port = port_from_url(url);
-    let mut stream = tokio::net::TcpStream::connect(("127.0.0.1", port)).await?;
-    let req = "GET /mcp/health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
-    stream.write_all(req.as_bytes()).await?;
-    let mut buf = Vec::new();
-    stream.read_to_end(&mut buf).await?;
-    Ok(String::from_utf8_lossy(&buf).into_owned())
-}
-
-async fn http_post_empty(url: &str) -> Result<()> {
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    let port = port_from_url(url);
-    let mut stream = tokio::net::TcpStream::connect(("127.0.0.1", port)).await?;
-    let req = "POST /admin/shutdown HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
-    stream.write_all(req.as_bytes()).await?;
-    let mut buf = Vec::new();
-    stream.read_to_end(&mut buf).await?;
-    Ok(())
-}

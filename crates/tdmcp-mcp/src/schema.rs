@@ -5,7 +5,9 @@ use schemars::schema_for;
 use serde_json::Value;
 
 use crate::fleet::FleetParams;
-use crate::tools::{CaptureParams, ExecutePythonParams, InspectParams, MutateNodesParams};
+use crate::tools::{
+    CaptureParams, ExecutePythonParams, InspectParams, MutateNodesParams, ToolName,
+};
 
 /// Empty object schema for tools with no parameters.
 #[must_use]
@@ -14,17 +16,16 @@ pub fn empty_object_schema() -> JsonObject {
     v.as_object().cloned().unwrap_or_default()
 }
 
-/// Derived `inputSchema` for a named tool (SSOT = param type + schemars).
+/// Derived `inputSchema` for a tool (SSOT = param type + schemars).
 #[must_use]
-pub fn input_schema_for(tool_name: &str) -> JsonObject {
-    let schema = match tool_name {
-        "fleet" => schema_value::<FleetParams>(),
-        "execute_python" => schema_value::<ExecutePythonParams>(),
-        "capture" => schema_value::<CaptureParams>(),
-        "inspect" => schema_value::<InspectParams>(),
-        "mutate_nodes" => schema_value::<MutateNodesParams>(),
-        "describe_tools" => Value::Object(empty_object_schema()),
-        _ => Value::Object(empty_object_schema()),
+pub fn input_schema_for(tool: ToolName) -> JsonObject {
+    let schema = match tool {
+        ToolName::Fleet => schema_value::<FleetParams>(),
+        ToolName::ExecutePython => schema_value::<ExecutePythonParams>(),
+        ToolName::Capture => schema_value::<CaptureParams>(),
+        ToolName::Inspect => schema_value::<InspectParams>(),
+        ToolName::MutateNodes => schema_value::<MutateNodesParams>(),
+        ToolName::DescribeTools => Value::Object(empty_object_schema()),
     };
     // schemars may wrap with $schema / definitions — MCP wants a plain object schema.
     flatten_schema(schema)
@@ -52,14 +53,14 @@ mod tests {
 
     #[test]
     fn fleet_schema_is_object() {
-        let s = input_schema_for("fleet");
+        let s = input_schema_for(ToolName::Fleet);
         assert_eq!(s.get("type").and_then(Value::as_str), Some("object"));
         assert!(s.contains_key("properties"));
     }
 
     #[test]
     fn execute_python_requires_pid_and_script() {
-        let s = input_schema_for("execute_python");
+        let s = input_schema_for(ToolName::ExecutePython);
         let required = s
             .get("required")
             .and_then(Value::as_array)
@@ -72,7 +73,7 @@ mod tests {
 
     #[test]
     fn mutate_nodes_requires_pid_and_steps() {
-        let s = input_schema_for("mutate_nodes");
+        let s = input_schema_for(ToolName::MutateNodes);
         let required = s
             .get("required")
             .and_then(Value::as_array)

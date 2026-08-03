@@ -102,7 +102,7 @@ resurrection policy (Goals §7 / non-goal “Silent auto-reconnect”).
 | macOS / Linux | Unix domain socket | `{dataDir}/bridge.sock` |
 
 
-Handshake returns a local FS path to the bridge package directory. TD reloads from disk on every handshake. Package: `bridge/` + `manifest.json` (`protocolVersion`, `minDaemon`, entry).
+Handshake returns a local FS path to the bridge package directory. TD reloads from disk on every handshake. Package: `bridge/` + `manifest.json` (`protocolVersion`, `minDaemon`, entry). Post-connect handshake frame I/O is bounded at **5s** (`HANDSHAKE_IO_TIMEOUT`); a peer that connects then stalls is dropped so the accept loop can take the next connection. Handshake field `minDaemon` is **unused in v1** (always omitted by the daemon); `tdmcp.bridge.version` stays **reserved** in the catalog, not emitted.
 
 ### Addressing — Shipped
 
@@ -359,6 +359,8 @@ Result (summary):
 - `diagnosticLevel` (default `summary` on most bridge-backed tools) gates `rawTraceback` inclusion (`detailed` only). `**execute_python` defaults to `detailed**` (tool-local only — the global `DiagnosticLevel` default remains `summary`).
 
 **Mutation zones are not enforced by the daemon in v1.** Zone discipline lives in the agent layer (`creative-operator` → `cop-touchdesigner-mcp` → `reference/mutation-zones.md`): the agent only passes paths under a self-created named COMP or an authorized subtree. `tdmcp.op.outside_zone` stays **reserved** in the catalog, not emitted by the daemon. A future P2 may add per-pid zone registration if operate experience demands it.
+
+**Bridge package version checks are not enforced in v1.** `tdmcp.bridge.version` stays **reserved** in the catalog (not emitted). Handshake `minDaemon` is unused until a future compat gate lands.
 
 **Testability seam:** the bridge exposes a pure `apply_step(node, step) -> StepResult` function (no `td` import at the seam) so `bridge/tests/test_mutate.py` mirrors `test_inspect_summary.py` — no live TD required for shaping/parity. The `handle_mutate` wrapper does the `td.op()` resolution + calls `apply_step` per step.
 

@@ -1,0 +1,10 @@
+{
+  "inspect_paths_limit": 32,
+  "children_roster_limit": 64,
+  "bridge_timeout_secs": 180,
+  "call_timeout_secs": 45,
+  "script_timeout_secs": 120,
+  "heartbeat_interval_secs": 5,
+  "pong_timeout_secs": 8,
+  "idle_dead_secs": 20
+}

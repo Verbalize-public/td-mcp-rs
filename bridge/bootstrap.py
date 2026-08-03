@@ -72,6 +72,11 @@ def main() -> None:
     import_dir = _import_bridge_dir()
     if import_dir and import_dir not in sys.path:
         sys.path.insert(0, import_dir)
+    # TD keeps one interpreter across dialer retries — drop stale package
+    # modules so disk fixes (e.g. after ensure) are visible immediately.
+    for _name in list(sys.modules):
+        if _name == "tdmcp_bridge" or _name.startswith("tdmcp_bridge."):
+            del sys.modules[_name]
     try:
         import tdmcp_bridge  # noqa: E402  (path set above)
 

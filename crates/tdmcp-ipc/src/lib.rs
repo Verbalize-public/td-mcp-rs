@@ -8,4 +8,4 @@ mod listener;
 
 pub use framing::{encode, try_decode, FrameError, Message};
 pub use handshake::{HandshakeOffer, HandshakeRequest, HandshakeResponse};
-pub use listener::{BridgeEndpoint, IpcError, IpcListener, IpcStream};
+pub use listener::{BridgeEndpoint, IpcError, IpcListener, IpcStream, HANDSHAKE_IO_TIMEOUT};

@@ -1,0 +1,377 @@
+"""Main-thread task queue + serve_queued IPC worker loop."""
+from __future__ import annotations
+
+import queue
+import sys
+import threading
+import time
+import traceback
+from dataclasses import dataclass, field
+from typing import Any
+
+from .constants import (
+    DEFAULT_MAX_CALL_WAIT_S,
+    IDLE_DEAD_S,
+    _READ_POLL_S,
+)
+from .identity import (
+    _identity_snapshot,
+    _td_pid,
+    handshake,
+    idle_dead_from_handshake,
+    max_call_wait_from_handshake,
+)
+from .transport import (
+    MidFrameTimeout,
+    _apply_read_timeout,
+    _read_frame,
+    _write_frame,
+    dial,
+)
+
+
+def _dispatch(msg: dict[str, Any]) -> dict[str, Any]:
+    """Lazy import avoids package import cycles (HANDLERS live in ``__init__``)."""
+    from . import dispatch
+
+    return dispatch(msg)
+
+def serve(stream) -> None:
+    """Framed dispatch loop over a connected IPC stream — direct dispatch.
+
+    Runs `dispatch()` (and therefore any `td.*` call inside a handler)
+    **on the calling thread**. Only safe when the caller either *is* TD's
+    main thread and is fine blocking it (short-lived manual smoke tests), or
+    is guaranteed to never touch `op`/`td.project` (never true for our
+    handlers). Live TD sessions must use [`serve_queued`] instead.
+    """
+    while True:
+        try:
+            msg = _read_frame(stream)
+        except EOFError:
+            break
+        resp = _dispatch(msg)
+        _write_frame(stream, resp)
+
+
+# --- Main-thread-safe serving (worker thread enqueues, Execute DAT drains) --
+#
+# TD's Python API is only safe to call from the main/cook thread. The IPC
+# read is blocking, so it must live on a worker thread — but the worker must
+# never call `dispatch()` itself (that would run `td.*` off-thread). Instead
+# it enqueues a pending item and blocks on the response slot; a per-frame pump
+# on the main thread drains the queue, calls `dispatch()`, and unblocks the
+# worker. Only plain dicts and `queue.Queue` objects cross the thread
+# boundary — never an `OP`.
+#
+# The pending list is inspectable for the bootstrap Operator Viewer face
+# (`task_snapshot` / `pending_count` / `cancel_queued`).
+
+
+_SUMMARY_MAX = 36
+_SNAPSHOT_MAX = 12
+
+
+@dataclass
+class _PendingItem:
+    msg: dict[str, Any]
+    response_slot: "queue.Queue[dict[str, Any]]"
+    method: str
+    summary: str
+    enqueued_at: float = field(default_factory=time.monotonic)
+    req_id: Any = None
+    abandoned: bool = False
+
+
+_pending_lock = threading.Lock()
+_pending: list[_PendingItem] = []
+_running: _PendingItem | None = None
+
+
+def _deliver_response(item: _PendingItem, resp: dict[str, Any]) -> None:
+    """Unblock the worker without hanging if it already timed out."""
+    if item.abandoned:
+        return
+    try:
+        item.response_slot.put_nowait(resp)
+    except queue.Full:
+        pass
+
+
+def _abandon_pending(req_id: Any) -> None:
+    """Remove a queued item or mark the in-flight item abandoned after worker timeout."""
+    global _running
+    with _pending_lock:
+        for i, item in enumerate(_pending):
+            if item.req_id == req_id:
+                _pending.pop(i)
+                item.abandoned = True
+                return
+        if _running is not None and _running.req_id == req_id:
+            _running.abandoned = True
+
+
+def _short_text(s: str, n: int = _SUMMARY_MAX) -> str:
+    s = str(s or "").replace("\n", " ").strip()
+    if len(s) <= n:
+        return s
+    return s[: n - 1] + "~"
+
+
+def summarize_request(msg: dict[str, Any]) -> str:
+    """Short human describe for a bridge IPC request (face / task table)."""
+    method = str(msg.get("method") or "")
+    params = msg.get("params") or {}
+    if not isinstance(params, dict):
+        params = {}
+    if method == "execute_python":
+        script = str(params.get("script") or "")
+        for line in script.splitlines():
+            line = line.strip()
+            if line:
+                return _short_text(line)
+        return "execute_python"
+    if method == "inspect":
+        paths = params.get("paths")
+        if isinstance(paths, list) and paths:
+            if len(paths) == 1:
+                return _short_text(str(paths[0]))
+            return _short_text(f"inspect×{len(paths)}")
+        return _short_text(str(params.get("path") or "inspect"))
+    if method == "capture":
+        path = str(params.get("path") or "capture")
+        mode = str(params.get("mode") or "auto")
+        if mode and mode != "auto":
+            return _short_text(f"{path} ({mode})")
+        return _short_text(path)
+    if method == "mutate_nodes":
+        steps = params.get("steps") or []
+        n = len(steps) if isinstance(steps, list) else 0
+        first_op = ""
+        if isinstance(steps, list) and steps:
+            first = steps[0] if isinstance(steps[0], dict) else {}
+            first_op = str(first.get("op") or "")
+        if first_op:
+            return _short_text(f"{n}× {first_op}")
+        return _short_text(f"mutate×{n}")
+    if method == "ping":
+        return "ping"
+    return _short_text(method or "unknown")
+
+
+def _enqueue_pending(
+    msg: dict[str, Any], response_slot: "queue.Queue[dict[str, Any]]"
+) -> _PendingItem:
+    item = _PendingItem(
+        msg=msg,
+        response_slot=response_slot,
+        method=str(msg.get("method") or ""),
+        summary=summarize_request(msg),
+        req_id=msg.get("id"),
+    )
+    with _pending_lock:
+        _pending.append(item)
+    return item
+
+
+def _reset_pending_for_tests() -> None:
+    """Clear pending/running state — test harness only."""
+    global _running
+    with _pending_lock:
+        _pending.clear()
+        _running = None
+
+
+def pending_count() -> int:
+    """Queued + in-flight items awaiting / receiving main-thread dispatch."""
+    with _pending_lock:
+        return len(_pending) + (1 if _running is not None else 0)
+
+
+def task_snapshot() -> list[dict[str, Any]]:
+    """Running (0..1) then FIFO queued rows for the Operator Viewer face.
+
+    Caps at ``_SNAPSHOT_MAX`` rows. Age is seconds since enqueue.
+    """
+    now = time.monotonic()
+    rows: list[dict[str, Any]] = []
+    with _pending_lock:
+        if _running is not None:
+            rows.append(
+                {
+                    "state": "running",
+                    "method": _running.method,
+                    "summarize": _running.summary,
+                    "age_s": round(max(0.0, now - _running.enqueued_at), 1),
+                    "id": _running.req_id,
+                }
+            )
+        for item in _pending:
+            rows.append(
+                {
+                    "state": "queued",
+                    "method": item.method,
+                    "summarize": item.summary,
+                    "age_s": round(max(0.0, now - item.enqueued_at), 1),
+                    "id": item.req_id,
+                }
+            )
+    return rows[:_SNAPSHOT_MAX]
+
+
+def cancel_queued() -> int:
+    """Fail every **queued** pending item; does not abort in-flight dispatch.
+
+    Returns the number of cancelled items. Each worker blocked on its
+    response slot receives an error response so the IPC loop can continue.
+    """
+    with _pending_lock:
+        items = list(_pending)
+        _pending.clear()
+    for item in items:
+        _deliver_response(
+            item,
+            {
+                "type": "response",
+                "id": item.req_id,
+                "error": {
+                    "message": "cancelled",
+                    "code": "tdmcp.bridge.cancelled",
+                },
+            },
+        )
+    return len(items)
+
+
+def process_pending(max_items: int = 64) -> int:
+    """Drain the request queue and dispatch on the calling thread.
+
+    Call **only** from TD's main thread (an Execute DAT's `onFrameStart`).
+    Bounded per call so a burst of requests can't stall a frame indefinitely;
+    remaining items are picked up next frame.
+    """
+    global _running
+    n = 0
+    while n < max_items:
+        with _pending_lock:
+            if not _pending:
+                break
+            item = _pending.pop(0)
+            _running = item
+        try:
+            _deliver_response(item, _dispatch(item.msg))
+        except Exception as exc:  # noqa: BLE001 — never let the pump die
+            _deliver_response(
+                item,
+                {
+                    "type": "response",
+                    "id": item.req_id,
+                    "error": {"message": str(exc)},
+                },
+            )
+        finally:
+            with _pending_lock:
+                if _running is item:
+                    _running = None
+        n += 1
+    return n
+
+
+def _close_serve_stream(stream) -> None:
+    """Best-effort close so the daemon sees I/O failure instead of idle silence."""
+    try:
+        if hasattr(stream, "close"):
+            stream.close()
+    except Exception:  # noqa: BLE001 — teardown must not raise
+        pass
+
+
+def serve_queued(
+    stream,
+    *,
+    idle_dead_s: float = IDLE_DEAD_S,
+    max_call_wait_s: float = DEFAULT_MAX_CALL_WAIT_S,
+) -> None:
+    """Framed dispatch loop, worker-thread-safe for TD API methods.
+
+    ``ping`` is answered on this worker thread (daemon idle heartbeat) so a
+    paused timeline cannot look like a dead bridge. Other methods enqueue for
+    [`process_pending`] on the main thread.
+
+    Worker waits for the main-thread response up to ``max_call_wait_s``; on
+    timeout it writes a structured error and continues so the IPC stream is
+    not wedged after the daemon has already timed out the wait.
+
+    Exits on EOF, mid-frame stall (``idle_dead_s`` without byte progress), or
+    when no inbound frame arrives for ``idle_dead_s`` (when the stream
+    supports read timeouts). Always closes ``stream`` on exit so the peer
+    observes an immediate disconnect rather than waiting out heartbeat silence.
+    """
+    poll = min(_READ_POLL_S, idle_dead_s) if idle_dead_s > 0 else _READ_POLL_S
+    wait_s = max_call_wait_s if max_call_wait_s > 0 else DEFAULT_MAX_CALL_WAIT_S
+    try:
+        stream._mid_frame_dead_s = idle_dead_s if idle_dead_s > 0 else IDLE_DEAD_S
+    except Exception:  # noqa: BLE001 — stubs / frozen objects
+        pass
+    try:
+        _apply_read_timeout(stream, poll)
+    except Exception:  # noqa: BLE001 — makefile / test stubs may not support it
+        pass
+
+    last_recv = time.monotonic()
+    try:
+        while True:
+            try:
+                msg = _read_frame(stream, idle_dead_s=idle_dead_s)
+            except MidFrameTimeout:
+                # No progress for idle_dead_s mid-frame — stream is stuck/desynced.
+                break
+            except TimeoutError:
+                if idle_dead_s > 0 and (time.monotonic() - last_recv) >= idle_dead_s:
+                    break
+                continue
+            except EOFError:
+                break
+            except Exception:  # noqa: BLE001 — never kill the daemon thread silently
+                # Decode / unexpected stream errors: close cleanly with a trace.
+                sys.stderr.write(
+                    "tdmcp_bridge: serve_queued stopping after unexpected read error\n"
+                )
+                traceback.print_exc(file=sys.stderr)
+                break
+            last_recv = time.monotonic()
+            try:
+                if msg.get("type") != "request":
+                    continue
+                # Fast-path liveness — never touch the main-thread queue.
+                if msg.get("method") == "ping":
+                    _write_frame(stream, _dispatch(msg))
+                    continue
+                response_slot: "queue.Queue[dict[str, Any]]" = queue.Queue(maxsize=1)
+                _enqueue_pending(msg, response_slot)
+                try:
+                    resp = response_slot.get(timeout=wait_s)
+                except queue.Empty:
+                    req_id = msg.get("id")
+                    _abandon_pending(req_id)
+                    resp = {
+                        "type": "response",
+                        "id": req_id,
+                        "error": {
+                            "message": (
+                                f"main-thread dispatch did not complete within {wait_s:.0f}s "
+                                "(paused timeline or hung script); IPC unwedged"
+                            ),
+                            "code": "tdmcp.bridge.main_thread_timeout",
+                        },
+                    }
+                _write_frame(stream, resp)
+            except Exception:  # noqa: BLE001 — never kill the daemon thread silently
+                sys.stderr.write(
+                    "tdmcp_bridge: serve_queued stopping after dispatch/write error\n"
+                )
+                traceback.print_exc(file=sys.stderr)
+                break
+    finally:
+        _close_serve_stream(stream)
+

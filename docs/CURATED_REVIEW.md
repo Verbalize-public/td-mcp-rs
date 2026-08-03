@@ -31,7 +31,8 @@ IDE MCP → daemon → run_ipc_accept → accept_handshake/read_msg
 
 ### H1 — Supersede-while-in-flight can leave zombie `TaskQueue` slots
 
-**Code-path verified; needs an integration test.**
+**Status: fixed (Wave A).** Originally code-path verified; now covered by
+`superseding_while_in_flight_clears_queue_for_exclusive`.
 
 On disconnect/cancel mid-job, `run_tool_job` returns `JobLoop::Disconnect`
 **before** `complete_task`:
@@ -90,7 +91,8 @@ supersede-while-in-flight integration test.
 
 ### H2 — Serial IPC accept + unbounded handshake read can wedge all bridges
 
-**Code-path verified.**
+**Status: fixed (Wave A).** Handshake I/O timeout 5s; accept loop spawns
+post-accept work.
 
 `run_ipc_accept` awaits one `accept_handshake` at a time
 (`crates/tdmcp-daemon/src/bridge.rs` ~638–670). `read_msg` uses bare
@@ -233,3 +235,24 @@ already uses `reqwest` — fragile body parsing (`rfind('{')` in
 - **Wave A (stability):** H1 queue cancel on supersede + test; H2 handshake timeout + concurrent accept
 - **Wave B (types/SSOT):** ToolName enum; `DEFAULT_PORT` / `MAX_FRAME` / `data_dir`; limits fixture; wire-or-reserve `min_daemon`
 - **Wave C (cleanup):** history endpoint; HTTP via reqwest; outcome whitelist; panic exit code; bridge module split
+
+---
+
+## Remediation status (Waves A–C)
+
+| Wave | Item | Status |
+| --- | --- | --- |
+| A | H1 — `cancel_queue_keep_connected` on supersede teardown + in-flight test | **Fixed** |
+| A | H2 — 5s handshake I/O timeout, shared `MAX_FRAME`, post-accept spawn | **Fixed** |
+| B | `ToolName` enum + exhaustive schema/dispatch | **Fixed** |
+| B | `DEFAULT_PORT` / `APP_DIR_NAME` / single `default_data_dir` | **Fixed** |
+| B | `bridge/fixtures/limits.json` + Rust/Python parity | **Fixed** |
+| B | Heartbeat/timeouts `From<&BridgeSection>` | **Fixed** |
+| B | Reserve `tdmcp.bridge.version` (not wired rejection) | **Fixed** (reserved) |
+| C | Remove `/admin/history` | **Fixed** |
+| C | Daemon HTTP via shared `reqwest` helpers | **Fixed** |
+| C | Capture/inspect outcome code whitelist + `build_diag` layer fallback | **Fixed** |
+| C | Panic join → `Err` (non-success) | **Fixed** |
+| C | Bridge package split (`constants`/`paths`/`execute`/…/`task_queue`) | **Fixed** (`bridge/tests` green) |
+
+Still open from this review (out of A–C scope): M5 pipe handoff race, M6 stdio annotate, M7 dual MCP shaping, optional `codes.rs` codegen, missing `TODO_ENFORCE_TYPE.md` pointer.

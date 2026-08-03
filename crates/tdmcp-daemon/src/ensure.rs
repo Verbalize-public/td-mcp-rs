@@ -42,7 +42,7 @@ pub struct EnsureOptions {
 impl Default for EnsureOptions {
     fn default() -> Self {
         Self {
-            port: 9860,
+            port: tdmcp_config::DEFAULT_PORT,
             data_dir: install::default_data_dir(),
             exe: None,
             timeout: Duration::from_secs(15),
@@ -145,29 +145,12 @@ pub async fn ensure_daemon(opts: EnsureOptions) -> Result<EnsureResult> {
 
 /// GET `/mcp/health` and require JSON `ok: true`.
 pub async fn health_ok(port: u16) -> bool {
-    match http_get_health(port).await {
-        Ok(body) => {
-            // Body may include HTTP headers; scan for the JSON payload.
-            let json = body.rfind('{').map(|i| &body[i..]).unwrap_or(body.as_str());
-            match serde_json::from_str::<serde_json::Value>(json) {
-                Ok(v) => v.get("ok").and_then(|x| x.as_bool()) == Some(true),
-                Err(_) => false,
-            }
-        }
-        Err(_) => false,
+    let url = format!("http://127.0.0.1:{port}/mcp/health");
+    match tokio::time::timeout(Duration::from_millis(800), crate::http_util::get_json(&url)).await
+    {
+        Ok(Ok(v)) => v.get("ok").and_then(|x| x.as_bool()) == Some(true),
+        Ok(Err(_)) | Err(_) => false,
     }
-}
-
-async fn http_get_health(port: u16) -> Result<String> {
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    let mut stream = tokio::net::TcpStream::connect(("127.0.0.1", port)).await?;
-    let req = "GET /mcp/health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
-    stream.write_all(req.as_bytes()).await?;
-    let mut buf = Vec::new();
-    tokio::time::timeout(Duration::from_millis(800), stream.read_to_end(&mut buf))
-        .await
-        .context("health read timeout")??;
-    Ok(String::from_utf8_lossy(&buf).into_owned())
 }
 
 fn resolve_exe(override_exe: Option<&PathBuf>) -> Result<PathBuf> {

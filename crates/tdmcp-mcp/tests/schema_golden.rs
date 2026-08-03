@@ -10,7 +10,7 @@
 use std::path::PathBuf;
 
 use serde_json::Value;
-use tdmcp_mcp::input_schema_for;
+use tdmcp_mcp::{input_schema_for, ToolName};
 
 fn fixtures_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/schemas")
@@ -19,7 +19,8 @@ fn fixtures_dir() -> PathBuf {
 fn assert_schema_matches(tool: &str) {
     let dir = fixtures_dir();
     let path = dir.join(format!("{tool}.json"));
-    let actual = Value::Object(input_schema_for(tool));
+    let name = ToolName::from_wire(tool).unwrap_or_else(|| panic!("unknown tool {tool}"));
+    let actual = Value::Object(input_schema_for(name));
     if std::env::var("UPDATE_GOLDEN").as_deref() == Ok("1") {
         std::fs::create_dir_all(&dir).expect("create fixtures dir");
         let pretty = serde_json::to_string_pretty(&actual).unwrap() + "\n";
