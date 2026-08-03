@@ -22,12 +22,24 @@ before declaring a gate green.
 5. `mutate_nodes` sequential apply — stops at first hard failure (`failedAt`); later steps emit `tdmcp.batch.skipped_dependent`; pure `apply_step` seam unit-covered without TD (`bridge/tests/test_mutate.py` + `mcp_tools.rs`).
 6. Diagnostics catalog completeness — every emitted `code` has a catalog entry.
 7. Stdio proxy reconnect — kill HTTP daemon mid-session → `tdmcp.daemon.unreachable`; restart on same port → subsequent `fleet` succeeds without relaunching the stdio process; watcher heals without an intervening successful tool call (`crates/tdmcp-daemon/tests/stdio_proxy.rs`).
+8. **Concurrency fuse ladder** (no live TD) — `crates/tdmcp-daemon/tests/concurrency_fuses.rs`:
+   - Easy: two shared same pid; exclusive rejects while shared held; two pids concurrent OK
+   - Medium: shared storm FIFO echo (`K=8`); exclusive storm while held; pid-loss isolates peer
+   - Hard: saturate actor `JOB_CHANNEL_CAPACITY` then drain; saturate then disconnect flushes; supersede while in-flight held
+   - Extreme: saturate then supersede; asymmetric A-saturate / B-storm
+   - Reproducibility: `Notify` phase barriers (not sleep-as-sync); poll-with-budget; outer + caller timeouts; Medium+ use `multi_thread` (4 workers). Double-run baseline: [`CONCURRENCY_FUSES_BASELINE.md`](CONCURRENCY_FUSES_BASELINE.md).
 
 ## Running
 
 ```text
 cargo test --workspace
 scripts/check.ps1
+```
+
+Concurrency fuses only:
+
+```text
+cargo test -p tdmcp-daemon --test concurrency_fuses -- --nocapture --test-threads=1
 ```
 
 Integration tests spin a fake TD peer via `tdmcp-test-support` speaking the real
