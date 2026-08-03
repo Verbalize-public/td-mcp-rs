@@ -280,6 +280,28 @@ entries:
       - kind: corpus
         id: corpora/td-software/distilled/python-td-module/README.md
 
+  - code: tdmcp.script.too_large
+    layer: script
+    message: "execute_python script exceeds the bridge size cap"
+    mitigation:
+      - "Split the script into smaller execute_python calls"
+      - "Prefer mutate_nodes for create/wire/set/delete batches"
+      - "Keep custom-page / bulk setup scripts under 1 MiB UTF-8"
+    references:
+      - kind: doc
+        id: execute_python
+
+  - code: tdmcp.script.result_too_large
+    layer: script
+    message: "execute_python result JSON exceeds the bridge size cap"
+    mitigation:
+      - "Return a smaller result (paths/ids/summaries, not full dumps)"
+      - "Prefer inspect / mutate_nodes for structural reads"
+      - "Keep result JSON under 1 MiB UTF-8 so the IPC frame cannot hard-drop"
+    references:
+      - kind: doc
+        id: execute_python
+
   - code: tdmcp.td.glsl_compile
     layer: structure
     message: "GLSL compile / cook error reported by TouchDesigner"

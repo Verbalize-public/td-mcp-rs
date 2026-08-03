@@ -145,9 +145,11 @@ inbound framed traffic). Any successful request/response (including ping/pong)
 resets the inactivity clock. Missed pong or idle-dead → same teardown as IPC
 loss. The bridge answers `ping` on the IPC worker thread (no main-thread
 `process_pending`) and exits its serve loop after **15s** inbound silence when
-read timeouts are available. Idle detection and fleet eviction are separate
-clocks (each up to **15s**). `GET /mcp/health` remains daemon-process liveness
-only — not bridge peer health.
+read timeouts are available. Mid-frame reads tolerate short poll stalls; the
+bridge only treats a transfer as dead after **15s** with **no byte progress**
+(then disconnects and closes the stream). Idle detection and fleet eviction are
+separate clocks (each up to **15s**). IPC frames are hard-capped at **16 MiB**.
+`GET /mcp/health` remains daemon-process liveness only — not bridge peer health.
 
 ---
 
@@ -367,6 +369,7 @@ Canonical output echoes TD’s absolute `node.path`. `execute_python` is OpPath-
 | Success            | `{ ok: true, result, logs? }` — `logs` omitted when `includeLogs: false`                                                                                                      |
 | Failure            | `diagnostics.context.logs` carries the same capture; see structured `exception` below                                                                                         |
 | Scope              | Only stdio (`print` / writes to stdout/stderr). TD `debug()` may bypass stdio                                                                                                 |
+| Size caps          | Script UTF-8 ≤ **1 MiB** (`tdmcp.script.too_large`); JSON-encoded `result` ≤ **1 MiB** (`tdmcp.script.result_too_large`). Caps keep framed IPC under the 16 MiB hard frame limit — oversize fails soft, never drops the bridge. Prefer `mutate_nodes` for create/wire/set batches. |
 
 
 ### `execute_python` structured exception — Shipped
@@ -392,7 +395,7 @@ On soft-fail the bridge returns additive `{ error, traceback, exception }` (stri
 | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `diagnosticLevel` | **Default `detailed`** on this tool only. `summary` omits `rawTraceback` but **keeps** structured `exception`.                                                                      |
 | `formatMode`      | `normal` (default) | `debug`. `debug` asks the bridge for capped locals on `<string>` frames; daemon strips `locals` unless `debug`.                                                |
-| MCP item          | Hard code stays `tdmcp.script.execution_failed`. `items[0].exception` carries the reduced report. `span.line` / `column` / `snippet` filled from `syntax` or last `<string>` frame. |
+| MCP item          | Hard code is bridge `code` when set (`tdmcp.script.too_large` / `tdmcp.script.result_too_large`), else `tdmcp.script.execution_failed`. `items[0].exception` carries the reduced report. `span.line` / `column` / `snippet` filled from `syntax` or last `<string>` frame. |
 | Nested lint       | `tdmcp.script.none_op` when `type == AttributeError` and message contains `NoneType` (hints never change the hard code).                                                            |
 | Locals policy     | Max 8 names / frame, repr ≤ 120 chars, skip callables/modules; never fails the report.                                                                                              |
 

@@ -30,14 +30,19 @@ PONG_TIMEOUT_S = 5.0
 IDLE_DEAD_S = 15.0
 # Short poll so serve_queued can notice IDLE_DEAD without blocking forever.
 _READ_POLL_S = 1.0
+# execute_python payload caps — keep framed JSON well under the 16 MiB IPC MAX_FRAME.
+SCRIPT_MAX_BYTES = 1 * 1024 * 1024
+RESULT_MAX_BYTES = 1 * 1024 * 1024
 
 
 class MidFrameTimeout(TimeoutError):
-    """Read timed out after partial frame bytes were already consumed.
+    """No byte progress while a frame was already partially consumed.
 
-    Distinct from a clean idle ``TimeoutError`` (zero bytes). Continuing to
-    read after this leaves the byte stream desynced — ``serve_queued`` must
-    disconnect rather than ``continue``.
+    Distinct from a clean idle ``TimeoutError`` (zero bytes at a frame
+    boundary). A single short read-poll stall mid-transfer is **not** fatal —
+    streams retry until ``IDLE_DEAD_S`` of silence since the last progress.
+    After that, the byte stream is assumed stuck/desynced and
+    ``serve_queued`` must disconnect rather than ``continue``.
     """
 
 # Wire method names — must match tdmcp_core::BridgeMethod::wire_str() exactly.
@@ -105,12 +110,14 @@ class BridgeErrResult(TypedDict):
     exception: NotRequired[dict[str, Any]]
 
 
-def _read_frame(stream) -> dict[str, Any]:
+def _read_frame(stream, *, idle_dead_s: float = IDLE_DEAD_S) -> dict[str, Any]:
     """Read one length-prefixed JSON frame.
 
     Raises:
         EOFError: peer closed / short read that is not a timeout.
-        TimeoutError: underlying stream read timed out (idle poll).
+        TimeoutError: underlying stream read timed out (idle poll at frame boundary).
+        MidFrameTimeout: no byte progress for ``idle_dead_s`` after the header
+            (or mid-body) — stream is stuck/desynced.
     """
     try:
         header = stream.read(4)
@@ -123,15 +130,34 @@ def _read_frame(stream) -> dict[str, Any]:
             raise EOFError("short header")
         raise EOFError("short header")
     (length,) = struct.unpack("<I", header)
+    # Header consumed ⇒ mid-frame even before any body bytes arrive. Tolerate
+    # short poll stalls; only die after idle_dead_s with no progress.
+    body = bytearray()
+    last_progress = time.monotonic()
+    while len(body) < length:
+        remaining = length - len(body)
+        try:
+            chunk = stream.read(remaining)
+        except MidFrameTimeout:
+            raise
+        except TimeoutError as exc:
+            if idle_dead_s > 0 and (time.monotonic() - last_progress) >= idle_dead_s:
+                raise MidFrameTimeout("timed out mid-frame") from exc
+            continue
+        if not chunk:
+            raise EOFError("short body")
+        body += chunk
+        last_progress = time.monotonic()
+    return json.loads(bytes(body).decode("utf-8"))
+
+
+def _mid_frame_dead_s(stream, default: float = IDLE_DEAD_S) -> float:
+    """Per-stream mid-frame stall budget (set by ``serve_queued``)."""
+    value = getattr(stream, "_mid_frame_dead_s", default)
     try:
-        body = stream.read(length)
-    except MidFrameTimeout:
-        raise
-    except TimeoutError as exc:
-        raise MidFrameTimeout("timed out mid-frame") from exc
-    if len(body) < length:
-        raise EOFError("short body")
-    return json.loads(body.decode("utf-8"))
+        return float(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def _apply_read_timeout(stream, seconds: float) -> None:
@@ -143,8 +169,13 @@ def _apply_read_timeout(stream, seconds: float) -> None:
 
 def _write_frame(stream, msg: dict[str, Any]) -> None:
     body = json.dumps(msg).encode("utf-8")
-    stream.write(struct.pack("<I", len(body)))
-    stream.write(body)
+    header = struct.pack("<I", len(body))
+    n = stream.write(header)
+    if n != len(header):
+        raise OSError(f"short write: header {n}/{len(header)}")
+    n = stream.write(body)
+    if n != len(body):
+        raise OSError(f"short write: body {n}/{len(body)}")
     stream.flush()
 
 
@@ -260,11 +291,33 @@ def _append_debug_dat(logs: str) -> None:
             pass
 
 
+def _json_utf8_size(value: Any) -> int:
+    """UTF-8 byte length of ``value`` as JSON (compact separators)."""
+    return len(json.dumps(value, separators=(",", ":"), default=str).encode("utf-8"))
+
+
 def handle_execute_python(params: dict[str, Any]) -> dict[str, Any]:
     global _capture_depth
     from .exception_report import build_exception_report
 
     script = params.get("script") or ""
+    if not isinstance(script, str):
+        script = str(script)
+    script_bytes = len(script.encode("utf-8"))
+    if script_bytes > SCRIPT_MAX_BYTES:
+        return {
+            "ok": False,
+            "error": (
+                f"script exceeds {SCRIPT_MAX_BYTES} bytes "
+                f"(got {script_bytes}); split the batch or prefer mutate_nodes"
+            ),
+            "code": "tdmcp.script.too_large",
+            "message": (
+                f"script exceeds {SCRIPT_MAX_BYTES} bytes "
+                f"(got {script_bytes}); split the batch or prefer mutate_nodes"
+            ),
+        }
+
     context_path = params.get("contextPath")
     include_logs = params.get("includeLogs")
     if include_logs is None:
@@ -309,10 +362,26 @@ def handle_execute_python(params: dict[str, Any]) -> dict[str, Any]:
     try:
         try:
             exec(script, local_vars, local_vars)  # noqa: S102 — intentional TD script surface
-            out: dict[str, Any] = {
-                "result": local_vars.get("result"),
-                "ok": True,
-            }
+            result_value = local_vars.get("result")
+            result_bytes = _json_utf8_size(result_value)
+            if result_bytes > RESULT_MAX_BYTES:
+                out: dict[str, Any] = {
+                    "ok": False,
+                    "error": (
+                        f"result JSON exceeds {RESULT_MAX_BYTES} bytes "
+                        f"(got {result_bytes}); return a smaller result"
+                    ),
+                    "code": "tdmcp.script.result_too_large",
+                    "message": (
+                        f"result JSON exceeds {RESULT_MAX_BYTES} bytes "
+                        f"(got {result_bytes}); return a smaller result"
+                    ),
+                }
+            else:
+                out = {
+                    "result": result_value,
+                    "ok": True,
+                }
         except Exception as exc:  # noqa: BLE001 — surface to diagnostics
             raw_tb = traceback.format_exc()
             out = {
@@ -2027,16 +2096,22 @@ class _UdsStream:
         import socket as _socket
 
         out = bytearray()
+        last_progress = time.monotonic()
         while len(out) < n:
             try:
                 chunk = self._sock.recv(n - len(out))
             except _socket.timeout as exc:
                 if not out:
                     raise TimeoutError("uds read timed out") from exc
-                raise MidFrameTimeout("uds read timed out mid-frame") from exc
+                if (time.monotonic() - last_progress) >= _mid_frame_dead_s(self):
+                    raise MidFrameTimeout(
+                        "uds read stalled mid-frame with no progress"
+                    ) from exc
+                continue
             if not chunk:
                 break
             out += chunk
+            last_progress = time.monotonic()
         return bytes(out)
 
     def write(self, data: bytes) -> int:
@@ -2139,6 +2214,7 @@ class _NamedPipeStream:
 
     def read(self, n: int) -> bytes:
         out = bytearray()
+        last_progress = time.monotonic()
         while len(out) < n:
             want = min(n - len(out), len(self._buf))
             read = self._wintypes.DWORD(0)
@@ -2158,30 +2234,46 @@ class _NamedPipeStream:
                 ):
                     if not out:
                         raise TimeoutError("named pipe read timed out")
-                    raise MidFrameTimeout("named pipe read timed out mid-frame")
+                    if (time.monotonic() - last_progress) >= _mid_frame_dead_s(self):
+                        raise MidFrameTimeout(
+                            "named pipe read stalled mid-frame with no progress"
+                        )
+                    continue
                 break
             if read.value == 0:
                 # Timeout with zero bytes can also surface as success+0.
                 if self._read_timeout_ms is not None and not out:
                     raise TimeoutError("named pipe read timed out")
                 if self._read_timeout_ms is not None and out:
-                    raise MidFrameTimeout("named pipe read timed out mid-frame")
+                    if (time.monotonic() - last_progress) >= _mid_frame_dead_s(self):
+                        raise MidFrameTimeout(
+                            "named pipe read stalled mid-frame with no progress"
+                        )
+                    continue
                 break
             out += bytes(self._buf[: read.value])
+            last_progress = time.monotonic()
         return bytes(out)
 
     def write(self, data: bytes) -> int:
-        written = self._wintypes.DWORD(0)
-        ok = self._kernel32.WriteFile(
-            self._handle,
-            data,
-            len(data),
-            ctypes.byref(written),
-            None,
-        )
-        if not ok:
-            raise OSError("WriteFile failed")
-        return written.value
+        """Write all of ``data`` (loop WriteFile — partial writes are normal)."""
+        total = 0
+        while total < len(data):
+            written = self._wintypes.DWORD(0)
+            chunk = data[total:]
+            ok = self._kernel32.WriteFile(
+                self._handle,
+                chunk,
+                len(chunk),
+                ctypes.byref(written),
+                None,
+            )
+            if not ok:
+                raise OSError("WriteFile failed")
+            if written.value == 0:
+                raise OSError("WriteFile wrote 0 bytes")
+            total += written.value
+        return total
 
     def flush(self) -> None:  # noqa: D401
         return None
@@ -2565,6 +2657,15 @@ def process_pending(max_items: int = 64) -> int:
     return n
 
 
+def _close_serve_stream(stream) -> None:
+    """Best-effort close so the daemon sees I/O failure instead of idle silence."""
+    try:
+        if hasattr(stream, "close"):
+            stream.close()
+    except Exception:  # noqa: BLE001 — teardown must not raise
+        pass
+
+
 def serve_queued(stream, *, idle_dead_s: float = IDLE_DEAD_S) -> None:
     """Framed dispatch loop, worker-thread-safe for TD API methods.
 
@@ -2572,53 +2673,62 @@ def serve_queued(stream, *, idle_dead_s: float = IDLE_DEAD_S) -> None:
     paused timeline cannot look like a dead bridge. Other methods enqueue for
     [`process_pending`] on the main thread.
 
-    Exits on EOF, or when no inbound frame arrives for ``idle_dead_s`` (when
-    the stream supports read timeouts).
+    Exits on EOF, mid-frame stall (``idle_dead_s`` without byte progress), or
+    when no inbound frame arrives for ``idle_dead_s`` (when the stream
+    supports read timeouts). Always closes ``stream`` on exit so the peer
+    observes an immediate disconnect rather than waiting out heartbeat silence.
     """
     poll = min(_READ_POLL_S, idle_dead_s) if idle_dead_s > 0 else _READ_POLL_S
+    try:
+        stream._mid_frame_dead_s = idle_dead_s if idle_dead_s > 0 else IDLE_DEAD_S
+    except Exception:  # noqa: BLE001 — stubs / frozen objects
+        pass
     try:
         _apply_read_timeout(stream, poll)
     except Exception:  # noqa: BLE001 — makefile / test stubs may not support it
         pass
 
     last_recv = time.monotonic()
-    while True:
-        try:
-            msg = _read_frame(stream)
-        except MidFrameTimeout:
-            # Partial frame already consumed — stream is desynced; disconnect.
-            break
-        except TimeoutError:
-            if idle_dead_s > 0 and (time.monotonic() - last_recv) >= idle_dead_s:
+    try:
+        while True:
+            try:
+                msg = _read_frame(stream, idle_dead_s=idle_dead_s)
+            except MidFrameTimeout:
+                # No progress for idle_dead_s mid-frame — stream is stuck/desynced.
                 break
-            continue
-        except EOFError:
-            break
-        except Exception:  # noqa: BLE001 — never kill the daemon thread silently
-            # Decode / unexpected stream errors: close cleanly with a trace.
-            sys.stderr.write(
-                "tdmcp_bridge: serve_queued stopping after unexpected read error\n"
-            )
-            traceback.print_exc(file=sys.stderr)
-            break
-        last_recv = time.monotonic()
-        try:
-            if msg.get("type") != "request":
+            except TimeoutError:
+                if idle_dead_s > 0 and (time.monotonic() - last_recv) >= idle_dead_s:
+                    break
                 continue
-            # Fast-path liveness — never touch the main-thread queue.
-            if msg.get("method") == "ping":
-                _write_frame(stream, dispatch(msg))
-                continue
-            response_slot: "queue.Queue[dict[str, Any]]" = queue.Queue(maxsize=1)
-            _enqueue_pending(msg, response_slot)
-            resp = response_slot.get()
-            _write_frame(stream, resp)
-        except Exception:  # noqa: BLE001 — never kill the daemon thread silently
-            sys.stderr.write(
-                "tdmcp_bridge: serve_queued stopping after dispatch/write error\n"
-            )
-            traceback.print_exc(file=sys.stderr)
-            break
+            except EOFError:
+                break
+            except Exception:  # noqa: BLE001 — never kill the daemon thread silently
+                # Decode / unexpected stream errors: close cleanly with a trace.
+                sys.stderr.write(
+                    "tdmcp_bridge: serve_queued stopping after unexpected read error\n"
+                )
+                traceback.print_exc(file=sys.stderr)
+                break
+            last_recv = time.monotonic()
+            try:
+                if msg.get("type") != "request":
+                    continue
+                # Fast-path liveness — never touch the main-thread queue.
+                if msg.get("method") == "ping":
+                    _write_frame(stream, dispatch(msg))
+                    continue
+                response_slot: "queue.Queue[dict[str, Any]]" = queue.Queue(maxsize=1)
+                _enqueue_pending(msg, response_slot)
+                resp = response_slot.get()
+                _write_frame(stream, resp)
+            except Exception:  # noqa: BLE001 — never kill the daemon thread silently
+                sys.stderr.write(
+                    "tdmcp_bridge: serve_queued stopping after dispatch/write error\n"
+                )
+                traceback.print_exc(file=sys.stderr)
+                break
+    finally:
+        _close_serve_stream(stream)
 
 
 def _env_bridge_dir() -> str | None:

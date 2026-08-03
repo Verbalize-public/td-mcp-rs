@@ -63,6 +63,10 @@ pub const WIRE_CONNECT_FAILED: &str = "tdmcp.wire.connect_failed";
 pub const SCRIPT_EXECUTION_FAILED: &str = "tdmcp.script.execution_failed";
 /// Lint: AttributeError on None — likely missing op() / bad path.
 pub const SCRIPT_NONE_OP: &str = "tdmcp.script.none_op";
+/// execute_python script UTF-8 size exceeds bridge cap.
+pub const SCRIPT_TOO_LARGE: &str = "tdmcp.script.too_large";
+/// execute_python result JSON UTF-8 size exceeds bridge cap.
+pub const SCRIPT_RESULT_TOO_LARGE: &str = "tdmcp.script.result_too_large";
 
 /// GLSL compile / cook error from TD.
 pub const TD_GLSL_COMPILE: &str = "tdmcp.td.glsl_compile";
@@ -111,6 +115,8 @@ pub const ALL: &[&str] = &[
     WIRE_CONNECT_FAILED,
     SCRIPT_EXECUTION_FAILED,
     SCRIPT_NONE_OP,
+    SCRIPT_TOO_LARGE,
+    SCRIPT_RESULT_TOO_LARGE,
     TD_GLSL_COMPILE,
     PERCEPTION_BLACK_FRAME,
     PERCEPTION_UNIFORM_FRAME,

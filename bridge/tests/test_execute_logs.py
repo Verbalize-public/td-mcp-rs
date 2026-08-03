@@ -166,3 +166,24 @@ def test_execute_python_keeps_tdmcp_resolve(monkeypatch: pytest.MonkeyPatch) -> 
     )
     assert out["ok"] is True
     assert out["result"] == "ok"
+
+
+def test_execute_python_rejects_oversized_script() -> None:
+    script = "x" * (bridge.SCRIPT_MAX_BYTES + 1)
+    out = bridge.handle_execute_python({"script": script, "includeLogs": False})
+    assert out["ok"] is False
+    assert out["code"] == "tdmcp.script.too_large"
+    assert "exceeds" in (out.get("error") or "")
+
+
+def test_execute_python_rejects_oversized_result() -> None:
+    # Tiny script builds a large runtime result (must not trip SCRIPT_MAX_BYTES).
+    out = bridge.handle_execute_python(
+        {
+            "script": f"result = 'x' * {bridge.RESULT_MAX_BYTES + 64}",
+            "includeLogs": False,
+        }
+    )
+    assert out["ok"] is False
+    assert out["code"] == "tdmcp.script.result_too_large"
+    assert out.get("result") is None

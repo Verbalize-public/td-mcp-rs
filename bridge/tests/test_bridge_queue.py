@@ -302,12 +302,14 @@ class WindowsPipeDisconnectTest(unittest.TestCase):
 
 
 class MidFrameTimeoutServeTest(unittest.TestCase):
-    """serve_queued must disconnect on mid-frame timeout, not silently continue."""
+    """serve_queued must disconnect on mid-frame stall, not silently continue."""
 
     def setUp(self) -> None:
         tdmcp_bridge._reset_pending_for_tests()  # noqa: SLF001
 
     def test_mid_frame_timeout_exits_cleanly(self) -> None:
+        closed = {"n": 0}
+
         class BoomStream:
             def set_read_timeout(self, _seconds: float | None) -> None:
                 return None
@@ -318,11 +320,16 @@ class MidFrameTimeoutServeTest(unittest.TestCase):
             def write(self, data: bytes) -> int:
                 return len(data)
 
+            def close(self) -> None:
+                closed["n"] += 1
+
         # Must return (not hang) when the first read raises MidFrameTimeout.
         tdmcp_bridge.serve_queued(BoomStream(), idle_dead_s=30.0)
+        self.assertEqual(closed["n"], 1, "serve_queued must close stream on exit")
 
     def test_clean_idle_timeout_continues_until_idle_dead(self) -> None:
         calls = {"n": 0}
+        closed = {"n": 0}
 
         class IdleStream:
             def set_read_timeout(self, _seconds: float | None) -> None:
@@ -335,13 +342,93 @@ class MidFrameTimeoutServeTest(unittest.TestCase):
             def write(self, data: bytes) -> int:
                 return len(data)
 
+            def close(self) -> None:
+                closed["n"] += 1
+
         started = time.monotonic()
         tdmcp_bridge.serve_queued(IdleStream(), idle_dead_s=0.15)
         elapsed = time.monotonic() - started
         self.assertGreaterEqual(calls["n"], 2)
         self.assertLess(elapsed, 2.0)
+        self.assertEqual(closed["n"], 1)
+
+    def test_mid_frame_progress_retries_then_completes(self) -> None:
+        """Short stalls mid-body must not disconnect while bytes keep arriving."""
+        import json
+        import struct
+
+        body = json.dumps(
+            {"type": "request", "id": 1, "method": "ping", "params": {}}
+        ).encode("utf-8")
+        frame = struct.pack("<I", len(body)) + body
+        # Deliver header, then body one byte at a time with TimeoutError gaps.
+        chunks: list[bytes | None] = [frame[:4]]
+        for i, b in enumerate(frame[4:]):
+            if i > 0:
+                chunks.append(None)  # one poll stall (progress was recent)
+            chunks.append(bytes([b]))
+        state = {"i": 0, "writes": 0, "closed": 0}
+
+        class ProgressStream:
+            def set_read_timeout(self, _seconds: float | None) -> None:
+                return None
+
+            def read(self, n: int) -> bytes:
+                if state["i"] >= len(chunks):
+                    # After the ping response, idle-exit the serve loop.
+                    raise TimeoutError("idle")
+                item = chunks[state["i"]]
+                state["i"] += 1
+                if item is None:
+                    raise TimeoutError("brief stall")
+                return item[:n]
+
+            def write(self, data: bytes) -> int:
+                state["writes"] += 1
+                return len(data)
+
+            def flush(self) -> None:
+                return None
+
+            def close(self) -> None:
+                state["closed"] += 1
+
+        tdmcp_bridge.serve_queued(ProgressStream(), idle_dead_s=0.3)
+        self.assertGreaterEqual(state["writes"], 1, "ping response should be written")
+        self.assertEqual(state["closed"], 1)
+
+    def test_mid_frame_zero_progress_exits_after_idle_dead(self) -> None:
+        """Header then silence must raise MidFrameTimeout path and exit."""
+        import struct
+
+        state = {"phase": 0, "closed": 0}
+
+        class StallStream:
+            def set_read_timeout(self, _seconds: float | None) -> None:
+                return None
+
+            def read(self, n: int) -> bytes:
+                if state["phase"] == 0:
+                    state["phase"] = 1
+                    return struct.pack("<I", 16)[:n]
+                raise TimeoutError("no body progress")
+
+            def write(self, data: bytes) -> int:
+                return len(data)
+
+            def close(self) -> None:
+                state["closed"] += 1
+
+        started = time.monotonic()
+        tdmcp_bridge.serve_queued(StallStream(), idle_dead_s=0.2)
+        elapsed = time.monotonic() - started
+        self.assertGreaterEqual(elapsed, 0.15)
+        self.assertLess(elapsed, 2.0)
+        self.assertEqual(state["closed"], 1)
 
     def test_decode_exception_exits_cleanly(self) -> None:
+        closed = {"n": 0}
+
         class GarbageStream:
             def __init__(self) -> None:
                 self._phase = 0
@@ -361,7 +448,68 @@ class MidFrameTimeoutServeTest(unittest.TestCase):
             def write(self, data: bytes) -> int:
                 return len(data)
 
+            def close(self) -> None:
+                closed["n"] += 1
+
         tdmcp_bridge.serve_queued(GarbageStream(), idle_dead_s=30.0)
+        self.assertEqual(closed["n"], 1)
+
+
+class WriteFrameTest(unittest.TestCase):
+    """_write_frame must require a full write (guards Windows partial WriteFile)."""
+
+    def test_short_write_raises(self) -> None:
+        class ShortWriter:
+            def write(self, data: bytes) -> int:
+                return max(0, len(data) - 1)
+
+            def flush(self) -> None:
+                return None
+
+        with self.assertRaises(OSError):
+            tdmcp_bridge._write_frame(ShortWriter(), {"type": "response", "id": 1})
+
+    def test_full_write_ok(self) -> None:
+        class FullWriter:
+            def __init__(self) -> None:
+                self.buf = bytearray()
+
+            def write(self, data: bytes) -> int:
+                self.buf += data
+                return len(data)
+
+            def flush(self) -> None:
+                return None
+
+        w = FullWriter()
+        tdmcp_bridge._write_frame(w, {"ok": True})
+        self.assertGreater(len(w.buf), 4)
+
+
+@unittest.skipUnless(sys.platform.startswith("win"), "named-pipe WriteFile loop is Windows-only")
+class NamedPipeWriteLoopTest(unittest.TestCase):
+    """_NamedPipeStream.write must loop until all bytes are sent."""
+
+    def test_write_loops_on_partial_writefile(self) -> None:
+        from ctypes import wintypes
+
+        stream = tdmcp_bridge._NamedPipeStream.__new__(tdmcp_bridge._NamedPipeStream)  # noqa: SLF001
+        stream._handle = 1  # noqa: SLF001
+        stream._wintypes = wintypes  # noqa: SLF001
+        calls = {"n": 0}
+
+        class FakeKernel:
+            def WriteFile(self, _h, _data, length, written_ref, _ov):
+                calls["n"] += 1
+                take = min(3, int(length))
+                written_ref._obj.value = take
+                return 1
+
+        stream._kernel32 = FakeKernel()  # noqa: SLF001
+        payload = b"abcdefghij"  # 10 bytes → at least 4 WriteFile calls
+        n = stream.write(payload)
+        self.assertEqual(n, len(payload))
+        self.assertGreaterEqual(calls["n"], 4)
 
 
 if __name__ == "__main__":

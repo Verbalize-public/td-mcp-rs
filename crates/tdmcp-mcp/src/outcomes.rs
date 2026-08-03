@@ -139,13 +139,13 @@ pub fn map_script_outcome(
                 context.logs = env.logs.clone();
                 let exception = reduce_exception(env.exception.clone(), format_mode);
                 fill_span_from_exception(&mut span, exception.as_ref());
-                let mut item = build_diag(
-                    catalog,
-                    codes::SCRIPT_EXECUTION_FAILED,
-                    span,
-                    Some(msg),
-                    context,
-                );
+                let code = match env.code.as_deref() {
+                    Some(codes::SCRIPT_TOO_LARGE) => codes::SCRIPT_TOO_LARGE,
+                    Some(codes::SCRIPT_RESULT_TOO_LARGE) => codes::SCRIPT_RESULT_TOO_LARGE,
+                    Some(codes::SCRIPT_EXECUTION_FAILED) => codes::SCRIPT_EXECUTION_FAILED,
+                    _ => codes::SCRIPT_EXECUTION_FAILED,
+                };
+                let mut item = build_diag(catalog, code, span, Some(msg), context);
                 item.raw_traceback = raw_traceback_for(
                     diagnostic_level,
                     env.traceback.or_else(|| {
@@ -628,6 +628,34 @@ mod tests {
             ToolCallError::Failed(payload) => payload.diagnostics.items[0].clone(),
             other => panic!("unexpected error: {other}"),
         }
+    }
+
+    #[test]
+    fn script_too_large_uses_bridge_code() {
+        let item = script_fail(
+            json!({
+                "ok": false,
+                "code": "tdmcp.script.too_large",
+                "error": "script exceeds 1048576 bytes (got 1048577)"
+            }),
+            DiagnosticLevel::Summary,
+            FormatMode::Normal,
+        );
+        assert_eq!(item.code, codes::SCRIPT_TOO_LARGE);
+    }
+
+    #[test]
+    fn script_result_too_large_uses_bridge_code() {
+        let item = script_fail(
+            json!({
+                "ok": false,
+                "code": "tdmcp.script.result_too_large",
+                "message": "result JSON exceeds 1048576 bytes"
+            }),
+            DiagnosticLevel::Summary,
+            FormatMode::Normal,
+        );
+        assert_eq!(item.code, codes::SCRIPT_RESULT_TOO_LARGE);
     }
 
     #[test]

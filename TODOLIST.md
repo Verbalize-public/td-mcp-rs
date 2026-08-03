@@ -14,17 +14,12 @@ The goal is to give an easy way for the user to "black list" component from the 
 - If the mcp use python script to edit/discover it, it will success however (stated issue)
 
 
-# Large script cause the bridge to disconnect
-Disconnect behavior (what triggered it)
-Most likely cause: large execute_python batches during custom-page / bulk setup → bridge session dropped mid-flight.
-
-Evidence:
-
-Fleet cancelledTasks showed PythonEval with reason: bridge_lost (not a cook error on the pack).
-TD pid 29616 stayed alive; only the in-file bridge lost the daemon handshake.
-Visual TOPs had already been created but left unwired — classic “batch died mid-mutate” pattern.
-Daemon itself was fine (fleet empty ≠ daemon down); reconnect revived pid 29616 on .3.toe.
-Practical takeaway: prefer mutate_nodes for create/wire/set; keep execute_python small (custom pages only) so a single eval can’t take the bridge down.
+# Large script cause the bridge to disconnect — DONE
+Fixed: progress-based mid-frame reads (IDLE_DEAD silence, not 1s poll), Windows
+WriteFile loop, execute_python script/result 1 MiB soft caps
+(`tdmcp.script.too_large` / `tdmcp.script.result_too_large`), serve_queued closes
+stream on exit. Hygiene: prefer mutate_nodes for create/wire/set; keep
+execute_python small for custom pages.
 
 # Various tools should emit lint when FPS drop
 Eg: `Warning: FPS drop: 30, last healty before: unknown`, `Warning: FPS drop: 30, last healty before: "script_execute([preview script]) at [HH:MM:SS]` emited when calling inspect tool/fps are not healty
