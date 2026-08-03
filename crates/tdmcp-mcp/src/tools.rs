@@ -17,10 +17,11 @@ use thiserror::Error;
 use tokio::sync::Mutex;
 
 use crate::bridge_rpc::{BridgeRpc, BridgeRpcError};
+use crate::editor_context::EditorContextParams;
 use crate::fleet::{fleet_summary, FleetParams};
 use crate::outcomes::{
-    map_api_help_outcome, map_inspect_outcome, map_mutate_outcome, map_perception_outcome,
-    map_script_outcome,
+    map_api_help_outcome, map_editor_context_outcome, map_inspect_outcome, map_mutate_outcome,
+    map_perception_outcome, map_script_outcome,
 };
 use crate::schema::input_schema_for;
 
@@ -33,13 +34,19 @@ use crate::schema::input_schema_for;
 pub const BRIDGE_TIMEOUT: Duration = Duration::from_secs(180);
 
 /// Soft-cap on `inspect` `paths[]` (bridge enforces; mirrored in docs).
-pub const INSPECT_PATHS_LIMIT: usize = 32;
+pub const INSPECT_PATHS_LIMIT: usize = 96;
 
 /// Soft-cap on each inspect node's direct-child roster.
-pub const CHILDREN_ROSTER_LIMIT: usize = 64;
+pub const CHILDREN_ROSTER_LIMIT: usize = 96;
 
 /// Soft-cap on `api_help` `queries[]` (bridge enforces; mirrored in docs).
 pub const API_HELP_QUERIES_LIMIT: usize = 32;
+
+/// Soft-cap on `editor_context` per-pane selection list.
+pub const EDITOR_SELECTION_LIMIT: usize = 96;
+
+/// Soft-cap on `editor_context` panes array.
+pub const EDITOR_PANES_LIMIT: usize = 32;
 
 /// MCP tool names — one enum for descriptors, dispatch, and schemas.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -56,6 +63,8 @@ pub enum ToolName {
     Capture,
     /// Live TD Python API cards / class index.
     ApiHelp,
+    /// Live editor pane / selection snapshot.
+    EditorContext,
     /// Tool manifest.
     DescribeTools,
 }
@@ -71,6 +80,7 @@ impl ToolName {
             Self::MutateNodes => "mutate_nodes",
             Self::Capture => "capture",
             Self::ApiHelp => "api_help",
+            Self::EditorContext => "editor_context",
             Self::DescribeTools => "describe_tools",
         }
     }
@@ -86,7 +96,7 @@ impl ToolName {
                 "Run Python in TD; failures return structured exception (type/frames/syntax); default diagnosticLevel detailed; formatMode debug adds capped locals; prints tee to Debug DAT / logs."
             }
             Self::Inspect => {
-                "Structural read for an explicit paths[] batch (required, non-empty; soft-capped at 32). No auto-recursion — caller chooses nodes. Empty include defaults to nodes+errors+warnings; params opt-in; non-empty include is an allowlist. Params entries are {name, mode, val, expr?} (expr only when mode is EXPRESSION; val is evaluated and JSON-safe). Per-node summary includes a direct-child roster ({name, opType}); detailed adds path+family. Roster capped at 64 — when truncated see node.truncation. Bad paths return ok:false inline; siblings still succeed."
+                "Structural read for an explicit paths[] batch (required, non-empty; soft-capped at 96). No auto-recursion — caller chooses nodes. Empty include defaults to nodes+errors+warnings; params opt-in; non-empty include is an allowlist. Params entries are {name, mode, val, expr?} (expr only when mode is EXPRESSION; val is evaluated and JSON-safe). Per-node summary includes a direct-child roster ({name, opType}); detailed adds path+family. Roster capped at 96 — when truncated see node.truncation. Bad paths return ok:false inline; siblings still succeed."
             }
             Self::MutateNodes => {
                 "Ordered create/set/delete/connect/disconnect steps; sequential apply, stop on first hard error; later steps skipped (tdmcp.batch.skipped_dependent). Fix from failedAt only."
@@ -96,6 +106,9 @@ impl ToolName {
             }
             Self::ApiHelp => {
                 "Live TD Python API cards (not wiki dumps). Batch queries[] (soft-cap 32): class (doc/opType/family/mro/members), classes (op-like index + family/prefix), module (td thin). No help() / no param listing — use inspect include params for .par names. Case-sensitive class names."
+            }
+            Self::EditorContext => {
+                "Live editor context — all TD panes with type/ownerPath/focused; per-pane selection as [{path, current}] (omitted when empty). Panes soft-capped at 32; selection soft-capped at 96. Bad panes return ok:false inline; siblings still succeed. Hint for mutation zone — still verify with inspect."
             }
             Self::DescribeTools => "Manifest of available tools",
         }
@@ -109,6 +122,7 @@ impl ToolName {
         Self::MutateNodes,
         Self::Capture,
         Self::ApiHelp,
+        Self::EditorContext,
         Self::DescribeTools,
     ];
 
@@ -122,6 +136,7 @@ impl ToolName {
             "mutate_nodes" => Some(Self::MutateNodes),
             "capture" => Some(Self::Capture),
             "api_help" => Some(Self::ApiHelp),
+            "editor_context" => Some(Self::EditorContext),
             "describe_tools" => Some(Self::DescribeTools),
             _ => None,
         }
@@ -371,10 +386,10 @@ pub enum InspectInclude {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum DetailLevel {
-    /// Direct-child roster as `{name, opType}` (capped at 64; see `node.truncation`).
+    /// Direct-child roster as `{name, opType}` (capped at 96; see `node.truncation`).
     #[default]
     Summary,
-    /// Direct-child roster as `{path, family, opType}` (same 64 cap — does not uncap).
+    /// Direct-child roster as `{path, family, opType}` (same 96 cap — does not uncap).
     Detailed,
 }
 
@@ -395,7 +410,7 @@ impl DetailLevel {
 pub struct InspectParams {
     /// Target pid.
     pub pid: Pid,
-    /// Explicit operator paths to inspect (required, non-empty). Soft-capped at 32.
+    /// Explicit operator paths to inspect (required, non-empty). Soft-capped at 96.
     /// No auto-recursion — caller chooses exactly which nodes to fetch.
     pub paths: Vec<OpPath>,
     /// Resolution base for relative entries in `paths`.
@@ -595,8 +610,8 @@ pub async fn dispatch_tool(
     name: &str,
     args: Value,
 ) -> Result<Value, ToolCallError> {
-    let tool = ToolName::from_wire(name)
-        .ok_or_else(|| ToolCallError::UnknownTool(name.to_owned()))?;
+    let tool =
+        ToolName::from_wire(name).ok_or_else(|| ToolCallError::UnknownTool(name.to_owned()))?;
     match tool {
         ToolName::Fleet => {
             let params: FleetParams = serde_json::from_value(args)
@@ -772,6 +787,20 @@ pub async fn dispatch_tool(
             )
             .await;
             map_api_help_outcome(catalog, params.pid, outcome, params.diagnostic_level)
+        }
+        ToolName::EditorContext => {
+            let params: EditorContextParams = serde_json::from_value(args)
+                .map_err(|e| ToolCallError::InvalidArgs(e.to_string()))?;
+            let outcome = enqueue_and_call(
+                registry,
+                bridge,
+                params.pid,
+                BridgeMethod::EditorContext,
+                TaskMode::Shared,
+                serde_json::json!({}),
+            )
+            .await;
+            map_editor_context_outcome(catalog, params.pid, outcome, params.diagnostic_level)
         }
     }
 }

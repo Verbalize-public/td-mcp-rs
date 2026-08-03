@@ -11,6 +11,7 @@ In this repo wou will find an curated MCP that focus on the following:
 - Open/close touchdesigner window (WIP - POC ready, need clean implementaiton)
 - Dialog detection/auto-approval (WIP, POC read, need clean implementation)
 - Compatible with MAC OS and windows
+- Context aware agent with multi-pane support (he know what you selected, which operator is the parent ect)
 
 ## Install
 
@@ -106,15 +107,17 @@ embedded assets), `install` (extract assets **and** reset config to defaults;
 | `fleet` | List TD processes by `pid`, bridge status, tasks, resurrection traces |
 | `execute_python` | Run Python in TD (`result = …`) |
 | `inspect` | Structural read for explicit `paths[]` (nodes / params / errors / warnings; empty include defaults to nodes+errors+warnings) |
+| `editor_context` | Live panes + per-pane owner / selection (`focused`, `ownerPath`, `selection`) |
 | `capture` | Perception (`top` / `preview` / `auto` / `chop_data`; `chop_image`/`pop` = preview aliases) |
 | `describe_tools` | Tool manifest |
 
 Process-scoped tools require `pid`. `inspect` takes a required non-empty
-`paths` array (soft-capped at 32; no auto-recursion). Prefer
+`paths` array (soft-capped at 96; no auto-recursion). Prefer
 `detailLevel: summary` — each node’s direct-child roster is `name` + `opType`,
-capped at 64 (`node.truncation` when truncated). Use `capture` when look is
-the claim (`preview` rasterizes any family via the bridge’s shared OP Viewer
-TOP); builders never self-grade perception.
+capped at 96 (`node.truncation` when truncated). `editor_context` returns all
+panes (cap 32) with optional per-pane selection (cap 96). Use `capture` when
+look is the claim (`preview` rasterizes any family via the bridge’s shared OP
+Viewer TOP); builders never self-grade perception.
 
 ## Docs
 

@@ -75,7 +75,8 @@ where
 
 async fn setup_pid(pid: u32) -> (Arc<Mutex<PidRegistry>>, BridgeSessions, FakeTdPeer) {
     let registry = Arc::new(Mutex::new(PidRegistry::new()));
-    let sessions = BridgeSessions::new(registry.clone()).with_heartbeat(HeartbeatConfig::disabled());
+    let sessions =
+        BridgeSessions::new(registry.clone()).with_heartbeat(HeartbeatConfig::disabled());
     let (peer, server) = FakeTdPeer::pair(pid);
     let server_task = tokio::spawn(async move {
         IpcStream::accept_memory_handshake(server, "/bridge", "0.1.0")
@@ -103,7 +104,8 @@ async fn setup_two_pids(
     FakeTdPeer,
 ) {
     let registry = Arc::new(Mutex::new(PidRegistry::new()));
-    let sessions = BridgeSessions::new(registry.clone()).with_heartbeat(HeartbeatConfig::disabled());
+    let sessions =
+        BridgeSessions::new(registry.clone()).with_heartbeat(HeartbeatConfig::disabled());
 
     let spawn_one = |pid: u32| {
         let registry = registry.clone();
@@ -159,10 +161,7 @@ fn marker_script(i: usize) -> String {
 }
 
 fn echo_result_from_params(params: &Value) -> Value {
-    let marker = params
-        .get("script")
-        .and_then(Value::as_str)
-        .unwrap_or("1");
+    let marker = params.get("script").and_then(Value::as_str).unwrap_or("1");
     json!({"ok": true, "result": marker})
 }
 
@@ -185,7 +184,9 @@ fn spawn_hold_then_echo(
         };
         held.notify_waiters();
         release.notified().await;
-        let _ = peer.send_response(id, echo_result_from_params(&params)).await;
+        let _ = peer
+            .send_response(id, echo_result_from_params(&params))
+            .await;
         for _ in 0..extra {
             let msg = match peer.recv_message().await {
                 Ok(m) => m,
@@ -444,7 +445,10 @@ async fn med_shared_storm_fifo_echo() {
             .collect();
 
         for (i, h) in handles.into_iter().enumerate() {
-            let v = h.await.unwrap().unwrap_or_else(|e| panic!("caller {i}: {e:?}"));
+            let v = h
+                .await
+                .unwrap()
+                .unwrap_or_else(|e| panic!("caller {i}: {e:?}"));
             assert_eq!(v["ok"], true, "caller {i}");
             assert_eq!(
                 v["result"],
@@ -776,9 +780,8 @@ async fn hard_supersede_while_inflight_held() {
         let _drive_new = spawn_echo_n(peer_new, 1);
 
         // Old generation must not report success.
-        match old_call.await.unwrap() {
-            Ok(Ok(v)) => panic!("old generation must not succeed, got {v}"),
-            Ok(Err(_)) | Err(_) => {}
+        if let Ok(Ok(v)) = old_call.await.unwrap() {
+            panic!("old generation must not succeed, got {v}");
         }
         hold_old.abort();
 
@@ -916,7 +919,10 @@ async fn x_asymmetric_storm_two_pids() {
             .collect();
 
         for (i, h) in b_handles.into_iter().enumerate() {
-            let v = h.await.unwrap().unwrap_or_else(|e| panic!("B caller {i}: {e:?}"));
+            let v = h
+                .await
+                .unwrap()
+                .unwrap_or_else(|e| panic!("B caller {i}: {e:?}"));
             assert_eq!(v["result"], marker_script(i), "B marker {i}");
         }
 

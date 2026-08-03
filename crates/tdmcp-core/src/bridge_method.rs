@@ -21,6 +21,8 @@ pub enum BridgeMethod {
     MutateNodes,
     /// Live TD Python API cards / class index.
     ApiHelp,
+    /// Live editor pane / selection snapshot.
+    EditorContext,
     /// Liveness ping.
     Ping,
 }
@@ -35,6 +37,7 @@ impl BridgeMethod {
             Self::Inspect => "inspect",
             Self::MutateNodes => "mutate_nodes",
             Self::ApiHelp => "api_help",
+            Self::EditorContext => "editor_context",
             Self::Ping => "ping",
         }
     }
@@ -48,6 +51,7 @@ impl BridgeMethod {
             Self::Inspect => "Inspect",
             Self::MutateNodes => "Mutate",
             Self::ApiHelp => "ApiHelp",
+            Self::EditorContext => "EditorContext",
             Self::Ping => "Ping",
         }
     }
@@ -59,6 +63,7 @@ impl BridgeMethod {
         Self::Inspect,
         Self::MutateNodes,
         Self::ApiHelp,
+        Self::EditorContext,
         Self::Ping,
     ];
 
@@ -70,6 +75,7 @@ impl BridgeMethod {
             "inspect" => Some(Self::Inspect),
             "mutate_nodes" => Some(Self::MutateNodes),
             "api_help" => Some(Self::ApiHelp),
+            "editor_context" => Some(Self::EditorContext),
             "ping" => Some(Self::Ping),
             _ => None,
         }

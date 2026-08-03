@@ -31,6 +31,8 @@ pub enum DiagnosticLayer {
     Mutate,
     /// Script execution.
     Script,
+    /// Editor pane / selection context.
+    Editor,
 }
 
 /// Payload size for diagnostics (independent of structural `detailLevel`).

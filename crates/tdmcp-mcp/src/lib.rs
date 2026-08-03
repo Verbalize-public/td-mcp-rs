@@ -7,6 +7,7 @@
 
 pub mod bridge_rpc;
 mod daemon_link;
+mod editor_context;
 mod fleet;
 mod outcomes;
 mod rmcp_handler;
@@ -19,6 +20,7 @@ mod tools;
 
 pub use bridge_rpc::{BridgeRpc, BridgeRpcError};
 pub use daemon_link::ReconnectConfig;
+pub use editor_context::EditorContextParams;
 pub use fleet::{fleet_summary, FleetInclude, FleetParams, FleetProcess, FleetResponse};
 pub use rmcp_handler::McpHandler;
 pub use schema::input_schema_for;
@@ -32,5 +34,6 @@ pub use tools::{
     dispatch_tool, tool_descriptors, ApiHelpFamily, ApiHelpParams, ApiHelpQuery, BridgeOutcome,
     CaptureMode, CaptureParams, DetailLevel, ExecutePythonParams, FormatMode, InspectInclude,
     InspectParams, MutateNodesParams, MutateStep, ToolCallError, ToolDescriptor, ToolFailPayload,
-    ToolName, API_HELP_QUERIES_LIMIT, BRIDGE_TIMEOUT, CHILDREN_ROSTER_LIMIT, INSPECT_PATHS_LIMIT,
+    ToolName, API_HELP_QUERIES_LIMIT, BRIDGE_TIMEOUT, CHILDREN_ROSTER_LIMIT, EDITOR_PANES_LIMIT,
+    EDITOR_SELECTION_LIMIT, INSPECT_PATHS_LIMIT,
 };

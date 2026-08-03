@@ -21,6 +21,7 @@ See [`DEV_ENV.md`](DEV_ENV.md) § Dev smoke. Does **not** replace rows 1–12 be
 | S3d | rs `execute_python` raise → `items[0].exception.type` set; default `rawTraceback` present; `AttributeError` on None → nested `tdmcp.script.none_op` |
 | S4 | rs `capture` top on `/project1/e2e_kit/probe` — non-black; structured success has top-level `path`/`bytes` (not nested under `capture`) |
 | S5 | rs `inspect` `paths:["/project1/e2e_kit"]` summary — structured success has top-level `nodes` array; entry `ok:true`; `children` is an array of `{name, opType}` (not a count); `childCount` present |
+| S6 | rs `editor_context` — `ok:true` with `panes[]`; focused network editor has `focused:true` + `ownerPath`; with 2+ selected nodes, `selection` has paths and exactly one `current:true` |
 
 ## Prerequisites
 
@@ -57,6 +58,8 @@ See [`DEV_ENV.md`](DEV_ENV.md) § Dev smoke. Does **not** replace rows 1–12 be
 | 17 | `capture` mode `chop_image` on non-empty CHOP → PNG via shared `capture_viewer` (alias of preview); no leftover `__tdmcp_tmp_chopimg__*` under parent | ✅ |
 | 18 | `capture` mode `pop` / `auto` on a POP or SOP → PNG via shared `capture_viewer` (may soft-fail `black_frame` / `uniform_frame`); no leftover `__tdmcp_tmp_pop__*` | ✅ |
 | 19 | `inspect` `paths:[a, b, missing]` → top-level `ok:true`; two ok entries + one `tdmcp.op.not_found` inline; no auto-recursion beyond direct-child roster | ✅ (2026-08-01) |
+| 20 | `editor_context` with 2 network panes open → `panes` length ≥ 2; exactly one `focused:true`; focused entry has `ownerPath` | |
+| 21 | Select 2+ ops in the focused network → `editor_context` returns `selection` with those paths and exactly one `current:true` | |
 
 ### `mutate_nodes` (P1)
 

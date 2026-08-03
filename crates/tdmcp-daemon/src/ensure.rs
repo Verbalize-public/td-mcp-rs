@@ -146,8 +146,7 @@ pub async fn ensure_daemon(opts: EnsureOptions) -> Result<EnsureResult> {
 /// GET `/mcp/health` and require JSON `ok: true`.
 pub async fn health_ok(port: u16) -> bool {
     let url = format!("http://127.0.0.1:{port}/mcp/health");
-    match tokio::time::timeout(Duration::from_millis(800), crate::http_util::get_json(&url)).await
-    {
+    match tokio::time::timeout(Duration::from_millis(800), crate::http_util::get_json(&url)).await {
         Ok(Ok(v)) => v.get("ok").and_then(|x| x.as_bool()) == Some(true),
         Ok(Err(_)) | Err(_) => false,
     }

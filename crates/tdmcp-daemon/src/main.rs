@@ -585,4 +585,3 @@ async fn bind_with_retry(addr: SocketAddr) -> Result<tokio::net::TcpListener> {
         None => bail!("bind {addr} failed with no error"),
     }
 }
-

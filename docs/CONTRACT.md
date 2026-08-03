@@ -156,7 +156,7 @@ separate clocks (eviction TTL remains **15s**). IPC frames are hard-capped at
 **16 MiB**. `GET /mcp/health` remains daemon-process liveness only — not bridge
 peer health.
 
-**Per-call wait budgets:** `ping` / `inspect` / `capture` / `api_help` default to **45s**;
+**Per-call wait budgets:** `ping` / `inspect` / `capture` / `api_help` / `editor_context` default to **45s**;
 `execute_python` / `mutate_nodes` default to **120s** (`[bridge].call_timeout_secs`
 / `script_timeout_secs`). A timeout fails the wait (`tdmcp.bridge.timeout`) and
 does **not** tear down the session. Stale late responses from a timed-out call
@@ -191,6 +191,7 @@ safety net only — the daemon owns the real per-method budgets.
 | `describe_tools`            | Manifest of available tools                                                                            | **Shipped**           |
 | `mutate_nodes`              | Ordered create / set / delete / connect / disconnect steps; sequential apply, stop on first hard error | **Shipped**           |
 | `api_help`                  | Live TD Python API cards (class / classes index / thin module) — not wiki/help dumps                   | **Shipped**           |
+| `editor_context`            | Live editor panes + per-pane selection (`ownerPath`, `focused`, `selection`)                           | **Shipped**           |
 | `dialogs`                   | List / dismiss OS dialogs                                                                              | **Planned** (P1, Win) |
 | Lifecycle create/start/stop | Return new `pid`                                                                                       | **Planned** (P2)      |
 
@@ -200,14 +201,15 @@ safety net only — the daemon owns the real per-method budgets.
 ### Three layers
 
 
-| Layer      | Tool      | Answers                                                    |
-| ---------- | --------- | ---------------------------------------------------------- |
-| Fleet      | `fleet`   | Which pid? Connected? Busy? Resurrection traces?           |
-| Structure  | `inspect` | Nodes, params, errors, warnings — no perception by default |
-| Perception | `capture` | Pixels / basic signal — trigger keyword **perception**     |
+| Layer      | Tool             | Answers                                                    |
+| ---------- | ---------------- | ---------------------------------------------------------- |
+| Fleet      | `fleet`          | Which pid? Connected? Busy? Resurrection traces?           |
+| Editor     | `editor_context` | Which panes / owner COMPs / selection is the user looking at? |
+| Structure  | `inspect`        | Nodes, params, errors, warnings — no perception by default |
+| Perception | `capture`        | Pixels / basic signal — trigger keyword **perception**     |
 
 
-Typical loop: `fleet` → pick connected `pid` → `inspect` → mutate → `inspect` errors/warnings → `capture` (when look is the claim) → perception-critic for look PASS/FAIL.
+Typical loop: `fleet` → pick connected `pid` → `editor_context` (optional hint) → `inspect` → mutate → `inspect` errors/warnings → `capture` (when look is the claim) → perception-critic for look PASS/FAIL.
 
 ### MCP tool result shapes (stdio / rmcp)
 
@@ -220,6 +222,7 @@ Structured success is **flat tool fields** with a single outer `ok` (bridge may 
 | `mutate_nodes`   | `{ ok: true, applied, failedAt, steps }`                                                                                                                                                                                                                                                                                         |
 | `inspect`        | `{ ok: true, nodes: [{ ok, path, …node fields or error }], pathsTruncated?, truncation? }`                                                                                                                                                                                                                                         |
 | `api_help`       | `{ ok: true, results: [{ ok, kind, …card or error }], queriesTruncated?, truncation? }` — structured API cards / names index (no `helpText` / wiki body; parameter names via `inspect` include params)                                                                                                                              |
+| `editor_context` | `{ ok: true, panes: [{ ok, id, name, type, focused, ownerPath, selection? }], panesTruncated?, truncation? }` — `selection` omitted when empty; per-pane soft errors inline                                                                                                                                                       |
 | `capture`        | Image modes: `{ ok: true, path, bytes, mimeType, imageBase64?, maxSize?, mode?, family? }` + MCP image content when PNG present (`imageBase64` stripped from structured after promotion). `chop_data`: `{ ok: true, path, mode, family, numChans, numSamples, rate?, channels:[{name, samples}], truncation? }` (structured only; no image) |
 | `fleet`          | tool-specific fleet object (no shared shell)                                                                                                                                                                                                                                                                                     |
 | `describe_tools` | tool-specific catalog object (no shared shell)                                                                                                                                                                                                                                                                                   |
@@ -244,7 +247,7 @@ Unknown `include` values are **rejected** at MCP arg deserialize (invalid params
 
 ### `inspect` / `paths`
 
-`inspect` requires a non-empty `paths: OpPath[]` array. There is **no single-`path` param** and **no auto-recursion** — the caller chooses exactly which nodes to fetch. Soft-capped at **32** paths per call (`tdmcp.op.paths_truncated` when exceeded; first 32 processed). Empty / missing `paths` → MCP `InvalidArgs` (Rust) or bridge `tdmcp.op.paths_required`.
+`inspect` requires a non-empty `paths: OpPath[]` array. There is **no single-`path` param** and **no auto-recursion** — the caller chooses exactly which nodes to fetch. Soft-capped at **96** paths per call (`tdmcp.op.paths_truncated` when exceeded; first 96 processed). Empty / missing `paths` → MCP `InvalidArgs` (Rust) or bridge `tdmcp.op.paths_required`.
 
 **Partial success:** a bad path does not fail the whole batch. That entry is `{ ok: false, path, code: "tdmcp.op.not_found", message }` (or `tdmcp.op.inspect_failed`); siblings still return data. Top-level success stays `{ ok: true, nodes: [...] }`.
 
@@ -292,13 +295,30 @@ Applies **only when `nodes` is included** (see `inspect` / `include` — default
 
 | Level               | Direct `children` entries | Counts / truncation                                        |
 | ------------------- | ------------------------- | ---------------------------------------------------------- |
-| `summary` (default) | `{name, opType}`          | `childCount` + `childrenReturned`; roster capped at **64** |
+| `summary` (default) | `{name, opType}`          | `childCount` + `childrenReturned`; roster capped at **96** |
 | `detailed`          | `{path, family, opType}`  | Same cap — **does not** raise the limit                    |
 
 
 When `childrenReturned < childCount`, the node includes `childrenTruncated: true` and a `truncation` object (`field`, `limit`, `code: tdmcp.op.children_truncated`, `message`, `mitigation`). Soft limit — MCP success stays `{ ok: true, nodes }` (see result shapes). Mitigation: add the child COMP path to a follow-up `paths` batch, or `execute_python` for a full name list — not `detailLevel: detailed`.
 
 When the roster is loaded, `children` is always an array (never a bare count).
+
+### `editor_context` — Shipped
+
+Live multi-pane snapshot of TouchDesigner’s UI via `td.ui.panes` (bridge method — not `execute_python`). Requires `pid` only.
+
+| Field | Rule |
+| --- | --- |
+| `panes[]` | All panes (soft-cap **32**; `panesTruncated` + top-level `truncation` when exceeded) |
+| `panes[].type` | `PaneType` name (`NETWORKEDITOR`, `PANEL`, …) |
+| `panes[].focused` | `true` when `pane.id == ui.panes.current.id`; all `false` when there is no current pane |
+| `panes[].ownerPath` | `pane.owner.path`, or `null` when unresolved |
+| `panes[].selection` | `[{ path, current }]` for COMP owners — **omitted when empty**; soft-capped at **96** with per-pane `selectionTruncated` / `truncation` |
+| `panes[].current` | Exactly one selection entry may have `current: true` (the green current child) |
+
+**Partial success:** a bad pane is `{ ok: false, id?, name?, code: "tdmcp.editor.pane_failed", message }`; siblings still succeed. Top-level handler failure → `tdmcp.editor.context_failed`.
+
+**Semantics:** editor context is a **hint** for where the user is looking — not authorization. Still resolve / verify a mutation zone with `inspect` before mutating.
 
 ### `api_help` — Shipped
 

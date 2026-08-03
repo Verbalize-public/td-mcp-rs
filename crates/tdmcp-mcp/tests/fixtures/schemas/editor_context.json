@@ -1,0 +1,42 @@
+{
+  "$defs": {
+    "DiagnosticLevel": {
+      "description": "Payload size for diagnostics (independent of structural `detailLevel`).",
+      "oneOf": [
+        {
+          "const": "summary",
+          "description": "Codes, messages, capped lints, mitigation.",
+          "type": "string"
+        },
+        {
+          "const": "detailed",
+          "description": "Plus raw traceback / full TD dumps.",
+          "type": "string"
+        }
+      ]
+    },
+    "Pid": {
+      "description": "OS process id — sole address for tools and queues.",
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Args for `editor_context`.",
+  "properties": {
+    "diagnosticLevel": {
+      "$ref": "#/$defs/DiagnosticLevel",
+      "default": "summary",
+      "description": "Diagnostic payload size (`summary` omits raw traceback)."
+    },
+    "pid": {
+      "$ref": "#/$defs/Pid",
+      "description": "Target pid."
+    }
+  },
+  "required": [
+    "pid"
+  ],
+  "type": "object"
+}

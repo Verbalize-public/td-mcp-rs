@@ -296,7 +296,12 @@ async fn write_msg<W: AsyncWriteExt + Unpin, T: serde::Serialize>(
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, reason = "unit tests")]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    reason = "unit tests"
+)]
 mod tests {
     use super::*;
     use std::time::Instant;

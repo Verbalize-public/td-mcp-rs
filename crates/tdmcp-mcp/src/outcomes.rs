@@ -360,6 +360,43 @@ pub fn map_inspect_outcome(
     }
 }
 
+/// Map an `editor_context` outcome.
+pub fn map_editor_context_outcome(
+    catalog: &Catalog,
+    pid: Pid,
+    outcome: BridgeOutcome,
+    _diagnostic_level: DiagnosticLevel,
+) -> Result<Value, ToolCallError> {
+    let span = span("editor_context", None);
+    match outcome {
+        BridgeOutcome::Ok(value) => {
+            let env = BridgeResultEnvelope::from_value(&value);
+            if env.is_error() {
+                let code = match env.code.as_deref() {
+                    Some(codes::EDITOR_CONTEXT_FAILED) => codes::EDITOR_CONTEXT_FAILED,
+                    Some(codes::EDITOR_PANE_FAILED) => codes::EDITOR_PANE_FAILED,
+                    _ => codes::EDITOR_CONTEXT_FAILED,
+                };
+                let msg = env.message_or("editor_context failed");
+                let item = build_diag(
+                    catalog,
+                    code,
+                    span,
+                    Some(msg),
+                    ctx(pid, None, None),
+                    DiagnosticLayer::Editor,
+                );
+                Err(failed_one(item))
+            } else {
+                // Bridge returns flat {ok, panes: [...], panesTruncated?}.
+                Ok(value)
+            }
+        }
+        BridgeOutcome::QueueBusy => Err(queue_busy(catalog, "editor_context", pid)),
+        BridgeOutcome::Transport(err) => Err(transport(catalog, "editor_context", pid, err)),
+    }
+}
+
 /// Map an `api_help` outcome.
 pub fn map_api_help_outcome(
     catalog: &Catalog,

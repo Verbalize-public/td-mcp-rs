@@ -23,8 +23,8 @@ use rmcp::{ErrorData, RoleServer, ServerHandler};
 use serde_json::Value;
 
 use crate::schema::input_schema_for;
-use crate::tools::ToolName;
 use crate::session_registry::McpSessionRegistry;
+use crate::tools::ToolName;
 use crate::tools::{dispatch_tool, tool_descriptors, ToolCallError};
 use crate::AppState;
 
@@ -79,7 +79,8 @@ impl ServerHandler for McpHandler {
             ))
             .with_instructions(
                 "td-mcp-rs control plane. Call `fleet` to discover connected TouchDesigner \
-                 processes by pid, then `execute_python` / `inspect` / `capture` against a pid.",
+                 processes by pid, then `editor_context` / `execute_python` / `inspect` / \
+                 `capture` against a pid.",
             )
     }
 

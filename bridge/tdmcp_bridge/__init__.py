@@ -23,6 +23,7 @@ from . import (
     api_help as _api_help,
     capture as _capture,
     constants as _constants,
+    editor_context as _editor_context,
     execute as _execute,
     identity as _identity,
     inspect as _inspect,
@@ -69,6 +70,7 @@ for _mod in (
     _inspect,
     _mutate,
     _api_help,
+    _editor_context,
     _identity,
     _task_queue,
 ):
@@ -97,11 +99,6 @@ class InspectParams(TypedDict):
     detailLevel: NotRequired[str]
 
 
-# Soft cap on inspect batch size.
-INSPECT_PATHS_LIMIT = 32
-CAPTURE_VIEWER_NAME = "capture_viewer"
-
-
 class MutateNodesParams(TypedDict):
     steps: list[dict[str, Any]]
     contextPath: NotRequired[str | None]
@@ -128,6 +125,7 @@ HANDLERS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "inspect": handle_inspect,
     "mutate_nodes": handle_mutate,
     "api_help": handle_api_help,
+    "editor_context": handle_editor_context,
     "ping": lambda _p: {"ok": True, "pong": True},
 }
 

@@ -37,6 +37,15 @@ pub const OP_INSPECT_FAILED: &str = "tdmcp.op.inspect_failed";
 /// Unknown or unresolved opType for create.
 pub const OP_UNKNOWN_TYPE: &str = "tdmcp.op.unknown_type";
 
+/// Top-level editor_context handler failed.
+pub const EDITOR_CONTEXT_FAILED: &str = "tdmcp.editor.context_failed";
+/// Per-pane editor_context shaping failed (inline soft error).
+pub const EDITOR_PANE_FAILED: &str = "tdmcp.editor.pane_failed";
+/// editor_context per-pane selection list capped (soft; payload `truncation` block).
+pub const EDITOR_SELECTION_TRUNCATED: &str = "tdmcp.editor.selection_truncated";
+/// editor_context panes array capped (soft; payload `truncation` block).
+pub const EDITOR_PANES_TRUNCATED: &str = "tdmcp.editor.panes_truncated";
+
 /// api_help query target not found / unsupported.
 pub const API_HELP_NOT_FOUND: &str = "tdmcp.api_help.not_found";
 /// api_help called without a non-empty `queries` array.
@@ -114,6 +123,10 @@ pub const ALL: &[&str] = &[
     OP_PATHS_REQUIRED,
     OP_INSPECT_FAILED,
     OP_UNKNOWN_TYPE,
+    EDITOR_CONTEXT_FAILED,
+    EDITOR_PANE_FAILED,
+    EDITOR_SELECTION_TRUNCATED,
+    EDITOR_PANES_TRUNCATED,
     API_HELP_NOT_FOUND,
     API_HELP_QUERIES_REQUIRED,
     API_HELP_QUERIES_TRUNCATED,

@@ -145,10 +145,10 @@ impl ServerHandler for StdioProxy {
             ))
             .with_instructions(
                 "td-mcp-rs control plane (stdio proxy). Call `fleet` to discover connected \
-				 TouchDesigner processes by pid, then `execute_python` / `inspect` / `capture` \
-				 against a pid. v1 proxy forwards tools only — server notifications are not \
-				 forwarded. If the daemon restarts, the proxy reconnects (never auto-spawns) and \
-				 returns `tdmcp.daemon.unreachable` for the failed call.",
+				 TouchDesigner processes by pid, then `editor_context` / `execute_python` / \
+				 `inspect` / `capture` against a pid. v1 proxy forwards tools only — server \
+				 notifications are not forwarded. If the daemon restarts, the proxy reconnects \
+				 (never auto-spawns) and returns `tdmcp.daemon.unreachable` for the failed call.",
             )
     }
 

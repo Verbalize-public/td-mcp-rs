@@ -141,32 +141,34 @@ class InspectSummaryRosterTest(unittest.TestCase):
         )
 
     def test_truncation_at_cap_summary(self) -> None:
-        kids = [_fake_child(f"op{i}") for i in range(65)]
+        cap = tdmcp_bridge.CHILDREN_ROSTER_LIMIT
+        kids = [_fake_child(f"op{i}") for i in range(cap + 1)]
         out = tdmcp_bridge.build_inspect_node(
             _fake_node(kids), detail_level="summary"
         )
-        self.assertEqual(out["childCount"], 65)
-        self.assertEqual(out["childrenReturned"], 64)
+        self.assertEqual(out["childCount"], cap + 1)
+        self.assertEqual(out["childrenReturned"], cap)
         self.assertTrue(out["childrenTruncated"])
         trunc = out["truncation"]
         self.assertEqual(trunc["field"], "children")
-        self.assertEqual(trunc["limit"], tdmcp_bridge.CHILDREN_ROSTER_LIMIT)
+        self.assertEqual(trunc["limit"], cap)
         self.assertEqual(trunc["code"], "tdmcp.op.children_truncated")
-        self.assertIn("64 of 65", trunc["message"])
+        self.assertIn(f"{cap} of {cap + 1}", trunc["message"])
         self.assertIn("detailLevel does not raise this cap", trunc["mitigation"])
-        self.assertEqual(len(out["children"]), 64)
+        self.assertEqual(len(out["children"]), cap)
         self.assertEqual(out["children"][0]["name"], "op0")
-        self.assertEqual(out["children"][-1]["name"], "op63")
+        self.assertEqual(out["children"][-1]["name"], f"op{cap - 1}")
 
     def test_detailed_does_not_raise_cap(self) -> None:
-        kids = [_fake_child(f"op{i}") for i in range(70)]
+        cap = tdmcp_bridge.CHILDREN_ROSTER_LIMIT
+        kids = [_fake_child(f"op{i}") for i in range(cap + 6)]
         out = tdmcp_bridge.build_inspect_node(
             _fake_node(kids), detail_level="detailed"
         )
-        self.assertEqual(out["childCount"], 70)
-        self.assertEqual(out["childrenReturned"], 64)
+        self.assertEqual(out["childCount"], cap + 6)
+        self.assertEqual(out["childrenReturned"], cap)
         self.assertTrue(out["childrenTruncated"])
-        self.assertEqual(out["truncation"]["limit"], 64)
+        self.assertEqual(out["truncation"]["limit"], cap)
         self.assertIn("path", out["children"][0])
 
     def test_name_fallback_from_path(self) -> None:

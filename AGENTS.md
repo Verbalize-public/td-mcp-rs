@@ -29,19 +29,21 @@ Law: [`CONSTITUTION.md`](CONSTITUTION.md). User install/quickstart: [`README.md`
    `tdmcp-daemon ensure` before probing. Health URL
    (`http://127.0.0.1:9860/mcp/health`) still valid. Stdio is only the MCP
    client shim — the HTTP daemon stays up across MCP restarts.
-2. `fleet` → pick connected `pid` → `inspect` → mutate → `inspect` errors/warnings →
- `capture` (perception) → perception-critic for look claims.
+2. `fleet` → pick connected `pid` → optional `editor_context` (pane/selection
+ hint) → `inspect` → mutate → `inspect` errors/warnings → `capture`
+ (perception) → perception-critic for look claims.
 3. Pass `pid` every process-scoped call. Use `contextPath` for relative
  `OpPath`s (default base = `/project1`).
 4. On failure, read **`diagnostics`** (codes, lints, mitigation) — not raw
  strings alone.
 5. Prefer `detailLevel: summary` / `diagnosticLevel: summary`; store-first for
  `capture`. `inspect` requires explicit `paths[]` (no auto-recursion; soft-cap
- 32). Each node’s direct-child roster is capped at 64 (`node.truncation` —
- `detailed` does not raise the cap). `inspect` / `capture` do not force-cook
- (TD cooks on read; agents may `cook(force=True)` via `execute_python` if
- needed). `capture` encodes PNG (`imageBase64`). `capture` mode `preview`
- (and `auto` for non-TOP/non-CHOP) uses the bridge’s shared OP Viewer TOP.
+ 96). Each node’s direct-child roster is capped at 96 (`node.truncation` —
+ `detailed` does not raise the cap). `editor_context` panes soft-cap 32 /
+ selection soft-cap 96. `inspect` / `capture` do not force-cook (TD cooks on
+ read; agents may `cook(force=True)` via `execute_python` if needed).
+ `capture` encodes PNG (`imageBase64`). `capture` mode `preview` (and `auto`
+ for non-TOP/non-CHOP) uses the bridge’s shared OP Viewer TOP.
 
 ## Operate vs Document
 

@@ -119,7 +119,7 @@ entries:
     mitigation:
       - "Split into multiple inspect calls"
       - "Keep batches small for responsive inspect"
-      - "Soft cap is 32 paths per call"
+      - "Soft cap is 96 paths per call"
     references:
       - kind: doc
         id: inspect
@@ -143,6 +143,48 @@ entries:
     references:
       - kind: doc
         id: inspect
+
+  - code: tdmcp.editor.context_failed
+    layer: editor
+    message: "editor_context handler failed unexpectedly"
+    mitigation:
+      - "Re-call editor_context"
+      - "Check diagnostics.context / traceback at detailed level"
+      - "Confirm TD UI is available (not mid-load)"
+    references:
+      - kind: doc
+        id: editor_context
+
+  - code: tdmcp.editor.pane_failed
+    layer: editor
+    message: "Per-pane editor_context shaping failed"
+    mitigation:
+      - "Ignore that pane entry and use siblings"
+      - "Re-call editor_context after focusing a network editor"
+    references:
+      - kind: doc
+        id: editor_context
+
+  - code: tdmcp.editor.selection_truncated
+    layer: editor
+    message: "editor_context per-pane selection capped"
+    mitigation:
+      - "Narrow selection in TD"
+      - "Use inspect on the owner COMP for full roster"
+      - "Soft cap is 96 selected ops per pane"
+    references:
+      - kind: doc
+        id: editor_context
+
+  - code: tdmcp.editor.panes_truncated
+    layer: editor
+    message: "editor_context panes array capped"
+    mitigation:
+      - "Close unused panes in TD"
+      - "Soft cap is 32 panes per call"
+    references:
+      - kind: doc
+        id: editor_context
 
   - code: tdmcp.batch.skipped_dependent
     layer: mutate
