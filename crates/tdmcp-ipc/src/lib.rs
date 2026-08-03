@@ -7,5 +7,5 @@ mod handshake;
 mod listener;
 
 pub use framing::{encode, try_decode, FrameError, Message};
-pub use handshake::{HandshakeRequest, HandshakeResponse};
+pub use handshake::{HandshakeOffer, HandshakeRequest, HandshakeResponse};
 pub use listener::{BridgeEndpoint, IpcError, IpcListener, IpcStream};

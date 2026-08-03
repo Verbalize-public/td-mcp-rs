@@ -4617,6 +4617,7 @@ dependencies = [
  "chrono",
  "clap",
  "dirs",
+ "futures",
  "include_dir",
  "reqwest 0.12.28",
  "rmcp",

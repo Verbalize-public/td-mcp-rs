@@ -21,11 +21,23 @@ impl ProcessFingerprint {
     /// Best-effort match: true if fingerprints are compatible (not a hard guarantee).
     ///
     /// Mismatch if both sides have a conflicting non-empty field.
+    ///
+    /// When **both** sides lack `start_time` (common on macOS), require a
+    /// positive shared `title` or `image` — empty/empty no longer counts as
+    /// the same process (avoids false resurrection on pid reuse).
     #[must_use]
     pub fn matches(&self, other: &Self) -> bool {
-        field_ok(&self.title, &other.title)
-            && field_ok(&self.image, &other.image)
-            && field_ok(&self.start_time, &other.start_time)
+        if !field_ok(&self.title, &other.title)
+            || !field_ok(&self.image, &other.image)
+            || !field_ok(&self.start_time, &other.start_time)
+        {
+            return false;
+        }
+        if self.start_time.is_none() && other.start_time.is_none() {
+            return positive_match(&self.title, &other.title)
+                || positive_match(&self.image, &other.image);
+        }
+        true
     }
 }
 
@@ -34,6 +46,10 @@ fn field_ok(a: &Option<String>, b: &Option<String>) -> bool {
         (Some(x), Some(y)) => x == y,
         _ => true,
     }
+}
+
+fn positive_match(a: &Option<String>, b: &Option<String>) -> bool {
+    matches!((a, b), (Some(x), Some(y)) if x == y)
 }
 
 #[cfg(test)]
@@ -55,12 +71,43 @@ mod tests {
     }
 
     #[test]
-    fn match_when_one_side_missing() {
+    fn match_when_start_time_agrees_and_title_partial() {
         let a = ProcessFingerprint {
             title: Some("A".into()),
+            start_time: Some("t0".into()),
             ..Default::default()
         };
-        let b = ProcessFingerprint::default();
+        let b = ProcessFingerprint {
+            start_time: Some("t0".into()),
+            ..Default::default()
+        };
         assert!(a.matches(&b));
+    }
+
+    #[test]
+    fn empty_fingerprints_do_not_match() {
+        assert!(!ProcessFingerprint::default().matches(&ProcessFingerprint::default()));
+    }
+
+    #[test]
+    fn both_missing_start_require_shared_title_or_image() {
+        let a = ProcessFingerprint {
+            title: Some("proj".into()),
+            ..Default::default()
+        };
+        let b = ProcessFingerprint {
+            title: Some("proj".into()),
+            ..Default::default()
+        };
+        assert!(a.matches(&b));
+
+        let partial = ProcessFingerprint {
+            title: Some("proj".into()),
+            ..Default::default()
+        };
+        assert!(
+            !partial.matches(&ProcessFingerprint::default()),
+            "title vs empty is not a positive shared field"
+        );
     }
 }

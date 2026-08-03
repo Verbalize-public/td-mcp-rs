@@ -25,12 +25,16 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use serde_json::Value;
 use tdmcp_core::{BridgeMethod, PidRegistry, ProcessAttrs, TaskResult};
-use tdmcp_ipc::{BridgeEndpoint, IpcListener, IpcStream, Message};
+use tdmcp_ipc::{BridgeEndpoint, HandshakeOffer, IpcListener, IpcStream, Message};
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio::time::{timeout, MissedTickBehavior};
+use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
 use tdmcp_mcp::{BridgeRpc, BridgeRpcError};
+
+/// Capacity of the per-pid job mpsc (MCP → session actor).
+pub const JOB_CHANNEL_CAPACITY: usize = 32;
 
 /// Production default for `ping` / `inspect` / `capture` waits.
 pub const CALL_TIMEOUT: Duration = Duration::from_secs(45);
@@ -143,6 +147,8 @@ struct BridgeHandle {
     /// Monotonic generation so a superseded actor's teardown cannot clobber
     /// a newer connection for the same pid.
     generation: u64,
+    /// Cancelled when a newer session supersedes this actor.
+    cancel: CancellationToken,
 }
 
 /// Map of pid → bridge session handle. Cheap to clone (Arc-backed).
@@ -196,18 +202,56 @@ impl BridgeSessions {
         self.heartbeat.idle_dead.as_secs().max(1)
     }
 
+    /// Max main-thread wait budget (seconds) forwarded via handshake.
+    #[must_use]
+    pub fn max_call_wait_secs(&self) -> u64 {
+        self.timeouts
+            .call
+            .max(self.timeouts.script)
+            .as_secs()
+            .max(1)
+    }
+
     /// Number of live bridge session actors (connected IPC peers).
     pub async fn connected_count(&self) -> usize {
         self.sessions.lock().await.len()
     }
 
+    /// Approximate depth of jobs waiting in the actor mpsc (not yet in-flight).
+    pub async fn job_queue_depth(&self, pid: u32) -> Option<usize> {
+        let sessions = self.sessions.lock().await;
+        sessions
+            .get(&pid)
+            .map(|h| JOB_CHANNEL_CAPACITY.saturating_sub(h.job_tx.capacity()))
+    }
+
     /// Spawn an actor for an accepted, handshaken stream.
+    ///
+    /// If a session already exists for `pid`, its cancel token is fired and its
+    /// job channel is dropped so the prior actor exits even when blocked in a
+    /// tool wait (does not rely solely on the Python peer closing the old pipe).
     pub async fn spawn(&self, pid: u32, stream: IpcStream) {
-        let (job_tx, job_rx) = mpsc::channel::<TaskJob>(32);
+        let (job_tx, job_rx) = mpsc::channel::<TaskJob>(JOB_CHANNEL_CAPACITY);
         let generation = SESSION_GENERATION.fetch_add(1, Ordering::Relaxed);
-        {
+        let cancel = CancellationToken::new();
+        let previous = {
             let mut s = self.sessions.lock().await;
-            s.insert(pid, BridgeHandle { job_tx, generation });
+            s.insert(
+                pid,
+                BridgeHandle {
+                    job_tx,
+                    generation,
+                    cancel: cancel.clone(),
+                },
+            )
+        };
+        if let Some(prev) = previous {
+            info!(
+                pid,
+                prev_generation = prev.generation,
+                "superseding bridge session"
+            );
+            prev.cancel.cancel();
         }
         let sessions = self.sessions.clone();
         let registry = self.registry.clone();
@@ -225,6 +269,7 @@ impl BridgeSessions {
                 heartbeat,
                 timeouts,
                 disconnected_ttl,
+                cancel,
             )
             .await;
         });
@@ -253,6 +298,10 @@ impl BridgeRpc for BridgeSessions {
             .map_err(|_| BridgeRpcError::Disconnected { pid })?;
         rx.await.map_err(|_| BridgeRpcError::Disconnected { pid })?
     }
+
+    async fn job_queue_depth(&self, pid: u32) -> Option<usize> {
+        BridgeSessions::job_queue_depth(self, pid).await
+    }
 }
 
 #[allow(clippy::too_many_arguments, reason = "session actor wiring")]
@@ -266,6 +315,7 @@ async fn run_session(
     heartbeat: HeartbeatConfig,
     timeouts: BridgeTimeouts,
     disconnected_ttl: Duration,
+    cancel: CancellationToken,
 ) {
     info!(pid, generation, "bridge session started");
     let mut last_activity = Instant::now();
@@ -291,11 +341,15 @@ async fn run_session(
 
         tokio::select! {
             biased;
+            () = cancel.cancelled() => {
+                info!(pid, generation, "bridge session cancelled (superseded)");
+                break;
+            }
             job = job_rx.recv() => {
                 let Some(job) = job else {
                     break;
                 };
-                match run_tool_job(pid, &mut stream, &registry, timeouts, job).await {
+                match run_tool_job(pid, &mut stream, &registry, timeouts, &cancel, job).await {
                     JobLoop::Continue { activity } => {
                         if activity {
                             last_activity = Instant::now();
@@ -314,7 +368,7 @@ async fn run_session(
                 if last_activity.elapsed() < heartbeat.interval {
                     continue;
                 }
-                match run_heartbeat_ping(pid, &mut stream, heartbeat.pong_timeout).await {
+                match run_heartbeat_ping(pid, &mut stream, heartbeat.pong_timeout, &cancel).await {
                     Ok(()) => {
                         last_activity = Instant::now();
                     }
@@ -337,6 +391,7 @@ async fn run_tool_job(
     stream: &mut IpcStream,
     registry: &Arc<Mutex<PidRegistry>>,
     timeouts: BridgeTimeouts,
+    cancel: &CancellationToken,
     job: TaskJob,
 ) -> JobLoop {
     // Promote the head pending task (this job, FIFO) to in-flight.
@@ -354,7 +409,7 @@ async fn run_tool_job(
     };
 
     let outcome = match stream.send(&req).await {
-        Ok(()) => match await_matching_response(pid, stream, &id, budget).await {
+        Ok(()) => match await_matching_response(pid, stream, &id, budget, cancel).await {
             RecvOutcome::Matched(result, error) => {
                 if let Some(err) = error {
                     let msg = err
@@ -416,39 +471,48 @@ async fn await_matching_response(
     stream: &mut IpcStream,
     want_id: &str,
     budget: Duration,
+    cancel: &CancellationToken,
 ) -> RecvOutcome {
     let deadline = Instant::now() + budget;
     loop {
+        if cancel.is_cancelled() {
+            return RecvOutcome::Disconnected;
+        }
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
             return RecvOutcome::TimedOut;
         }
-        match timeout(remaining, stream.recv_message()).await {
-            Ok(Ok(Message::Response {
-                id: rid,
-                result,
-                error,
-            })) if rid == want_id => {
-                return RecvOutcome::Matched(result, error);
+        tokio::select! {
+            () = cancel.cancelled() => return RecvOutcome::Disconnected,
+            recv = timeout(remaining, stream.recv_message()) => {
+                match recv {
+                    Ok(Ok(Message::Response {
+                        id: rid,
+                        result,
+                        error,
+                    })) if rid == want_id => {
+                        return RecvOutcome::Matched(result, error);
+                    }
+                    Ok(Ok(Message::Response { id: rid, .. })) => {
+                        warn!(
+                            pid,
+                            want = %want_id,
+                            got = %rid,
+                            "discarding stale bridge response (prior timeout)"
+                        );
+                        continue;
+                    }
+                    Ok(Ok(_other)) => {
+                        warn!(
+                            pid,
+                            "unexpected non-response frame while awaiting tool reply"
+                        );
+                        return RecvOutcome::Disconnected;
+                    }
+                    Ok(Err(_e)) => return RecvOutcome::Disconnected,
+                    Err(_) => return RecvOutcome::TimedOut,
+                }
             }
-            Ok(Ok(Message::Response { id: rid, .. })) => {
-                warn!(
-                    pid,
-                    want = %want_id,
-                    got = %rid,
-                    "discarding stale bridge response (prior timeout)"
-                );
-                continue;
-            }
-            Ok(Ok(_other)) => {
-                warn!(
-                    pid,
-                    "unexpected non-response frame while awaiting tool reply"
-                );
-                return RecvOutcome::Disconnected;
-            }
-            Ok(Err(_e)) => return RecvOutcome::Disconnected,
-            Err(_) => return RecvOutcome::TimedOut,
         }
     }
 }
@@ -458,6 +522,7 @@ async fn run_heartbeat_ping(
     pid: u32,
     stream: &mut IpcStream,
     pong_timeout: Duration,
+    cancel: &CancellationToken,
 ) -> Result<(), ()> {
     let id = CALL_ID.fetch_add(1, Ordering::Relaxed).to_string();
     let req = Message::Request {
@@ -469,7 +534,7 @@ async fn run_heartbeat_ping(
         warn!(pid, "bridge heartbeat send failed");
         return Err(());
     }
-    match await_matching_response(pid, stream, &id, pong_timeout).await {
+    match await_matching_response(pid, stream, &id, pong_timeout, cancel).await {
         RecvOutcome::Matched(result, None) => {
             let ok = result
                 .as_ref()
@@ -564,12 +629,15 @@ pub async fn run_ipc_accept(
     };
     let bridge_dir_str = bridge_dir.to_string_lossy().to_string();
     let version = env!("CARGO_PKG_VERSION").to_string();
-    let idle_dead_secs = Some(sessions.idle_dead_secs());
+    let offer = HandshakeOffer {
+        idle_dead_secs: Some(sessions.idle_dead_secs()),
+        max_call_wait_secs: Some(sessions.max_call_wait_secs()),
+    };
     info!("ipc listener bound — waiting for TD bridges");
 
     loop {
         match listener
-            .accept_handshake(&bridge_dir_str, &version, idle_dead_secs)
+            .accept_handshake(&bridge_dir_str, &version, offer)
             .await
         {
             Ok(stream) => {

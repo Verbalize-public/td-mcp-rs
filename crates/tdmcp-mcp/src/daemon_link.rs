@@ -36,6 +36,8 @@ pub const DEFAULT_PROBE_MAX_MS: u64 = 5_000;
 const HEALTH_TIMEOUT: Duration = Duration::from_millis(800);
 /// Fresh `serve()` handshake budget.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
+/// Bound for waiters blocked on an in-flight heal (single-flight gate).
+const HEAL_GATE_WAIT: Duration = Duration::from_secs(5);
 
 /// Env-configurable reconnect timing.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -262,7 +264,9 @@ impl DaemonLink {
 
     /// Attempt a reconnect-only heal for the generation that just failed.
     ///
-    /// Never spawns a daemon. Single-flight; debounced.
+    /// Never spawns a daemon. Single-flight with waiters: concurrent callers
+    /// block on the gate (bounded) and share the in-flight outcome instead of
+    /// failing open with `healed: false`. Debounced only for the gate holder.
     pub async fn heal(&self, generation_used: u64) -> HealOutcome {
         self.mark_unhealthy();
         let downtime = self.downtime();
@@ -277,22 +281,19 @@ impl DaemonLink {
             }
         }
 
-        if self.debounced() {
-            debug!("daemon_link: heal debounced");
-            return HealOutcome {
-                healed: false,
-                downtime,
-            };
-        }
-
-        let Ok(_gate) = self.reconnect_gate.try_lock() else {
-            debug!("daemon_link: heal single-flight busy");
-            return HealOutcome {
-                healed: false,
-                downtime,
-            };
+        let gate = match tokio::time::timeout(HEAL_GATE_WAIT, self.reconnect_gate.lock()).await {
+            Ok(guard) => guard,
+            Err(_) => {
+                debug!("daemon_link: heal gate wait timed out");
+                return HealOutcome {
+                    healed: false,
+                    downtime: self.downtime().or(downtime),
+                };
+            }
         };
+        let _gate = gate;
 
+        // Another waiter may have healed (or the watcher) while we waited.
         {
             let state = self.state.read().await;
             if state.generation != generation_used {
@@ -301,6 +302,14 @@ impl DaemonLink {
                     downtime: self.downtime().or(downtime),
                 };
             }
+        }
+
+        if self.debounced() {
+            debug!("daemon_link: heal debounced");
+            return HealOutcome {
+                healed: false,
+                downtime: self.downtime().or(downtime),
+            };
         }
 
         self.note_probe();

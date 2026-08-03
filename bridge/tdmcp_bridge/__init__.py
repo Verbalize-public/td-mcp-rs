@@ -30,6 +30,9 @@ PONG_TIMEOUT_S = 8.0
 IDLE_DEAD_S = 20.0
 # Short poll so serve_queued can notice IDLE_DEAD without blocking forever.
 _READ_POLL_S = 1.0
+# Upper bound for worker wait on main-thread process_pending (handshake may lower).
+# Aligns with tdmcp-mcp BRIDGE_TIMEOUT (180s) when the daemon omits maxCallWaitSecs.
+DEFAULT_MAX_CALL_WAIT_S = 180.0
 # execute_python payload caps — keep framed JSON well under the 16 MiB IPC MAX_FRAME.
 SCRIPT_MAX_BYTES = 1 * 1024 * 1024
 RESULT_MAX_BYTES = 1 * 1024 * 1024
@@ -2620,6 +2623,25 @@ def idle_dead_from_handshake(resp: dict[str, Any] | None) -> float:
     return value
 
 
+def max_call_wait_from_handshake(resp: dict[str, Any] | None) -> float:
+    """Map handshake ``maxCallWaitSecs`` to a worker ``response_slot`` wait.
+
+    Missing / invalid values fall back to [`DEFAULT_MAX_CALL_WAIT_S`].
+    """
+    if not isinstance(resp, dict):
+        return DEFAULT_MAX_CALL_WAIT_S
+    raw = resp.get("maxCallWaitSecs")
+    if raw is None:
+        return DEFAULT_MAX_CALL_WAIT_S
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return DEFAULT_MAX_CALL_WAIT_S
+    if value <= 0:
+        return DEFAULT_MAX_CALL_WAIT_S
+    return value
+
+
 def _td_pid() -> int:
     try:
         import td  # type: ignore
@@ -2673,11 +2695,35 @@ class _PendingItem:
     summary: str
     enqueued_at: float = field(default_factory=time.monotonic)
     req_id: Any = None
+    abandoned: bool = False
 
 
 _pending_lock = threading.Lock()
 _pending: list[_PendingItem] = []
 _running: _PendingItem | None = None
+
+
+def _deliver_response(item: _PendingItem, resp: dict[str, Any]) -> None:
+    """Unblock the worker without hanging if it already timed out."""
+    if item.abandoned:
+        return
+    try:
+        item.response_slot.put_nowait(resp)
+    except queue.Full:
+        pass
+
+
+def _abandon_pending(req_id: Any) -> None:
+    """Remove a queued item or mark the in-flight item abandoned after worker timeout."""
+    global _running
+    with _pending_lock:
+        for i, item in enumerate(_pending):
+            if item.req_id == req_id:
+                _pending.pop(i)
+                item.abandoned = True
+                return
+        if _running is not None and _running.req_id == req_id:
+            _running.abandoned = True
 
 
 def _short_text(s: str, n: int = _SUMMARY_MAX) -> str:
@@ -2798,19 +2844,17 @@ def cancel_queued() -> int:
         items = list(_pending)
         _pending.clear()
     for item in items:
-        try:
-            item.response_slot.put(
-                {
-                    "type": "response",
-                    "id": item.req_id,
-                    "error": {
-                        "message": "cancelled",
-                        "code": "tdmcp.bridge.cancelled",
-                    },
-                }
-            )
-        except Exception:  # noqa: BLE001 — best-effort unblock
-            pass
+        _deliver_response(
+            item,
+            {
+                "type": "response",
+                "id": item.req_id,
+                "error": {
+                    "message": "cancelled",
+                    "code": "tdmcp.bridge.cancelled",
+                },
+            },
+        )
     return len(items)
 
 
@@ -2830,14 +2874,15 @@ def process_pending(max_items: int = 64) -> int:
             item = _pending.pop(0)
             _running = item
         try:
-            item.response_slot.put(dispatch(item.msg))
+            _deliver_response(item, dispatch(item.msg))
         except Exception as exc:  # noqa: BLE001 — never let the pump die
-            item.response_slot.put(
+            _deliver_response(
+                item,
                 {
                     "type": "response",
                     "id": item.req_id,
                     "error": {"message": str(exc)},
-                }
+                },
             )
         finally:
             with _pending_lock:
@@ -2856,12 +2901,21 @@ def _close_serve_stream(stream) -> None:
         pass
 
 
-def serve_queued(stream, *, idle_dead_s: float = IDLE_DEAD_S) -> None:
+def serve_queued(
+    stream,
+    *,
+    idle_dead_s: float = IDLE_DEAD_S,
+    max_call_wait_s: float = DEFAULT_MAX_CALL_WAIT_S,
+) -> None:
     """Framed dispatch loop, worker-thread-safe for TD API methods.
 
     ``ping`` is answered on this worker thread (daemon idle heartbeat) so a
     paused timeline cannot look like a dead bridge. Other methods enqueue for
     [`process_pending`] on the main thread.
+
+    Worker waits for the main-thread response up to ``max_call_wait_s``; on
+    timeout it writes a structured error and continues so the IPC stream is
+    not wedged after the daemon has already timed out the wait.
 
     Exits on EOF, mid-frame stall (``idle_dead_s`` without byte progress), or
     when no inbound frame arrives for ``idle_dead_s`` (when the stream
@@ -2869,6 +2923,7 @@ def serve_queued(stream, *, idle_dead_s: float = IDLE_DEAD_S) -> None:
     observes an immediate disconnect rather than waiting out heartbeat silence.
     """
     poll = min(_READ_POLL_S, idle_dead_s) if idle_dead_s > 0 else _READ_POLL_S
+    wait_s = max_call_wait_s if max_call_wait_s > 0 else DEFAULT_MAX_CALL_WAIT_S
     try:
         stream._mid_frame_dead_s = idle_dead_s if idle_dead_s > 0 else IDLE_DEAD_S
     except Exception:  # noqa: BLE001 — stubs / frozen objects
@@ -2909,7 +2964,22 @@ def serve_queued(stream, *, idle_dead_s: float = IDLE_DEAD_S) -> None:
                     continue
                 response_slot: "queue.Queue[dict[str, Any]]" = queue.Queue(maxsize=1)
                 _enqueue_pending(msg, response_slot)
-                resp = response_slot.get()
+                try:
+                    resp = response_slot.get(timeout=wait_s)
+                except queue.Empty:
+                    req_id = msg.get("id")
+                    _abandon_pending(req_id)
+                    resp = {
+                        "type": "response",
+                        "id": req_id,
+                        "error": {
+                            "message": (
+                                f"main-thread dispatch did not complete within {wait_s:.0f}s "
+                                "(paused timeline or hung script); IPC unwedged"
+                            ),
+                            "code": "tdmcp.bridge.main_thread_timeout",
+                        },
+                    }
                 _write_frame(stream, resp)
             except Exception:  # noqa: BLE001 — never kill the daemon thread silently
                 sys.stderr.write(
@@ -3052,10 +3122,11 @@ def bootstrap_threaded(bridge_dir: str | None = None) -> dict[str, Any]:
     # Bind serve_queued from the (possibly reloaded) module object.
     serve_fn = sys.modules[__name__].serve_queued
     idle_dead_s = idle_dead_from_handshake(resp)
+    max_call_wait_s = max_call_wait_from_handshake(resp)
     thread = threading.Thread(
         target=serve_fn,
         args=(stream,),
-        kwargs={"idle_dead_s": idle_dead_s},
+        kwargs={"idle_dead_s": idle_dead_s, "max_call_wait_s": max_call_wait_s},
         daemon=True,
     )
     thread.start()

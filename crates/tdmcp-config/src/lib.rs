@@ -23,14 +23,14 @@ pub const CONFIG_PATH_ENV: &str = "TDMCP_CONFIG_PATH";
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ConfigFile {
-	/// Listen / MCP server settings.
-	pub server: ServerSection,
-	/// Daemon lifecycle settings.
-	pub daemon: DaemonSection,
-	/// Bridge IPC call / heartbeat budgets.
-	pub bridge: BridgeSection,
-	/// Optional path overrides.
-	pub advanced: AdvancedSection,
+    /// Listen / MCP server settings.
+    pub server: ServerSection,
+    /// Daemon lifecycle settings.
+    pub daemon: DaemonSection,
+    /// Bridge IPC call / heartbeat budgets.
+    pub bridge: BridgeSection,
+    /// Optional path overrides.
+    pub advanced: AdvancedSection,
 }
 
 /// `[server]` table.

@@ -53,6 +53,10 @@ pub struct FleetProcess {
     /// In-flight / pending tasks when requested; omitted when the snapshot is empty.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tasks: Option<Vec<tdmcp_core::TaskInfo>>,
+    /// Jobs waiting in the bridge actor mpsc (not yet started). Present when
+    /// `include` contains `tasks` and the transport reports a depth.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ipc_queue_depth: Option<usize>,
     /// Resurrected flag when non-default.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub resurrected: bool,
@@ -73,8 +77,15 @@ pub struct FleetResponse {
 }
 
 /// Build a fleet summary from the registry.
+///
+/// `ipc_depths` maps pid → actor-inbox depth when the caller can observe it
+/// (omit / empty when unknown).
 #[must_use]
-pub fn fleet_summary(registry: &PidRegistry, params: &FleetParams) -> FleetResponse {
+pub fn fleet_summary(
+    registry: &PidRegistry,
+    params: &FleetParams,
+    ipc_depths: &[(u32, usize)],
+) -> FleetResponse {
     let want_tasks = params.include.contains(&FleetInclude::Tasks);
     let filter = params.pids.as_ref();
     let mut processes = Vec::new();
@@ -87,6 +98,9 @@ pub fn fleet_summary(registry: &PidRegistry, params: &FleetParams) -> FleetRespo
         let Some(entry) = registry.get(pid) else {
             continue;
         };
+        let ipc_queue_depth = want_tasks
+            .then(|| ipc_depths.iter().find(|(p, _)| *p == pid).map(|(_, d)| *d))
+            .flatten();
         processes.push(FleetProcess {
             pid: Pid::new(pid),
             title: entry.process.title.clone(),
@@ -96,6 +110,7 @@ pub fn fleet_summary(registry: &PidRegistry, params: &FleetParams) -> FleetRespo
             tasks: want_tasks
                 .then(|| entry.queue.snapshot())
                 .filter(|t| !t.is_empty()),
+            ipc_queue_depth,
             resurrected: entry.resurrection.resurrected,
             last_disconnect_at: entry.resurrection.last_disconnect_at,
             cancelled_tasks: entry.resurrection.cancelled_tasks.clone(),
@@ -137,7 +152,7 @@ mod tests {
             include: vec![FleetInclude::Tasks, FleetInclude::Cancelled],
             ..Default::default()
         };
-        let json = serde_json::to_value(fleet_summary(&reg, &params)).expect("serialize");
+        let json = serde_json::to_value(fleet_summary(&reg, &params, &[])).expect("serialize");
         let proc = &json["processes"][0];
         assert_eq!(proc["pid"], 34);
         assert!(proc.get("tasks").is_none(), "idle queue must omit tasks");
@@ -145,6 +160,7 @@ mod tests {
             proc.get("cancelledTasks").is_none(),
             "empty cancelled stack must omit cancelledTasks"
         );
+        assert!(proc.get("ipcQueueDepth").is_none());
     }
 
     #[test]
@@ -155,11 +171,13 @@ mod tests {
             include: vec![FleetInclude::Tasks],
             ..Default::default()
         };
-        let json = serde_json::to_value(fleet_summary(&reg, &params)).expect("serialize");
+        let json =
+            serde_json::to_value(fleet_summary(&reg, &params, &[(34, 2)])).expect("serialize");
         let tasks = json["processes"][0]["tasks"]
             .as_array()
             .expect("tasks present when non-empty");
         assert_eq!(tasks.len(), 1);
         assert_eq!(tasks[0]["name"], "PythonEval");
+        assert_eq!(json["processes"][0]["ipcQueueDepth"], 2);
     }
 }

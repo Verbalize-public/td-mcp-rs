@@ -451,9 +451,26 @@ pub async fn dispatch_tool(
         "fleet" => {
             let params: FleetParams = serde_json::from_value(args)
                 .map_err(|e| ToolCallError::InvalidArgs(e.to_string()))?;
+            let want_tasks = params.include.contains(&crate::fleet::FleetInclude::Tasks);
+            let mut ipc_depths = Vec::new();
+            if want_tasks {
+                let pids: Vec<u32> = {
+                    let reg = registry.lock().await;
+                    reg.pids()
+                };
+                for pid in pids {
+                    if let Some(depth) = bridge.job_queue_depth(pid).await {
+                        if depth > 0 {
+                            ipc_depths.push((pid, depth));
+                        }
+                    }
+                }
+            }
             let reg = registry.lock().await;
-            Ok(serde_json::to_value(fleet_summary(&reg, &params))
-                .map_err(|e| ToolCallError::InvalidArgs(e.to_string()))?)
+            Ok(
+                serde_json::to_value(fleet_summary(&reg, &params, &ipc_depths))
+                    .map_err(|e| ToolCallError::InvalidArgs(e.to_string()))?,
+            )
         }
         "describe_tools" => Ok(serde_json::json!({ "tools": tool_descriptors() })),
         "execute_python" => {

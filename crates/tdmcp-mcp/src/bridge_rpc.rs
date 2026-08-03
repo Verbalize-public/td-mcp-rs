@@ -56,4 +56,10 @@ pub trait BridgeRpc: Send + Sync {
     /// script execution failure) is delivered as `Ok` with the error payload
     /// inside the `Value`, so the tool layer can map it to diagnostics.
     async fn call(&self, pid: u32, method: &str, params: Value) -> Result<Value, BridgeRpcError>;
+
+    /// Approximate depth of jobs waiting in the per-pid actor inbox (not yet
+    /// in-flight on the registry queue). Default: unknown / not applicable.
+    async fn job_queue_depth(&self, _pid: u32) -> Option<usize> {
+        None
+    }
 }

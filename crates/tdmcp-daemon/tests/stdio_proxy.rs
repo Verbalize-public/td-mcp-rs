@@ -407,3 +407,94 @@ async fn stdio_proxy_watcher_heals_without_intervening_success() {
     let _ = proxy_task.await;
     ct2.cancel();
 }
+
+#[tokio::test]
+async fn concurrent_calls_during_heal_share_outcome() {
+    // After restart, parallel tool calls must wait for the in-flight heal rather
+    // than thundering-herd `healed: false` from try_lock fail-open.
+    let bridge: Arc<dyn BridgeRpc> = Arc::new(FakeBridgeRpc::responding(json!({})));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let url = format!("http://{addr}/mcp/rpc");
+    let ct = spawn_http_daemon_on(Arc::clone(&bridge), listener).await;
+
+    let (client_side, server_side) = tokio::io::duplex(64 * 1024);
+    let (server_read, server_write) = tokio::io::split(server_side);
+    let cfg = fast_reconnect_config();
+    let url_clone = url.clone();
+    let proxy_task = tokio::spawn(async move {
+        run_stdio_proxy_rw_config(&url_clone, server_read, server_write, cfg).await
+    });
+
+    let client = ().serve(client_side).await.expect("stdio client initialize");
+    client
+        .call_tool(
+            CallToolRequestParams::new("fleet")
+                .with_arguments(json!({}).as_object().cloned().unwrap_or_default()),
+        )
+        .await
+        .expect("fleet before restart");
+
+    ct.cancel();
+    wait_port_free(addr).await;
+
+    let _ = client
+        .call_tool(
+            CallToolRequestParams::new("fleet")
+                .with_arguments(json!({}).as_object().cloned().unwrap_or_default()),
+        )
+        .await
+        .expect_err("mark unhealthy");
+
+    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+    let ct2 = spawn_http_daemon_on(bridge, listener).await;
+
+    // Brief pause so health is up, then stampede.
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let args = json!({}).as_object().cloned().unwrap_or_default();
+    let results = futures::future::join_all((0..8).map(|_| {
+        client.call_tool(CallToolRequestParams::new("fleet").with_arguments(args.clone()))
+    }))
+    .await;
+
+    let mut ok = 0usize;
+    let mut healed_err = 0usize;
+    let mut other_err = 0usize;
+    for result in results {
+        match result {
+            Ok(_) => ok += 1,
+            Err(ServiceError::McpError(data)) => {
+                let healed = data
+                    .data
+                    .as_ref()
+                    .and_then(|d| d.get("healed"))
+                    .and_then(|h| h.as_bool());
+                if healed == Some(true) {
+                    healed_err += 1;
+                } else {
+                    other_err += 1;
+                }
+            }
+            Err(_) => other_err += 1,
+        }
+    }
+
+    assert!(
+        ok + healed_err >= 6,
+        "most parallel calls should succeed or report healed reconnect (ok={ok} healed_err={healed_err} other_err={other_err})"
+    );
+
+    // Follow-up call must succeed on the shared session.
+    client
+        .call_tool(
+            CallToolRequestParams::new("fleet")
+                .with_arguments(json!({}).as_object().cloned().unwrap_or_default()),
+        )
+        .await
+        .expect("fleet after concurrent heal");
+
+    let _ = client.cancel().await;
+    let _ = proxy_task.await;
+    ct2.cancel();
+}

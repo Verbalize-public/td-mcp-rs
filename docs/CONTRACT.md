@@ -68,7 +68,7 @@ Crate layout: `[ARCHITECTURE.md](../ARCHITECTURE.md)`. Engineering law: `[CONSTI
 
 **Singleton:** one owner per listen port. Exclusivity = `daemon.lock` (pid) + TCP bind on `127.0.0.1:{port}`. Stale locks (dead pid) are reclaimed on `start` / `ensure`. A second `start` while healthy refuses with a clear error. `/admin/restart` clears the lock then spawn-then-exit; the replacement retries bind briefly. No distributed leader election — localhost only.
 
-**Idle auto-exit:** after **30s** with zero connected bridges and zero live Streamable HTTP MCP session leases (stdio proxy counts), the daemon toasts and cancels the serve loop (same path as `/admin/shutdown` / ctrl_c). Drain is deadline-bounded (~2s); the process then ends on the main thread — never via `process::exit` from a background tokio task. Admin/health polls and JSON `/mcp/tools/`* do not keep it alive. Assumes session-mode MCP (not per-request handlers). Override: `TDMCP_IDLE_EXIT_SECS` (`0` disables). `ensure` / `mcp` respawn on next use. Tests may set `TDMCP_IPC_PIPE` so a live TD on the production pipe cannot attach.
+**Idle auto-exit:** after **30s** with zero connected bridges and zero live Streamable HTTP MCP session leases (stdio proxy counts), the daemon toasts and cancels the serve loop (same path as `/admin/shutdown` / ctrl_c). A **5s startup grace** after the idle watcher starts prevents a freshly-(re)started daemon from exiting before the stdio proxy re-acquires a Streamable HTTP lease. Drain is deadline-bounded (~2s); the process then ends on the main thread — never via `process::exit` from a background tokio task. Admin/health polls and JSON `/mcp/tools/`* do not keep it alive. Assumes session-mode MCP (not per-request handlers); production Streamable HTTP disables SSE keepalive and wires the daemon shutdown token (same as integration tests). Override: `TDMCP_IDLE_EXIT_SECS` (`0` disables). `ensure` / `mcp` respawn on next use. Tests may set `TDMCP_IPC_PIPE` so a live TD on the production pipe cannot attach.
 
 **Listen:** `127.0.0.1:9860` (override via CLI / env / RC); loopback only; no auth.
 
@@ -81,10 +81,13 @@ session.
 **Stdio proxy resilience:** if the HTTP link to the daemon is lost (e.g.
 `/admin/restart`, crash, idle-exit), the shim attempts a **reconnect-only**
 heal — it never spawns / upserts a daemon mid-session. Heal is single-flight
-and debounced; a background watcher keeps probing while unhealthy so a
-freshly-restarted daemon does not idle-exit again before the next tool call.
-The failed call always returns `tdmcp.daemon.unreachable` with downtime and a
-suggestion (no silent retry of the tool). Thresholds:
+with **waiters** (bounded gate wait; concurrent callers share the in-flight
+outcome instead of failing open) and debounced for the gate holder; a
+background watcher keeps probing while unhealthy so a freshly-restarted
+daemon does not idle-exit again before the next tool call (paired with the
+idle startup grace above). The failed call always returns
+`tdmcp.daemon.unreachable` with downtime and a suggestion (no silent retry of
+the tool). Thresholds:
 `TDMCP_RECONNECT_RECENT_MS` (default 3000), `TDMCP_RECONNECT_STALE_MS` (15000),
 `TDMCP_RECONNECT_DEBOUNCE_MS` (250), `TDMCP_RECONNECT_PROBE_INTERVAL_MS` (500),
 `TDMCP_RECONNECT_PROBE_MAX_MS` (5000). This is **not** the TD↔daemon IPC
@@ -109,7 +112,7 @@ Handshake returns a local FS path to the bridge package directory. TD reloads fr
 | Ground truth    | OS `pid` only                                                                                                                       |
 | Discovery       | `fleet` lists by `pid` + **title** (`project.name`) + **toePath** (`folder`+`name`), bridge, tasks, traces                          |
 | Identity source | Filled at bridge handshake from a main-thread snapshot; stale until reconnect (no mid-session refresh)                              |
-| Fingerprint     | Best-effort `image` (process exe path) + `startTime` (opaque OS start); used for pid-reuse                                          |
+| Fingerprint     | Best-effort `image` + `startTime`; when **both** sides omit `startTime`, require a shared `title` or `image` (empty/empty ≠ match) |
 | Deferred        | `windowStatus` and `fleet` `popups` — empty until P1 `dialogs` (Win)                                                                |
 | Usable          | `bridge: "connected"` ⇒ any caller may address that `pid`                                                                           |
 | Addressing      | Process-scoped tools require `pid`                                                                                                  |
@@ -432,7 +435,13 @@ Every tool failure carries a structured `diagnostics` block:
 
 Code families in use today: `tdmcp.bridge.*`, `tdmcp.script.*`, `tdmcp.perception.*`, `tdmcp.op.*` (catalog also reserves mutate/batch codes for P1).
 
-`tdmcp.bridge.timeout` = daemon wait ended (TD may still run). `tdmcp.bridge.lost` = IPC died (cancel + resurrection stack).
+`tdmcp.bridge.timeout` = daemon wait ended (TD may still run — **timeout ≠ cancel**).
+`tdmcp.bridge.lost` = IPC died (cancel + resurrection stack).
+`tdmcp.bridge.main_thread_timeout` = bridge worker gave up waiting for
+`process_pending` (paused timeline / hung script) and unwedged the IPC loop;
+late main-thread results are dropped. Same-pid reconnect **aborts** the prior
+daemon session actor (cancel token) so dual actors cannot serve one pid when
+Python `disconnect()` join fails.
 
 ---
 

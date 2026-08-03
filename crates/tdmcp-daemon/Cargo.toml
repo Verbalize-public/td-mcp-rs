@@ -41,6 +41,7 @@ tokio-util = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
+futures = { workspace = true }
 reqwest = { workspace = true }
 tdmcp-test-support = { workspace = true }
 tempfile = { workspace = true }

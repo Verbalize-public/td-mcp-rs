@@ -446,11 +446,17 @@ async fn run_daemon(
     // Real MCP transport: rmcp Streamable HTTP over the same AppState the
     // JSON fallback (`/mcp/tools/*`) uses. One `McpHandler` per session
     // (legacy mode) — cheap, since `AppState` is Arc-backed.
+    //
+    // Pin config to match integration tests / idle-exit assumptions: no SSE
+    // keepalive (session held by client activity + lease registry), and wire
+    // the daemon shutdown token so graceful drain cancels the transport.
     let streamable_http: StreamableHttpService<McpHandler, LocalSessionManager> =
         StreamableHttpService::new(
             move || Ok(McpHandler::new(mcp_handler_state.clone())),
             Default::default(),
-            StreamableHttpServerConfig::default(),
+            StreamableHttpServerConfig::default()
+                .with_sse_keep_alive(None)
+                .with_cancellation_token(shutdown.child_token()),
         );
 
     let restart = RestartArgs {

@@ -8,6 +8,12 @@
 #![allow(clippy::unwrap_used, reason = "test setup/assertions may panic")]
 #![allow(clippy::expect_used, reason = "test setup/assertions may panic")]
 #![allow(clippy::panic, reason = "test assertions may panic")]
+// Process-wide std::sync::Mutex serializes binary-spawning tests across awaits
+// (async Mutex would not exclude other OS threads / test binaries sharing state).
+#![allow(
+    clippy::await_holding_lock,
+    reason = "binary_test_lock serializes process spawn"
+)]
 
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};

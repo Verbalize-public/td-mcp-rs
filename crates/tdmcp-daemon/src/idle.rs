@@ -16,6 +16,13 @@ use crate::bridge::BridgeSessions;
 /// Default idle timeout when the env var is unset.
 pub const DEFAULT_IDLE_EXIT_SECS: u64 = 30;
 
+/// Grace after watcher start before idle may begin counting.
+///
+/// Covers the window after daemon (re)start when the stdio proxy has not yet
+/// re-acquired a Streamable HTTP session lease. Without this, a short
+/// `TDMCP_IDLE_EXIT_SECS` can kill a freshly-spawned daemon before heal lands.
+pub const DEFAULT_IDLE_STARTUP_GRACE: Duration = Duration::from_secs(5);
+
 /// Parse `TDMCP_IDLE_EXIT_SECS`. `None` means idle exit is disabled.
 #[must_use]
 pub fn idle_exit_timeout() -> Option<Duration> {
@@ -52,7 +59,28 @@ pub async fn run_idle_watcher(
     shutdown: CancellationToken,
     quit: Arc<AtomicBool>,
 ) {
+    run_idle_watcher_with_grace(
+        bridges,
+        mcp_sessions,
+        timeout,
+        DEFAULT_IDLE_STARTUP_GRACE,
+        shutdown,
+        quit,
+    )
+    .await;
+}
+
+/// Like [`run_idle_watcher`] with an explicit startup grace (tests).
+pub async fn run_idle_watcher_with_grace(
+    bridges: BridgeSessions,
+    mcp_sessions: Arc<McpSessionRegistry>,
+    timeout: Duration,
+    startup_grace: Duration,
+    shutdown: CancellationToken,
+    quit: Arc<AtomicBool>,
+) {
     let poll = poll_interval(timeout);
+    let started = Instant::now();
     let mut idle_since: Option<Instant> = None;
 
     loop {
@@ -63,8 +91,9 @@ pub async fn run_idle_watcher(
         let bridge_count = bridges.connected_count().await;
         let mcp_count = mcp_sessions.len();
         let busy = bridge_count > 0 || mcp_count > 0;
+        let in_startup_grace = started.elapsed() < startup_grace;
 
-        if busy {
+        if busy || in_startup_grace {
             idle_since = None;
         } else {
             let since = idle_since.get_or_insert_with(Instant::now);
@@ -138,5 +167,72 @@ mod tests {
             idle_exit_timeout_from_env(Some("2")),
             Some(Duration::from_secs(2))
         );
+    }
+
+    #[tokio::test]
+    async fn startup_grace_delays_idle_exit() {
+        use std::sync::atomic::AtomicBool;
+        use tdmcp_core::PidRegistry;
+        use tdmcp_mcp::McpSessionRegistry;
+        use tokio::sync::Mutex;
+
+        let registry = Arc::new(Mutex::new(PidRegistry::new()));
+        let bridges =
+            BridgeSessions::new(registry).with_heartbeat(crate::HeartbeatConfig::disabled());
+        let mcp_sessions = Arc::new(McpSessionRegistry::new());
+        let shutdown = CancellationToken::new();
+        let quit = Arc::new(AtomicBool::new(false));
+
+        let watcher = tokio::spawn(run_idle_watcher_with_grace(
+            bridges,
+            mcp_sessions,
+            Duration::from_millis(50),
+            Duration::from_millis(200),
+            shutdown.clone(),
+            Arc::clone(&quit),
+        ));
+
+        // Still inside startup grace — must not have exited.
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(!quit.load(Ordering::SeqCst));
+        assert!(!shutdown.is_cancelled());
+
+        // After grace + idle timeout, should exit.
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        assert!(quit.load(Ordering::SeqCst));
+        let _ = watcher.await;
+    }
+
+    #[tokio::test]
+    async fn mcp_lease_blocks_idle_exit() {
+        use std::sync::atomic::AtomicBool;
+        use tdmcp_core::PidRegistry;
+        use tdmcp_mcp::McpSessionRegistry;
+        use tokio::sync::Mutex;
+
+        let registry = Arc::new(Mutex::new(PidRegistry::new()));
+        let bridges =
+            BridgeSessions::new(registry).with_heartbeat(crate::HeartbeatConfig::disabled());
+        let mcp_sessions = Arc::new(McpSessionRegistry::new());
+        let _lease = mcp_sessions.acquire();
+        let shutdown = CancellationToken::new();
+        let quit = Arc::new(AtomicBool::new(false));
+
+        let watcher = tokio::spawn(run_idle_watcher_with_grace(
+            bridges,
+            Arc::clone(&mcp_sessions),
+            Duration::from_millis(40),
+            Duration::from_millis(0),
+            shutdown.clone(),
+            Arc::clone(&quit),
+        ));
+
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        assert!(
+            !quit.load(Ordering::SeqCst),
+            "live MCP lease must block idle exit"
+        );
+        shutdown.cancel();
+        let _ = watcher.await;
     }
 }

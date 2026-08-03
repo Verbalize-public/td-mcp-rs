@@ -479,6 +479,41 @@ class IdleDeadFromHandshakeTest(unittest.TestCase):
         )
 
 
+class MaxCallWaitFromHandshakeTest(unittest.TestCase):
+    def test_present_and_fallback(self) -> None:
+        self.assertEqual(
+            tdmcp_bridge.max_call_wait_from_handshake({"maxCallWaitSecs": 45}), 45.0
+        )
+        self.assertEqual(
+            tdmcp_bridge.max_call_wait_from_handshake({}),
+            tdmcp_bridge.DEFAULT_MAX_CALL_WAIT_S,
+        )
+
+
+class MainThreadWaitTimeoutTest(QueuedServeTest):
+    """Worker unwedged when process_pending never runs (hung / paused timeline)."""
+
+    def test_response_slot_timeout_writes_error_and_continues(self) -> None:
+        worker = threading.Thread(
+            target=tdmcp_bridge.serve_queued,
+            args=(self.bridge_stream,),
+            kwargs={"idle_dead_s": 5.0, "max_call_wait_s": 0.2},
+            daemon=True,
+        )
+        worker.start()
+        self._send_request(90, "execute_python", {"script": "result = 1"})
+        resp = self._recv_response()
+        self.assertEqual(resp["id"], 90)
+        self.assertIn("error", resp)
+        self.assertEqual(resp["error"]["code"], "tdmcp.bridge.main_thread_timeout")
+
+        # Stream still usable for ping (worker continued).
+        self._send_request(91, "ping")
+        pong = self._recv_response()
+        self.assertEqual(pong["id"], 91)
+        self.assertEqual(pong["result"], {"ok": True, "pong": True})
+
+
 class WriteFrameTest(unittest.TestCase):
     """_write_frame must require a full write (guards Windows partial WriteFile)."""
 

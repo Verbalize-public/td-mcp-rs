@@ -84,7 +84,7 @@ async fn status(State(state): State<AdminState>) -> Json<StatusBody> {
         pids: None,
         include: vec![],
     };
-    let fleet = fleet_summary(&registry, &params);
+    let fleet = fleet_summary(&registry, &params, &[]);
     let bridge_count = fleet
         .processes
         .iter()
@@ -105,7 +105,15 @@ async fn admin_fleet(State(state): State<AdminState>) -> Json<Value> {
         pids: None,
         include: vec![FleetInclude::Tasks, FleetInclude::Cancelled],
     };
-    let fleet = fleet_summary(&registry, &params);
+    let mut ipc_depths = Vec::new();
+    for pid in registry.pids() {
+        if let Some(depth) = state.app.bridge.job_queue_depth(pid).await {
+            if depth > 0 {
+                ipc_depths.push((pid, depth));
+            }
+        }
+    }
+    let fleet = fleet_summary(&registry, &params, &ipc_depths);
     Json(serde_json::to_value(fleet).unwrap_or(Value::Null))
 }
 
@@ -159,7 +167,7 @@ async fn history(State(state): State<AdminState>) -> Json<Value> {
         pids: None,
         include: vec![FleetInclude::Tasks, FleetInclude::Cancelled],
     };
-    let fleet = fleet_summary(&registry, &params);
+    let fleet = fleet_summary(&registry, &params, &[]);
     Json(serde_json::json!({ "history": fleet.processes }))
 }
 

@@ -9,7 +9,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tracing::{debug, info};
 
 use crate::framing::{self, FrameError, Message};
-use crate::handshake::{HandshakeRequest, HandshakeResponse};
+use crate::handshake::{HandshakeOffer, HandshakeRequest, HandshakeResponse};
 
 /// IPC endpoint errors.
 #[derive(Debug, Error)]
@@ -92,22 +92,29 @@ impl IpcStream {
         bridge_package_dir: impl Into<String>,
         daemon_version: impl Into<String>,
     ) -> Result<Self, IpcError> {
-        Self::accept_memory_handshake_with(stream, bridge_package_dir, daemon_version, None).await
+        Self::accept_memory_handshake_with(
+            stream,
+            bridge_package_dir,
+            daemon_version,
+            HandshakeOffer::default(),
+        )
+        .await
     }
 
-    /// Memory handshake with optional idle-dead budget forwarded to the peer.
+    /// Memory handshake with optional budgets forwarded to the peer.
     pub async fn accept_memory_handshake_with(
         mut stream: tokio::io::DuplexStream,
         bridge_package_dir: impl Into<String>,
         daemon_version: impl Into<String>,
-        idle_dead_secs: Option<u64>,
+        offer: HandshakeOffer,
     ) -> Result<Self, IpcError> {
         let req: HandshakeRequest = read_msg(&mut stream).await?;
         let resp = HandshakeResponse {
             bridge_package_dir: bridge_package_dir.into(),
             daemon_version: daemon_version.into(),
             min_daemon: None,
-            idle_dead_secs,
+            idle_dead_secs: offer.idle_dead_secs,
+            max_call_wait_secs: offer.max_call_wait_secs,
         };
         write_msg(&mut stream, &resp).await?;
         Ok(Self::from_memory(stream, req))
@@ -187,7 +194,7 @@ impl IpcListener {
         &self,
         bridge_package_dir: impl Into<String>,
         daemon_version: impl Into<String>,
-        idle_dead_secs: Option<u64>,
+        offer: HandshakeOffer,
     ) -> Result<IpcStream, IpcError> {
         let bridge_package_dir = bridge_package_dir.into();
         let daemon_version = daemon_version.into();
@@ -208,7 +215,8 @@ impl IpcListener {
                 bridge_package_dir,
                 daemon_version,
                 min_daemon: None,
-                idle_dead_secs,
+                idle_dead_secs: offer.idle_dead_secs,
+                max_call_wait_secs: offer.max_call_wait_secs,
             };
             write_msg(&mut server, &resp).await?;
             Ok(IpcStream {
@@ -226,7 +234,8 @@ impl IpcListener {
                 bridge_package_dir,
                 daemon_version,
                 min_daemon: None,
-                idle_dead_secs,
+                idle_dead_secs: offer.idle_dead_secs,
+                max_call_wait_secs: offer.max_call_wait_secs,
             };
             write_msg(&mut stream, &resp).await?;
             Ok(IpcStream {

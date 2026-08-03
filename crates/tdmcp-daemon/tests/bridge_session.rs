@@ -427,6 +427,48 @@ async fn superseding_spawn_does_not_mark_new_session_disconnected() {
     );
 }
 
+#[tokio::test]
+async fn superseding_spawn_aborts_old_actor_while_stream_still_open() {
+    // Keep the old peer stream open (simulates Python disconnect join failure).
+    // The new session must own the pid; the old actor must exit via cancel.
+    let (registry, sessions, peer_old) = setup(61).await;
+    assert_eq!(sessions.connected_count().await, 1);
+
+    let peer_new = rehandshake_and_spawn(&registry, &sessions, 61).await;
+    let _driver = peer_new.spawn_auto_pong();
+
+    // Allow cancel + teardown of the superseded actor.
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    assert_eq!(
+        sessions.connected_count().await,
+        1,
+        "exactly one live session handle for the pid"
+    );
+
+    let catalog = Catalog::fallback();
+    let v = dispatch_tool(
+        &registry,
+        &catalog,
+        &sessions,
+        "execute_python",
+        json!({"pid": 61, "script": "result=1"}),
+    )
+    .await
+    .expect("new session must serve calls");
+    assert_eq!(v["ok"], true);
+
+    // Dropping the old peer after supersede must not flip the new session.
+    drop(peer_old);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    {
+        let reg = registry.lock().await;
+        assert_eq!(
+            reg.get(61).expect("entry").bridge,
+            tdmcp_core::BridgeStatus::Connected
+        );
+    }
+}
+
 async fn setup_with_timeouts(
     pid: u32,
     timeouts: BridgeTimeouts,

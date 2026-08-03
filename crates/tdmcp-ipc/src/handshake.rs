@@ -24,6 +24,16 @@ pub struct HandshakeRequest {
     pub start_time: Option<String>,
 }
 
+/// Optional budgets the daemon offers the bridge during handshake.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct HandshakeOffer {
+    /// Idle-dead budget (seconds) for the bridge serve loop.
+    pub idle_dead_secs: Option<u64>,
+    /// Upper bound (seconds) the bridge worker may wait for main-thread
+    /// `process_pending` before failing the IPC call and unwedging.
+    pub max_call_wait_secs: Option<u64>,
+}
+
 /// Daemon → TD: path to bridge package directory.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -41,4 +51,9 @@ pub struct HandshakeResponse {
     /// bridge passes it to `serve_queued(idle_dead_s=…)`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub idle_dead_secs: Option<u64>,
+    /// Max seconds the bridge worker may block on main-thread dispatch.
+    ///
+    /// Optional for back-compat; Python defaults to 180s when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_call_wait_secs: Option<u64>,
 }
