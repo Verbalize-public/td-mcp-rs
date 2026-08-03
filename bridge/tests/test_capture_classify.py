@@ -116,12 +116,12 @@ class CaptureClassifyTest(unittest.TestCase):
         kind, _mean = tdmcp_bridge._classify_frame(_top(_gradient()), b"x" * 500)
         self.assertIsNone(kind)
 
-    def test_fallback_tiny_jpeg_is_black(self) -> None:
+    def test_fallback_tiny_image_is_black(self) -> None:
         kind, mean = tdmcp_bridge._classify_frame(_top(None), b"tiny")
         self.assertEqual(kind, "black")
         self.assertIsNone(mean)
 
-    def test_fallback_large_jpeg_ok(self) -> None:
+    def test_fallback_large_image_ok(self) -> None:
         kind, mean = tdmcp_bridge._classify_frame(_top(None), b"x" * 500)
         self.assertIsNone(kind)
         self.assertIsNone(mean)

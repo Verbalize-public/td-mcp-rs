@@ -118,7 +118,7 @@ entries:
     message: "Inspect paths batch capped"
     mitigation:
       - "Split into multiple inspect calls"
-      - "Each path is force-cooked — keep batches small"
+      - "Keep batches small for responsive inspect"
       - "Soft cap is 32 paths per call"
     references:
       - kind: doc
@@ -296,6 +296,7 @@ entries:
     mitigation:
       - "Re-inspect wiring and zone face"
       - "Re-capture; perception-critic FAIL until fixed"
+      - "If the TOP should have content, ensure it is cooking — try op('…').cook(force=True) via execute_python"
     references:
       - kind: doc
         id: capture
@@ -307,6 +308,7 @@ entries:
       - "Re-inspect wiring and zone face"
       - "Re-capture; perception-critic FAIL until fixed"
       - "SOP/MAT/DAT viewer capture reflects TD's default viewport framing; use a Render TOP chain for a true look claim"
+      - "If the TOP should have varied content, ensure it is cooking — try op('…').cook(force=True) via execute_python"
     references:
       - kind: doc
         id: capture

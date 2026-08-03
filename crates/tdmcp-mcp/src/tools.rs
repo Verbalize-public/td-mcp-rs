@@ -60,9 +60,11 @@ pub struct ToolFailPayload {
     pub summary: String,
     /// Structured diagnostics.
     pub diagnostics: tdmcp_diagnostics::Diagnostics,
-    /// Optional JPEG (base64) when perception failed but a frame was captured
+    /// Optional image (base64) when perception failed but a frame was captured
     /// (e.g. black-frame) — agents still need to see the pixels.
-    pub image_jpeg_base64: Option<String>,
+    pub image_base64: Option<String>,
+    /// MIME type for [`Self::image_base64`] (default `image/png` at promotion).
+    pub image_mime_type: Option<String>,
     /// Optional structured payload (e.g. mutate `applied` / `failedAt` / `steps`).
     pub data: Option<Value>,
 }
@@ -213,7 +215,7 @@ pub struct ExecutePythonParams {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum CaptureMode {
-    /// TOP → JPEG (native `saveByteArray`).
+    /// TOP → PNG (native `saveByteArray`; retains alpha).
     Top,
     /// Any family → shared bridge OP Viewer TOP (`capture_viewer`).
     Preview,
@@ -228,7 +230,7 @@ pub enum CaptureMode {
     Pop,
 }
 
-/// Soft cap on inspect `paths` batch size (each path force-cooks).
+/// Soft cap on inspect `paths` batch size.
 pub const INSPECT_PATHS_LIMIT: usize = 32;
 
 impl CaptureMode {
@@ -246,7 +248,7 @@ impl CaptureMode {
     }
 }
 
-/// Default longer-side cap for perception JPEGs (token / wire discipline).
+/// Default longer-side cap for perception images (token / wire discipline).
 pub const CAPTURE_DEFAULT_MAX_SIZE: u32 = 256;
 
 /// Args for capture (perception).
@@ -263,7 +265,7 @@ pub struct CaptureParams {
     /// Resolution base for relative `path`.
     #[serde(default)]
     pub context_path: Option<OpPath>,
-    /// Longer-side pixel cap before JPEG encode. `null` = native resolution.
+    /// Longer-side pixel cap before PNG encode. `null` = native resolution.
     /// Defaults to 256.
     #[serde(default = "default_capture_max_size")]
     pub max_size: Option<u32>,

@@ -204,7 +204,7 @@ Structured success is **flat tool fields** with a single outer `ok` (bridge may 
 | `execute_python` | `{ ok: true, result, logs? }`                                                                                                                                                                                                                                                                                                    |
 | `mutate_nodes`   | `{ ok: true, applied, failedAt, steps }`                                                                                                                                                                                                                                                                                         |
 | `inspect`        | `{ ok: true, nodes: [{ ok, path, …node fields or error }], pathsTruncated?, truncation? }`                                                                                                                                                                                                                                         |
-| `capture`        | JPEG modes: `{ ok: true, path, bytes, mimeType, jpegBase64?, maxSize?, mode?, family? }` + MCP image content when JPEG present (`jpegBase64` stripped from structured after promotion). `chop_data`: `{ ok: true, path, mode, family, numChans, numSamples, rate?, channels:[{name, samples}], truncation? }` (structured only; no image) |
+| `capture`        | Image modes: `{ ok: true, path, bytes, mimeType, imageBase64?, maxSize?, mode?, family? }` + MCP image content when PNG present (`imageBase64` stripped from structured after promotion). `chop_data`: `{ ok: true, path, mode, family, numChans, numSamples, rate?, channels:[{name, samples}], truncation? }` (structured only; no image) |
 | `fleet`          | tool-specific fleet object (no shared shell)                                                                                                                                                                                                                                                                                     |
 | `describe_tools` | tool-specific catalog object (no shared shell)                                                                                                                                                                                                                                                                                   |
 
@@ -258,7 +258,7 @@ When `params` is included, each entry is `{ name, mode, val, expr? }`:
 | `expr` | Present only when `mode == "EXPRESSION"` — the expression string            |
 
 
-**Cook before read (rule):** `inspect` always calls `OP.cook(force=True)` on **each** resolved path before reading nodes/params/errors/warnings. Inspecting a COMP cooks that network. Errors/warnings remain non-recursive (target only). Cook failures are best-effort and do not fail the inspect entry.
+**Cooking:** `inspect` does **not** force-cook. TD cooks on demand when operators are read; agents that need a forced cook use `execute_python` (`op('…').cook(force=True)`). Errors/warnings remain non-recursive (target only).
 
 ### `inspect` / `detailLevel`
 
@@ -277,13 +277,13 @@ When the roster is loaded, `children` is always an array (never a bare count).
 
 ### `capture` modes
 
-Every capture force-cooks the resolved path best-effort before read (`_force_cook`; failures ignored). Shared-viewer modes also force-cook `./capture_viewer` after retarget; temp downscale TOPs are force-cooked after create.
+Capture does **not** force-cook. TD cooks on read / `saveByteArray`; shared-viewer modes retarget `./capture_viewer` then encode. Optional `maxSize` uses a temp `resolutionTOP` (always destroyed). If a TOP should have content but capture is black, ensure it is cooking (see `black_frame` mitigation).
 
 
 | Mode         | Status      | Behavior                                                                                                                                                                                                                                                                                            |
 | ------------ | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `top`        | **Shipped** | TOP → JPEG (native `saveByteArray`; flat success fields + MCP image content); optional `maxSize` (default 256); black or uniform solid frame = perception fail (`tdmcp.perception.black_frame` / `tdmcp.perception.uniform_frame`; image still returned); wrong family → `tdmcp.perception.wrong_family` |
-| `preview`    | **Shipped** | Any family → retarget bridge `./capture_viewer` (OP Viewer TOP) at the source → JPEG; missing/unbound viewer → `tdmcp.perception.no_path`. Safe under per-pid FIFO (one capture at a time).                                                                                                          |
+| `top`        | **Shipped** | TOP → PNG (native `saveByteArray(".png")`; retains alpha; flat success fields + MCP image content); optional `maxSize` (default 256); black or uniform solid frame = perception fail (`tdmcp.perception.black_frame` / `tdmcp.perception.uniform_frame`; image still returned); wrong family → `tdmcp.perception.wrong_family` |
+| `preview`    | **Shipped** | Any family → retarget bridge `./capture_viewer` (OP Viewer TOP) at the source → PNG; missing/unbound viewer → `tdmcp.perception.no_path`. Safe under per-pid FIFO (one capture at a time).                                                                                                          |
 | `auto`       | **Shipped** | TOP → `top`; CHOP → `chop_data`; everything else (COMP/POP/SOP/MAT/DAT/…) → `preview`                                                                                                                                                                                                                |
 | `chop_data`  | **Shipped** | CHOP → capped JSON (32 channels, 256 samples/channel, 4096 scalars); soft `truncation` + `tdmcp.perception.chop_truncated` when capped; empty → `tdmcp.perception.empty_chop`; wrong family → `tdmcp.perception.wrong_family`; all-zero non-empty = success; ignores `maxSize`                      |
 | `chop_image` | **Shipped** | Alias of `preview` (shared OP Viewer); kept for existing callers                                                                                                                                                                                                                                    |

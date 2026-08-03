@@ -80,7 +80,7 @@ class InspectParams(TypedDict):
     detailLevel: NotRequired[str]
 
 
-# Soft cap on inspect batch size (each path force-cooks).
+# Soft cap on inspect batch size.
 INSPECT_PATHS_LIMIT = 32
 CAPTURE_VIEWER_NAME = "capture_viewer"
 
@@ -395,8 +395,6 @@ def _chan_samples(chan: Any, n_samples: int) -> list[float]:
 
 def _capture_chop_data(node: Any, path: str) -> dict[str, Any]:
     """CHOP → capped JSON. Pure enough for unit tests with fake CHOPs."""
-    _force_cook(node)
-
     resolved = getattr(node, "path", None) or path
     family = _op_family(node) or "CHOP"
     if family != "CHOP":
@@ -517,10 +515,10 @@ def _capture_chop_data(node: Any, path: str) -> dict[str, Any]:
     return out
 
 
-def _capture_top_jpeg(
+def _capture_top_image(
     td_mod: Any, target: Any, path: str, max_size: Any
 ) -> dict[str, Any]:
-    """TOP → JPEG (+ black/uniform soft-fail). Temps always destroyed."""
+    """TOP → PNG (+ black/uniform soft-fail). Temps always destroyed."""
     import base64
 
     if not hasattr(target, "saveByteArray"):
@@ -536,7 +534,7 @@ def _capture_top_jpeg(
     try:
         if max_size is not None:
             source, tmp_top = _maybe_downscale_top(td_mod, target, int(max_size))
-        data = source.saveByteArray(".jpg")
+        data = source.saveByteArray(".png")
         raw = bytes(data) if data is not None else b""
         kind, mean_rgb = _classify_frame(source, raw)
         code = None
@@ -553,8 +551,8 @@ def _capture_top_jpeg(
             "message": message,
             "bytes": len(raw),
             "path": getattr(target, "path", path),
-            "mimeType": "image/jpeg",
-            "jpegBase64": base64.b64encode(raw).decode("ascii") if raw else None,
+            "mimeType": "image/png",
+            "imageBase64": base64.b64encode(raw).decode("ascii") if raw else None,
             "maxSize": max_size,
         }
     except Exception as exc:  # noqa: BLE001
@@ -607,10 +605,10 @@ def _capture_via_shared_viewer(
     *,
     mode: str,
 ) -> dict[str, Any]:
-    """Retarget bridge ``capture_viewer`` at ``source`` → JPEG (any family).
+    """Retarget bridge ``capture_viewer`` at ``source`` → PNG (any family).
 
     Safe under the per-pid FIFO: only one bridge dispatch runs at a time, so
-    ``par.opviewer`` retarget + cook + save is not raced by concurrent capture.
+    ``par.opviewer`` retarget + save is not raced by concurrent capture.
     """
     family = _op_family(source)
     viewer = _ensure_capture_viewer(td_mod)
@@ -643,11 +641,7 @@ def _capture_via_shared_viewer(
             source.viewer = True
         except Exception:  # noqa: BLE001
             pass
-        _force_cook(source)
         par.val = source
-        # OP Viewer sometimes needs a second cook after retarget.
-        _force_cook(viewer)
-        _force_cook(viewer)
     except Exception as exc:  # noqa: BLE001
         return {
             "ok": False,
@@ -659,7 +653,7 @@ def _capture_via_shared_viewer(
             "traceback": traceback.format_exc(),
         }
 
-    result = _capture_top_jpeg(td_mod, viewer, path, max_size)
+    result = _capture_top_image(td_mod, viewer, path, max_size)
     # Report the source path agents asked for, not the shared viewer.
     result["path"] = getattr(source, "path", path)
     result["mode"] = mode
@@ -681,11 +675,12 @@ def _capture_via_shared_viewer(
 def handle_capture(params: dict[str, Any]) -> dict[str, Any]:
     """Perception capture: top / preview / auto / chop_data / chop_image / pop.
 
-    JPEG modes return ``jpegBase64`` for MCP image promotion. ``chop_data``
-    returns capped channel JSON (no image). Optional ``maxSize`` (default 256)
-    applies to JPEG paths only via a temp ``resolutionTOP`` that is always
-    destroyed. ``preview`` (and aliases ``chop_image`` / ``pop``) retarget the
-    bridge's shared ``capture_viewer`` OP Viewer TOP — any family.
+    Image modes return ``imageBase64`` (PNG) for MCP image promotion.
+    ``chop_data`` returns capped channel JSON (no image). Optional ``maxSize``
+    (default 256) applies to image paths only via a temp ``resolutionTOP`` that
+    is always destroyed. ``preview`` (and aliases ``chop_image`` / ``pop``)
+    retarget the bridge's shared ``capture_viewer`` OP Viewer TOP — any family.
+    Cooking is left to TD on read / ``saveByteArray`` (no force-cook).
     """
     path = params.get("path") or ""
     mode = params.get("mode") or "auto"
@@ -695,15 +690,12 @@ def handle_capture(params: dict[str, Any]) -> dict[str, Any]:
     if node is None or not getattr(node, "valid", False):
         return {"ok": False, "code": "tdmcp.op.not_found", "path": path}
 
-    # All families / modes — best-effort; never fails the capture.
-    _force_cook(node)
-
     effective = _effective_capture_mode(str(mode), node)
 
     if effective == "chop_data":
         return _capture_chop_data(node, path)
 
-    import td  # type: ignore  # JPEG / shared-viewer paths need the TD module
+    import td  # type: ignore  # PNG / shared-viewer paths need the TD module
 
     # chop_image / pop are aliases of preview (shared OP Viewer path).
     if effective in ("preview", "chop_image", "pop"):
@@ -725,7 +717,7 @@ def handle_capture(params: dict[str, Any]) -> dict[str, Any]:
                 "mode": "top",
                 "family": fam,
             }
-        result = _capture_top_jpeg(td, node, path, max_size)
+        result = _capture_top_image(td, node, path, max_size)
         if (
             result.get("code") == "tdmcp.perception.no_path"
             and _op_family(node) not in (None, "TOP")
@@ -778,7 +770,6 @@ def _maybe_downscale_top(td_mod, target, max_size: int):
     tmp_top.par.outputresolution = "custom"
     tmp_top.par.resolutionw = new_w
     tmp_top.par.resolutionh = new_h
-    _force_cook(tmp_top)
     return tmp_top, tmp_top
 
 
@@ -809,7 +800,7 @@ def _classify_frame(
 
     Black = mean RGB ≤ 1/255. Uniform = not black and per-channel spatial
     range (max−min) ≤ 2/255 (solid red counts; global max−min across channels
-    would not). `saveByteArray` JPEG size is not a reliable color signal —
+    would not). `saveByteArray` image size is not a reliable color signal —
     solid colors of *any* value compress similarly. Falls back to the old
     tiny-file heuristic as **black** only when `numpyArray` isn't available
     or produced no bytes — size alone cannot distinguish white from black.
@@ -880,53 +871,6 @@ def _op_messages(fn: Any) -> list[str]:
         if s:
             out.append(s)
     return out
-
-
-def _force_cook(node: Any) -> bool:
-    """Best-effort ``OP.cook(force=True)``. Never raises.
-
-    Used by inspect and capture. Returns ``True`` if a cook call succeeded.
-    Resilience ladder (each step isolated):
-
-    1. Reject ``None`` / non-objects
-    2. Missing / non-callable ``cook``
-    3. ``cook(force=True)``
-    4. On ``TypeError`` → ``cook(True)`` (positional)
-    5. On further ``TypeError`` → bare ``cook()``
-    6. Any other ``Exception`` → swallow, return ``False``
-
-    Does not catch ``BaseException`` (KeyboardInterrupt / SystemExit).
-    """
-    if node is None:
-        return False
-    try:
-        cook = getattr(node, "cook", None)
-    except Exception:  # noqa: BLE001
-        return False
-    if not callable(cook):
-        return False
-
-    try:
-        cook(force=True)
-        return True
-    except TypeError:
-        pass
-    except Exception:  # noqa: BLE001
-        return False
-
-    try:
-        cook(True)
-        return True
-    except TypeError:
-        pass
-    except Exception:  # noqa: BLE001
-        return False
-
-    try:
-        cook()
-        return True
-    except Exception:  # noqa: BLE001
-        return False
 
 
 def _par_mode_name(p: Any) -> str:
@@ -1043,9 +987,9 @@ def build_inspect_node(
 def handle_inspect(params: dict[str, Any]) -> dict[str, Any]:
     """Structural read for an explicit list of paths (no auto-recursion).
 
-    Requires live TD. Each path is force-cooked and shaped independently;
-    a bad path does not fail the whole batch (partial success). Soft-caps
-    at ``INSPECT_PATHS_LIMIT`` with ``tdmcp.op.paths_truncated``.
+    Requires live TD. Each path is shaped independently; a bad path does not
+    fail the whole batch (partial success). Soft-caps at ``INSPECT_PATHS_LIMIT``
+    with ``tdmcp.op.paths_truncated``. Cooking is left to TD / the caller.
     """
     import td  # type: ignore  # noqa: F401 — ensure TD runtime is importable
 
@@ -1091,7 +1035,6 @@ def handle_inspect(params: dict[str, Any]) -> dict[str, Any]:
             })
             continue
         try:
-            _force_cook(node)
             shaped = build_inspect_node(
                 node,
                 detail_level=detail_level,
@@ -1124,7 +1067,7 @@ def handle_inspect(params: dict[str, Any]) -> dict[str, Any]:
             ),
             "mitigation": [
                 "Split into multiple inspect calls",
-                "Each path is force-cooked — keep batches small",
+                "Keep batches small for responsive inspect",
             ],
         }
     return out

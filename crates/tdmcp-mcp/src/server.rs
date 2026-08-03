@@ -106,9 +106,12 @@ async fn call_tool(
         Ok(v) => Ok(Json(serde_json::json!({ "ok": true, "data": v }))),
         Err(ToolCallError::Failed(fail)) => {
             let mut payload = fail.structured_content();
-            if let Some(b64) = fail.image_jpeg_base64.as_ref().filter(|s| !s.is_empty()) {
+            if let Some(b64) = fail.image_base64.as_ref().filter(|s| !s.is_empty()) {
                 if let Some(obj) = payload.as_object_mut() {
-                    obj.insert("jpegBase64".into(), Value::String(b64.clone()));
+                    obj.insert("imageBase64".into(), Value::String(b64.clone()));
+                    if let Some(mime) = fail.image_mime_type.as_ref().filter(|s| !s.is_empty()) {
+                        obj.insert("mimeType".into(), Value::String(mime.clone()));
+                    }
                 }
             }
             Ok(Json(payload))

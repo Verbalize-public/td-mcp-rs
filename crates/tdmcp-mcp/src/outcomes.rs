@@ -84,18 +84,25 @@ pub fn failed_one(item: DiagnosticItem) -> ToolCallError {
     failed_one_with_image(item, None)
 }
 
-/// Build a single-item `Failed` tool error, optionally attaching a JPEG frame.
-pub fn failed_one_with_image(
-    item: DiagnosticItem,
-    image_jpeg_base64: Option<String>,
-) -> ToolCallError {
-    failed_one_with_image_and_data(item, image_jpeg_base64, None)
+/// Build a single-item `Failed` tool error, optionally attaching an image frame.
+pub fn failed_one_with_image(item: DiagnosticItem, image_base64: Option<String>) -> ToolCallError {
+    failed_one_with_image_and_data(item, image_base64, None)
 }
 
-/// Build a single-item `Failed` tool error with optional JPEG + structured data.
+/// Build a single-item `Failed` tool error with optional image + structured data.
 pub fn failed_one_with_image_and_data(
     item: DiagnosticItem,
-    image_jpeg_base64: Option<String>,
+    image_base64: Option<String>,
+    data: Option<Value>,
+) -> ToolCallError {
+    failed_one_with_image_mime_and_data(item, image_base64, None, data)
+}
+
+/// Build a single-item `Failed` tool error with optional image, MIME, and data.
+pub fn failed_one_with_image_mime_and_data(
+    item: DiagnosticItem,
+    image_base64: Option<String>,
+    image_mime_type: Option<String>,
     data: Option<Value>,
 ) -> ToolCallError {
     let summary = item.message.clone();
@@ -106,7 +113,8 @@ pub fn failed_one_with_image_and_data(
     crate::tools::ToolFailPayload {
         summary: diagnostics.recount_summary(),
         diagnostics,
-        image_jpeg_base64,
+        image_base64,
+        image_mime_type,
         data,
     }
     .into_error()
@@ -268,14 +276,19 @@ pub fn map_perception_outcome(
                 // (avoids stomping e.g. black_frame with a generic fallback).
                 let msg = env.message.clone().or_else(|| env.error.clone());
                 let item = build_diag(catalog, code, span, msg, ctx(pid, Some(path), context_path));
-                let jpeg = value
-                    .get("jpegBase64")
+                let image = value
+                    .get("imageBase64")
                     .and_then(|v| v.as_str())
                     .filter(|s| !s.is_empty())
                     .map(str::to_owned);
-                Err(failed_one_with_image(item, jpeg))
+                let mime = value
+                    .get("mimeType")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_owned);
+                Err(failed_one_with_image_mime_and_data(item, image, mime, None))
             } else {
-                // Bridge already returns flat {ok, path, bytes, mimeType, jpegBase64?, …}.
+                // Bridge already returns flat {ok, path, bytes, mimeType, imageBase64?, …}.
                 Ok(value)
             }
         }
@@ -849,7 +862,8 @@ mod tests {
         let item = perception_fail_item(json!({
             "ok": false,
             "code": "tdmcp.perception.black_frame",
-            "jpegBase64": "aaaa"
+            "imageBase64": "aaaa",
+            "mimeType": "image/png"
         }));
         assert_eq!(item.code, codes::PERCEPTION_BLACK_FRAME);
         assert!(
@@ -868,7 +882,8 @@ mod tests {
         let item = perception_fail_item(json!({
             "ok": false,
             "code": "tdmcp.perception.uniform_frame",
-            "jpegBase64": "aaaa"
+            "imageBase64": "aaaa",
+            "mimeType": "image/png"
         }));
         assert_eq!(item.code, codes::PERCEPTION_UNIFORM_FRAME);
         assert!(
@@ -885,7 +900,8 @@ mod tests {
             "ok": false,
             "code": "tdmcp.perception.black_frame",
             "message": "Captured TOP frame is black (mean rgb≈0.00,0.00,0.00)",
-            "jpegBase64": "aaaa"
+            "imageBase64": "aaaa",
+            "mimeType": "image/png"
         }));
         assert_eq!(
             item.message,
@@ -916,7 +932,7 @@ mod tests {
         )
         .expect("chop_data success should pass through");
         assert_eq!(out, value);
-        assert!(out.get("jpegBase64").is_none());
+        assert!(out.get("imageBase64").is_none());
         assert_eq!(out["mode"], "chop_data");
     }
 
@@ -945,7 +961,7 @@ mod tests {
                     payload.diagnostics.items[0].code,
                     codes::PERCEPTION_EMPTY_CHOP
                 );
-                assert!(payload.image_jpeg_base64.is_none());
+                assert!(payload.image_base64.is_none());
             }
             other => panic!("unexpected error: {other}"),
         }

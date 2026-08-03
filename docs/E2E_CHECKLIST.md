@@ -47,15 +47,15 @@ See [`DEV_ENV.md`](DEV_ENV.md) § Dev smoke. Does **not** replace rows 1–12 be
 | 9 | Script failure returns `diagnostics` with `tdmcp.script.execution_failed` | ✅ |
 | 9b | Script failure after `print` includes `diagnostics.context.logs` | |
 | 10 | `capture` mode `top` on a non-black TOP → ok | ✅ |
-| 11 | `capture` mode `preview` on any non-TOP (zone COMP / CHOP / SOP) → JPEG via shared `./capture_viewer` (may soft-fail `uniform_frame` for empty viewers); bridge host has `capture_viewer` child | ✅ (2026-08-01: SOP `preview` non-black `ok:true` via shared viewer) |
+| 11 | `capture` mode `preview` on any non-TOP (zone COMP / CHOP / SOP) → PNG via shared `./capture_viewer` (may soft-fail `uniform_frame` for empty viewers); bridge host has `capture_viewer` child | ✅ (2026-08-01: SOP `preview` non-black `ok:true` via shared viewer) |
 | 12 | Black TOP → `tdmcp.perception.black_frame` | ✅ |
 | 12b | Constant TOP non-black solid (e.g. white) → `tdmcp.perception.uniform_frame` | |
-| 13 | Create ephemeral non-empty `constantCHOP` under `/project1/e2e_kit/zone` → `capture` mode `chop_data` → `ok`; top-level `channels` / `numChans` / `numSamples` (not nested); no `jpegBase64` | ✅ |
+| 13 | Create ephemeral non-empty `constantCHOP` under `/project1/e2e_kit/zone` → `capture` mode `chop_data` → `ok`; top-level `channels` / `numChans` / `numSamples` (not nested); no `imageBase64` | ✅ |
 | 14 | `capture` mode `chop_data` on a TOP (e.g. `/project1/e2e_kit/probe`) → `tdmcp.perception.wrong_family` | ✅ |
 | 15 | `capture` mode `auto` on that CHOP → same chop_data success shape (`mode: chop_data`) | ✅ |
 | 16 | Empty CHOP (`numChans` or `numSamples` 0) → `tdmcp.perception.empty_chop` | ✅ |
-| 17 | `capture` mode `chop_image` on non-empty CHOP → JPEG via shared `capture_viewer` (alias of preview); no leftover `__tdmcp_tmp_chopimg__*` under parent | ✅ |
-| 18 | `capture` mode `pop` / `auto` on a POP or SOP → JPEG via shared `capture_viewer` (may soft-fail `black_frame` / `uniform_frame`); no leftover `__tdmcp_tmp_pop__*` | ✅ |
+| 17 | `capture` mode `chop_image` on non-empty CHOP → PNG via shared `capture_viewer` (alias of preview); no leftover `__tdmcp_tmp_chopimg__*` under parent | ✅ |
+| 18 | `capture` mode `pop` / `auto` on a POP or SOP → PNG via shared `capture_viewer` (may soft-fail `black_frame` / `uniform_frame`); no leftover `__tdmcp_tmp_pop__*` | ✅ |
 | 19 | `inspect` `paths:[a, b, missing]` → top-level `ok:true`; two ok entries + one `tdmcp.op.not_found` inline; no auto-recursion beyond direct-child roster | ✅ (2026-08-01) |
 
 ### `mutate_nodes` (P1)
@@ -92,10 +92,11 @@ rows pass. See "Bugs found and fixed" below — none were pre-existing test
 gaps, all were live-only failures (never hit by the mocked/in-memory
 integration suite).
 
-**Run record (M12 inspect force-cook):** 2026-07-31, `NewProject.1.toe`
+**Run record (M12 inspect / cook history):** 2026-07-31, `NewProject.1.toe`
 (pid 2192), HTTP `/mcp/tools/call`. Bare `mathCHOP` at
 `/project1/agent_zone_test/m12_math` → first `inspect` returned
-`Not enough sources specified` (bridge `_force_cook` before read).
+`Not enough sources specified` when the bridge still force-cooked before read.
+**Current contract:** inspect does not force-cook; cook is caller/downstream.
 
 **Run record (`mutate_nodes` M1–M11):** 2026-07-31, TouchDesigner via
 `_agent_tdmcprs_dev.4.toe` (pid 19168), daemon `0.1.0` release rebuild.
@@ -168,7 +169,7 @@ in `bridge/tdmcp_bridge/__init__.py` and covered by `bridge/tests/test_bridge_qu
    (`CancelSynchronousIo` targeting the worker's OS thread id on Windows;
    `socket.shutdown(SHUT_RDWR)` on POSIX) and joining before `close()`.
 3. **`capture`'s black-frame heuristic never actually checked pixels.**
-   `len(saveByteArray(".jpg")) < 200` was the entire check — a solid white
+   `len(saveByteArray(…)) < 200` was the entire check — a solid white
    and solid black 256×256 Constant TOP both encode to the identical byte
    count, so black frames were never detected. Fixed by sampling real pixel
    data via `TOP.numpyArray()` and checking mean RGB near zero, with the old
@@ -177,13 +178,13 @@ in `bridge/tdmcp_bridge/__init__.py` and covered by `bridge/tests/test_bridge_qu
    `tdmcp.perception.uniform_frame` (per-channel spatial max−min ≤ 2/255).
    Bridge soft-fails that omit `message` no longer stomp catalog text with a
    generic fallback.
-4. **`capture` returned only a JPEG byte *count*, not pixels.** Agents got
-   `{ bytes, path }` with no MCP image content block. Fixed by base64-encoding
-   `saveByteArray(".jpg")` as `jpegBase64` and promoting it to an MCP
-   `image/jpeg` content block (stripped from structured content to avoid
-   double-payload). Optional `maxSize` (default 256) downscales via a temp
-   `resolutionTOP`. Black-frame failures still attach the JPEG so critics
-   can see the frame.
+4. **`capture` image payload / format.** Agents need pixels in an MCP image
+   content block. Encode via `saveByteArray(".png")` as `imageBase64`
+   (`mimeType: image/png`, alpha retained) and promote to an MCP image block
+   (stripped from structured content to avoid double-payload). Optional
+   `maxSize` (default 256) downscales via a temp `resolutionTOP`. Black-frame
+   failures still attach the image so critics can see the frame. (Earlier
+   revisions used JPEG/`jpegBase64` and lost transparency.)
 
 ## Client quirks (out of scope)
 

@@ -5,7 +5,7 @@
       "oneOf": [
         {
           "const": "top",
-          "description": "TOP → JPEG (native `saveByteArray`).",
+          "description": "TOP → PNG (native `saveByteArray`; retains alpha).",
           "type": "string"
         },
         {
@@ -83,7 +83,7 @@
     },
     "maxSize": {
       "default": 256,
-      "description": "Longer-side pixel cap before JPEG encode. `null` = native resolution.\nDefaults to 256.",
+      "description": "Longer-side pixel cap before PNG encode. `null` = native resolution.\nDefaults to 256.",
       "format": "uint32",
       "minimum": 0,
       "type": [

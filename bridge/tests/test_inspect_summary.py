@@ -335,7 +335,7 @@ class InspectMessagesTest(unittest.TestCase):
         self.assertNotIn("childCount", result["nodes"][0])
         self.assertNotIn("childrenReturned", result["nodes"][0])
 
-    def test_handle_inspect_force_cooks_target(self) -> None:
+    def test_handle_inspect_does_not_force_cook(self) -> None:
         cook = MagicMock()
         node = _fake_node([], errors="err1", cook=cook)
         with patch.dict(sys.modules, {"td": SimpleNamespace()}):
@@ -345,22 +345,8 @@ class InspectMessagesTest(unittest.TestCase):
                     "include": [],
                 })
         self.assertTrue(result["ok"])
-        cook.assert_called_once_with(force=True)
+        cook.assert_not_called()
         self.assertEqual(result["nodes"][0]["errors"], ["err1"])
-
-    def test_handle_inspect_cook_raise_still_ok(self) -> None:
-        cook = MagicMock(side_effect=RuntimeError("cook boom"))
-        node = _fake_node([], errors="err1", warnings="warn1", cook=cook)
-        with patch.dict(sys.modules, {"td": SimpleNamespace()}):
-            with patch.object(tdmcp_bridge, "tdmcp_resolve", return_value=node):
-                result = tdmcp_bridge.handle_inspect({
-                    "paths": ["/project1"],
-                    "include": [],
-                })
-        self.assertTrue(result["ok"])
-        cook.assert_called_once_with(force=True)
-        self.assertEqual(result["nodes"][0]["errors"], ["err1"])
-        self.assertEqual(result["nodes"][0]["warnings"], ["warn1"])
 
     def test_handle_inspect_paths_required(self) -> None:
         with patch.dict(sys.modules, {"td": SimpleNamespace()}):
@@ -399,6 +385,9 @@ class InspectMessagesTest(unittest.TestCase):
         self.assertTrue(result["pathsTruncated"])
         self.assertEqual(result["truncation"]["code"], "tdmcp.op.paths_truncated")
         self.assertEqual(len(result["nodes"]), tdmcp_bridge.INSPECT_PATHS_LIMIT)
+        mitigation = " ".join(result["truncation"].get("mitigation") or [])
+        self.assertNotIn("force-cook", mitigation.lower())
+        self.assertNotIn("force cook", mitigation.lower())
 
     def test_handle_inspect_legacy_path_compat(self) -> None:
         node = _fake_node([])
@@ -410,50 +399,6 @@ class InspectMessagesTest(unittest.TestCase):
                 })
         self.assertTrue(result["ok"])
         self.assertEqual(len(result["nodes"]), 1)
-
-    def test_force_cook_positional_fallback(self) -> None:
-        calls: list[tuple] = []
-
-        def cook(*args: object, **kwargs: object) -> None:
-            if kwargs.get("force") is True:
-                raise TypeError("no force kw")
-            calls.append((args, kwargs))
-
-        node = SimpleNamespace(cook=cook)
-        self.assertTrue(tdmcp_bridge._force_cook(node))
-        self.assertEqual(calls, [((True,), {})])
-
-    def test_force_cook_missing_is_noop(self) -> None:
-        self.assertFalse(tdmcp_bridge._force_cook(SimpleNamespace()))  # no cook attr
-
-    def test_force_cook_none_returns_false(self) -> None:
-        self.assertFalse(tdmcp_bridge._force_cook(None))
-
-    def test_force_cook_runtime_error_swallowed(self) -> None:
-        def cook(*, force: bool = False) -> None:  # noqa: ARG001
-            raise RuntimeError("cook boom")
-
-        self.assertFalse(tdmcp_bridge._force_cook(SimpleNamespace(cook=cook)))
-
-    def test_force_cook_bare_call_fallback(self) -> None:
-        calls: list[str] = []
-
-        def cook(*args: object, **kwargs: object) -> None:
-            if kwargs or args:
-                raise TypeError("signature mismatch")
-            calls.append("bare")
-
-        self.assertTrue(tdmcp_bridge._force_cook(SimpleNamespace(cook=cook)))
-        self.assertEqual(calls, ["bare"])
-
-    def test_force_cook_kw_success(self) -> None:
-        seen: list[bool] = []
-
-        def cook(*, force: bool = False) -> None:
-            seen.append(force)
-
-        self.assertTrue(tdmcp_bridge._force_cook(SimpleNamespace(cook=cook)))
-        self.assertEqual(seen, [True])
 
 
 if __name__ == "__main__":

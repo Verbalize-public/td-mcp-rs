@@ -63,6 +63,7 @@ class CaptureChopDataTests(unittest.TestCase):
         self.assertEqual(out["channels"][0]["name"], "c0")
         self.assertEqual(len(out["channels"][0]["samples"]), 4)
         self.assertNotIn("truncation", out)
+        self.assertNotIn("imageBase64", out)
         self.assertNotIn("jpegBase64", out)
 
     def test_all_zero_is_success(self) -> None:
@@ -203,9 +204,7 @@ class CaptureChopDataTests(unittest.TestCase):
         self.assertFalse(out["ok"])
         self.assertEqual(out["code"], "tdmcp.perception.wrong_family")
 
-    def test_handle_capture_top_force_cooks_resolved_node(self) -> None:
-        cooked: list[Any] = []
-
+    def test_handle_capture_top_returns_png(self) -> None:
         class Arr:
             shape = (2, 2, 3)
             ndim = 3
@@ -229,6 +228,12 @@ class CaptureChopDataTests(unittest.TestCase):
             def __getitem__(self, key: object) -> Arr:
                 return self
 
+        saved: list[str] = []
+
+        def save(ext: str) -> bytes:
+            saved.append(ext)
+            return b"x" * 300
+
         node = SimpleNamespace(
             family="TOP",
             path="/project1/noise1",
@@ -237,23 +242,23 @@ class CaptureChopDataTests(unittest.TestCase):
             width=16,
             height=16,
             parent=lambda: None,
-            saveByteArray=lambda _ext: b"x" * 300,
+            saveByteArray=save,
             numpyArray=lambda delayed=False: Arr(),  # noqa: ARG005
+            cook=mock.MagicMock(),
         )
         with mock.patch.object(tdmcp_bridge, "tdmcp_resolve", return_value=node):
-            with mock.patch.object(
-                tdmcp_bridge,
-                "_force_cook",
-                side_effect=lambda n: cooked.append(n) or True,
-            ):
-                with mock.patch.dict(sys.modules, {"td": SimpleNamespace()}):
-                    out = tdmcp_bridge.handle_capture({
-                        "path": node.path,
-                        "mode": "top",
-                        "maxSize": None,
-                    })
+            with mock.patch.dict(sys.modules, {"td": SimpleNamespace()}):
+                out = tdmcp_bridge.handle_capture({
+                    "path": node.path,
+                    "mode": "top",
+                    "maxSize": None,
+                })
         self.assertTrue(out["ok"], out)
-        self.assertIs(cooked[0], node)
+        self.assertEqual(saved, [".png"])
+        self.assertEqual(out["mimeType"], "image/png")
+        self.assertIn("imageBase64", out)
+        self.assertNotIn("jpegBase64", out)
+        node.cook.assert_not_called()
 
 
 def _non_uniform_arr():
@@ -333,8 +338,9 @@ class CaptureSharedViewerTests(unittest.TestCase):
         self.assertEqual(out["mode"], "preview")
         self.assertEqual(out["family"], "SOP")
         self.assertIs(viewer.par.opviewer.val, source)
-        # Shared viewer force-cooks twice after retarget (TD needs a second cook).
-        self.assertEqual(viewer.cook_calls, 2)
+        self.assertEqual(viewer.cook_calls, 0)
+        self.assertEqual(out["mimeType"], "image/png")
+        self.assertIn("imageBase64", out)
 
     def test_shared_viewer_missing_host(self) -> None:
         tdmcp_bridge._bridge_host_path = None  # type: ignore[attr-defined]
@@ -369,7 +375,7 @@ class CaptureSharedViewerTests(unittest.TestCase):
         )
         self.assertTrue(out_b["ok"], out_b)
         self.assertIs(viewer.par.opviewer.val, b)
-        self.assertEqual(viewer.cook_calls, 4)
+        self.assertEqual(viewer.cook_calls, 0)
 
     def test_handle_capture_chop_image_alias(self) -> None:
         source = SimpleNamespace(
@@ -388,8 +394,8 @@ class CaptureSharedViewerTests(unittest.TestCase):
                 "mode": mode,
                 "family": "CHOP",
                 "bytes": 1,
-                "mimeType": "image/jpeg",
-                "jpegBase64": "QQ==",
+                "mimeType": "image/png",
+                "imageBase64": "QQ==",
                 "maxSize": max_size,
             }
 

@@ -95,9 +95,9 @@ impl FakeTdPeer {
                             "ok": true,
                             "bytes": 1024,
                             "path": "/project1/out1",
-                            "mimeType": "image/jpeg",
-                            // Minimal valid-looking base64 stub (not a real JPEG).
-                            "jpegBase64": "/9j/4AAQ",
+                            "mimeType": "image/png",
+                            // Minimal valid-looking base64 stub (not a real PNG).
+                            "imageBase64": "iVBORw0KGgo=",
                         })
                     }
                     "inspect" => {

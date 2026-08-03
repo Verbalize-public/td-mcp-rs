@@ -37,8 +37,9 @@ Law: [`CONSTITUTION.md`](CONSTITUTION.md). User install/quickstart: [`README.md`
 5. Prefer `detailLevel: summary` / `diagnosticLevel: summary`; store-first for
  `capture`. `inspect` requires explicit `paths[]` (no auto-recursion; soft-cap
  32). Each node’s direct-child roster is capped at 64 (`node.truncation` —
- `detailed` does not raise the cap). `inspect` force-cooks each path before
- reporting errors/warnings (COMP = network cook). `capture` mode `preview`
+ `detailed` does not raise the cap). `inspect` / `capture` do not force-cook
+ (TD cooks on read; agents may `cook(force=True)` via `execute_python` if
+ needed). `capture` encodes PNG (`imageBase64`). `capture` mode `preview`
  (and `auto` for non-TOP/non-CHOP) uses the bridge’s shared OP Viewer TOP.
 
 ## Operate vs Document
