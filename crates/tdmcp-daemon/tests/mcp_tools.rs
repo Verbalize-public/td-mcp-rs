@@ -648,3 +648,47 @@ async fn mutate_nodes_malformed_lints_keep_hard_error() {
     assert!(item["lints"].is_null() || item["lints"].as_array().is_some_and(|a| a.is_empty()));
     assert!(v.get("data").is_none());
 }
+
+#[tokio::test]
+async fn transport_not_connected_clears_queue_for_exclusive() {
+    use tdmcp_core::TaskMode;
+    use tdmcp_mcp::testing::{BridgeRpcFailure, FakeBridgeRpc};
+    use tdmcp_mcp::dispatch_tool;
+    use tokio::sync::Mutex;
+
+    let registry = Arc::new(Mutex::new(registry_with_pid()));
+    let bridge = FakeBridgeRpc::failing(BridgeRpcFailure::NotConnected, 34);
+    let catalog = Catalog::fallback();
+
+    let err = dispatch_tool(
+        &registry,
+        &catalog,
+        &bridge,
+        "execute_python",
+        json!({"pid": 34, "script": "result=1"}),
+    )
+    .await
+    .expect_err("NotConnected must fail the tool call");
+    match err {
+        tdmcp_mcp::ToolCallError::Failed(fail) => {
+            assert!(
+                fail.diagnostics.items[0].code.contains("bridge"),
+                "expected bridge transport code, got {:?}",
+                fail.diagnostics.items[0].code
+            );
+        }
+        other => panic!("expected Failed, got {other:?}"),
+    }
+
+    {
+        let mut reg = registry.lock().await;
+        let entry = reg.get(34).expect("entry");
+        assert!(
+            entry.queue.is_empty(),
+            "transport fail must not leave a zombie queue slot"
+        );
+        reg.enqueue(34, "ExclusiveProbe", TaskMode::Exclusive)
+            .expect("exclusive must succeed after queue clear");
+        let _ = reg.cancel_queue_keep_connected(34);
+    }
+}

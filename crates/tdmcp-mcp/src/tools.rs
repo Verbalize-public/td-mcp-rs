@@ -816,6 +816,10 @@ fn mode_of(exclusive: bool) -> TaskMode {
 /// Enqueue (eager — preserves exclusive-while-busy semantics), then call the
 /// bridge with a timeout. The daemon actor owns queue progression
 /// (`start_next` / `complete_task`) so it stays coupled to the wire.
+///
+/// When the call never reaches actor completion (`NotConnected`, send-fail
+/// `Disconnected`, or the outer MCP wait fires), clear the pid queue so a
+/// zombie slot cannot wedge exclusive callers after dual-MCP races.
 async fn enqueue_and_call(
     registry: &Arc<Mutex<PidRegistry>>,
     bridge: &dyn BridgeRpc,
@@ -838,10 +842,26 @@ async fn enqueue_and_call(
     let call = bridge.call(raw_pid, method.wire_str(), params);
     match tokio::time::timeout(BRIDGE_TIMEOUT, call).await {
         Ok(Ok(value)) => BridgeOutcome::Ok(value),
-        Ok(Err(err)) => BridgeOutcome::Transport(err),
-        Err(_) => BridgeOutcome::Transport(BridgeRpcError::Timeout {
-            pid: raw_pid,
-            budget_ms: BRIDGE_TIMEOUT.as_millis() as u64,
-        }),
+        Ok(Err(err)) => {
+            if matches!(
+                &err,
+                BridgeRpcError::NotConnected { .. } | BridgeRpcError::Disconnected { .. }
+            ) {
+                clear_queue_keep_connected(registry, raw_pid).await;
+            }
+            BridgeOutcome::Transport(err)
+        }
+        Err(_) => {
+            clear_queue_keep_connected(registry, raw_pid).await;
+            BridgeOutcome::Transport(BridgeRpcError::Timeout {
+                pid: raw_pid,
+                budget_ms: BRIDGE_TIMEOUT.as_millis() as u64,
+            })
+        }
     }
+}
+
+async fn clear_queue_keep_connected(registry: &Arc<Mutex<PidRegistry>>, pid: u32) {
+    let mut reg = registry.lock().await;
+    let _ = reg.cancel_queue_keep_connected(pid);
 }

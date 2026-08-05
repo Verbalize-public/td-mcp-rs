@@ -145,7 +145,9 @@ Handshake returns a local FS path to the bridge package directory. TD reloads fr
 the peer with wire `ping` outside the task queue (not visible in `fleet`
 tasks). Defaults (configurable via `[bridge]` in `config.toml`): interval
 **5s**, pong wait **8s**, idle-dead **20s** (no inbound framed traffic). Any
-successful request/response (including ping/pong) resets the inactivity clock.
+completed tool wait (ok, bridge error, or call timeout) and any successful
+ping/pong reset the inactivity clock — a call budget longer than idle-dead must
+not immediately tear the session down after `tdmcp.bridge.timeout`.
 Missed pong or idle-dead → same teardown as IPC loss. The bridge answers `ping`
 on the IPC worker thread (no main-thread `process_pending`) and exits its serve
 loop after the handshake-forwarded idle-dead budget (default **20s**) when read

@@ -12,9 +12,10 @@
 //! Session generations prevent a superseded actor's teardown from clobbering a
 //! newer connection for the same pid.
 //!
-//! On call timeout the wait fails but the session stays up. Stale responses
-//! from timed-out calls are discarded under the next call's budget so they
-//! cannot be mistaken for `bridge_lost`.
+//! On call timeout the wait fails but the session stays up — `last_activity` is
+//! refreshed so a budget longer than `idle_dead` cannot immediately tear the
+//! session down. Stale responses from timed-out calls are discarded under the
+//! next call's budget so they cannot be mistaken for `bridge_lost`.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -361,10 +362,12 @@ async fn run_session(
                     break;
                 };
                 match run_tool_job(pid, &mut stream, &registry, timeouts, &cancel, job).await {
-                    JobLoop::Continue { activity } => {
-                        if activity {
-                            last_activity = Instant::now();
-                        }
+                    // Always refresh on Continue — including call Timeout. A timed-out
+                    // wait otherwise leaves last_activity stale across a budget longer
+                    // than idle_dead, and the next select iteration immediately
+                    // idle-dead teardowns (dual-MCP amplification).
+                    JobLoop::Continue => {
+                        last_activity = Instant::now();
                     }
                     JobLoop::Disconnect => break,
                 }
@@ -393,7 +396,7 @@ async fn run_session(
 }
 
 enum JobLoop {
-    Continue { activity: bool },
+    Continue,
     Disconnect,
 }
 
@@ -460,10 +463,8 @@ async fn run_tool_job(
         let _ = reg.complete_task(pid, result);
     }
 
-    // Any framed response (ok or bridge error) counts as inbound activity.
-    let activity = matches!(&outcome, Ok(_) | Err(BridgeRpcError::BridgeReturned { .. }));
     let _ = job.reply.send(outcome);
-    JobLoop::Continue { activity }
+    JobLoop::Continue
 }
 
 enum RecvOutcome {

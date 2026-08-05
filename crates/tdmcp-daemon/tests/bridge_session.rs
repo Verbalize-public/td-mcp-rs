@@ -645,9 +645,17 @@ async fn setup_with_timeouts(
     pid: u32,
     timeouts: BridgeTimeouts,
 ) -> (Arc<Mutex<PidRegistry>>, BridgeSessions, FakeTdPeer) {
+    setup_with_heartbeat_and_timeouts(pid, HeartbeatConfig::disabled(), timeouts).await
+}
+
+async fn setup_with_heartbeat_and_timeouts(
+    pid: u32,
+    heartbeat: HeartbeatConfig,
+    timeouts: BridgeTimeouts,
+) -> (Arc<Mutex<PidRegistry>>, BridgeSessions, FakeTdPeer) {
     let registry = Arc::new(Mutex::new(PidRegistry::new()));
     let sessions = BridgeSessions::new(registry.clone())
-        .with_heartbeat(HeartbeatConfig::disabled())
+        .with_heartbeat(heartbeat)
         .with_timeouts(timeouts);
     let (peer, server) = FakeTdPeer::pair(pid);
 
@@ -818,4 +826,101 @@ async fn script_method_gets_longer_timeout() {
         }
         let _ = driver.await;
     }
+}
+
+/// Call timeout longer than idle_dead: without refreshing last_activity on
+/// Timeout, the actor would idle-dead immediately after the timed-out wait
+/// (the dual Cursor+OpenCode failure mode).
+#[tokio::test]
+async fn call_timeout_does_not_idle_dead_session() {
+    let timeouts = BridgeTimeouts {
+        call: Duration::from_millis(150),
+        script: Duration::from_millis(150),
+    };
+    let heartbeat = HeartbeatConfig {
+        enabled: true,
+        // Faster than idle_dead so post-timeout silence is kept alive by pings.
+        interval: Duration::from_millis(40),
+        pong_timeout: Duration::from_millis(100),
+        // Shorter than the call budget — the bug fires when last_activity is
+        // left stale across a TimedOut wait longer than idle_dead.
+        idle_dead: Duration::from_millis(80),
+    };
+    let (registry, sessions, peer) =
+        setup_with_heartbeat_and_timeouts(55, heartbeat, timeouts).await;
+    let catalog = Catalog::fallback();
+
+    let driver = tokio::spawn(async move {
+        let mut peer = peer;
+        let msg = peer.recv_message().await.expect("recv request 1");
+        let Message::Request { id: id1, .. } = msg else {
+            panic!("expected request, got {msg:?}");
+        };
+        // Hold past call timeout; late response is discarded under later budgets.
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        let _ = peer
+            .send_response(id1, json!({"ok": true, "result": "late"}))
+            .await;
+
+        // Answer heartbeats and the follow-up tool call until we see a non-ping.
+        loop {
+            let msg = peer.recv_message().await.expect("recv follow-up");
+            let Message::Request { id, method, .. } = msg else {
+                panic!("expected request, got {msg:?}");
+            };
+            if method == "ping" {
+                peer.send_response(id, json!({"ok": true}))
+                    .await
+                    .expect("pong");
+                continue;
+            }
+            peer.send_response(id, json!({"ok": true, "result": "alive"}))
+                .await
+                .expect("send alive");
+            break;
+        }
+    });
+
+    let first = dispatch_tool(
+        &registry,
+        &catalog,
+        &sessions,
+        "execute_python",
+        json!({"pid": 55, "script": "result=1"}),
+    )
+    .await;
+    match first {
+        Err(tdmcp_mcp::ToolCallError::Failed(fail)) => {
+            assert_eq!(fail.diagnostics.items[0].code, "tdmcp.bridge.timeout");
+        }
+        other => panic!("expected timeout Failed, got {other:?}"),
+    }
+
+    // Wait longer than idle_dead so a stale last_activity would have torn down.
+    // Heartbeats keep the session alive when activity was refreshed on Timeout.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    {
+        let reg = registry.lock().await;
+        let entry = reg.get(55).expect("entry");
+        assert_eq!(
+            entry.bridge,
+            tdmcp_core::BridgeStatus::Connected,
+            "call timeout must not idle-dead the session"
+        );
+    }
+
+    let second = dispatch_tool(
+        &registry,
+        &catalog,
+        &sessions,
+        "execute_python",
+        json!({"pid": 55, "script": "result=2"}),
+    )
+    .await
+    .expect("session must still serve after post-timeout idle window");
+    assert_eq!(second["ok"], true);
+    assert_eq!(second["result"], "alive");
+
+    let _ = driver.await;
 }
