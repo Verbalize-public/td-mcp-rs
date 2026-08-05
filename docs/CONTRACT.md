@@ -18,7 +18,7 @@ Crate layout: `[ARCHITECTURE.md](../ARCHITECTURE.md)`. Engineering law: `[CONSTI
 1. **Multi-instance first** — every mutating call names the target by OS `pid`. No session “current target,” no generated peer ids.
 2. **Live operate only** — inspect, mutate, script, verify on a connected bridge. No `.toe` / `.tox` binary editing.
 3. **Agent-shaped surface** — small tool set; `**fleet` → `inspect` → `capture`** three-layer read model; perception is explicit (`capture`); uniform diagnostics; summary-by-default; timeouts fail the *wait* (not claim TD cancelled).
-4. **Connected ⇒ usable** — `bridge: "connected"` ⇒ any MCP caller may address that `pid`. Coordination via visible tasks + exclusive requests that fail when the queue is busy.
+4. **Connected ⇒ usable** — `bridge: "connected"` ⇒ any MCP caller may address that `pid`. Coordination via visible tasks + **hard sequential gates** (session chill + per-pid exclusive enqueue); overload fails fast and never tears down the bridge.
 5. **One local control plane** — long-lived daemon owns pid→bridge map, per-pid queues, MCP surface, bridge sessions.
 6. **Self-contained delivery** — one binary + one drop-in `.tox` bootstrap.
 7. **Resurrection on reconnect** — on IPC loss the daemon states the disconnect and stacks cancelled tasks until the first successful task afterward (then erase).
@@ -123,11 +123,35 @@ Handshake returns a local FS path to the bridge package directory. TD reloads fr
 
 ### Task queue — Shipped
 
+**Goals**
 
-| Mode                 | Behavior                                              |
-| -------------------- | ----------------------------------------------------- |
-| **Shared (default)** | Enqueue / run; visible in `fleet` when requested      |
-| **Exclusive**        | Fails if queue is non-empty (any shared or exclusive) |
+1. Bridge IPC stays up under agent abuse — overload returns typed errors; never tears down the peer.
+2. Hard sequential use of TD for bridged tools: a second concurrent call fails fast.
+
+**Non-goals**
+
+1. Concurrent / pipelined tool execution as a supported mode.
+2. Pre-empting or cancelling in-flight TD main-thread work (timeout ≠ cancel; see RISKS R4).
+3. Throughput features (multi-flight wire, async inspect jobs).
+
+**Dual gates (bridged tools only)**
+
+| Gate | Scope | On conflict |
+| --- | --- | --- |
+| **Session chill** | `(mcp_session_id, pid)` — at most one in-flight bridged tool | `tdmcp.mcp.session_busy` |
+| **Pid exclusive** | Per-pid `TaskQueue` — always exclusive enqueue | `tdmcp.bridge.queue_busy` |
+
+Bridged tools (`execute_python`, `inspect`, `capture`, `mutate_nodes`, `api_help`, `editor_context`) always enqueue **exclusive**. Client `exclusive` is accepted for wire compat and **ignored**. Shared multi-enqueue is not a supported mode.
+
+**Exempt** (no session chill, no task-queue enqueue): `fleet`, `describe_tools`, wire heartbeat `ping`.
+
+JSON `/mcp/tools/call` has no session lease — session chill is skipped; pid exclusive still applies.
+
+
+| Mode | Behavior |
+| --- | --- |
+| **Exclusive (always for bridged tools)** | Fails if the per-pid queue is non-empty |
+| **Shared** | Reserved / unused by MCP bridged tools |
 
 
 ### Disconnect / resurrection — Shipped
@@ -363,7 +387,7 @@ One tool. Ordered `steps[]`. **Sequential apply, stop on first hard error, never
 | `pid`          | Target process (process-scoped)                                             |
 | `steps[]`      | Ordered; each is `{op, ...}` below                                          |
 | `contextPath?` | Anchor for relative `path` (default `/project1`)                            |
-| `exclusive?`   | Exclusive enqueue (default false)                                           |
+| `exclusive?`   | Ignored (bridged tools always exclusive-enqueue)                            |
 | `detailLevel`  | `summary` (default) = per-step `{ok, path?}`; `detailed` adds echoed params |
 
 
@@ -526,7 +550,7 @@ Daemon CLI: `start` (foreground; tray + toast by default, dashboard hidden until
 
 - TD↔daemon: local IPC (named pipe / UDS); handshake returns FS path to bridge package.
 - Cursor↔daemon: `tdmcp-daemon mcp` (stdio proxy → Streamable HTTP at `/mcp/rpc`; v1 tools only, no notification forward). Direct HTTP clients may use `http://127.0.0.1:9860/mcp` (JSON fallback on `/mcp/tools/*`).
-- Identity: `pid` only; exclusive fails iff queue non-empty; resurrection stacks until first success.
+- Identity: `pid` only; bridged tools always exclusive-enqueue (fail iff queue non-empty); session chill on `(mcp_session, pid)`; resurrection stacks until first success.
 - Perception: `capture` only; builders never self-grade look.
 - Paths: `OpPath` + optional `contextPath`; TD resolves; default base `/project1`.
 - Diagnostics: catalog-backed codes; free-string-only failures forbidden.

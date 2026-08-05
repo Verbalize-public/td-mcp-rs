@@ -21,9 +21,10 @@ use crate::editor_context::EditorContextParams;
 use crate::fleet::{fleet_summary, FleetParams};
 use crate::outcomes::{
     map_api_help_outcome, map_editor_context_outcome, map_inspect_outcome, map_mutate_outcome,
-    map_perception_outcome, map_script_outcome,
+    map_perception_outcome, map_script_outcome, session_busy,
 };
 use crate::schema::input_schema_for;
+use crate::session_registry::{BridgeCallSlot, McpSessionRegistry};
 
 /// Outer safety ceiling for awaiting a daemon bridge oneshot.
 ///
@@ -286,7 +287,7 @@ pub struct ExecutePythonParams {
     pub pid: Pid,
     /// Script body.
     pub script: String,
-    /// Exclusive enqueue.
+    /// Ignored — bridged tools always exclusive-enqueue (kept for wire compat).
     #[serde(default)]
     pub exclusive: bool,
     /// Optional context path (exposed to script as helper; not enforced).
@@ -501,7 +502,7 @@ pub struct MutateNodesParams {
     /// Resolution base for relative paths.
     #[serde(default)]
     pub context_path: Option<OpPath>,
-    /// Exclusive enqueue.
+    /// Ignored — bridged tools always exclusive-enqueue (kept for wire compat).
     #[serde(default)]
     pub exclusive: bool,
     /// Structural detail level for per-step echo.
@@ -600,15 +601,27 @@ pub enum BridgeOutcome {
     Transport(BridgeRpcError),
 }
 
+/// Optional MCP session identity for the session-chill gate.
+#[derive(Debug, Clone, Copy)]
+pub struct SessionGate<'a> {
+    /// Streamable HTTP MCP session lease id.
+    pub session_id: &'a str,
+    /// Shared session registry holding `(session, pid)` in-flight slots.
+    pub sessions: &'a McpSessionRegistry,
+}
+
 /// Dispatch a named tool call to a JSON result.
 ///
 /// Never holds the registry lock across a bridge await.
+/// Pass [`Some`] [`SessionGate`] from the rmcp handler; JSON fallback passes [`None`]
+/// (pid exclusive still applies; session chill is skipped).
 pub async fn dispatch_tool(
     registry: &Arc<Mutex<PidRegistry>>,
     catalog: &tdmcp_diagnostics::Catalog,
     bridge: &dyn BridgeRpc,
     name: &str,
     args: Value,
+    session: Option<SessionGate<'_>>,
 ) -> Result<Value, ToolCallError> {
     let tool =
         ToolName::from_wire(name).ok_or_else(|| ToolCallError::UnknownTool(name.to_owned()))?;
@@ -641,13 +654,13 @@ pub async fn dispatch_tool(
         ToolName::ExecutePython => {
             let params: ExecutePythonParams = serde_json::from_value(args)
                 .map_err(|e| ToolCallError::InvalidArgs(e.to_string()))?;
+            let _slot = begin_session_slot(session, catalog, "execute_python", params.pid)?;
             let method = BridgeMethod::ExecutePython;
             let outcome = enqueue_and_call(
                 registry,
                 bridge,
                 params.pid,
                 method,
-                mode_of(params.exclusive),
                 serde_json::json!({
                     "script": params.script,
                     "contextPath": params.context_path,
@@ -668,13 +681,13 @@ pub async fn dispatch_tool(
         ToolName::Capture => {
             let params: CaptureParams = serde_json::from_value(args)
                 .map_err(|e| ToolCallError::InvalidArgs(e.to_string()))?;
+            let _slot = begin_session_slot(session, catalog, "capture", params.pid)?;
             let method = BridgeMethod::Capture;
             let outcome = enqueue_and_call(
                 registry,
                 bridge,
                 params.pid,
                 method,
-                TaskMode::Shared,
                 serde_json::json!({
                     "path": params.path,
                     "mode": params.mode.as_str(),
@@ -700,6 +713,7 @@ pub async fn dispatch_tool(
                     "inspect requires a non-empty paths array".into(),
                 ));
             }
+            let _slot = begin_session_slot(session, catalog, "inspect", params.pid)?;
             let method = BridgeMethod::Inspect;
             let include: Vec<&str> = params
                 .include
@@ -718,7 +732,6 @@ pub async fn dispatch_tool(
                 bridge,
                 params.pid,
                 method,
-                TaskMode::Shared,
                 serde_json::json!({
                     "paths": params.paths,
                     "contextPath": params.context_path,
@@ -740,6 +753,7 @@ pub async fn dispatch_tool(
         ToolName::MutateNodes => {
             let params: MutateNodesParams = serde_json::from_value(args)
                 .map_err(|e| ToolCallError::InvalidArgs(e.to_string()))?;
+            let _slot = begin_session_slot(session, catalog, "mutate_nodes", params.pid)?;
             let method = BridgeMethod::MutateNodes;
             let steps = serde_json::to_value(&params.steps)
                 .map_err(|e| ToolCallError::InvalidArgs(e.to_string()))?;
@@ -748,7 +762,6 @@ pub async fn dispatch_tool(
                 bridge,
                 params.pid,
                 method,
-                mode_of(params.exclusive),
                 serde_json::json!({
                     "steps": steps,
                     "contextPath": params.context_path,
@@ -772,6 +785,7 @@ pub async fn dispatch_tool(
                     "api_help requires a non-empty queries array".into(),
                 ));
             }
+            let _slot = begin_session_slot(session, catalog, "api_help", params.pid)?;
             let queries = serde_json::to_value(&params.queries)
                 .map_err(|e| ToolCallError::InvalidArgs(e.to_string()))?;
             let outcome = enqueue_and_call(
@@ -779,7 +793,6 @@ pub async fn dispatch_tool(
                 bridge,
                 params.pid,
                 BridgeMethod::ApiHelp,
-                TaskMode::Shared,
                 serde_json::json!({
                     "queries": queries,
                     "detailLevel": params.detail_level.as_str(),
@@ -791,12 +804,12 @@ pub async fn dispatch_tool(
         ToolName::EditorContext => {
             let params: EditorContextParams = serde_json::from_value(args)
                 .map_err(|e| ToolCallError::InvalidArgs(e.to_string()))?;
+            let _slot = begin_session_slot(session, catalog, "editor_context", params.pid)?;
             let outcome = enqueue_and_call(
                 registry,
                 bridge,
                 params.pid,
                 BridgeMethod::EditorContext,
-                TaskMode::Shared,
                 serde_json::json!({}),
             )
             .await;
@@ -805,17 +818,27 @@ pub async fn dispatch_tool(
     }
 }
 
-fn mode_of(exclusive: bool) -> TaskMode {
-    if exclusive {
-        TaskMode::Exclusive
-    } else {
-        TaskMode::Shared
+fn begin_session_slot<'a>(
+    session: Option<SessionGate<'a>>,
+    catalog: &tdmcp_diagnostics::Catalog,
+    tool: &str,
+    pid: Pid,
+) -> Result<Option<BridgeCallSlot<'a>>, ToolCallError> {
+    let Some(gate) = session else {
+        return Ok(None);
+    };
+    match gate
+        .sessions
+        .try_begin_bridge_call(gate.session_id, pid.get())
+    {
+        Some(slot) => Ok(Some(slot)),
+        None => Err(session_busy(catalog, tool, pid)),
     }
 }
 
-/// Enqueue (eager — preserves exclusive-while-busy semantics), then call the
-/// bridge with a timeout. The daemon actor owns queue progression
-/// (`start_next` / `complete_task`) so it stays coupled to the wire.
+/// Enqueue exclusive (always), then call the bridge with a timeout.
+/// The daemon actor owns queue progression (`start_next` / `complete_task`)
+/// so it stays coupled to the wire.
 ///
 /// When the call never reaches actor completion (`NotConnected`, send-fail
 /// `Disconnected`, or the outer MCP wait fires), clear the pid queue so a
@@ -825,13 +848,12 @@ async fn enqueue_and_call(
     bridge: &dyn BridgeRpc,
     pid: Pid,
     method: BridgeMethod,
-    mode: TaskMode,
     params: Value,
 ) -> BridgeOutcome {
     let raw_pid = pid.get();
     {
         let mut reg = registry.lock().await;
-        if let Err(e) = reg.enqueue(raw_pid, method.queue_label(), mode) {
+        if let Err(e) = reg.enqueue(raw_pid, method.queue_label(), TaskMode::Exclusive) {
             return match &e {
                 tdmcp_core::EnqueueError::Queue(_) => BridgeOutcome::QueueBusy,
                 _ => BridgeOutcome::Transport(BridgeRpcError::NotConnected { pid: raw_pid }),

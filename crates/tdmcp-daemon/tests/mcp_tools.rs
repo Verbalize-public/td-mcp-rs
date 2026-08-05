@@ -109,8 +109,8 @@ async fn execute_python_happy_path() {
 
 #[tokio::test]
 async fn exclusive_fails_while_shared_in_flight() {
-    // Gated bridge: the first (shared) call stays in-flight on the bridge, so
-    // the second (exclusive) call must hit queue_busy at enqueue time.
+    // Gated bridge: the first call stays in-flight on the bridge, so
+    // the second call must hit queue_busy at enqueue time (always exclusive).
     let fake = FakeBridgeRpc::gated(json!({"ok": true, "result": 1}));
     let gate_handle = fake.gate_handle();
     let bridge: Arc<dyn BridgeRpc> = Arc::new(fake);
@@ -126,7 +126,7 @@ async fn exclusive_fails_while_shared_in_flight() {
             .uri("/mcp/tools/call")
             .header("content-type", "application/json")
             .body(Body::from(
-                json!({"name":"execute_python","arguments":{"pid":34,"script":"result=1","exclusive":false}})
+                json!({"name":"execute_python","arguments":{"pid":34,"script":"result=1"}})
                     .to_string(),
             ))
             .unwrap();
@@ -141,7 +141,7 @@ async fn exclusive_fails_while_shared_in_flight() {
         .uri("/mcp/tools/call")
         .header("content-type", "application/json")
         .body(Body::from(
-            json!({"name":"execute_python","arguments":{"pid":34,"script":"result=2","exclusive":true}})
+            json!({"name":"execute_python","arguments":{"pid":34,"script":"result=2"}})
                 .to_string(),
         ))
         .unwrap();
@@ -158,6 +158,84 @@ async fn exclusive_fails_while_shared_in_flight() {
 
     drop(gate);
     let _ = first.await;
+}
+
+#[tokio::test]
+async fn session_chill_rejects_parallel_same_session_pid() {
+    use tdmcp_mcp::{dispatch_tool, McpSessionRegistry, SessionGate, ToolCallError};
+    use tokio::sync::Mutex;
+
+    let fake = FakeBridgeRpc::gated(json!({"ok": true, "result": 1}));
+    let gate_handle = fake.gate_handle();
+    let bridge = Arc::new(fake);
+    let gate = gate_handle.lock().await;
+
+    let registry = Arc::new(Mutex::new(registry_with_pid()));
+    let catalog = Catalog::fallback();
+    let mcp_sessions = Arc::new(McpSessionRegistry::new());
+    let sid = mcp_sessions.acquire();
+
+    let reg1 = registry.clone();
+    let cat1 = catalog.clone();
+    let bridge1 = bridge.clone();
+    let sessions1 = mcp_sessions.clone();
+    let sid1 = sid.clone();
+    let first = tokio::spawn(async move {
+        dispatch_tool(
+            &reg1,
+            &cat1,
+            bridge1.as_ref(),
+            "execute_python",
+            json!({"pid": 34, "script": "result=1"}),
+            Some(SessionGate {
+                session_id: &sid1,
+                sessions: sessions1.as_ref(),
+            }),
+        )
+        .await
+    });
+
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    let err = dispatch_tool(
+        &registry,
+        &catalog,
+        bridge.as_ref(),
+        "execute_python",
+        json!({"pid": 34, "script": "result=2"}),
+        Some(SessionGate {
+            session_id: &sid,
+            sessions: mcp_sessions.as_ref(),
+        }),
+    )
+    .await
+    .expect_err("second same-session call must chill");
+    match &err {
+        ToolCallError::Failed(fail) => {
+            assert_eq!(fail.diagnostics.items[0].code, "tdmcp.mcp.session_busy");
+        }
+        other => panic!("expected session_busy, got {other:?}"),
+    }
+
+    // fleet is exempt from session chill.
+    let fleet = dispatch_tool(
+        &registry,
+        &catalog,
+        bridge.as_ref(),
+        "fleet",
+        json!({}),
+        Some(SessionGate {
+            session_id: &sid,
+            sessions: mcp_sessions.as_ref(),
+        }),
+    )
+    .await
+    .expect("fleet exempt");
+    assert!(fleet.get("processes").is_some());
+
+    drop(gate);
+    let first_ok = first.await.unwrap().expect("first completes");
+    assert_eq!(first_ok["ok"], true);
 }
 
 #[tokio::test]
@@ -666,7 +744,8 @@ async fn transport_not_connected_clears_queue_for_exclusive() {
         &bridge,
         "execute_python",
         json!({"pid": 34, "script": "result=1"}),
-    )
+            None,
+        )
     .await
     .expect_err("NotConnected must fail the tool call");
     match err {

@@ -276,6 +276,7 @@ fn call_exec(
             &sessions,
             "execute_python",
             json!({"pid": pid, "script": script, "exclusive": exclusive}),
+            None,
         )
         .await
     })
@@ -299,7 +300,8 @@ fn call_exec_timed(
                 &sessions,
                 "execute_python",
                 json!({"pid": pid, "script": script, "exclusive": exclusive}),
-            ),
+                None,
+            )
         )
         .await
     })
@@ -310,34 +312,56 @@ fn call_exec_timed(
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn easy_two_shared_same_pid_ok() {
+async fn easy_parallel_second_rejects_while_held() {
+    // Bridged tools always exclusive-enqueue: a second call while one is
+    // in-flight must fail fast with queue_busy (no shared stacking).
     with_test_timeout(TEST_TIMEOUT, async {
         let (registry, sessions, peer) = setup_pid(1001).await;
-        let _driver = peer.spawn_auto_pong();
+        let held = Arc::new(Notify::new());
+        let release = Arc::new(Notify::new());
+        let _driver = spawn_hold_then_echo(peer, held.clone(), release.clone(), 0);
         let catalog = Catalog::fallback();
 
-        let a = call_exec(
+        let held_wait = held.notified();
+        tokio::pin!(held_wait);
+        let first = call_exec(
             registry.clone(),
             catalog.clone(),
             sessions.clone(),
             1001,
-            "m0",
+            "held",
             false,
         );
-        let b = call_exec(
-            registry.clone(),
-            catalog.clone(),
-            sessions.clone(),
-            1001,
-            "m1",
-            false,
-        );
+        held_wait.await;
 
-        let va = a.await.unwrap().expect("a ok");
-        let vb = b.await.unwrap().expect("b ok");
-        assert_eq!(va["ok"], true);
-        assert_eq!(vb["ok"], true);
+        let err = dispatch_tool(
+            &registry,
+            &catalog,
+            &sessions,
+            "execute_python",
+            json!({"pid": 1001, "script": "second"}),
+            None,
+        )
+        .await
+        .expect_err("second call must fail while first is held");
+        assert!(is_queue_busy(&err), "expected queue_busy, got {err:?}");
 
+        // fleet stays available (exempt from enqueue) while bridge is busy.
+        let fleet_ok = dispatch_tool(
+            &registry,
+            &catalog,
+            &sessions,
+            "fleet",
+            json!({}),
+            None,
+        )
+        .await
+        .expect("fleet must remain available");
+        assert!(fleet_ok.get("processes").is_some(), "fleet shape: {fleet_ok}");
+
+        release.notify_waiters();
+        let v = first.await.unwrap().expect("first completes");
+        assert_eq!(v["ok"], true);
         wait_until_async(|| queue_empty(&registry, 1001), POLL_BUDGET, "queue empty").await;
     })
     .await;
@@ -371,6 +395,7 @@ async fn easy_exclusive_rejects_while_shared_held() {
             &sessions,
             "execute_python",
             json!({"pid": 1002, "script": "excl", "exclusive": true}),
+            None,
         )
         .await
         .expect_err("exclusive must fail");
@@ -425,11 +450,27 @@ async fn easy_two_pids_concurrent_ok() {
 // ---------------------------------------------------------------------------
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn med_shared_storm_fifo_echo() {
+async fn med_parallel_storm_rejects_while_held() {
+    // Always-exclusive: while one call is held, a storm of peers all fail
+    // fast with queue_busy (no shared FIFO stacking).
     with_test_timeout(TEST_TIMEOUT, async {
         let (registry, sessions, peer) = setup_pid(2001).await;
-        let _driver = spawn_echo_n(peer, K_STORM);
+        let held = Arc::new(Notify::new());
+        let release = Arc::new(Notify::new());
+        let _driver = spawn_hold_then_echo(peer, held.clone(), release.clone(), 0);
         let catalog = Catalog::fallback();
+
+        let held_wait = held.notified();
+        tokio::pin!(held_wait);
+        let first = call_exec(
+            registry.clone(),
+            catalog.clone(),
+            sessions.clone(),
+            2001,
+            "held",
+            false,
+        );
+        held_wait.await;
 
         let handles: Vec<_> = (0..K_STORM)
             .map(|i| {
@@ -445,17 +486,12 @@ async fn med_shared_storm_fifo_echo() {
             .collect();
 
         for (i, h) in handles.into_iter().enumerate() {
-            let v = h
-                .await
-                .unwrap()
-                .unwrap_or_else(|e| panic!("caller {i}: {e:?}"));
-            assert_eq!(v["ok"], true, "caller {i}");
-            assert_eq!(
-                v["result"],
-                marker_script(i),
-                "crossed or wrong marker for caller {i}"
-            );
+            let err = h.await.unwrap().expect_err("storm must fail while held");
+            assert!(is_queue_busy(&err), "caller {i}: expected queue_busy, got {err:?}");
         }
+
+        release.notify_waiters();
+        assert_eq!(first.await.unwrap().expect("held")["result"], "held");
         wait_until_async(|| queue_empty(&registry, 2001), POLL_BUDGET, "queue empty").await;
     })
     .await;
@@ -467,7 +503,7 @@ async fn med_exclusive_storm_while_held() {
         let (registry, sessions, peer) = setup_pid(2002).await;
         let held = Arc::new(Notify::new());
         let release = Arc::new(Notify::new());
-        // 1 held + 2 shared after release
+        // 1 held + 2 sequential after release
         let _driver = spawn_hold_then_echo(peer, held.clone(), release.clone(), 2);
         let catalog = Catalog::fallback();
 
@@ -490,10 +526,11 @@ async fn med_exclusive_storm_while_held() {
                 &catalog,
                 &sessions,
                 "execute_python",
-                json!({"pid": 2002, "script": format!("excl{i}"), "exclusive": true}),
+                json!({"pid": 2002, "script": format!("excl{i}")}),
+                None,
             )
             .await
-            .expect_err("exclusive must fail");
+            .expect_err("parallel while held must fail");
             exclusive_errs.push(err);
         }
         assert_eq!(exclusive_errs.len(), 4);
@@ -501,28 +538,33 @@ async fn med_exclusive_storm_while_held() {
             assert!(is_queue_busy(err), "expected queue_busy, got {err:?}");
         }
 
-        let s1 = call_exec(
-            registry.clone(),
-            catalog.clone(),
-            sessions.clone(),
-            2002,
-            "s1",
-            false,
-        );
-        let s2 = call_exec(
-            registry.clone(),
-            catalog.clone(),
-            sessions.clone(),
-            2002,
-            "s2",
-            false,
-        );
-
         release.notify_waiters();
-
         assert_eq!(held_call.await.unwrap().expect("held")["result"], "held");
-        assert_eq!(s1.await.unwrap().expect("s1")["result"], "s1");
-        assert_eq!(s2.await.unwrap().expect("s2")["result"], "s2");
+        wait_until_async(|| queue_empty(&registry, 2002), POLL_BUDGET, "queue empty").await;
+
+        // Sequential follow-ups after drain succeed.
+        let s1 = dispatch_tool(
+            &registry,
+            &catalog,
+            &sessions,
+            "execute_python",
+            json!({"pid": 2002, "script": "s1"}),
+            None,
+        )
+        .await
+        .expect("s1");
+        let s2 = dispatch_tool(
+            &registry,
+            &catalog,
+            &sessions,
+            "execute_python",
+            json!({"pid": 2002, "script": "s2"}),
+            None,
+        )
+        .await
+        .expect("s2");
+        assert_eq!(s1["result"], "s1");
+        assert_eq!(s2["result"], "s2");
         wait_until_async(|| queue_empty(&registry, 2002), POLL_BUDGET, "queue empty").await;
     })
     .await;
@@ -584,6 +626,7 @@ async fn med_pid_loss_isolates_peer() {
             &sessions,
             "execute_python",
             json!({"pid": 2004, "script": "b-excl", "exclusive": true}),
+            None,
         )
         .await
         .expect("B exclusive must succeed while A is down");
@@ -596,135 +639,104 @@ async fn med_pid_loss_isolates_peer() {
 // Hard
 // ---------------------------------------------------------------------------
 
-/// `job_queue_depth` counts jobs waiting in the actor mpsc (not domain TaskQueue).
-/// While one job is in-flight on the wire it has already been taken from the
-/// channel, so filling the channel to capacity requires CAPACITY additional
-/// senders behind the held head.
+/// Always-exclusive enqueue prevents MCP from filling the actor mpsc: extras
+/// fail at the TaskQueue with `queue_busy` before `BridgeSessions::call`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn hard_saturate_job_channel_then_drain() {
+async fn hard_parallel_burst_rejects_while_held_then_drain() {
     with_test_timeout(TEST_TIMEOUT, async {
         let (registry, sessions, peer) = setup_pid(3001).await;
         let held = Arc::new(Notify::new());
         let release = Arc::new(Notify::new());
-        let fill = JOB_CHANNEL_CAPACITY;
-        let _driver = spawn_hold_then_echo(peer, held.clone(), release.clone(), fill);
+        let _driver = spawn_hold_then_echo(peer, held.clone(), release.clone(), 1);
         let catalog = Catalog::fallback();
 
-        // 1 in-flight + CAPACITY queued in mpsc (+ maybe one more blocked).
-        let total = 1 + fill;
         let held_wait = held.notified();
         tokio::pin!(held_wait);
-        let mut handles = Vec::with_capacity(total);
-        for i in 0..total {
-            handles.push(call_exec_timed(
-                registry.clone(),
-                catalog.clone(),
-                sessions.clone(),
-                3001,
-                marker_script(i),
-                false,
-            ));
-        }
-
+        let held_call = call_exec(
+            registry.clone(),
+            catalog.clone(),
+            sessions.clone(),
+            3001,
+            "held",
+            false,
+        );
         held_wait.await;
 
-        wait_until_async(
-            || {
-                let sessions = sessions.clone();
-                async move {
-                    sessions
-                        .job_queue_depth(3001)
-                        .await
-                        .is_some_and(|d| d >= JOB_CHANNEL_CAPACITY.saturating_sub(1))
-                }
-            },
-            POLL_BUDGET,
-            "job_queue_depth near capacity",
-        )
-        .await;
-
-        let depth = sessions.job_queue_depth(3001).await.expect("depth");
-        assert!(
-            depth >= JOB_CHANNEL_CAPACITY.saturating_sub(1),
-            "expected mpsc depth near {JOB_CHANNEL_CAPACITY}, got {depth}"
-        );
+        let mut busy = 0usize;
+        for i in 0..JOB_CHANNEL_CAPACITY {
+            let err = dispatch_tool(
+                &registry,
+                &catalog,
+                &sessions,
+                "execute_python",
+                json!({"pid": 3001, "script": marker_script(i)}),
+                None,
+            )
+            .await
+            .expect_err("burst while held must queue_busy");
+            assert!(is_queue_busy(&err), "i={i}: {err:?}");
+            busy += 1;
+        }
+        assert_eq!(busy, JOB_CHANNEL_CAPACITY);
+        // Extras never reached the actor mpsc.
+        assert_eq!(sessions.job_queue_depth(3001).await, Some(0));
 
         release.notify_waiters();
-
-        for (i, h) in handles.into_iter().enumerate() {
-            let timed = h.await.unwrap();
-            let v = timed
-                .unwrap_or_else(|_| panic!("caller {i} timed out"))
-                .unwrap_or_else(|e| panic!("caller {i} err {e:?}"));
-            assert_eq!(v["ok"], true, "caller {i}");
-            assert_eq!(v["result"], marker_script(i), "caller {i} marker");
-        }
+        assert_eq!(held_call.await.unwrap().expect("held")["result"], "held");
         wait_until_async(|| queue_empty(&registry, 3001), POLL_BUDGET, "queue empty").await;
+
+        let v = dispatch_tool(
+            &registry,
+            &catalog,
+            &sessions,
+            "execute_python",
+            json!({"pid": 3001, "script": "after"}),
+            None,
+        )
+        .await
+        .expect("post-drain call");
+        assert_eq!(v["result"], "after");
     })
     .await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn hard_saturate_then_disconnect_flushes() {
+async fn hard_held_disconnect_then_recover() {
     with_test_timeout(TEST_TIMEOUT, async {
         let (registry, sessions, peer) = setup_pid(3002).await;
         let held = Arc::new(Notify::new());
-        let fill = JOB_CHANNEL_CAPACITY;
         let hold_task = spawn_hold_forever(peer, held.clone());
         let catalog = Catalog::fallback();
 
-        let total = 1 + fill;
         let held_wait = held.notified();
         tokio::pin!(held_wait);
-        let mut handles = Vec::with_capacity(total);
-        for i in 0..total {
-            handles.push(call_exec_timed(
-                registry.clone(),
-                catalog.clone(),
-                sessions.clone(),
-                3002,
-                marker_script(i),
-                false,
-            ));
-        }
-
+        let held_call = call_exec_timed(
+            registry.clone(),
+            catalog.clone(),
+            sessions.clone(),
+            3002,
+            "held",
+            false,
+        );
         held_wait.await;
-        wait_until_async(
-            || {
-                let sessions = sessions.clone();
-                async move {
-                    sessions
-                        .job_queue_depth(3002)
-                        .await
-                        .is_some_and(|d| d >= JOB_CHANNEL_CAPACITY.saturating_sub(1))
-                }
-            },
-            POLL_BUDGET,
-            "saturated",
-        )
-        .await;
 
-        // Drop peer (abort hold task) → disconnect.
-        hold_task.abort();
-
-        let mut any_ok = 0usize;
-        let mut any_err = 0usize;
-        let mut any_timeout = 0usize;
-        for h in handles {
-            match h.await.unwrap() {
-                Ok(Ok(_)) => any_ok += 1,
-                Ok(Err(_)) => any_err += 1,
-                Err(_) => any_timeout += 1,
-            }
+        // Parallel extras reject immediately (never stack on the wire).
+        for i in 0..4 {
+            let err = dispatch_tool(
+                &registry,
+                &catalog,
+                &sessions,
+                "execute_python",
+                json!({"pid": 3002, "script": marker_script(i)}),
+                None,
+            )
+            .await
+            .expect_err("must queue_busy");
+            assert!(is_queue_busy(&err), "{err:?}");
         }
-        assert_eq!(
-            any_ok, 0,
-            "no waiter should succeed after disconnect (ok={any_ok} err={any_err} timeout={any_timeout})"
-        );
-        assert!(
-            any_err + any_timeout == total,
-            "every waiter must end; err={any_err} timeout={any_timeout}"
-        );
+
+        hold_task.abort();
+        let _ = held_call.await;
 
         wait_until_async(
             || async {
@@ -747,6 +759,7 @@ async fn hard_saturate_then_disconnect_flushes() {
             &sessions,
             "execute_python",
             json!({"pid": 3002, "script": "recovered"}),
+            None,
         )
         .await
         .expect("post re-handshake call");
@@ -791,6 +804,7 @@ async fn hard_supersede_while_inflight_held() {
             &sessions,
             "execute_python",
             json!({"pid": 3003, "script": "new"}),
+            None,
         )
         .await
         .expect("new session serves");
@@ -808,58 +822,46 @@ async fn hard_supersede_while_inflight_held() {
 // ---------------------------------------------------------------------------
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn x_saturate_then_supersede() {
+async fn x_held_then_supersede() {
     with_test_timeout(EXTREME_TIMEOUT, async {
         let (registry, sessions, peer_old) = setup_pid(4001).await;
         let held = Arc::new(Notify::new());
         let hold_old = spawn_hold_forever(peer_old, held.clone());
         let catalog = Catalog::fallback();
 
-        let total = 1 + JOB_CHANNEL_CAPACITY;
         let held_wait = held.notified();
         tokio::pin!(held_wait);
-        let mut handles = Vec::with_capacity(total);
-        for i in 0..total {
-            handles.push(call_exec_timed(
-                registry.clone(),
-                catalog.clone(),
-                sessions.clone(),
-                4001,
-                marker_script(i),
-                false,
-            ));
-        }
-
+        let held_call = call_exec_timed(
+            registry.clone(),
+            catalog.clone(),
+            sessions.clone(),
+            4001,
+            "held",
+            false,
+        );
         held_wait.await;
-        wait_until_async(
-            || {
-                let sessions = sessions.clone();
-                async move {
-                    sessions
-                        .job_queue_depth(4001)
-                        .await
-                        .is_some_and(|d| d >= JOB_CHANNEL_CAPACITY.saturating_sub(1))
-                }
-            },
-            POLL_BUDGET,
-            "near capacity before supersede",
-        )
-        .await;
+
+        for i in 0..4 {
+            let err = dispatch_tool(
+                &registry,
+                &catalog,
+                &sessions,
+                "execute_python",
+                json!({"pid": 4001, "script": marker_script(i)}),
+                None,
+            )
+            .await
+            .expect_err("must queue_busy while held");
+            assert!(is_queue_busy(&err), "{err:?}");
+        }
 
         let peer_new = rehandshake_and_spawn(&registry, &sessions, 4001).await;
         let _drive_new = peer_new.spawn_auto_pong();
         hold_old.abort();
 
-        let mut any_ok = 0usize;
-        for h in handles {
-            if matches!(h.await.unwrap(), Ok(Ok(_))) {
-                any_ok += 1;
-            }
+        if let Ok(Ok(v)) = held_call.await.unwrap() {
+            panic!("old generation must not succeed, got {v}");
         }
-        assert_eq!(
-            any_ok, 0,
-            "old waiters must not succeed across supersede (ok={any_ok})"
-        );
 
         let v = dispatch_tool(
             &registry,
@@ -867,6 +869,7 @@ async fn x_saturate_then_supersede() {
             &sessions,
             "execute_python",
             json!({"pid": 4001, "script": "after"}),
+            None,
         )
         .await
         .expect("new session");
@@ -879,7 +882,7 @@ async fn x_saturate_then_supersede() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn x_asymmetric_storm_two_pids() {
+async fn x_asymmetric_busy_a_sequential_b() {
     with_test_timeout(EXTREME_TIMEOUT, async {
         let (registry, sessions, peer_a, peer_b) = setup_two_pids(4002, 4003).await;
         let held = Arc::new(Notify::new());
@@ -887,42 +890,45 @@ async fn x_asymmetric_storm_two_pids() {
         let _drive_b = spawn_echo_n(peer_b, K_STORM);
         let catalog = Catalog::fallback();
 
-        // Saturate A
-        let fill = JOB_CHANNEL_CAPACITY;
         let held_wait = held.notified();
         tokio::pin!(held_wait);
-        let mut a_handles = Vec::with_capacity(1 + fill);
-        for i in 0..(1 + fill) {
-            a_handles.push(call_exec_timed(
-                registry.clone(),
-                catalog.clone(),
-                sessions.clone(),
-                4002,
-                format!("a{i}"),
-                false,
-            ));
-        }
+        let a_held = call_exec_timed(
+            registry.clone(),
+            catalog.clone(),
+            sessions.clone(),
+            4002,
+            "a-held",
+            false,
+        );
         held_wait.await;
 
-        // Storm B concurrently
-        let b_handles: Vec<_> = (0..K_STORM)
-            .map(|i| {
-                call_exec(
-                    registry.clone(),
-                    catalog.clone(),
-                    sessions.clone(),
-                    4003,
-                    marker_script(i),
-                    false,
-                )
-            })
-            .collect();
+        // A stays held; parallel extras on A reject.
+        for i in 0..4 {
+            let err = dispatch_tool(
+                &registry,
+                &catalog,
+                &sessions,
+                "execute_python",
+                json!({"pid": 4002, "script": format!("a{i}")}),
+                None,
+            )
+            .await
+            .expect_err("A must queue_busy");
+            assert!(is_queue_busy(&err), "{err:?}");
+        }
 
-        for (i, h) in b_handles.into_iter().enumerate() {
-            let v = h
-                .await
-                .unwrap()
-                .unwrap_or_else(|e| panic!("B caller {i}: {e:?}"));
+        // B remains healthy with sequential calls.
+        for i in 0..K_STORM {
+            let v = dispatch_tool(
+                &registry,
+                &catalog,
+                &sessions,
+                "execute_python",
+                json!({"pid": 4003, "script": marker_script(i)}),
+                None,
+            )
+            .await
+            .unwrap_or_else(|e| panic!("B caller {i}: {e:?}"));
             assert_eq!(v["result"], marker_script(i), "B marker {i}");
         }
 
@@ -935,11 +941,8 @@ async fn x_asymmetric_storm_two_pids() {
             );
         }
 
-        // Drop A — waiters should fail; B remains healthy.
         hold_a.abort();
-        for h in a_handles {
-            let _ = h.await;
-        }
+        let _ = a_held.await;
 
         {
             let reg = registry.lock().await;

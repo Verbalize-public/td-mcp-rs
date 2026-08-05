@@ -249,7 +249,7 @@
     },
     "exclusive": {
       "default": false,
-      "description": "Exclusive enqueue.",
+      "description": "Ignored — bridged tools always exclusive-enqueue (kept for wire compat).",
       "type": "boolean"
     },
     "pid": {

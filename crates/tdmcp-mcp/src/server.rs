@@ -100,6 +100,7 @@ async fn call_tool(
         state.bridge.as_ref(),
         &body.name,
         body.arguments,
+        None, // JSON fallback has no MCP session lease; pid exclusive still applies
     )
     .await
     {

@@ -23,10 +23,22 @@ entries:
 
   - code: tdmcp.bridge.queue_busy
     layer: fleet
-    message: "Exclusive request rejected — queue is non-empty"
+    message: "Bridge pid queue is busy — call tools sequentially"
     mitigation:
-      - "Re-fleet with include: tasks"
-      - "Backoff or wait until queue is empty"
+      - "Call bridged tools one at a time against this pid"
+      - "Re-fleet with include: tasks to see the in-flight work"
+      - "Do not disconnect or restart — wait for the queue to drain, then retry"
+    references:
+      - kind: doc
+        id: task_queue
+
+  - code: tdmcp.mcp.session_busy
+    layer: fleet
+    message: "Chill down — too many concurrent calls for this MCP session against this bridge"
+    mitigation:
+      - "Wait for the in-flight tool on this session+pid to finish"
+      - "Call bridged tools sequentially (no parallel inspect/execute_python/capture/mutate)"
+      - "fleet and describe_tools remain available while a call is in flight"
     references:
       - kind: doc
         id: task_queue

@@ -164,7 +164,8 @@ async fn execute_python_round_trip() {
         &sessions,
         "execute_python",
         json!({"pid": 42, "script": "result=1"}),
-    )
+            None,
+        )
     .await
     .expect("ok");
 
@@ -191,7 +192,8 @@ async fn capture_round_trip() {
         &sessions,
         "capture",
         json!({"pid": 43, "path": "/project1/out1", "mode": "top"}),
-    )
+            None,
+        )
     .await
     .expect("ok");
 
@@ -215,7 +217,8 @@ async fn api_help_round_trip() {
             "pid": 143,
             "queries": [{"kind": "class", "name": "noiseTOP"}]
         }),
-    )
+            None,
+        )
     .await
     .expect("ok");
 
@@ -274,7 +277,8 @@ async fn api_help_partial_entry_failure_still_ok() {
                 {"kind": "class", "name": "missingTOP"}
             ]
         }),
-    )
+            None,
+        )
     .await
     .expect("top-level ok with partial entry failure");
 
@@ -314,6 +318,7 @@ async fn exclusive_fails_while_shared_in_flight() {
             &sess_a,
             "execute_python",
             json!({"pid": 44, "script": "result=1", "exclusive": false}),
+            None,
         )
         .await
     });
@@ -327,7 +332,8 @@ async fn exclusive_fails_while_shared_in_flight() {
         &sessions,
         "execute_python",
         json!({"pid": 44, "script": "result=2", "exclusive": true}),
-    )
+            None,
+        )
     .await
     .expect_err("exclusive must fail");
     match err {
@@ -356,7 +362,8 @@ async fn disconnect_then_resurrection() {
         &sessions,
         "execute_python",
         json!({"pid": 45, "script": "result=1"}),
-    )
+            None,
+        )
     .await;
 
     // Give the actor a moment to tear down.
@@ -386,7 +393,8 @@ async fn disconnect_then_resurrection() {
         &sessions,
         "execute_python",
         json!({"pid": 45, "script": "result=1"}),
-    )
+            None,
+        )
     .await
     .expect("ok");
     assert_eq!(v["ok"], true);
@@ -463,7 +471,8 @@ async fn disconnected_pid_evicted_after_ttl() {
         &sessions,
         "execute_python",
         json!({"pid": 48, "script": "result=1"}),
-    )
+            None,
+        )
     .await;
 
     wait_until_disconnected(&registry, 48, Duration::from_millis(500)).await;
@@ -489,7 +498,8 @@ async fn any_handshake_evicts_other_disconnected() {
         &sessions,
         "execute_python",
         json!({"pid": 49, "script": "result=1"}),
-    )
+            None,
+        )
     .await;
     wait_until_disconnected(&registry, 49, Duration::from_millis(500)).await;
 
@@ -523,7 +533,8 @@ async fn superseding_while_in_flight_clears_queue_for_exclusive() {
                 &sessions,
                 "execute_python",
                 json!({"pid": 71, "script": "result=1"}),
-            )
+            None,
+        )
             .await
         })
     };
@@ -573,7 +584,8 @@ async fn superseding_while_in_flight_clears_queue_for_exclusive() {
         &sessions,
         "execute_python",
         json!({"pid": 71, "script": "result=1", "exclusive": true}),
-    )
+            None,
+        )
     .await
     .expect("exclusive call after supersede must not queue_busy");
     assert_eq!(v["ok"], true);
@@ -624,7 +636,8 @@ async fn superseding_spawn_aborts_old_actor_while_stream_still_open() {
         &sessions,
         "execute_python",
         json!({"pid": 61, "script": "result=1"}),
-    )
+            None,
+        )
     .await
     .expect("new session must serve calls");
     assert_eq!(v["ok"], true);
@@ -714,7 +727,8 @@ async fn timeout_does_not_desync_next_call() {
         &sessions,
         "execute_python",
         json!({"pid": 52, "script": "result=1"}),
-    )
+            None,
+        )
     .await;
     match first {
         Err(tdmcp_mcp::ToolCallError::Failed(fail)) => {
@@ -732,7 +746,8 @@ async fn timeout_does_not_desync_next_call() {
         &sessions,
         "execute_python",
         json!({"pid": 52, "script": "result=2"}),
-    )
+            None,
+        )
     .await
     .expect("second call must succeed after draining stale response");
     assert_eq!(second["ok"], true);
@@ -782,6 +797,7 @@ async fn script_method_gets_longer_timeout() {
             &sessions,
             "execute_python",
             json!({"pid": 53, "script": "result=1"}),
+            None,
         )
         .await
         .expect("script method should wait longer");
@@ -815,6 +831,7 @@ async fn script_method_gets_longer_timeout() {
             &sessions,
             "inspect",
             json!({"pid": 54, "paths": ["/project1"]}),
+            None,
         )
         .await
         .expect_err("inspect should use the shorter call timeout");
@@ -887,7 +904,8 @@ async fn call_timeout_does_not_idle_dead_session() {
         &sessions,
         "execute_python",
         json!({"pid": 55, "script": "result=1"}),
-    )
+            None,
+        )
     .await;
     match first {
         Err(tdmcp_mcp::ToolCallError::Failed(fail)) => {
@@ -916,7 +934,8 @@ async fn call_timeout_does_not_idle_dead_session() {
         &sessions,
         "execute_python",
         json!({"pid": 55, "script": "result=2"}),
-    )
+            None,
+        )
     .await
     .expect("session must still serve after post-timeout idle window");
     assert_eq!(second["ok"], true);

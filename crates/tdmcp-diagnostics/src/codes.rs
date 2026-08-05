@@ -10,6 +10,8 @@ pub const BRIDGE_UNKNOWN_PID: &str = "tdmcp.bridge.unknown_pid";
 pub const BRIDGE_LOST: &str = "tdmcp.bridge.lost";
 /// Exclusive request rejected — queue non-empty.
 pub const BRIDGE_QUEUE_BUSY: &str = "tdmcp.bridge.queue_busy";
+/// MCP session already has an in-flight bridged tool against this pid.
+pub const MCP_SESSION_BUSY: &str = "tdmcp.mcp.session_busy";
 /// Daemon wait timed out.
 pub const BRIDGE_TIMEOUT: &str = "tdmcp.bridge.timeout";
 /// Bridge package version incompatible with daemon.
@@ -111,6 +113,7 @@ pub const ALL: &[&str] = &[
     BRIDGE_UNKNOWN_PID,
     BRIDGE_LOST,
     BRIDGE_QUEUE_BUSY,
+    MCP_SESSION_BUSY,
     BRIDGE_TIMEOUT,
     BRIDGE_VERSION,
     DAEMON_UNREACHABLE,

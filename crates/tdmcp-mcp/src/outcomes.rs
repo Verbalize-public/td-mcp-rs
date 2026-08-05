@@ -675,7 +675,22 @@ fn queue_busy(catalog: &Catalog, tool: &str, pid: Pid) -> ToolCallError {
         codes::BRIDGE_QUEUE_BUSY,
         span(tool, None),
         Some(format!(
-            "exclusive request rejected — queue non-empty (pid {pid})"
+            "bridge pid queue is busy — call tools sequentially (pid {pid})"
+        )),
+        ctx(pid, None, None),
+        DiagnosticLayer::Fleet,
+    );
+    failed_one(item)
+}
+
+/// MCP session already has an in-flight bridged tool against this pid.
+pub fn session_busy(catalog: &Catalog, tool: &str, pid: Pid) -> ToolCallError {
+    let item = build_diag(
+        catalog,
+        codes::MCP_SESSION_BUSY,
+        span(tool, None),
+        Some(format!(
+            "chill down — too many concurrent calls for this MCP session against bridge pid {pid}"
         )),
         ctx(pid, None, None),
         DiagnosticLayer::Fleet,

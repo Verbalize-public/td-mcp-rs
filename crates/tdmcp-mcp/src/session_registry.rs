@@ -1,5 +1,6 @@
-//! Live Streamable HTTP MCP session registry (GUI + idle exit).
+//! Live Streamable HTTP MCP session registry (GUI + idle exit + session chill).
 
+use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -20,10 +21,28 @@ pub struct McpSessionInfo {
     pub connected_at: u64,
 }
 
+/// RAII guard for one `(session_id, pid)` bridged-tool slot.
+///
+/// Dropping the guard (including on panic / early return) releases the slot.
+#[derive(Debug)]
+pub struct BridgeCallSlot<'a> {
+    registry: &'a McpSessionRegistry,
+    session_id: String,
+    pid: u32,
+}
+
+impl Drop for BridgeCallSlot<'_> {
+    fn drop(&mut self) {
+        self.registry.end_bridge_call(&self.session_id, self.pid);
+    }
+}
+
 /// Shared registry of live MCP session leases.
 #[derive(Debug, Default)]
 pub struct McpSessionRegistry {
     inner: Mutex<Vec<McpSessionInfo>>,
+    /// In-flight bridged tools keyed by `(session_id, pid)`.
+    bridge_inflight: Mutex<HashSet<(String, u32)>>,
 }
 
 impl McpSessionRegistry {
@@ -49,11 +68,54 @@ impl McpSessionRegistry {
         id
     }
 
-    /// Remove a lease by id (no-op if already gone).
+    /// Remove a lease by id (no-op if already gone) and drop its chill slots.
     pub fn release(&self, id: &str) {
         if let Ok(mut guard) = self.inner.lock() {
             guard.retain(|s| s.id != id);
         }
+        if let Ok(mut inflight) = self.bridge_inflight.lock() {
+            inflight.retain(|(sid, _)| sid != id);
+        }
+    }
+
+    /// Try to reserve one bridged-tool slot for `(session_id, pid)`.
+    ///
+    /// Returns [`None`] when that pair already has an in-flight call (N=1).
+    pub fn try_begin_bridge_call<'a>(
+        &'a self,
+        session_id: &str,
+        pid: u32,
+    ) -> Option<BridgeCallSlot<'a>> {
+        let key = (session_id.to_owned(), pid);
+        let inserted = self
+            .bridge_inflight
+            .lock()
+            .ok()
+            .is_some_and(|mut g| g.insert(key));
+        if !inserted {
+            return None;
+        }
+        Some(BridgeCallSlot {
+            registry: self,
+            session_id: session_id.to_owned(),
+            pid,
+        })
+    }
+
+    /// Release a bridged-tool slot (also invoked by [`BridgeCallSlot`] Drop).
+    pub fn end_bridge_call(&self, session_id: &str, pid: u32) {
+        if let Ok(mut g) = self.bridge_inflight.lock() {
+            g.remove(&(session_id.to_owned(), pid));
+        }
+    }
+
+    /// Whether `(session_id, pid)` currently holds a bridged-tool slot (tests).
+    #[must_use]
+    pub fn has_bridge_call(&self, session_id: &str, pid: u32) -> bool {
+        self.bridge_inflight
+            .lock()
+            .ok()
+            .is_some_and(|g| g.contains(&(session_id.to_owned(), pid)))
     }
 
     /// Set client identity after MCP `initialize` (or annotate).
@@ -162,5 +224,44 @@ mod tests {
         assert_eq!(list[0].client_name, "tdmcp-stdio-proxy");
         assert_eq!(list[1].client_name, "Cursor");
         assert_eq!(list[1].client_version, "0.42");
+    }
+
+    #[test]
+    fn bridge_call_slot_n1_per_session_pid() {
+        let reg = McpSessionRegistry::new();
+        let a = reg
+            .try_begin_bridge_call("sess-1", 10)
+            .expect("first acquire");
+        assert!(reg.has_bridge_call("sess-1", 10));
+        assert!(reg.try_begin_bridge_call("sess-1", 10).is_none());
+        // Different pid on same session is allowed.
+        let b = reg
+            .try_begin_bridge_call("sess-1", 11)
+            .expect("other pid");
+        // Different session on same pid is allowed (pid exclusive is separate).
+        let c = reg
+            .try_begin_bridge_call("sess-2", 10)
+            .expect("other session");
+        drop(a);
+        assert!(!reg.has_bridge_call("sess-1", 10));
+        let a2 = reg
+            .try_begin_bridge_call("sess-1", 10)
+            .expect("re-acquire after drop");
+        assert!(reg.has_bridge_call("sess-1", 10));
+        drop(a2);
+        drop(b);
+        drop(c);
+    }
+
+    #[test]
+    fn release_session_clears_bridge_slots() {
+        let reg = Arc::new(McpSessionRegistry::new());
+        let id = reg.acquire();
+        let slot = reg.try_begin_bridge_call(&id, 42).expect("slot");
+        assert!(reg.has_bridge_call(&id, 42));
+        // Disconnect clears slots even while a guard is still alive.
+        reg.release(&id);
+        assert!(!reg.has_bridge_call(&id, 42));
+        drop(slot); // must not panic after session release
     }
 }

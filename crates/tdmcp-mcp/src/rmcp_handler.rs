@@ -25,7 +25,7 @@ use serde_json::Value;
 use crate::schema::input_schema_for;
 use crate::session_registry::McpSessionRegistry;
 use crate::tools::ToolName;
-use crate::tools::{dispatch_tool, tool_descriptors, ToolCallError};
+use crate::tools::{dispatch_tool, tool_descriptors, SessionGate, ToolCallError};
 use crate::AppState;
 
 /// Removes the session row when the last `Arc` clone is dropped.
@@ -134,6 +134,10 @@ impl ServerHandler for McpHandler {
             self.state.bridge.as_ref(),
             &name,
             args,
+            Some(SessionGate {
+                session_id: self.session_id(),
+                sessions: self.state.mcp_sessions.as_ref(),
+            }),
         )
         .await
         {
