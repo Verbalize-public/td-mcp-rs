@@ -147,8 +147,10 @@ def handle_execute_python(params: dict[str, Any]) -> dict[str, Any]:
 
     # Convenience globals for agent scripts. ``td`` / ``op`` are safe here
     # because handle_execute_python only runs on TD's main/cook thread via
-    # process_pending → dispatch. ``me`` / ``parent`` are intentionally
-    # omitted — execute_python has no script-owner OP context.
+    # process_pending → dispatch. Closed-set aliases below are process-scoped
+    # shortcuts already on ``td``. ``me`` / ``parent`` / bare opTypes / ``debug``
+    # are intentionally omitted — no script-owner OP context; opTypes stay
+    # ``td.noiseTOP`` / string form.
     local_vars: dict[str, Any] = {
         "__tdmcp_context_path__": context_path,
         "tdmcp_resolve": lambda p: resolve_op(p, context_path),
@@ -161,6 +163,20 @@ def handle_execute_python(params: dict[str, Any]) -> dict[str, Any]:
         op_fn = getattr(td, "op", None)
         if callable(op_fn):
             local_vars["op"] = op_fn
+        for name in (
+            "root",
+            "ui",
+            "project",
+            "absTime",
+            "tdu",
+            "run",
+            "ops",
+            "opex",
+            "passive",
+            "mod",
+        ):
+            if hasattr(td, name):
+                local_vars[name] = getattr(td, name)
     except Exception:  # noqa: BLE001 — unit tests / non-TD hosts
         pass
 

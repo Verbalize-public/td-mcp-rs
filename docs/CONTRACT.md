@@ -418,7 +418,11 @@ All network-scoped tools share one reference system resolved by TouchDesigner vi
 | `contextPath?` | Anchor for relative paths; default base = project root (`/project1`) |
 
 
-Canonical output echoes TD’s absolute `node.path`. `execute_python` is OpPath-exempt by default; `contextPath` is exposed as `__tdmcp_context_path__` + optional `tdmcp_resolve()` helper. Scripts also receive convenience globals `td` and `op` (TD’s module and `td.op`) when running inside TouchDesigner — `me` / `parent` are not provided (no script-owner OP context).
+Canonical output echoes TD’s absolute `node.path`. `execute_python` is OpPath-exempt by default; `contextPath` is exposed as `__tdmcp_context_path__` + optional `tdmcp_resolve()` helper. Scripts also receive convenience globals when running inside TouchDesigner:
+
+- Always: `td` (TD module), `op` (`td.op`), `result` (pre-seeded `None`; assign to return)
+- Closed-set aliases bound only if present on `td`: `root`, `ui`, `project`, `absTime`, `tdu`, `run`, `ops`, `opex`, `passive`, `mod`
+- **Not** injected: `me`, `parent` (no script-owner OP context), bare opTypes (`noiseTOP`, … — use `td.noiseTOP` or the string form), `debug`
 
 ### `execute_python` logs / Debug DAT — Shipped
 

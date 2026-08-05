@@ -149,6 +149,51 @@ def test_execute_python_exposes_td_and_op_globals(monkeypatch: pytest.MonkeyPatc
     assert out["result"] == "resolved:/project1"
 
 
+def test_execute_python_exposes_closed_set_aliases(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import types
+
+    fake_root = object()
+    fake_ui = object()
+    fake_td = types.SimpleNamespace(
+        op=lambda _p: None,
+        root=fake_root,
+        ui=fake_ui,
+        project=object(),
+        absTime=object(),
+        tdu=object(),
+        run=lambda *_a, **_k: None,
+        ops=object(),
+        # opex / passive / mod intentionally missing — must not be invented
+    )
+    monkeypatch.setitem(sys.modules, "td", fake_td)
+    out = bridge.handle_execute_python(
+        {
+            "script": (
+                "assert root is td.root\n"
+                "assert ui is td.ui\n"
+                "assert project is td.project\n"
+                "assert absTime is td.absTime\n"
+                "assert tdu is td.tdu\n"
+                "assert run is td.run\n"
+                "assert ops is td.ops\n"
+                "assert 'opex' not in globals()\n"
+                "assert 'passive' not in globals()\n"
+                "assert 'mod' not in globals()\n"
+                "assert 'me' not in globals()\n"
+                "assert 'parent' not in globals()\n"
+                "assert 'noiseTOP' not in globals()\n"
+                "assert 'debug' not in globals()\n"
+                "result = 'ok'\n"
+            ),
+            "includeLogs": False,
+        }
+    )
+    assert out["ok"] is True
+    assert out["result"] == "ok"
+
+
 def test_execute_python_keeps_tdmcp_resolve(monkeypatch: pytest.MonkeyPatch) -> None:
     import types
 
