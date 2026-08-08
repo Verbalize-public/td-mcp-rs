@@ -52,11 +52,6 @@
           "const": "warnings",
           "description": "TD warnings.",
           "type": "string"
-        },
-        {
-          "const": "geometry",
-          "description": "POP/SOP light geometry card (counts + attribute schema).",
-          "type": "string"
         }
       ]
     },

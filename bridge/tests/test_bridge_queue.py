@@ -513,45 +513,6 @@ class MainThreadWaitTimeoutTest(QueuedServeTest):
         self.assertEqual(pong["id"], 91)
         self.assertEqual(pong["result"], {"ok": True, "pong": True})
 
-    def test_encode_failure_keeps_stream(self) -> None:
-        """Non-JSON response rewrite must not exit serve_queued."""
-        import tdmcp_bridge.task_queue as tq
-
-        real_dispatch = tq._dispatch
-
-        def bad_dispatch(msg: dict) -> dict:
-            if msg.get("method") == "execute_python":
-                return {
-                    "type": "response",
-                    "id": msg.get("id"),
-                    "result": {"ok": True, "result": {"f": abs}},
-                }
-            return real_dispatch(msg)
-
-        tq._dispatch = bad_dispatch  # type: ignore[method-assign]
-        self.addCleanup(lambda: setattr(tq, "_dispatch", real_dispatch))
-
-        worker = threading.Thread(
-            target=tdmcp_bridge.serve_queued,
-            args=(self.bridge_stream,),
-            kwargs={"idle_dead_s": 5.0, "max_call_wait_s": 2.0},
-            daemon=True,
-        )
-        worker.start()
-        self._send_request(92, "execute_python", {"script": "result = 1"})
-        self._wait_pending(1)
-        drained = tdmcp_bridge.process_pending()
-        self.assertEqual(drained, 1)
-        resp = self._recv_response()
-        self.assertEqual(resp["id"], 92)
-        self.assertIn("error", resp)
-        self.assertEqual(resp["error"]["code"], "tdmcp.bridge.response_encode_failed")
-
-        self._send_request(93, "ping")
-        pong = self._recv_response()
-        self.assertEqual(pong["id"], 93)
-        self.assertEqual(pong["result"], {"ok": True, "pong": True})
-
 
 class WriteFrameTest(unittest.TestCase):
     """_write_frame must require a full write (guards Windows partial WriteFile)."""

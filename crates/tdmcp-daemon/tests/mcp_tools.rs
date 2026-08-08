@@ -2,7 +2,6 @@
 
 #![allow(clippy::unwrap_used, reason = "test setup/assertions may panic")]
 #![allow(clippy::expect_used, reason = "test setup/assertions may panic")]
-#![allow(clippy::panic, reason = "test setup/assertions may panic")]
 
 use std::sync::Arc;
 

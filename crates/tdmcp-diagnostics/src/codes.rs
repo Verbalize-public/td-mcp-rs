@@ -89,10 +89,6 @@ pub const SCRIPT_NONE_OP: &str = "tdmcp.script.none_op";
 pub const SCRIPT_TOO_LARGE: &str = "tdmcp.script.too_large";
 /// execute_python result JSON UTF-8 size exceeds bridge cap.
 pub const SCRIPT_RESULT_TOO_LARGE: &str = "tdmcp.script.result_too_large";
-/// execute_python result could not be made JSON-safe for the wire.
-pub const SCRIPT_RESULT_NOT_SERIALIZABLE: &str = "tdmcp.script.result_not_serializable";
-/// Bridge response encode failed; session should remain up.
-pub const BRIDGE_RESPONSE_ENCODE_FAILED: &str = "tdmcp.bridge.response_encode_failed";
 
 /// GLSL compile / cook error from TD.
 pub const TD_GLSL_COMPILE: &str = "tdmcp.td.glsl_compile";
@@ -109,10 +105,6 @@ pub const PERCEPTION_WRONG_FAMILY: &str = "tdmcp.perception.wrong_family";
 pub const PERCEPTION_EMPTY_CHOP: &str = "tdmcp.perception.empty_chop";
 /// CHOP capture capped (soft; payload `truncation` block).
 pub const PERCEPTION_CHOP_TRUNCATED: &str = "tdmcp.perception.chop_truncated";
-/// POP has no points or readable point attributes.
-pub const PERCEPTION_EMPTY_POP: &str = "tdmcp.perception.empty_pop";
-/// POP capture capped (soft; payload `truncation` block).
-pub const PERCEPTION_POP_TRUNCATED: &str = "tdmcp.perception.pop_truncated";
 /// Shared OP Viewer / legacy converter capture path failed.
 pub const PERCEPTION_CONVERTER_FAILED: &str = "tdmcp.perception.converter_failed";
 
@@ -124,7 +116,6 @@ pub const ALL: &[&str] = &[
     MCP_SESSION_BUSY,
     BRIDGE_TIMEOUT,
     BRIDGE_VERSION,
-    BRIDGE_RESPONSE_ENCODE_FAILED,
     DAEMON_UNREACHABLE,
     OP_NOT_FOUND,
     OP_SIMILAR_NAME,
@@ -158,7 +149,6 @@ pub const ALL: &[&str] = &[
     SCRIPT_NONE_OP,
     SCRIPT_TOO_LARGE,
     SCRIPT_RESULT_TOO_LARGE,
-    SCRIPT_RESULT_NOT_SERIALIZABLE,
     TD_GLSL_COMPILE,
     PERCEPTION_BLACK_FRAME,
     PERCEPTION_UNIFORM_FRAME,
@@ -166,8 +156,6 @@ pub const ALL: &[&str] = &[
     PERCEPTION_WRONG_FAMILY,
     PERCEPTION_EMPTY_CHOP,
     PERCEPTION_CHOP_TRUNCATED,
-    PERCEPTION_EMPTY_POP,
-    PERCEPTION_POP_TRUNCATED,
     PERCEPTION_CONVERTER_FAILED,
 ];
 

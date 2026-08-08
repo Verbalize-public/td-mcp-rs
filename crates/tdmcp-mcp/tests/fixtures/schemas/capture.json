@@ -24,11 +24,6 @@
           "type": "string"
         },
         {
-          "const": "pop_data",
-          "description": "POP → capped columnar attribute samples (no image).",
-          "type": "string"
-        },
-        {
           "const": "chop_image",
           "description": "Alias of `preview` (shared OP Viewer); kept for existing callers.",
           "type": "string"
@@ -69,17 +64,6 @@
   "additionalProperties": false,
   "description": "Args for capture (perception).",
   "properties": {
-    "attrs": {
-      "default": null,
-      "description": "Point attribute names for `pop_data` (default `P` when present).",
-      "items": {
-        "type": "string"
-      },
-      "type": [
-        "array",
-        "null"
-      ]
-    },
     "contextPath": {
       "anyOf": [
         {

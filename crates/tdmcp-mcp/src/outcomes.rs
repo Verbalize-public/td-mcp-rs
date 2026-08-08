@@ -142,9 +142,6 @@ pub fn map_script_outcome(
                 let code = match env.code.as_deref() {
                     Some(codes::SCRIPT_TOO_LARGE) => codes::SCRIPT_TOO_LARGE,
                     Some(codes::SCRIPT_RESULT_TOO_LARGE) => codes::SCRIPT_RESULT_TOO_LARGE,
-                    Some(codes::SCRIPT_RESULT_NOT_SERIALIZABLE) => {
-                        codes::SCRIPT_RESULT_NOT_SERIALIZABLE
-                    }
                     Some(codes::SCRIPT_EXECUTION_FAILED) => codes::SCRIPT_EXECUTION_FAILED,
                     _ => codes::SCRIPT_EXECUTION_FAILED,
                 };
@@ -288,8 +285,6 @@ pub fn map_perception_outcome(
                     Some(codes::PERCEPTION_WRONG_FAMILY) => codes::PERCEPTION_WRONG_FAMILY,
                     Some(codes::PERCEPTION_EMPTY_CHOP) => codes::PERCEPTION_EMPTY_CHOP,
                     Some(codes::PERCEPTION_CHOP_TRUNCATED) => codes::PERCEPTION_CHOP_TRUNCATED,
-                    Some(codes::PERCEPTION_EMPTY_POP) => codes::PERCEPTION_EMPTY_POP,
-                    Some(codes::PERCEPTION_POP_TRUNCATED) => codes::PERCEPTION_POP_TRUNCATED,
                     Some(codes::PERCEPTION_CONVERTER_FAILED) => codes::PERCEPTION_CONVERTER_FAILED,
                     Some(codes::OP_NOT_FOUND) => codes::OP_NOT_FOUND,
                     _ => codes::PERCEPTION_NO_PATH,
@@ -1249,65 +1244,6 @@ mod tests {
                 assert_eq!(
                     payload.diagnostics.items[0].code,
                     codes::PERCEPTION_EMPTY_CHOP
-                );
-                assert!(payload.image_base64.is_none());
-            }
-            other => panic!("unexpected error: {other}"),
-        }
-    }
-
-    #[test]
-    fn perception_pop_data_success_passes_through_without_image() {
-        let catalog = Catalog::fallback();
-        let value = json!({
-            "ok": true,
-            "path": "/project1/zone/sphere1",
-            "mode": "pop_data",
-            "family": "POP",
-            "numPoints": 4,
-            "numPrims": 0,
-            "numPointsReturned": 4,
-            "attributes": [{"name": "P", "domain": "point", "size": 3}],
-            "data": {"P": [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]}
-        });
-        let out = map_perception_outcome(
-            &catalog,
-            Pid::new(1),
-            OpPath::new("/project1/zone/sphere1"),
-            None,
-            BridgeOutcome::Ok(value.clone()),
-            DiagnosticLevel::Summary,
-        )
-        .expect("pop_data success should pass through");
-        assert_eq!(out, value);
-        assert!(out.get("imageBase64").is_none());
-        assert_eq!(out["mode"], "pop_data");
-    }
-
-    #[test]
-    fn perception_empty_pop_fails_without_image() {
-        let catalog = Catalog::fallback();
-        let err = map_perception_outcome(
-            &catalog,
-            Pid::new(1),
-            OpPath::new("/project1/zone/empty"),
-            None,
-            BridgeOutcome::Ok(json!({
-                "ok": false,
-                "code": "tdmcp.perception.empty_pop",
-                "message": "POP has no points (numPoints=0)",
-                "path": "/project1/zone/empty",
-                "mode": "pop_data",
-                "family": "POP"
-            })),
-            DiagnosticLevel::Summary,
-        )
-        .expect_err("expected empty_pop failure");
-        match err {
-            ToolCallError::Failed(payload) => {
-                assert_eq!(
-                    payload.diagnostics.items[0].code,
-                    codes::PERCEPTION_EMPTY_POP
                 );
                 assert!(payload.image_base64.is_none());
             }

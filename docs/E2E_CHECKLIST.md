@@ -55,8 +55,6 @@ See [`DEV_ENV.md`](DEV_ENV.md) § Dev smoke. Does **not** replace rows 1–12 be
 | 14 | `capture` mode `chop_data` on a TOP (e.g. `/project1/e2e_kit/probe`) → `tdmcp.perception.wrong_family` | ✅ |
 | 15 | `capture` mode `auto` on that CHOP → same chop_data success shape (`mode: chop_data`) | ✅ |
 | 16 | Empty CHOP (`numChans` or `numSamples` 0) → `tdmcp.perception.empty_chop` | ✅ |
-| 16b | `capture` mode `pop_data` on a non-empty POP → `ok`; `numPointsReturned` ≤ 256; columnar `data`; no `imageBase64` | ✅ (2026-08-08: spherePOP 252 pts) |
-| 16c | `capture` mode `pop_data` on a TOP → `tdmcp.perception.wrong_family` | ✅ (2026-08-08: COMP `/project1`) |
 | 17 | `capture` mode `chop_image` on non-empty CHOP → PNG via shared `capture_viewer` (alias of preview); no leftover `__tdmcp_tmp_chopimg__*` under parent | ✅ |
 | 18 | `capture` mode `pop` / `auto` on a POP or SOP → PNG via shared `capture_viewer` (may soft-fail `black_frame` / `uniform_frame`); no leftover `__tdmcp_tmp_pop__*` | ✅ |
 | 19 | `inspect` `paths:[a, b, missing]` → top-level `ok:true`; two ok entries + one `tdmcp.op.not_found` inline; no auto-recursion beyond direct-child roster | ✅ (2026-08-01) |

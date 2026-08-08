@@ -409,28 +409,6 @@ entries:
       - kind: doc
         id: execute_python
 
-  - code: tdmcp.script.result_not_serializable
-    layer: script
-    message: "execute_python result could not be encoded as JSON"
-    mitigation:
-      - "Return JSON-safe values only (primitives, lists, dicts, path strings)"
-      - "Do not put live OPs, unbound methods, or callables in result — call methods (e.g. numPoints()) or use inspect"
-      - "Prefer inspect / capture for structural and perception reads"
-    references:
-      - kind: doc
-        id: execute_python
-
-  - code: tdmcp.bridge.response_encode_failed
-    layer: fleet
-    message: "bridge response payload failed JSON encode; session kept"
-    mitigation:
-      - "Retry with a smaller or JSON-safe payload"
-      - "If this follows execute_python, return primitives/paths only"
-      - "Re-fleet; bridge should still be connected"
-    references:
-      - kind: doc
-        id: execute_python
-
   - code: tdmcp.td.glsl_compile
     layer: structure
     message: "GLSL compile / cook error reported by TouchDesigner"
@@ -479,7 +457,7 @@ entries:
     layer: perception
     message: "Capture mode does not match the resolved operator family"
     mitigation:
-      - "Use mode chop_data on a CHOP, pop_data on a POP, top on a TOP, preview (or auto) for any other family"
+      - "Use mode chop_data on a CHOP, top on a TOP, preview (or auto) for any other family"
       - "Re-inspect the path family, then re-capture with the matching mode"
     references:
       - kind: doc
@@ -501,26 +479,6 @@ entries:
     mitigation:
       - "Narrow the CHOP window or channel count in TD before re-capture"
       - "Caps are fixed: 32 channels, 256 samples/channel, 4096 scalars"
-    references:
-      - kind: doc
-        id: capture
-
-  - code: tdmcp.perception.empty_pop
-    layer: perception
-    message: "POP has no points or readable point attributes to capture"
-    mitigation:
-      - "Cook a non-empty POP before capture"
-      - "Use inspect include geometry for schema/counts; re-capture mode: pop_data"
-    references:
-      - kind: doc
-        id: capture
-
-  - code: tdmcp.perception.pop_truncated
-    layer: perception
-    message: "POP capture capped (attributes, points, or total scalars)"
-    mitigation:
-      - "Request fewer attrs or rely on inspect geometry for schema-only"
-      - "Caps are fixed: 8 attrs, 256 points, 4096 scalars"
     references:
       - kind: doc
         id: capture
