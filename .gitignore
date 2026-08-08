@@ -9,3 +9,4 @@ __pycache__/
 _pack_bootstrap_tox/
 fixtures/dev/session/**
 !fixtures/dev/session/.gitkeep
+live-reports/

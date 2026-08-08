@@ -103,7 +103,7 @@ impl ToolName {
                 "Ordered create/set/delete/connect/disconnect steps; sequential apply, stop on first hard error; later steps skipped (tdmcp.batch.skipped_dependent). Fix from failedAt only."
             }
             Self::Capture => {
-                "Perception capture. top=native TOP JPEG; preview=any family via shared bridge OP Viewer TOP; chop_data=CHOP JSON; chop_image/pop=aliases of preview; auto=TOP→top, CHOP→chop_data, else preview."
+                "Perception capture. top=native TOP PNG; preview=any family via shared bridge OP Viewer TOP; chop_data=CHOP JSON; pop_data=POP capped attribute samples; chop_image/pop=aliases of preview; auto=TOP→top, CHOP→chop_data, else preview."
             }
             Self::ApiHelp => {
                 "Live TD Python API cards (not wiki dumps). Batch queries[] (soft-cap 32): class (doc/opType/family/mro/members), classes (op-like index + family/prefix), module (td thin). No help() / no param listing — use inspect include params for .par names. Case-sensitive class names."
@@ -318,6 +318,8 @@ pub enum CaptureMode {
     Auto,
     /// CHOP → capped JSON (no image).
     ChopData,
+    /// POP → capped columnar attribute samples (no image).
+    PopData,
     /// Alias of `preview` (shared OP Viewer); kept for existing callers.
     ChopImage,
     /// Alias of `preview` (shared OP Viewer); kept for existing callers.
@@ -333,6 +335,7 @@ impl CaptureMode {
             Self::Preview => "preview",
             Self::Auto => "auto",
             Self::ChopData => "chop_data",
+            Self::PopData => "pop_data",
             Self::ChopImage => "chop_image",
             Self::Pop => "pop",
         }
@@ -360,6 +363,9 @@ pub struct CaptureParams {
     /// Defaults to 256.
     #[serde(default = "default_capture_max_size")]
     pub max_size: Option<u32>,
+    /// Point attribute names for `pop_data` (default `P` when present).
+    #[serde(default)]
+    pub attrs: Option<Vec<String>>,
     /// Diagnostic payload size (`summary` omits raw traceback).
     #[serde(default)]
     pub diagnostic_level: DiagnosticLevel,
@@ -381,6 +387,8 @@ pub enum InspectInclude {
     Errors,
     /// TD warnings.
     Warnings,
+    /// POP/SOP light geometry card (counts + attribute schema).
+    Geometry,
 }
 
 /// Structural detail level.
@@ -693,6 +701,7 @@ pub async fn dispatch_tool(
                     "mode": params.mode.as_str(),
                     "contextPath": params.context_path,
                     "maxSize": params.max_size,
+                    "attrs": params.attrs,
                 }),
             )
             .await;
@@ -723,6 +732,7 @@ pub async fn dispatch_tool(
                     InspectInclude::Params => "params",
                     InspectInclude::Errors => "errors",
                     InspectInclude::Warnings => "warnings",
+                    InspectInclude::Geometry => "geometry",
                 })
                 .collect();
             // Soft-cap is enforced on the bridge; still forward the full list

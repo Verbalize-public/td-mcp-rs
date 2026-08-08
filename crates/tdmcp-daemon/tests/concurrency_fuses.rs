@@ -301,7 +301,7 @@ fn call_exec_timed(
                 "execute_python",
                 json!({"pid": pid, "script": script, "exclusive": exclusive}),
                 None,
-            )
+            ),
         )
         .await
     })
@@ -347,17 +347,13 @@ async fn easy_parallel_second_rejects_while_held() {
         assert!(is_queue_busy(&err), "expected queue_busy, got {err:?}");
 
         // fleet stays available (exempt from enqueue) while bridge is busy.
-        let fleet_ok = dispatch_tool(
-            &registry,
-            &catalog,
-            &sessions,
-            "fleet",
-            json!({}),
-            None,
-        )
-        .await
-        .expect("fleet must remain available");
-        assert!(fleet_ok.get("processes").is_some(), "fleet shape: {fleet_ok}");
+        let fleet_ok = dispatch_tool(&registry, &catalog, &sessions, "fleet", json!({}), None)
+            .await
+            .expect("fleet must remain available");
+        assert!(
+            fleet_ok.get("processes").is_some(),
+            "fleet shape: {fleet_ok}"
+        );
 
         release.notify_waiters();
         let v = first.await.unwrap().expect("first completes");
@@ -487,7 +483,10 @@ async fn med_parallel_storm_rejects_while_held() {
 
         for (i, h) in handles.into_iter().enumerate() {
             let err = h.await.unwrap().expect_err("storm must fail while held");
-            assert!(is_queue_busy(&err), "caller {i}: expected queue_busy, got {err:?}");
+            assert!(
+                is_queue_busy(&err),
+                "caller {i}: expected queue_busy, got {err:?}"
+            );
         }
 
         release.notify_waiters();

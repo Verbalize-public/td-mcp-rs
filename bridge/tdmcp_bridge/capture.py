@@ -9,6 +9,9 @@ from .constants import (
     CHOP_DATA_MAX_CHANNELS,
     CHOP_DATA_MAX_SAMPLES,
     CHOP_DATA_MAX_SCALARS,
+    POP_DATA_MAX_ATTRS,
+    POP_DATA_MAX_POINTS,
+    POP_DATA_MAX_SCALARS,
     _BLACK_MEAN_THRESHOLD,
     _UNIFORM_RANGE_THRESHOLD,
 )
@@ -177,6 +180,222 @@ def _capture_chop_data(node: Any, path: str) -> dict[str, Any]:
     return out
 
 
+def _pop_attr_vals(attr: Any) -> list[Any] | None:
+    """Call Attribute.vals() when present; return None on failure."""
+    vals = getattr(attr, "vals", None)
+    if vals is None:
+        return None
+    try:
+        raw = vals() if callable(vals) else vals
+    except Exception:  # noqa: BLE001
+        return None
+    try:
+        return list(raw)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _row_to_floats(row: Any, components: int) -> list[float]:
+    if components <= 1 and not hasattr(row, "__iter__"):
+        try:
+            return [float(row)]
+        except (TypeError, ValueError):
+            return [0.0]
+    out: list[float] = []
+    try:
+        seq = list(row)
+    except TypeError:
+        try:
+            return [float(row)]
+        except (TypeError, ValueError):
+            return [0.0]
+    for i in range(min(components, len(seq))):
+        try:
+            out.append(float(seq[i]))
+        except (TypeError, ValueError):
+            out.append(0.0)
+    while len(out) < components:
+        out.append(0.0)
+    return out
+
+
+def _capture_pop_data(
+    node: Any, path: str, attrs: list[str] | None = None
+) -> dict[str, Any]:
+    """POP → capped columnar attribute JSON (no image)."""
+    resolved = getattr(node, "path", None) or path
+    family = _op_family(node) or "POP"
+    if family != "POP":
+        return {
+            "ok": False,
+            "code": "tdmcp.perception.wrong_family",
+            "message": (
+                f"mode pop_data requires POP; resolved family is {family!r}"
+            ),
+            "path": resolved,
+            "mode": "pop_data",
+            "family": family,
+        }
+
+    def _count(name: str) -> int:
+        try:
+            attr = getattr(node, name, None)
+            if callable(attr) and not isinstance(attr, type):
+                return int(attr())
+            if attr is None:
+                return 0
+            return int(attr)
+        except Exception:  # noqa: BLE001
+            return 0
+
+    num_points = _count("numPoints")
+    num_prims = _count("numPrims")
+    if num_points <= 0:
+        return {
+            "ok": False,
+            "code": "tdmcp.perception.empty_pop",
+            "message": f"POP has no points (numPoints={num_points})",
+            "path": resolved,
+            "mode": "pop_data",
+            "family": "POP",
+            "numPoints": num_points,
+            "numPrims": num_prims,
+        }
+
+    try:
+        point_attrs = getattr(node, "pointAttributes", None)
+    except Exception:  # noqa: BLE001
+        point_attrs = None
+    available: list[str] = []
+    if point_attrs is not None:
+        try:
+            for item in point_attrs:
+                name = getattr(item, "name", None)
+                if name is not None:
+                    available.append(str(name))
+        except Exception:  # noqa: BLE001
+            pass
+
+    requested = list(attrs) if attrs else []
+    if not requested:
+        requested = ["P"] if "P" in available else available[:1]
+    # Preserve order, drop unknowns / dupes
+    selected: list[str] = []
+    for name in requested:
+        if name in available and name not in selected:
+            selected.append(name)
+    if not selected:
+        return {
+            "ok": False,
+            "code": "tdmcp.perception.empty_pop",
+            "message": (
+                "no requested point attributes found on POP "
+                f"(requested={requested!r}, available={available!r})"
+            ),
+            "path": resolved,
+            "mode": "pop_data",
+            "family": "POP",
+            "numPoints": num_points,
+            "numPrims": num_prims,
+        }
+
+    truncated_field: str | None = None
+    truncated_limit = 0
+    if len(selected) > POP_DATA_MAX_ATTRS:
+        selected = selected[:POP_DATA_MAX_ATTRS]
+        truncated_field = "attributes"
+        truncated_limit = POP_DATA_MAX_ATTRS
+
+    points_limit = min(num_points, POP_DATA_MAX_POINTS)
+    attributes_meta: list[dict[str, Any]] = []
+    data: dict[str, list[list[float]]] = {}
+    scalars_used = 0
+
+    for name in selected:
+        if scalars_used >= POP_DATA_MAX_SCALARS:
+            truncated_field = "scalars"
+            truncated_limit = POP_DATA_MAX_SCALARS
+            break
+        try:
+            attr = point_attrs[name]
+        except Exception:  # noqa: BLE001
+            continue
+        try:
+            components = int(getattr(attr, "size", 1) or 1)
+        except Exception:  # noqa: BLE001
+            components = 1
+        components = max(1, components)
+        vals = _pop_attr_vals(attr)
+        if vals is None:
+            continue
+        take = min(points_limit, len(vals), (POP_DATA_MAX_SCALARS - scalars_used) // components)
+        if take <= 0:
+            truncated_field = "scalars"
+            truncated_limit = POP_DATA_MAX_SCALARS
+            break
+        col: list[list[float]] = []
+        for i in range(take):
+            col.append(_row_to_floats(vals[i], components))
+        scalars_used += take * components
+        meta: dict[str, Any] = {
+            "name": name,
+            "domain": "point",
+            "size": components,
+        }
+        typ = getattr(attr, "type", None)
+        if typ is not None:
+            try:
+                meta["type"] = typ.__name__
+            except AttributeError:
+                meta["type"] = str(typ)
+        attributes_meta.append(meta)
+        data[name] = col
+        if take < num_points:
+            truncated_field = "points"
+            truncated_limit = POP_DATA_MAX_POINTS
+
+    if not data:
+        return {
+            "ok": False,
+            "code": "tdmcp.perception.empty_pop",
+            "message": "failed to read any point attribute values",
+            "path": resolved,
+            "mode": "pop_data",
+            "family": "POP",
+            "numPoints": num_points,
+            "numPrims": num_prims,
+        }
+
+    num_returned = min(len(v) for v in data.values()) if data else 0
+    out: dict[str, Any] = {
+        "ok": True,
+        "path": resolved,
+        "mode": "pop_data",
+        "family": "POP",
+        "numPoints": num_points,
+        "numPrims": num_prims,
+        "numPointsReturned": num_returned,
+        "attributes": attributes_meta,
+        "data": data,
+    }
+    if truncated_field is not None:
+        out["truncation"] = {
+            "field": truncated_field,
+            "limit": truncated_limit,
+            "code": "tdmcp.perception.pop_truncated",
+            "message": (
+                f"POP capture capped at {truncated_field} "
+                f"(limit={truncated_limit}; numPoints={num_points})"
+            ),
+            "mitigation": [
+                "Request fewer attrs or rely on inspect geometry for schema-only",
+                f"Caps: {POP_DATA_MAX_ATTRS} attrs, {POP_DATA_MAX_POINTS} points, "
+                f"{POP_DATA_MAX_SCALARS} scalars",
+            ],
+        }
+    return out
+
+
 def _capture_top_image(
     td_mod: Any, target: Any, path: str, max_size: Any
 ) -> dict[str, Any]:
@@ -336,10 +555,12 @@ def _capture_via_shared_viewer(
 
 
 def handle_capture(params: dict[str, Any]) -> dict[str, Any]:
-    """Perception capture: top / preview / auto / chop_data / chop_image / pop.
+    """Perception capture: top / preview / auto / chop_data / pop_data / chop_image / pop.
 
     Image modes return ``imageBase64`` (PNG) for MCP image promotion.
-    ``chop_data`` returns capped channel JSON (no image). Optional ``maxSize``
+    ``chop_data`` returns capped channel JSON (no image). ``pop_data`` returns
+    capped columnar POP attribute samples (no image; optional ``attrs``).
+    Optional ``maxSize``
     (default 256) applies to image paths only via a temp ``resolutionTOP`` that
     is always destroyed. ``preview`` (and aliases ``chop_image`` / ``pop``)
     retarget the bridge's shared ``capture_viewer`` OP Viewer TOP — any family.
@@ -357,6 +578,13 @@ def handle_capture(params: dict[str, Any]) -> dict[str, Any]:
 
     if effective == "chop_data":
         return _capture_chop_data(node, path)
+
+    if effective == "pop_data":
+        raw_attrs = params.get("attrs")
+        attrs_list: list[str] | None = None
+        if isinstance(raw_attrs, list):
+            attrs_list = [str(a) for a in raw_attrs]
+        return _capture_pop_data(node, path, attrs_list)
 
     import td  # type: ignore  # PNG / shared-viewer paths need the TD module
 

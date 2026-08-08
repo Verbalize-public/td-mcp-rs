@@ -235,9 +235,7 @@ mod tests {
         assert!(reg.has_bridge_call("sess-1", 10));
         assert!(reg.try_begin_bridge_call("sess-1", 10).is_none());
         // Different pid on same session is allowed.
-        let b = reg
-            .try_begin_bridge_call("sess-1", 11)
-            .expect("other pid");
+        let b = reg.try_begin_bridge_call("sess-1", 11).expect("other pid");
         // Different session on same pid is allowed (pid exclusive is separate).
         let c = reg
             .try_begin_bridge_call("sess-2", 10)

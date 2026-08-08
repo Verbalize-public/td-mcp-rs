@@ -108,7 +108,7 @@ embedded assets), `install` (extract assets **and** reset config to defaults;
 | `execute_python` | Run Python in TD (`result = …`) |
 | `inspect` | Structural read for explicit `paths[]` (nodes / params / errors / warnings; empty include defaults to nodes+errors+warnings) |
 | `editor_context` | Live panes + per-pane owner / selection (`focused`, `ownerPath`, `selection`) |
-| `capture` | Perception (`top` / `preview` / `auto` / `chop_data`; `chop_image`/`pop` = preview aliases) |
+| `capture` | Perception (`top` / `preview` / `auto` / `chop_data` / `pop_data`; `chop_image`/`pop` = preview aliases) |
 | `describe_tools` | Tool manifest |
 
 Process-scoped tools require `pid`. `inspect` takes a required non-empty

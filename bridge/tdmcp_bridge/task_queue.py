@@ -365,8 +365,34 @@ def serve_queued(
                             "code": "tdmcp.bridge.main_thread_timeout",
                         },
                     }
-                _write_frame(stream, resp)
-            except Exception:  # noqa: BLE001 — never kill the daemon thread silently
+                try:
+                    _write_frame(stream, resp)
+                except (TypeError, ValueError, OverflowError) as exc:
+                    # Non-JSON response must not tear down IPC (encode-induced disconnect).
+                    req_id = msg.get("id")
+                    err_resp = {
+                        "type": "response",
+                        "id": req_id,
+                        "error": {
+                            "message": (
+                                "response payload is not JSON-serializable; "
+                                f"{exc}"
+                            ),
+                            "code": "tdmcp.bridge.response_encode_failed",
+                        },
+                    }
+                    try:
+                        _write_frame(stream, err_resp)
+                    except Exception:  # noqa: BLE001 — real write failure
+                        sys.stderr.write(
+                            "tdmcp_bridge: serve_queued stopping after encode-error rewrite failed\n"
+                        )
+                        traceback.print_exc(file=sys.stderr)
+                        break
+            except OSError:
+                # Broken pipe / short write — peer gone.
+                break
+            except Exception:  # noqa: BLE001 — unexpected; keep prior teardown behavior
                 sys.stderr.write(
                     "tdmcp_bridge: serve_queued stopping after dispatch/write error\n"
                 )

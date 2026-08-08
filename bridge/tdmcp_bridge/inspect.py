@@ -145,6 +145,123 @@ def _inspect_param_entry(p: Any) -> dict[str, Any]:
     return entry
 
 
+def _geometry_count(n: Any, name: str) -> int | None:
+    """Read POP method or SOP int property; never returns a callable."""
+    try:
+        attr = getattr(n, name, None)
+    except Exception:  # noqa: BLE001
+        return None
+    if attr is None:
+        return None
+    try:
+        if callable(attr) and not isinstance(attr, type):
+            val = attr()
+        else:
+            val = attr
+        return int(val)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _attribute_entries(attrs_obj: Any) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    if attrs_obj is None:
+        return out
+    try:
+        seq = attrs_obj() if callable(attrs_obj) and not isinstance(attrs_obj, type) else attrs_obj
+    except Exception:  # noqa: BLE001
+        return out
+    try:
+        iterator = iter(seq)
+    except TypeError:
+        return out
+    for item in iterator:
+        try:
+            entry: dict[str, Any] = {"name": getattr(item, "name", None)}
+            size = getattr(item, "size", None)
+            if size is not None:
+                try:
+                    entry["size"] = int(size)
+                except Exception:  # noqa: BLE001
+                    entry["size"] = size
+            typ = getattr(item, "type", None)
+            if typ is not None:
+                if isinstance(typ, type):
+                    entry["type"] = typ.__name__
+                else:
+                    entry["type"] = str(typ)
+            out.append(entry)
+        except Exception:  # noqa: BLE001
+            continue
+    return out
+
+
+def _build_geometry(n: Any) -> dict[str, Any] | None:
+    """Light POP/SOP geometry card; omit for other families."""
+    family = str(getattr(n, "family", "") or "")
+    if family not in ("POP", "SOP"):
+        return None
+    geo: dict[str, Any] = {}
+    for key in ("numPoints", "numPrims"):
+        count = _geometry_count(n, key)
+        if count is not None:
+            geo[key] = count
+    attributes: list[dict[str, Any]] = []
+    if family == "POP":
+        for bag in ("pointAttributes", "primAttributes", "vertAttributes"):
+            try:
+                bag_obj = getattr(n, bag, None)
+            except Exception:  # noqa: BLE001
+                bag_obj = None
+            entries = _attribute_entries(bag_obj)
+            for entry in entries:
+                entry = dict(entry)
+                entry["domain"] = {
+                    "pointAttributes": "point",
+                    "primAttributes": "prim",
+                    "vertAttributes": "vert",
+                }.get(bag, bag)
+                attributes.append(entry)
+    elif family == "SOP":
+        # SOP point/prim attrs when present (best-effort).
+        for bag, domain in (("pointAttribs", "point"), ("primAttribs", "prim")):
+            try:
+                bag_obj = getattr(n, bag, None)
+            except Exception:  # noqa: BLE001
+                bag_obj = None
+            for entry in _attribute_entries(bag_obj):
+                e = dict(entry)
+                e["domain"] = domain
+                attributes.append(e)
+    if attributes:
+        geo["attributes"] = attributes
+    # Optional bounds — call if present; keep only JSON-safe scalars/lists.
+    for bounds_name in ("bounds", "computeBounds"):
+        try:
+            fn = getattr(n, bounds_name, None)
+        except Exception:  # noqa: BLE001
+            continue
+        if not callable(fn):
+            continue
+        try:
+            b = fn()
+        except Exception:  # noqa: BLE001
+            continue
+        if b is None:
+            continue
+        # Common TD patterns: object with min/max or tuple of floats
+        try:
+            from .json_safe import json_safe
+
+            safe = json_safe(b)
+            if isinstance(safe, (dict, list)) or isinstance(safe, (int, float, str)):
+                geo["bounds"] = safe
+                break
+        except Exception:  # noqa: BLE001
+            pass
+    return geo if geo else {"family": family}
+
+
 def build_inspect_node(
     n: Any,
     *,
@@ -153,6 +270,7 @@ def build_inspect_node(
     want_params: bool = False,
     want_errors: bool = False,
     want_warnings: bool = False,
+    want_geometry: bool = False,
 ) -> dict[str, Any]:
     """Shape one inspect node payload (pure enough for unit tests without TD)."""
     children: list[dict[str, Any]] = []
@@ -213,6 +331,13 @@ def build_inspect_node(
             if issues:
                 out["parmExprIssues"] = issues
                 out["diagnostics"] = _enable_expr_diagnostics(issues)
+    if want_geometry:
+        try:
+            geo = _build_geometry(n)
+        except Exception:  # noqa: BLE001 — geometry must never fail inspect
+            geo = None
+        if geo is not None:
+            out["geometry"] = geo
     return out
 
 
@@ -243,11 +368,13 @@ def handle_inspect(params: dict[str, Any]) -> dict[str, Any]:
     if not include:
         want_nodes = want_errors = want_warnings = True
         want_params = False
+        want_geometry = False
     else:
         want_nodes = "nodes" in include
         want_params = "params" in include
         want_errors = "errors" in include
         want_warnings = "warnings" in include
+        want_geometry = "geometry" in include
 
     path_list = [str(p) for p in raw_paths]
     truncated = False
@@ -274,6 +401,7 @@ def handle_inspect(params: dict[str, Any]) -> dict[str, Any]:
                 want_params=want_params,
                 want_errors=want_errors,
                 want_warnings=want_warnings,
+                want_geometry=want_geometry,
             )
             shaped["ok"] = True
             nodes_out.append(shaped)

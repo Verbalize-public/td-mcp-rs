@@ -2,6 +2,7 @@
 
 #![allow(clippy::unwrap_used, reason = "test setup/assertions may panic")]
 #![allow(clippy::expect_used, reason = "test setup/assertions may panic")]
+#![allow(clippy::panic, reason = "test setup/assertions may panic")]
 
 use std::sync::Arc;
 
@@ -141,8 +142,7 @@ async fn exclusive_fails_while_shared_in_flight() {
         .uri("/mcp/tools/call")
         .header("content-type", "application/json")
         .body(Body::from(
-            json!({"name":"execute_python","arguments":{"pid":34,"script":"result=2"}})
-                .to_string(),
+            json!({"name":"execute_python","arguments":{"pid":34,"script":"result=2"}}).to_string(),
         ))
         .unwrap();
     let resp2 = app.oneshot(req2).await.unwrap();
@@ -730,8 +730,8 @@ async fn mutate_nodes_malformed_lints_keep_hard_error() {
 #[tokio::test]
 async fn transport_not_connected_clears_queue_for_exclusive() {
     use tdmcp_core::TaskMode;
-    use tdmcp_mcp::testing::{BridgeRpcFailure, FakeBridgeRpc};
     use tdmcp_mcp::dispatch_tool;
+    use tdmcp_mcp::testing::{BridgeRpcFailure, FakeBridgeRpc};
     use tokio::sync::Mutex;
 
     let registry = Arc::new(Mutex::new(registry_with_pid()));
@@ -744,8 +744,8 @@ async fn transport_not_connected_clears_queue_for_exclusive() {
         &bridge,
         "execute_python",
         json!({"pid": 34, "script": "result=1"}),
-            None,
-        )
+        None,
+    )
     .await
     .expect_err("NotConnected must fail the tool call");
     match err {

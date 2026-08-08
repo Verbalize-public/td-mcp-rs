@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import io
-import json
 import sys
 import traceback
 from typing import Any
@@ -15,6 +14,7 @@ from .constants import (
     _LOGS_RETURN_MAX,
     _TRUNC_MARK,
 )
+from .json_safe import json_safe, json_utf8_size
 from .paths import resolve_op, tdmcp_resolve
 
 def _truncate_logs(text: str, limit: int = _LOGS_RETURN_MAX) -> str:
@@ -109,11 +109,6 @@ def _append_debug_dat(logs: str) -> None:
             pass
 
 
-def _json_utf8_size(value: Any) -> int:
-    """UTF-8 byte length of ``value`` as JSON (compact separators)."""
-    return len(json.dumps(value, separators=(",", ":"), default=str).encode("utf-8"))
-
-
 def handle_execute_python(params: dict[str, Any]) -> dict[str, Any]:
     from .exception_report import build_exception_report
 
@@ -195,26 +190,40 @@ def handle_execute_python(params: dict[str, Any]) -> dict[str, Any]:
     try:
         try:
             exec(script, local_vars, local_vars)  # noqa: S102 — intentional TD script surface
-            result_value = local_vars.get("result")
-            result_bytes = _json_utf8_size(result_value)
-            if result_bytes > RESULT_MAX_BYTES:
-                out: dict[str, Any] = {
+            raw_result = local_vars.get("result")
+            try:
+                result_value = json_safe(raw_result)
+                # Prove the same tree the wire will encode (no default=).
+                result_bytes = json_utf8_size(result_value)
+            except (TypeError, ValueError, OverflowError) as exc:
+                out = {
                     "ok": False,
-                    "error": (
-                        f"result JSON exceeds {RESULT_MAX_BYTES} bytes "
-                        f"(got {result_bytes}); return a smaller result"
-                    ),
-                    "code": "tdmcp.script.result_too_large",
+                    "error": f"result is not JSON-serializable: {exc}",
+                    "code": "tdmcp.script.result_not_serializable",
                     "message": (
-                        f"result JSON exceeds {RESULT_MAX_BYTES} bytes "
-                        f"(got {result_bytes}); return a smaller result"
+                        "execute_python result could not be made JSON-safe; "
+                        "return primitives / paths / summaries (not callables or live OPs)"
                     ),
                 }
             else:
-                out = {
-                    "result": result_value,
-                    "ok": True,
-                }
+                if result_bytes > RESULT_MAX_BYTES:
+                    out = {
+                        "ok": False,
+                        "error": (
+                            f"result JSON exceeds {RESULT_MAX_BYTES} bytes "
+                            f"(got {result_bytes}); return a smaller result"
+                        ),
+                        "code": "tdmcp.script.result_too_large",
+                        "message": (
+                            f"result JSON exceeds {RESULT_MAX_BYTES} bytes "
+                            f"(got {result_bytes}); return a smaller result"
+                        ),
+                    }
+                else:
+                    out = {
+                        "result": result_value,
+                        "ok": True,
+                    }
         except Exception as exc:  # noqa: BLE001 — surface to diagnostics
             raw_tb = traceback.format_exc()
             out = {
