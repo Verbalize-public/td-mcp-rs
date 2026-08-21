@@ -9,7 +9,9 @@ use crate::config::Config;
 pub fn init(_cfg: &Config) -> Result<()> {
     let filter = EnvFilter::try_from_default_env()
         .or_else(|_| {
-            EnvFilter::try_new("tdmcp_daemon=info,tdmcp_core=info,tdmcp_mcp=info,tdmcp_ipc=info")
+            EnvFilter::try_new(
+                "tdmcp_daemon=info,tdmcp_gui=info,tdmcp_core=info,tdmcp_mcp=info,tdmcp_ipc=info",
+            )
         })
         .unwrap_or_else(|_| EnvFilter::new("info"));
 

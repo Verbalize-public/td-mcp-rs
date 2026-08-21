@@ -8,7 +8,7 @@ use std::time::Duration;
 use thiserror::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::time::timeout;
-use tracing::{debug, info};
+use tracing::info;
 
 use crate::framing::{self, FrameError, Message, MAX_FRAME};
 use crate::handshake::{HandshakeOffer, HandshakeRequest, HandshakeResponse};
@@ -174,9 +174,7 @@ impl IpcListener {
         }
         #[cfg(unix)]
         {
-            let BridgeEndpoint::UnixSocket(path) = &endpoint else {
-                return Err(IpcError::Handshake("expected unix socket endpoint".into()));
-            };
+            let BridgeEndpoint::UnixSocket(path) = &endpoint;
             if path.exists() {
                 let _ = std::fs::remove_file(path);
             }

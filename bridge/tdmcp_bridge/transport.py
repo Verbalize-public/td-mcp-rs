@@ -95,9 +95,20 @@ def default_endpoint() -> str:
         return r"\\.\pipe\tdmcp-rs"
     import os
 
-    data_dir = os.environ.get("TDMCP_DATA_DIR") or os.path.join(
-        os.path.expanduser("~"), ".local", "share", "tdmcp-rs"
-    )
+    env = os.environ.get("TDMCP_DATA_DIR")
+    if env:
+        data_dir = env
+    elif sys.platform == "darwin":
+        # Match daemon `dirs::data_local_dir()` → ~/Library/Application Support.
+        data_dir = os.path.join(
+            os.path.expanduser("~"), "Library", "Application Support", "tdmcp-rs"
+        )
+    else:
+        data_dir = os.path.join(
+            os.environ.get("XDG_DATA_HOME")
+            or os.path.join(os.path.expanduser("~"), ".local", "share"),
+            "tdmcp-rs",
+        )
     return os.path.join(data_dir, "bridge.sock")
 
 

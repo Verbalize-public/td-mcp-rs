@@ -159,14 +159,24 @@ fn resolve_exe(override_exe: Option<&PathBuf>) -> Result<PathBuf> {
     std::env::current_exe().context("resolve current_exe for ensure spawn")
 }
 
-/// Null stdio + Windows detach flags so the child does not flash a console.
+/// Detach the child so the console does not flash (Windows) and stdin is closed.
 ///
 /// `CREATE_NO_WINDOW` only when headless — it suppresses the notification-area
 /// tray icon. GUI restarts must use `DETACHED_PROCESS` alone.
+///
+/// On Unix, append stdout/stderr to `{data_dir}/daemon.log` when `data_dir` is
+/// provided so Cursor-spawned daemons leave a trail; otherwise null both.
 pub fn configure_detached_spawn(cmd: &mut Command, no_gui: bool) {
-    cmd.stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
+    configure_detached_spawn_with_log(cmd, no_gui, None);
+}
+
+/// Like [`configure_detached_spawn`], optionally appending logs under `data_dir`.
+pub fn configure_detached_spawn_with_log(
+    cmd: &mut Command,
+    no_gui: bool,
+    data_dir: Option<&Path>,
+) {
+    cmd.stdin(Stdio::null());
 
     #[cfg(windows)]
     {
@@ -179,7 +189,41 @@ pub fn configure_detached_spawn(cmd: &mut Command, no_gui: bool) {
             DETACHED_PROCESS
         };
         cmd.creation_flags(flags);
+        cmd.stdout(Stdio::null()).stderr(Stdio::null());
+        let _ = data_dir;
     }
+    #[cfg(not(windows))]
+    {
+        let _ = no_gui;
+        // New process group so the child is not tied to the Cursor/`mcp`
+        // session and survives parent exit without SIGHUP surprises.
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+        if let Some(dir) = data_dir {
+            if let Err(e) = attach_unix_daemon_log(cmd, dir) {
+                warn!(error = %e, "ensure: could not attach daemon.log");
+                cmd.stdout(Stdio::null()).stderr(Stdio::null());
+            }
+        } else {
+            cmd.stdout(Stdio::null()).stderr(Stdio::null());
+        }
+    }
+}
+
+#[cfg(unix)]
+fn attach_unix_daemon_log(cmd: &mut Command, data_dir: &Path) -> std::io::Result<()> {
+    fs::create_dir_all(data_dir)?;
+    let log_path = data_dir.join("daemon.log");
+    let file = OpenOptions::new().create(true).append(true).open(&log_path)?;
+    match file.try_clone() {
+        Ok(err_file) => {
+            cmd.stdout(Stdio::from(file)).stderr(Stdio::from(err_file));
+        }
+        Err(_) => {
+            cmd.stdout(Stdio::from(file)).stderr(Stdio::null());
+        }
+    }
+    Ok(())
 }
 
 fn spawn_detached(
@@ -221,12 +265,26 @@ fn spawn_detached(
     if let Some(cfg) = config_path {
         cmd.env(tdmcp_config::CONFIG_PATH_ENV, cfg);
     }
-    configure_detached_spawn(&mut cmd, no_gui);
-    let child = cmd
+    configure_detached_spawn_with_log(&mut cmd, no_gui, Some(data_dir));
+    let mut child = cmd
         .spawn()
         .with_context(|| format!("spawn detached {} start --port {port}", exe.display()))?;
-    info!(child_pid = child.id(), "ensure: detached daemon spawned");
-    // Intentionally leak/drop without wait — child must outlive this process.
+    let child_pid = child.id();
+    info!(child_pid, "ensure: detached daemon spawned");
+    // Reap on a side thread. Dropping `Child` without `wait` leaves a zombie
+    // under the long-lived `mcp` parent; on macOS/BSD `kill -0` still sees
+    // zombies, so a crashed GUI child would pin a stale `daemon.lock`.
+    // The child itself must outlive this ensure call — only wait for exit.
+    std::thread::Builder::new()
+        .name("tdmcp-ensure-reap".into())
+        .spawn(move || match child.wait() {
+            Ok(status) if !status.success() => {
+                warn!(?status, child_pid, "detached daemon exited non-zero");
+            }
+            Ok(_) => {}
+            Err(e) => warn!(error = %e, child_pid, "failed to reap detached daemon"),
+        })
+        .context("spawn ensure reap thread")?;
     Ok(())
 }
 
@@ -335,8 +393,24 @@ pub fn pid_alive(pid: u32) -> bool {
             Err(_) => true, // unknown → don't reclaim
         }
     }
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     {
         Path::new(&format!("/proc/{pid}")).exists()
+    }
+    #[cfg(all(unix, not(target_os = "linux")))]
+    {
+        // macOS/BSD have no /proc by default. `kill -0` is the portable
+        // existence probe without `unsafe` (workspace forbids unsafe_code).
+        // Exit 0 → alive (or zombie still in the table); non-zero → gone.
+        // Unknown command failure → assume alive so we do not reclaim a live lock.
+        match Command::new("kill")
+            .args(["-0", &pid.to_string()])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+        {
+            Ok(status) => status.success(),
+            Err(_) => true,
+        }
     }
 }

@@ -16,7 +16,7 @@ use anyhow::Result;
 use eframe::egui;
 use serde::Deserialize;
 use tdmcp_config::{self as cfgfile, ConfigFile, FIELD_DESCS};
-use tracing::warn;
+use tracing::{info, warn};
 use tray_icon::menu::{Menu, MenuEvent, MenuItem};
 use tray_icon::{
     Icon, MouseButton, MouseButtonState, Rect, TrayIcon, TrayIconBuilder, TrayIconEvent,
@@ -60,7 +60,7 @@ pub fn run(
         height: icon_normal_full.height,
     };
 
-    let options = eframe::NativeOptions {
+    let mut options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([WINDOW_WIDTH, 320.0])
             .with_min_inner_size([WINDOW_WIDTH, 200.0])
@@ -74,6 +74,15 @@ pub fn run(
             .with_visible(false),
         ..Default::default()
     };
+    #[cfg(target_os = "macos")]
+    {
+        // Menu-bar-only process: Accessory keeps us out of the Dock and is the
+        // policy tray-icon / NSStatusItem expect for a persistent status item.
+        options.event_loop_builder = Some(Box::new(|builder| {
+            use winit::platform::macos::{ActivationPolicy, EventLoopBuilderExtMacOS};
+            builder.with_activation_policy(ActivationPolicy::Accessory);
+        }));
+    }
     eframe::run_native(
         "td-mcp-rs",
         options,
@@ -152,6 +161,8 @@ struct DashboardApp {
     visible: bool,
     /// Apply `Visible(false)` once after the first frame.
     pending_initial_hide: bool,
+    /// Build the status-item on the first `logic` tick (see `ensure_tray`).
+    pending_tray: bool,
     /// Fired once after the first successful `/admin/status` poll.
     startup_notified: bool,
     /// Fired once when polls fail before any success.
@@ -191,19 +202,8 @@ impl DashboardApp {
         quit: Arc<AtomicBool>,
         config_path: PathBuf,
     ) -> Result<Self> {
-        let menu = Menu::new();
         let menu_restart = MenuItem::new("Restart daemon", true, None);
         let menu_stop = MenuItem::new("Stop daemon", true, None);
-        menu.append(&menu_restart)?;
-        menu.append(&menu_stop)?;
-
-        let tray = TrayIconBuilder::new()
-            .with_menu(Box::new(menu))
-            .with_menu_on_left_click(false)
-            .with_tooltip("td-mcp-rs")
-            .with_icon(tray_icon_from(&icon_normal)?)
-            .build()
-            .map_err(|e| anyhow::anyhow!("tray: {e}"))?;
 
         let draft = cfgfile::load(&config_path).unwrap_or_default();
         let (data_dir_edit, bridge_dir_edit, catalog_path_edit) = path_edits_from(&draft);
@@ -223,7 +223,10 @@ impl DashboardApp {
             sessions_json: String::new(),
             last_poll: None,
             error: None,
-            tray: Some(tray),
+            // Defer tray build to the first `logic` tick. Creating a status-item
+            // inside eframe's creation callback can re-enter AppKit on macOS and
+            // trip winit 0.30's "event while another event is handled" abort.
+            tray: None,
             menu_restart,
             menu_stop,
             icon_normal,
@@ -232,6 +235,7 @@ impl DashboardApp {
             prev_snapshot: FleetSnapshot::default(),
             visible: false,
             pending_initial_hide: true,
+            pending_tray: true,
             startup_notified: false,
             startup_fail_notified: false,
             fail_polls: 0,
@@ -242,6 +246,45 @@ impl DashboardApp {
             last_tray_rect: None,
             quit,
         })
+    }
+
+    fn ensure_tray(&mut self) {
+        if !self.pending_tray || self.tray.is_some() {
+            return;
+        }
+        self.pending_tray = false;
+        let menu = Menu::new();
+        if let Err(e) = menu.append(&self.menu_restart) {
+            warn!(error = %e, "tray menu append restart failed");
+            return;
+        }
+        if let Err(e) = menu.append(&self.menu_stop) {
+            warn!(error = %e, "tray menu append stop failed");
+            return;
+        }
+        let icon = match tray_icon_from(&self.icon_normal) {
+            Ok(i) => i,
+            Err(e) => {
+                warn!(error = %e, "tray icon decode failed");
+                return;
+            }
+        };
+        match TrayIconBuilder::new()
+            .with_menu(Box::new(menu))
+            .with_menu_on_left_click(false)
+            .with_tooltip("td-mcp-rs")
+            .with_icon(icon)
+            // Do not set template mode: our PNGs are full-color opaque RGB.
+            // macOS template icons need black+alpha shapes; template+opaque
+            // color assets often render as an invisible menu-bar item.
+            .build()
+        {
+            Ok(tray) => {
+                info!("tray status item created");
+                self.tray = Some(tray);
+            }
+            Err(e) => warn!(error = %e, "tray icon build failed"),
+        }
     }
 
     fn open_settings(&mut self) {
@@ -1074,6 +1117,7 @@ impl eframe::App for DashboardApp {
             self.handle_close_request(ctx);
             return;
         }
+        self.ensure_tray();
         if self.pending_initial_hide {
             self.pending_initial_hide = false;
             self.hide_window(ctx);
@@ -1177,16 +1221,57 @@ fn nonempty_path(s: &str) -> Option<PathBuf> {
 }
 
 /// Show an OS toast (best-effort; failures are logged).
+///
+/// On macOS, `notify-rust` talks to AppKit/`NSUserNotification` and can re-enter
+/// the run loop from inside a winit callback, aborting with
+/// "tried to handle event while another event is currently being handled".
+/// Fire a separate `osascript` process instead so the notification never shares
+/// our event loop.
 pub fn toast(summary: &str, body: &str) {
-    match notify_rust::Notification::new()
-        .summary(summary)
-        .body(body)
-        .appname("td-mcp-rs")
-        .show()
+    #[cfg(target_os = "macos")]
     {
-        Ok(_) => {}
-        Err(e) => warn!(error = %e, summary, "OS toast failed"),
+        let summary = summary.to_owned();
+        let body = body.to_owned();
+        let spawn = std::thread::Builder::new()
+            .name("tdmcp-toast".into())
+            .spawn(move || {
+                let script = format!(
+                    "display notification \"{}\" with title \"{}\"",
+                    applescript_escape(&body),
+                    applescript_escape(&summary),
+                );
+                match Command::new("osascript")
+                    .args(["-e", &script])
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .status()
+                {
+                    Ok(status) if status.success() => {}
+                    Ok(status) => warn!(?status, summary, "osascript toast non-zero"),
+                    Err(e) => warn!(error = %e, summary, "osascript toast failed"),
+                }
+            });
+        if let Err(e) = spawn {
+            warn!(error = %e, "toast thread spawn failed");
+        }
     }
+    #[cfg(not(target_os = "macos"))]
+    {
+        match notify_rust::Notification::new()
+            .summary(summary)
+            .body(body)
+            .appname("td-mcp-rs")
+            .show()
+        {
+            Ok(_) => {}
+            Err(e) => warn!(error = %e, summary, "OS toast failed"),
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn applescript_escape(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
 fn notify(summary: &str, body: &str) {
