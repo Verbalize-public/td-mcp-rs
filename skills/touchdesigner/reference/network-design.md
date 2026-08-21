@@ -44,11 +44,13 @@ deliberately. Keep module DAT names short (`mod.` access reads better).
 
 ## Layout, docs, and cleanup
 
-- **Wiring that works is not done.** The mandatory last step of any non-trivial but optional if the end work isn't going to be re-used (eg: demo requested or quick iterative edit)
-  network edit is reorganizing the touched subtree so data flow reads
-  left-to-right (or top-to-bottom) at a glance, with **zero overlapping nodes**.
-  Do not leave test spaghetti in shipped networks. Grid units and overlap
-  avoidance are restated below; deepen with `tdmcp://docs/primer/editor-and-layout`
+- **Wiring that works is not done.** Once all logic is verified, do one final
+  grid pass: reposition the touched subtree so data flow reads left-to-right
+  (or top-to-bottom) at a glance, with **zero overlapping nodes**. This is a
+  one-shot cosmetic step — do not reorganize iteratively after every mutation.
+  Skip during complex multi-step plans; the final pass before claiming done is
+  required. Do not leave test spaghetti in shipped networks. Grid units and
+  overlap avoidance are restated below; deepen with `tdmcp://docs/primer/editor-and-layout`
   and Derivative `OP Class` / `TDFunctions` wiki pages.
 - **Grid units, not pixels** — `nodeX`/`nodeY`/`nodeWidth`/`nodeHeight` are in
   network-editor units and depend on zoom for apparent size; **`nodeY` grows

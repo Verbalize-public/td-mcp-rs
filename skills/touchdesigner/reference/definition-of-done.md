@@ -32,18 +32,35 @@ Treat as insufficient (→ **FAIL**) when evidence is any of:
 cost-reduction decision already made. `BLOCKED` is for unreachable surfaces —
 still not a PASS.
 
+## Final grid pass
+
+Once the network logic is complete and verified, do **one** layout pass:
+reposition nodes so data flow reads left-to-right (or top-to-bottom) at a
+glance, with zero overlapping operators. Depth:
+`tdmcp://docs/network-design` (Layout section).
+
+- **One pass only** — never reorganize iteratively after each mutation; it is
+  a heavy cosmetic operation that burns tokens with no logic value.
+- **Skip during complex multi-step plans** — defer the grid pass until the
+  final step before claiming done.
+- **Required before `PASS`** — a network left as spaghetti with overlapping
+  nodes is not done.
+
 ## Structural checklist
 
 - [ ] Final `inspect` on the touched network **parent** (COMP / container mutated
       under) — errors/warnings clean before claiming done
 - [ ] Structure / children / params / errors / wires used `inspect` (not Python
       walks as the primary read)
+- [ ] Non-trivial network (>3 nodes / COMP hub / branched) described in
+      OpSketch before building or mutating (`tdmcp://docs/opsketch-notation`)
 - [ ] Any `execute_python` / expression / script preceded by
       `tdmcp://docs/python-api`
 - [ ] Relative refs + In/Out rules held (`tdmcp://docs/network-design`,
       `tdmcp://docs/component-checklist`)
-- [ ] Touched subtree reorganized — readable left-to-right flow, zero
-      overlapping nodes (`tdmcp://docs/network-design` layout section)
+- [ ] Final grid pass: touched subtree reorganized — readable flow, zero
+      overlapping nodes — one pass at the end, not iteratively
+      (`tdmcp://docs/network-design` layout section)
 - [ ] Custom COMP: About page populated, In/Out pins present, custom pars clean
       (`tdmcp://docs/component-checklist`)
 - [ ] Look claims: non-black `capture` (store-first, `maxSize: 256`) verified

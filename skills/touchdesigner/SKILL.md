@@ -61,10 +61,7 @@ Depth: `tdmcp://docs/operator-families` / `tdmcp://docs/primer/cook-and-families
 
 ## Hard rules
 
-### Sequential bridged tools — HARD RULE
-
-Never fire parallel bridged MCP tools (`execute_python`, `inspect`, `capture`,
-`mutate_nodes`, `api_help`, `editor_context`) against the same `pid`.
+### Sequential bridged tools
 
 - Call bridged tools **one at a time**; wait for each result before the next.
 - `fleet` / `describe_tools` stay available during an in-flight call.
@@ -73,6 +70,15 @@ Never fire parallel bridged MCP tools (`execute_python`, `inspect`, `capture`,
   the user.
 
 Depth: `tdmcp://docs/tooling-concurrency`.
+
+### OpSketch before non-trivial networks — HARD RULE
+
+When thinking about, planning, building, or mutating a network of more than
+3 nodes (or any non-trivial operator: COMP hub, multi-family chain, data-flow
+with branches), **describe it in OpSketch first** — before creating or
+mutating anything. Use the sketch to validate the design, then build from it.
+
+Depth: `tdmcp://docs/opsketch-notation` (+ gating, examples).
 
 ### `inspect` over `execute_python` for networks — HARD RULE
 

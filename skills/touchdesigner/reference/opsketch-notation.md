@@ -95,10 +95,10 @@ higher depth.
 
 | Situation | Sketch? |
 |-----------|---------|
-| Non-trivial network map, plan, or mutation (including any COMP hub) | Yes — default |
-| Before/after a non-trivial wiring change | Yes |
+| >3 nodes, or any non-trivial network (COMP hub, multi-family chain, branched data-flow) | **Yes — mandatory** |
+| Before/after any non-trivial wiring change | Yes |
 | Reporting a network to the director / user | Yes — return shape |
-| 1–2 node trivial answer ("what feeds `out1`?") | No — one line |
+| 1–3 trivial nodes ("what feeds `out1`?") | No — one line |
 
 ## Reference cluster
 
@@ -109,7 +109,7 @@ higher depth.
 
 ## DoD
 
-- [ ] Non-trivial network thought/speech/returns used OpSketch (trivial 1–2 node OK as one line)
+- [ ] Non-trivial network (>3 nodes, COMP hub, multi-family, branched data-flow) uses OpSketch
 - [ ] Every shown param passes the importance gate
 - [ ] Wires shown incident-per-node
 - [ ] Family/opType/wire-kind matches live `inspect` / family tables — no invented synonyms
