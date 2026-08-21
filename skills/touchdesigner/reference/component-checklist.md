@@ -43,7 +43,7 @@ Custom pars depth: `tdmcp://docs/custom-parameters`.
 - **enableExpr** with `me.par.…` when a mode makes a par irrelevant (e.g.
   `me.par.Mode == 'custom'`). Bare names like `'Enable'` do not gate.
 - Prefer menus for modes (`Palette`, `Custom`, `Texture In`) over parallel unused knobs.
-- API / naming / snippets (live-verified): [custom-parameters.md](custom-parameters.md).
+- API / naming / snippets (live-verified): [custom-parameters](tdmcp://docs/custom-parameters).
 
 ### About page (required)
 
@@ -63,18 +63,18 @@ Agent rules:
 - **Edit (substantive):** bump version (patch for fixes, minor for features, major for breaking API) and refresh Last Update; leave Creation Date alone.
 - **Edit (trivial/typo in docs only):** optional — either leave version or bump patch; still refresh Last Update if you touch the COMP.
 - Missing or editable About fields = structural DoD **fail**
-  ([definition-of-done.md](definition-of-done.md)).
+  ([definition-of-done](tdmcp://docs/definition-of-done)).
 
 ## Reuse rules (audit before `.tox` / clone)
 
-Rule + preference order: [network-design.md](network-design.md) relative refs.
+Rule + preference order: [network-design](tdmcp://docs/network-design) relative refs.
 Audit checklist below.
 
 Walk the COMP subtree and fail the audit if any of these remain:
 
 - Absolute paths: `/project1`, or any project-root absolute `op('...')` in exprs/path pars
 - Wrong relative form: bare name used where a **child** is meant (`./…`), or `./…`
-  used where a **sibling** is meant (bare name) — see [network-design.md](network-design.md)
+  used where a **sibling** is meant (bare name) — see [network-design](tdmcp://docs/network-design)
 - Hard-coded parent COMP names (`op('base_foo')` from outside assumptions baked in)
 - Children binding to hard-coded numbers that should be `parent().par.*`
 - Wrong `parent()` hop count (grandchild binding to nested COMP instead of root)

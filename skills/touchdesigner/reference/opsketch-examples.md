@@ -1,6 +1,6 @@
 # OpSketch examples
 
-Worked before → after pairs. Raw surfaces are fabricated but schema-faithful; OpSketch follows [opsketch-notation.md](opsketch-notation.md) + [opsketch-importance-gating.md](opsketch-importance-gating.md).
+Worked before → after pairs. Raw surfaces are fabricated but schema-faithful; OpSketch follows [opsketch-notation](tdmcp://docs/opsketch-notation) + [opsketch-importance-gating](tdmcp://docs/opsketch-importance-gating).
 
 ## Example A — live `inspect`
 

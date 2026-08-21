@@ -1,6 +1,6 @@
 # Custom parameters — live-verified
 
-Companion to [component-checklist.md](component-checklist.md). Snippets are sandbox-safe for
+Companion to [component-checklist](tdmcp://docs/component-checklist). Snippets are sandbox-safe for
 td-mcp-rs `execute_python` unless noted.
 
 **Verified** against TD `2025.32460` via `execute_python` / `inspect` /

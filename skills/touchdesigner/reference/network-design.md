@@ -35,7 +35,7 @@ deliberately. Keep module DAT names short (`mod.` access reads better).
   - **Status / derived values** → custom pars marked **read-only** so users cannot edit
     what they should only observe.
   Outside code should not reach into internals; see
-  [component-checklist.md](component-checklist.md) for the full reusable-COMP checklist.
+  [component-checklist](tdmcp://docs/component-checklist) for the full reusable-COMP checklist.
 - Wires show flow at a glance; use them within a component. Selects/references replace
   them *between* components.
 - Watch cook cost: middle-click info, Performance Monitor; turn off viewers you don't

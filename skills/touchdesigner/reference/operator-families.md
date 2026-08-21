@@ -54,7 +54,7 @@ downstream needs it *and* an input/parameter changed. Consequences:
 
 Custom parameters on COMPs (Component Editor) are the **control** API of a component
 (scalars, menus, colors, pulses). In/Out boundary rule: main body "Hard rules" +
-[component-checklist.md](component-checklist.md).
+[component-checklist](tdmcp://docs/component-checklist).
 
 
 ---

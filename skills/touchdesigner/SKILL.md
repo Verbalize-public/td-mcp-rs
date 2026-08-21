@@ -2,14 +2,15 @@
 name: touchdesigner
 description: >-
   TouchDesigner operate umbrella for td-mcp-rs.
-  **MUST READ** before doing anything related to TouchDesigner:
-  inspecting, creating, wiring, or mutating TouchDesigner nodes/networks/components/parameters,
-  Ealborating plan, writing Python or porting GLSL for TouchDesigner.
+  MUST READ before any TouchDesigner work: inspecting, creating, wiring,
+  or mutating nodes/networks/components/parameters, elaborating a plan,
+  writing Python, or porting GLSL for TouchDesigner.
 ---
 
 # TouchDesigner (td-mcp-rs)
 
-This skill is the sole TD (TouichDesigner) entrypoint — read this body before other TD cards.
+This skill is the sole TD entrypoint — read this body before other TD cards.
+Also available as `tdmcp://docs/operate`.
 
 ## Quick tool routing
 
@@ -33,13 +34,16 @@ first.
 ## Target identification
 
 1. `fleet` → pick a connected `pid`. Pass `pid` on every call.
-2. Resolve a mutation zone: prefers self-created named COMP over polluting existing network, user-named
-   subtree, or `editor_context` `ownerPath` as a **hint only** — confirm with
-   `inspect` before mutating. Depth: `resources/read` `tdmcp://docs/mutation-zones`.
-3. Prefer `detailLevel: summary` / `diagnosticLevel: summary`. Store-first/sub-agent for
-   `capture`, always make sure that vision capability are available before capturing, rely on programatic image analysis when needed or no vision capability.
+2. Resolve a mutation zone: prefer a self-created named COMP over polluting an
+   existing network; user-named subtree; or `editor_context` `ownerPath` as a
+   **hint only** — confirm with `inspect` before mutating. Depth:
+   `tdmcp://docs/mutation-zones`.
+3. Prefer `detailLevel: summary` / `diagnosticLevel: summary`. Store-first for
+   `capture` — only inject image artifacts when the current model can see them;
+   otherwise delegate to a vision-capable helper. Depth:
+   `tdmcp://docs/look-grade`.
 
-## Operator meaning (quick table)
+## Operator families (quick table)
 
 | Family | Data | Runs on | Reach for it when |
 |--------|------|---------|-------------------|
@@ -57,10 +61,18 @@ Depth: `tdmcp://docs/operator-families` / `tdmcp://docs/primer/cook-and-families
 
 ## Hard rules
 
-- On `tdmcp.mcp.session_busy` or `tdmcp.bridge.queue_busy`: wait, then retry —
-  do **not** disconnect or restart. After 3 failed attempt handoff to the user.
+### Sequential bridged tools — HARD RULE
 
-Depth: `resources/read` `tdmcp://docs/tooling-concurrency`.
+Never fire parallel bridged MCP tools (`execute_python`, `inspect`, `capture`,
+`mutate_nodes`, `api_help`, `editor_context`) against the same `pid`.
+
+- Call bridged tools **one at a time**; wait for each result before the next.
+- `fleet` / `describe_tools` stay available during an in-flight call.
+- On `tdmcp.mcp.session_busy` or `tdmcp.bridge.queue_busy`: wait, then retry —
+  do **not** disconnect or restart. After 3 consecutive failures, hand off to
+  the user.
+
+Depth: `tdmcp://docs/tooling-concurrency`.
 
 ### `inspect` over `execute_python` for networks — HARD RULE
 
@@ -72,8 +84,8 @@ done.
 ### Python cheatsheet before Python — HARD RULE
 
 Before `execute_python` or any TD expression/script, **`resources/read`
-`tdmcp://docs/python-api`** in this turn.
-Exact live names still go through `api_help`.
+`tdmcp://docs/python-api`** in this turn. Exact live names still go through
+`api_help`.
 
 ### In/Out operator harness — HARD RULE
 
@@ -84,12 +96,14 @@ inputs or reaching into another COMP's internals. Depth:
 ### Relative references — HARD RULE
 
 Never use absolute `/project1/...` inside a reusable network. Prefer relative
-paths: Depth: **MUST READ WHEN EDITING/CREATING/REMOVING reference** `tdmcp://docs/network-design`.
+paths: `parent().par.Foo`, `parent().op('null_out')`, bare sibling names,
+`./child`, `../cousin`. Depth: `tdmcp://docs/network-design`.
 
-### Play state before “why isn’t it updating” — HARD RULE
+### Play state before "why isn't it updating" — HARD RULE
 
 Paused transport stalls most cooks; captures can look stale. Check play state
-first. Depth: **MUST READ WHEN DEBUGING A NETWORK OR CAPTURING IT** `tdmcp://docs/play-state`.
+before debugging a network or grading a capture. Depth:
+`tdmcp://docs/play-state`.
 
 ## Custom component basics
 
@@ -123,8 +137,7 @@ Feedback. Feed every uniform explicitly (unfed = silent black FAIL). Watch
 ## Definition of Done
 
 Observable runtime evidence only — never PASS from code or docs alone.
-Doubt → **FAIL**. Depth: `tdmcp://docs/definition-of-done`, look claims
-`tdmcp://docs/look-grade`.
+Doubt → **FAIL**.
 
 | Verdict | Meaning |
 |---------|---------|
@@ -133,14 +146,8 @@ Doubt → **FAIL**. Depth: `tdmcp://docs/definition-of-done`, look claims
 | `BLOCKED` | Surface unreachable / capture unreadable |
 | `SKIP` | No runtime surface, or deliberate cost-reduction |
 
-- [ ] Final `inspect` on touched network **parent** — errors/warnings clean
-- [ ] Network understanding used `inspect` (Python last resort)
-- [ ] Any Python/expression preceded by `tdmcp://docs/python-api`
-- [ ] Touched subtree reorganized, zero overlapping nodes
-- [ ] Relative-refs + In/Out hard rules held
-- [ ] Custom COMP: About page, In/Out pins; pars per `tdmcp://docs/custom-parameters`
-- [ ] Look claims: non-black `capture` (store-first, `maxSize: 256`) → operating agent grades via `tdmcp://docs/look-grade`
-- [ ] Stop after 3 failed probes with no new evidence
+Depth: `tdmcp://docs/definition-of-done` (full checklist + doubt rules).
+Look claims: `tdmcp://docs/look-grade`.
 
 ## Resource index (deepen here)
 

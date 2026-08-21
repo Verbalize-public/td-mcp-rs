@@ -1,8 +1,8 @@
 # Mutation zones (TD)
 
 Build in a purposefully-named component from the first mutation. Package per
-[component-checklist.md](component-checklist.md) +
-[custom-parameters.md](custom-parameters.md). Do not stage in a throwaway
+[component-checklist](tdmcp://docs/component-checklist) +
+[custom-parameters](tdmcp://docs/custom-parameters). Do not stage in a throwaway
 container and promote later.
 
 ## How to get a zone

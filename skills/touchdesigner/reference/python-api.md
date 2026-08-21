@@ -55,7 +55,7 @@ ui = ui  # bare alias; td.ui always safe
 
 **Relative `op()` / path strings:** sibling / same-network → bare name
 (`op('null_out')`); direct child inside this COMP → `op('./null_out')`; parent hop
-→ `op('../null_out')`. See [network-design.md](network-design.md) relative references.
+→ `op('../null_out')`. See [network-design](tdmcp://docs/network-design) relative references.
 
 Auto-imported stdlib (also bare in `execute_python`): `math`, `re`, `sys`, `collections`, `enum`, `inspect`
 
@@ -333,7 +333,7 @@ n.vfs
 
 ## Custom parameters (COMP-only)
 
-Full when-to-use + styles + gotchas: [custom-parameters.md](custom-parameters.md).
+Full when-to-use + styles + gotchas: [custom-parameters](tdmcp://docs/custom-parameters).
 Only COMPs have `appendCustomPage` (TOP/CHOP/DAT cannot). Names: uppercase start +
 lowercase/digits only (`Amount` OK; `speed` / `my_amount` / `myAmount` fail).
 

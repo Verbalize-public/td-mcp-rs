@@ -37,7 +37,7 @@ scope: <path>  [(<family>:<opType>[, pars: <name>,...])]  nodes=<N> wires=<E> [e
   0, 1, 2… Omit entirely for 0-input ops (Movie In, Constant, Audio Device In) — never write
   a bare `<- `.
 - `{...}` — only parameters that pass the importance gate
-  ([opsketch-importance-gating.md](opsketch-importance-gating.md)). Omit the whole block
+  ([opsketch-importance-gating](tdmcp://docs/opsketch-importance-gating)). Omit the whole block
   when nothing passes — never write an empty `{}`.
 - `[...]` — free-text annotations for facts that aren't a parameter value: `[callback]` (DAT
   has authored script), `[ext]` (COMP has a promoted Python Extension), `[err]` (node has a
@@ -83,7 +83,7 @@ out1 outTOP <- fx1/xform1
 ## Depth / radius
 
 Default to depth 1–2 and widen only around the node actually in question — same stop/token
-budget discipline as [definition-of-done.md](definition-of-done.md).
+budget discipline as [definition-of-done](tdmcp://docs/definition-of-done).
 
 ## Truncation
 
@@ -104,8 +104,8 @@ higher depth.
 
 | File | Topic |
 |------|-------|
-| [opsketch-importance-gating.md](opsketch-importance-gating.md) | Gating rule + trivial types |
-| [opsketch-examples.md](opsketch-examples.md) | Worked transcriptions |
+| [opsketch-importance-gating](tdmcp://docs/opsketch-importance-gating) | Gating rule + trivial types |
+| [opsketch-examples](tdmcp://docs/opsketch-examples) | Worked transcriptions |
 
 ## DoD
 

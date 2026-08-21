@@ -42,6 +42,12 @@ still not a PASS.
       `tdmcp://docs/python-api`
 - [ ] Relative refs + In/Out rules held (`tdmcp://docs/network-design`,
       `tdmcp://docs/component-checklist`)
+- [ ] Touched subtree reorganized — readable left-to-right flow, zero
+      overlapping nodes (`tdmcp://docs/network-design` layout section)
+- [ ] Custom COMP: About page populated, In/Out pins present, custom pars clean
+      (`tdmcp://docs/component-checklist`)
+- [ ] Look claims: non-black `capture` (store-first, `maxSize: 256`) verified
+      against `tdmcp://docs/look-grade`
 - [ ] Stop after 3 failed probes with no new evidence
 
 Depth: OpSketch language `tdmcp://docs/opsketch-notation`; wiring notes in
