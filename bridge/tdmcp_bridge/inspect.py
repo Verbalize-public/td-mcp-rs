@@ -1,6 +1,8 @@
 """Structural inspect + child roster."""
 from __future__ import annotations
 
+import json
+import traceback
 from typing import Any
 
 from .constants import (
@@ -20,6 +22,29 @@ def _child_name(child: Any) -> str:
         return str(name)
     path = getattr(child, "path", "") or ""
     return str(path).rsplit("/", 1)[-1]
+
+
+def _wire_peer(op: Any) -> dict[str, Any] | None:
+    """Shape one wired peer as {path, name, opType}, or None for an empty slot."""
+    if op is None:
+        return None
+    path = getattr(op, "path", None)
+    if path is None:
+        return None
+    return {
+        "path": str(path),
+        "name": _child_name(op),
+        "opType": getattr(op, "opType", None),
+    }
+
+
+def _wire_peers(seq: Any) -> list[dict[str, Any] | None]:
+    """Positional wire list from TD OP.inputs / OP.outputs; best-effort → []."""
+    try:
+        items = list(seq) if seq is not None else []
+    except Exception:  # noqa: BLE001 — wire enrichment must never fail inspect
+        return []
+    return [_wire_peer(item) for item in items]
 
 
 def _op_messages(fn: Any) -> list[str]:
@@ -198,6 +223,14 @@ def build_inspect_node(
                     "Use execute_python if you need the full name list",
                 ],
             }
+        try:
+            out["inputs"] = _wire_peers(getattr(n, "inputs", []))
+        except Exception:  # noqa: BLE001
+            out["inputs"] = []
+        try:
+            out["outputs"] = _wire_peers(getattr(n, "outputs", []))
+        except Exception:  # noqa: BLE001
+            out["outputs"] = []
     if want_params:
         out["params"] = [_inspect_param_entry(p) for p in n.pars()]
     if want_errors:

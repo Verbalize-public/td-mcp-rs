@@ -212,7 +212,7 @@ safety net only — the daemon owns the real per-method budgets.
 | --------------------------- | ------------------------------------------------------------------------------------------------------ | --------------------- |
 | `fleet`                     | Fleet view — processes by pid, bridge, tasks, cancelled traces                                         | **Shipped**           |
 | `execute_python`            | Run Python in TD; `result = …`; optional `logs`; structured `exception` on failure                     | **Shipped**           |
-| `inspect`                   | Structural read for explicit `paths[]` batch (nodes / params / errors / warnings); no auto-recursion   | **Shipped**           |
+| `inspect`                   | Structural read for explicit `paths[]` batch (nodes + wires / params / errors / warnings); no auto-recursion | **Shipped**           |
 | `capture`                   | Perception — `top` / `preview` / `auto` / `chop_data` / `chop_image`† / `pop`† († aliases of preview)  | **Shipped**           |
 | `describe_tools`            | Manifest of available tools                                                                            | **Shipped**           |
 | `mutate_nodes`              | Ordered create / set / delete / connect / disconnect steps; sequential apply, stop on first hard error | **Shipped**           |
@@ -231,7 +231,7 @@ safety net only — the daemon owns the real per-method budgets.
 | ---------- | ---------------- | ---------------------------------------------------------- |
 | Fleet      | `fleet`          | Which pid? Connected? Busy? Resurrection traces?           |
 | Editor     | `editor_context` | Which panes / owner COMPs / selection is the user looking at? |
-| Structure  | `inspect`        | Nodes, params, errors, warnings — no perception by default |
+| Structure  | `inspect`        | Nodes, wires, params, errors, warnings — no perception by default |
 | Perception | `capture`        | Pixels / basic signal — trigger keyword **perception**     |
 
 
@@ -288,7 +288,16 @@ Unknown `include` values are **rejected** at MCP arg deserialize (invalid params
 
 `params` is opt-in. `errors` / `warnings` are string arrays from `OP.errors()` / `OP.warnings()` (no recurse). Not gated by `detailLevel`. When those sections are included (including via default empty `include`), empty arrays are still emitted as “section loaded” — they never flip MCP tool failure. Tool-level failure is only bridge soft-fail (`ok: false`), queue busy, or transport. Unknown `include` values are **rejected** at MCP arg deserialize.
 
-Child roster fields (`childCount`, `childrenReturned`, `children`, and when truncated `childrenTruncated` / `truncation`) are emitted **only when `nodes` is in the effective include set** (default empty `include` includes `nodes`). When a non-empty `include` omits `nodes`, those keys are absent entirely — same "section not loaded" signal as omitted `params` / `errors` / `warnings`.
+Child roster fields (`childCount`, `childrenReturned`, `children`, and when truncated `childrenTruncated` / `truncation`) and positional wire peers (`inputs`, `outputs`) are emitted **only when `nodes` is in the effective include set** (default empty `include` includes `nodes`). When a non-empty `include` omits `nodes`, those keys are absent entirely — same "section not loaded" signal as omitted `params` / `errors` / `warnings`.
+
+When `nodes` is loaded, each ok node always includes:
+
+| Field | Content |
+| ----- | ------- |
+| `inputs` | Positional peers from `OP.inputs` — each entry is `{path, name, opType}` or `null` (empty connector slot); fully empty TD list → `[]` |
+| `outputs` | Same shape from `OP.outputs` |
+
+Index order matches connector order (OpSketch `<- a, b`). Wire reads are best-effort: an access/iteration failure yields `[]` for that side and never flips node or top-level `ok`. `detailLevel` does not change wire peer shape.
 
 Many TD cook problems (invalid select path, missing movie file, …) surface as **warnings**, not `errors` — live DoD for structural messages should not assume a non-empty `errors` array.
 

@@ -73,6 +73,8 @@ def _fake_node(
     custom_pars: list[Any] | None = None,
     eval_expression: Any | None = None,
     eval_expression_raises: Exception | None = None,
+    inputs: list[Any] | None = None,
+    outputs: list[Any] | None = None,
 ) -> SimpleNamespace:
     par_list = list(pars) if pars is not None else []
 
@@ -94,12 +96,37 @@ def _fake_node(
         valid=True,
         cook=cook if cook is not None else MagicMock(),
         evalExpression=_eval_expression,
+        inputs=[] if inputs is None else inputs,
+        outputs=[] if outputs is None else outputs,
     )
     if custom_par_groups is not None:
         ns.customParGroups = custom_par_groups
     if custom_pars is not None:
         ns.customPars = custom_pars
     return ns
+
+
+class _BrokenInputsNode:
+    """Fake node whose ``inputs`` property raises (wire enrichment fault path)."""
+
+    path = "/project1/broken"
+    family = "TOP"
+    opType = "nullTOP"
+    children: list[Any] = []
+    outputs: list[Any] = []
+
+    @property
+    def inputs(self) -> list[Any]:
+        raise RuntimeError("inputs boom")
+
+    def pars(self) -> list[Any]:
+        return []
+
+    def errors(self) -> str:
+        return ""
+
+    def warnings(self) -> str:
+        return ""
 
 
 class InspectSummaryRosterTest(unittest.TestCase):
@@ -602,6 +629,65 @@ class InspectEnableExprEnrichmentTest(unittest.TestCase):
             result["nodes"][0]["diagnostics"][0]["code"],
             "tdmcp.par.enable_expr_failed",
         )
+
+
+class InspectWiresTest(unittest.TestCase):
+    def test_unwired_empty_arrays(self) -> None:
+        out = tdmcp_bridge.build_inspect_node(_fake_node([]))
+        self.assertEqual(out["inputs"], [])
+        self.assertEqual(out["outputs"], [])
+
+    def test_wired_with_gap(self) -> None:
+        a = _fake_child("in_mask", op_type="inTOP")
+        c = _fake_child("in_color", op_type="inTOP")
+        out_peer = _fake_child("null_beauty", op_type="nullTOP")
+        node = _fake_node(
+            [],
+            inputs=[a, None, c],
+            outputs=[out_peer],
+        )
+        out = tdmcp_bridge.build_inspect_node(node)
+        self.assertEqual(
+            out["inputs"],
+            [
+                {
+                    "path": "/project1/in_mask",
+                    "name": "in_mask",
+                    "opType": "inTOP",
+                },
+                None,
+                {
+                    "path": "/project1/in_color",
+                    "name": "in_color",
+                    "opType": "inTOP",
+                },
+            ],
+        )
+        self.assertEqual(
+            out["outputs"],
+            [{
+                "path": "/project1/null_beauty",
+                "name": "null_beauty",
+                "opType": "nullTOP",
+            }],
+        )
+
+    def test_want_nodes_false_omits_wires(self) -> None:
+        a = _fake_child("in_mask", op_type="inTOP")
+        out = tdmcp_bridge.build_inspect_node(
+            _fake_node([], inputs=[a]),
+            want_nodes=False,
+            want_params=True,
+        )
+        self.assertNotIn("inputs", out)
+        self.assertNotIn("outputs", out)
+        self.assertNotIn("children", out)
+
+    def test_broken_inputs_accessor_yields_empty(self) -> None:
+        out = tdmcp_bridge.build_inspect_node(_BrokenInputsNode())
+        self.assertEqual(out["inputs"], [])
+        self.assertEqual(out["outputs"], [])
+        self.assertEqual(out["path"], "/project1/broken")
 
 
 if __name__ == "__main__":

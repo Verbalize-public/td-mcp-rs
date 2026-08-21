@@ -83,6 +83,7 @@ See [`DEV_ENV.md`](DEV_ENV.md) § Dev smoke. Does **not** replace rows 1–12 be
 | M15 | `connect` with `dstInput: 99` → `failedAt` + `tdmcp.wire.bad_index` | ✅ |
 | M16 | `connect` missing `src` → `tdmcp.op.not_found`; following step `tdmcp.batch.skipped_dependent` | ✅ |
 | M17 | Create `mathCHOP` + `constantCHOP`, `connect`, `inspect` → math `node.errors` empty (pairs with M12) | ✅ |
+| M17b | After `connect` src→dst, `inspect` on dst shows non-null `inputs[dstInput]` peer with `path`/`name` matching src (wires ride with `nodes`) | |
 | M18 | `create` noiseTOP with `flags:{viewer:true,display:true}` → `ok`; `capture` top non-black (no separate `execute_python` for flags) | ✅ |
 | M19 | `set` with unrecognized flag name (e.g. `selected`) → `failedAt` + `tdmcp.flag.unknown`; later steps `tdmcp.batch.skipped_dependent`. (Wrong-bag: param name under `flags` keeps `tdmcp.flag.unknown` and may nest `tdmcp.flag.wrong_collection` — unit-covered; not a live gate.) | ✅ |
 | M20 | `set` `flags:{allowCooking:false}` on a non-COMP → `tdmcp.mutate.step_failed` (live-only; TD raises; not unit-testable via FakeNode) | ✅ |

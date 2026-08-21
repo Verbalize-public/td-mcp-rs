@@ -105,7 +105,10 @@ suggested name or `{kind:"classes", prefix:"…"}`.
 
 ## Wiring (inputs / Connectors)
 
-**Prefer `inspect` for network understanding.** For a one-off Python wire read/write:
+`inspect` surfaces positional wires on each node when `nodes` is included
+(`inputs` / `outputs` peer lists — `{path, name, opType}` or `null` per slot).
+Prefer that for network understanding. Use Python `n.inputs` / `n.outputs` (or
+`mutate_nodes` connect/disconnect) only as a last resort or for one-off writes:
 
 ```python
 # Reliable — OP lists (elements are OPs with .path)
@@ -121,9 +124,6 @@ ic.owner.path              # this OP
 # Peer via connections:
 peer = ic.connections[0].owner if ic.connections else None
 ```
-
-`inspect` does **not** surface wires — use `n.inputs` / `n.outputs` (or
-`mutate_nodes` connect/disconnect) when you need wiring evidence.
 
 ## OP — every node inherits this
 
