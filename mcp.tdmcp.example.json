@@ -1,7 +1,7 @@
 {
   "mcpServers": {
     "tdmcp-rs": {
-      "command": "C:/absolute/path/to/tdmcp-daemon.exe",
+      "command": "C:/Users/<you>/AppData/Local/tdmcp-rs/bin/tdmcp-daemon.exe",
       "args": ["mcp"]
     }
   }

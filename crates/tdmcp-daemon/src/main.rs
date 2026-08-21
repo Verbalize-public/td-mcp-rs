@@ -183,6 +183,15 @@ fn main() -> Result<()> {
             let config_path = tdmcp_config::default_config_path();
             tdmcp_config::ensure_default(&config_path, true)?;
             println!("config reset → {}", config_path.display());
+
+            // Copy the current binary into {data_dir}/bin/ and record the
+            // absolute path in config so spawn / restart / autostart use the
+            // stable installed copy instead of the original build artifact.
+            let daemon_bin = install::copy_daemon_binary(&data_dir)?;
+            let mut cfg = tdmcp_config::load(&config_path)?;
+            cfg.advanced.daemon_bin = Some(daemon_bin.clone());
+            tdmcp_config::save(&config_path, &cfg)?;
+            println!("daemon bin → {}", daemon_bin.display());
             Ok(())
         }
         Commands::Ensure {
@@ -203,7 +212,7 @@ fn main() -> Result<()> {
                 let opts = EnsureOptions {
                     port: cfg.port,
                     data_dir: cfg.data_dir,
-                    exe: None,
+                    exe: cfg.daemon_bin.clone(),
                     timeout: Duration::from_millis(timeout_ms),
                     poll_only: false,
                     no_gui: cfg.no_gui,
@@ -237,7 +246,7 @@ fn main() -> Result<()> {
                 let opts = EnsureOptions {
                     port: cfg.port,
                     data_dir: cfg.data_dir.clone(),
-                    exe: None,
+                    exe: cfg.daemon_bin.clone(),
                     timeout: Duration::from_millis(timeout_ms),
                     poll_only: false,
                     no_gui: cfg.no_gui,
@@ -286,7 +295,10 @@ fn main() -> Result<()> {
                 let data_dir = data_dir.unwrap_or_else(install::default_data_dir);
                 let copied = install::copy_skills_to(&data_dir, &dest)?;
                 if copied.is_empty() {
-                    println!("no skill folders found under {}", data_dir.join("skills").display());
+                    println!(
+                        "no skill folders found under {}",
+                        data_dir.join("skills").display()
+                    );
                 } else {
                     for p in copied {
                         println!("copied → {}", p.display());
@@ -441,7 +453,11 @@ async fn run_daemon(
         "starting tdmcp-daemon"
     );
 
-    let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("tdmcp-daemon"));
+    let exe = cfg
+        .daemon_bin
+        .clone()
+        .or_else(|| std::env::current_exe().ok())
+        .unwrap_or_else(|| PathBuf::from("tdmcp-daemon"));
     autostart::reconcile_best_effort(cfg.always_on, &exe);
 
     refuse_if_daemon_owned(&cfg.data_dir, cfg.port).await?;

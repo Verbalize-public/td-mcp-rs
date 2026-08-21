@@ -147,6 +147,7 @@ struct DashboardApp {
     data_dir_edit: String,
     bridge_dir_edit: String,
     catalog_path_edit: String,
+    daemon_bin_edit: String,
     status: Option<StatusView>,
     fleet_json: String,
     sessions_json: String,
@@ -207,7 +208,8 @@ impl DashboardApp {
         let menu_stop = MenuItem::new("Stop daemon", true, None);
 
         let draft = cfgfile::load(&config_path).unwrap_or_default();
-        let (data_dir_edit, bridge_dir_edit, catalog_path_edit) = path_edits_from(&draft);
+        let (data_dir_edit, bridge_dir_edit, catalog_path_edit, daemon_bin_edit) =
+            path_edits_from(&draft);
 
         Ok(Self {
             admin_base,
@@ -219,6 +221,7 @@ impl DashboardApp {
             data_dir_edit,
             bridge_dir_edit,
             catalog_path_edit,
+            daemon_bin_edit,
             status: None,
             fleet_json: String::new(),
             sessions_json: String::new(),
@@ -299,10 +302,11 @@ impl DashboardApp {
                 self.settings_error = Some(format!("load failed: {e}"));
             }
         }
-        let (d, b, c) = path_edits_from(&self.draft);
+        let (d, b, c, bin) = path_edits_from(&self.draft);
         self.data_dir_edit = d;
         self.bridge_dir_edit = b;
         self.catalog_path_edit = c;
+        self.daemon_bin_edit = bin;
         self.view = View::Settings;
     }
 
@@ -310,6 +314,7 @@ impl DashboardApp {
         self.draft.advanced.data_dir = nonempty_path(&self.data_dir_edit);
         self.draft.advanced.bridge_dir = nonempty_path(&self.bridge_dir_edit);
         self.draft.advanced.catalog_path = nonempty_path(&self.catalog_path_edit);
+        self.draft.advanced.daemon_bin = nonempty_path(&self.daemon_bin_edit);
     }
 
     fn save_settings(&mut self) {
@@ -926,6 +931,22 @@ impl DashboardApp {
             )
             .on_hover_text(Self::field_help("advanced.catalog_path"));
         });
+        if !self.daemon_bin_edit.is_empty() {
+            ui.horizontal(|ui| {
+                ui.add_space(12.0);
+                ui.label(
+                    egui::RichText::new("Daemon bin")
+                        .font(font_label())
+                        .color(TEXT),
+                );
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.daemon_bin_edit)
+                        .desired_width(220.0)
+                        .font(font_mono())
+                        .interactive(false),
+                );
+            });
+        }
 
         ui.add_space(12.0);
         ui.painter().rect_filled(
@@ -1207,7 +1228,7 @@ impl eframe::App for DashboardApp {
     }
 }
 
-fn path_edits_from(cfg: &ConfigFile) -> (String, String, String) {
+fn path_edits_from(cfg: &ConfigFile) -> (String, String, String, String) {
     (
         cfg.advanced
             .data_dir
@@ -1221,6 +1242,11 @@ fn path_edits_from(cfg: &ConfigFile) -> (String, String, String) {
             .unwrap_or_default(),
         cfg.advanced
             .catalog_path
+            .as_ref()
+            .map(|p| p.display().to_string())
+            .unwrap_or_default(),
+        cfg.advanced
+            .daemon_bin
             .as_ref()
             .map(|p| p.display().to_string())
             .unwrap_or_default(),

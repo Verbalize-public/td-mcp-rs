@@ -101,6 +101,7 @@ the data directory.
 | `data_dir` | *(unset)* | Install / data root |
 | `bridge_dir` | *(unset)* | Python bridge package directory |
 | `catalog_path` | *(unset)* | `diagnostics/catalog.yaml` path |
+| `daemon_bin` | *(unset)* | Path to the installed daemon binary (auto-set by `install`; used for spawn / restart / autostart instead of `current_exe()`) |
 
 ## Keep alive vs idle exit
 
@@ -150,4 +151,5 @@ idle_dead_secs = 20
 
 [advanced]
 # data_dir = "C:/path/to/tdmcp-rs-data"
+# daemon_bin = "C:/path/to/tdmcp-daemon.exe"
 ```

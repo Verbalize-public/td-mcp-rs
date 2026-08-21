@@ -74,9 +74,12 @@ impl McpHandler {
 
 impl ServerHandler for McpHandler {
     fn get_info(&self) -> ServerInfo {
-        ServerInfo::new(resources::server_capabilities()).with_server_info(
-            Implementation::new("tdmcp-daemon", env!("CARGO_PKG_VERSION")),
-        ).with_instructions(SERVER_INSTRUCTIONS)
+        ServerInfo::new(resources::server_capabilities())
+            .with_server_info(Implementation::new(
+                "tdmcp-daemon",
+                env!("CARGO_PKG_VERSION"),
+            ))
+            .with_instructions(SERVER_INSTRUCTIONS)
     }
 
     async fn initialize(

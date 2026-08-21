@@ -27,6 +27,9 @@ pub struct Config {
     pub no_gui: bool,
     /// Bridge IPC call / heartbeat budgets from `[bridge]`.
     pub bridge: BridgeSection,
+    /// Path to the installed daemon binary (auto-set by `install`).
+    /// When `Some`, spawn / restart / autostart use this path instead of `current_exe()`.
+    pub daemon_bin: Option<PathBuf>,
 }
 
 /// Optional CLI / env overrides passed into [`Config::load`].
@@ -92,6 +95,7 @@ impl Config {
             always_on: file.daemon.always_on,
             no_gui,
             bridge: file.bridge,
+            daemon_bin: file.advanced.daemon_bin,
         })
     }
 }

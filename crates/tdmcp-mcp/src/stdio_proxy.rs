@@ -22,8 +22,8 @@ use std::time::Duration;
 
 use rmcp::model::{
     CallToolRequestParams, CallToolResponse, Implementation, InitializeRequestParams,
-    InitializeResult, ListResourcesResult, ListToolsResult, PaginatedRequestParams, ProtocolVersion,
-    ReadResourceRequestParams, ReadResourceResponse, ServerInfo, Tool,
+    InitializeResult, ListResourcesResult, ListToolsResult, PaginatedRequestParams,
+    ProtocolVersion, ReadResourceRequestParams, ReadResourceResponse, ServerInfo, Tool,
 };
 use rmcp::service::RequestContext;
 use rmcp::{ErrorData, RoleServer, ServerHandler, ServiceError, ServiceExt};
@@ -292,15 +292,19 @@ impl StdioProxy {
         if let Some(link) = self.link.get() {
             return Ok(Arc::clone(link));
         }
-        match DaemonLink::connect(&self.daemon_url, self.admin_base.clone(), self.config.clone())
-            .await
+        match DaemonLink::connect(
+            &self.daemon_url,
+            self.admin_base.clone(),
+            self.config.clone(),
+        )
+        .await
         {
             Ok(link) => {
                 apply_pending_ide(&link, &self.pending_ide);
-                match self.link.set(Arc::clone(&link)) {
-                    Ok(()) => Ok(link),
-                    Err(_existing) => Ok(Arc::clone(self.link.get().expect("OnceCell set raced"))),
-                }
+                // Another caller may have won the race — either way,
+                // the freshly-constructed link is functionally equivalent.
+                let _ = self.link.set(Arc::clone(&link));
+                Ok(link)
             }
             Err(e) => {
                 warn!(error = %e, "stdio_proxy: daemon connect failed on tool call");

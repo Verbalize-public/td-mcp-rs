@@ -158,7 +158,54 @@ pub fn skills_dir(data_dir: &Path) -> Result<PathBuf> {
     Ok(data_dir.join("skills"))
 }
 
-/// Copy extracted skill folders into `dest` (e.g. `~/.cursor/skills`).
+/// Copy the current binary into `{data_dir}/bin/` so the installed daemon has a
+/// stable, independent path that is not the original build artifact.
+///
+/// Returns the absolute destination path. Skips with a warning when source
+/// equals destination (already installed) or when the copy fails (e.g. target
+/// locked by a running process).
+pub fn copy_daemon_binary(data_dir: &Path) -> Result<PathBuf> {
+    let src = std::env::current_exe().context("resolve current_exe for install copy")?;
+    let bin_dir = data_dir.join("bin");
+    fs::create_dir_all(&bin_dir)
+        .with_context(|| format!("create bin dir {}", bin_dir.display()))?;
+
+    let name = src.file_name().context("current_exe has no file name")?;
+    let dest = bin_dir.join(name);
+
+    // Skip when source and destination are the same file (already installed).
+    match (fs::canonicalize(&src), fs::canonicalize(&dest)) {
+        (Ok(canon_src), Ok(canon_dest)) if canon_src == canon_dest => {
+            tracing::info!(
+                src = %src.display(),
+                dest = %dest.display(),
+                "install: binary already at install location — skipping copy"
+            );
+            return Ok(dest);
+        }
+        _ => {}
+    }
+
+    match fs::copy(&src, &dest) {
+        Ok(_) => {
+            tracing::info!(
+                src = %src.display(),
+                dest = %dest.display(),
+                "install: copied daemon binary to install location"
+            );
+        }
+        Err(e) => {
+            tracing::warn!(
+                error = %e,
+                src = %src.display(),
+                dest = %dest.display(),
+                "install: could not copy daemon binary (target may be locked by a running daemon) — \
+                 existing binary at dest will be used if present"
+            );
+        }
+    }
+    Ok(dest)
+}
 ///
 /// Copies each immediate subdirectory of `{data_dir}/skills/` (skips top-level
 /// README.md) into `{dest}/<name>/`.

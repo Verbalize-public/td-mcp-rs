@@ -14,20 +14,23 @@
 //! cargo test -p tdmcp-daemon --test multi_client_freeze -- --nocapture --test-threads=1
 //! ```
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, reason = "test harness")]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    reason = "test harness"
+)]
 
 use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use futures::future::join_all;
-use rmcp::model::{
-    CallToolRequestParams, ClientCapabilities, ClientInfo, Implementation,
-};
+use rmcp::model::{CallToolRequestParams, ClientCapabilities, ClientInfo, Implementation};
 use rmcp::service::{Peer, ServiceExt};
-use rmcp::RoleClient;
 use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
 use rmcp::transport::StreamableHttpClientTransport;
+use rmcp::RoleClient;
 use serde_json::json;
 use tdmcp_ipc::{encode, HandshakeRequest, Message};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -129,7 +132,10 @@ fn spawn_daemon() -> TestDaemon {
         .env("TDMCP_IPC_PIPE", &pipe)
         .env("TDMCP_IDLE_EXIT_SECS", "0")
         .env("TDMCP_TRACE_ACCEPT", "1")
-        .env("RUST_LOG", "warn,tdmcp_daemon=info,tdmcp_mcp=info,tdmcp_ipc=info")
+        .env(
+            "RUST_LOG",
+            "warn,tdmcp_daemon=info,tdmcp_mcp=info,tdmcp_ipc=info",
+        )
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::from(stderr))
@@ -264,7 +270,10 @@ async fn fake_td_peer(
 // MCP client sessions
 // ---------------------------------------------------------------------------
 
-type ClientSession = (Arc<Peer<RoleClient>>, rmcp::service::RunningService<RoleClient, ClientInfo>);
+type ClientSession = (
+    Arc<Peer<RoleClient>>,
+    rmcp::service::RunningService<RoleClient, ClientInfo>,
+);
 
 /// Connect with the same pooled HTTP client the production stdio proxy uses
 /// (`tdmcp_mcp::daemon_link::connect_http`): rmcp's `from_uri` default
@@ -286,7 +295,10 @@ async fn connect_client(daemon_url: &str, name: &str) -> Result<ClientSession, S
         ClientCapabilities::default(),
         Implementation::new(name.to_owned(), "0.0.1"),
     );
-    let service = client_info.serve(transport).await.map_err(|e| e.to_string())?;
+    let service = client_info
+        .serve(transport)
+        .await
+        .map_err(|e| e.to_string())?;
     let peer = Arc::new(service.peer().clone());
     Ok((peer, service))
 }
@@ -404,10 +416,13 @@ async fn run_storm(daemon_url: String, pids: &[u32], port: u16) -> StormReport {
         let client = reqwest::Client::new();
         loop {
             let started = Instant::now();
-            let ok = timeout(Duration::from_secs(2), client.get(format!("{health_base}/mcp/health")).send())
-                .await
-                .map(|r| r.is_ok())
-                .unwrap_or(false);
+            let ok = timeout(
+                Duration::from_secs(2),
+                client.get(format!("{health_base}/mcp/health")).send(),
+            )
+            .await
+            .map(|r| r.is_ok())
+            .unwrap_or(false);
             let latency = started.elapsed();
             if !ok {
                 *stats_health.health_missed.lock().await += 1;
@@ -434,16 +449,16 @@ async fn run_storm(daemon_url: String, pids: &[u32], port: u16) -> StormReport {
                         // Mix cheap fleet, bridged inspect, and slow execute_python.
                         match k % 4 {
                             0 => timeout(CALL_BUDGET, peer.call_tool_once(fleet_params())).await,
-                            3 => timeout(
-                                CALL_BUDGET,
-                                peer.call_tool_once(execute_python_params(pid)),
-                            )
-                            .await,
-                            _ => timeout(
-                                CALL_BUDGET,
-                                peer.call_tool_once(inspect_params(pid)),
-                            )
-                            .await,
+                            3 => {
+                                timeout(
+                                    CALL_BUDGET,
+                                    peer.call_tool_once(execute_python_params(pid)),
+                                )
+                                .await
+                            }
+                            _ => {
+                                timeout(CALL_BUDGET, peer.call_tool_once(inspect_params(pid))).await
+                            }
                         }
                     }));
                 }
@@ -480,18 +495,10 @@ async fn run_storm(daemon_url: String, pids: &[u32], port: u16) -> StormReport {
             if tick > STORM_SECS {
                 break;
             }
-            match timeout(
-                Duration::from_secs(3),
-                connect_client(&churn_url, "churn"),
-            )
-            .await
-            {
+            match timeout(Duration::from_secs(3), connect_client(&churn_url, "churn")).await {
                 Ok(Ok((peer, _svc))) => {
-                    let _ = timeout(
-                        Duration::from_secs(3),
-                        peer.call_tool_once(fleet_params()),
-                    )
-                    .await;
+                    let _ =
+                        timeout(Duration::from_secs(3), peer.call_tool_once(fleet_params())).await;
                     drop(peer);
                 }
                 Ok(Err(e)) => {
@@ -530,9 +537,10 @@ async fn run_storm(daemon_url: String, pids: &[u32], port: u16) -> StormReport {
             };
             let pid = teardown_pids[(tick as usize) % teardown_pids.len()];
             let peer_call = peer.clone();
-            let call = tokio::spawn(async move {
-                peer_call.call_tool_once(execute_python_params(pid)).await
-            });
+            let call =
+                tokio::spawn(
+                    async move { peer_call.call_tool_once(execute_python_params(pid)).await },
+                );
             // Drop the session (and its HTTP connection) ~150ms into the call.
             tokio::time::sleep(Duration::from_millis(150)).await;
             drop(peer);
@@ -563,19 +571,21 @@ async fn run_storm(daemon_url: String, pids: &[u32], port: u16) -> StormReport {
 
     // Fresh-session probe: distinguishes per-session wedge from daemon freeze.
     let fresh_started = Instant::now();
-    let fresh_res = timeout(
-        PROBE_BUDGET,
-        async {
-            let (peer, _svc) = connect_client(&daemon_url, "fresh").await?;
-            peer.call_tool_once(fleet_params()).await.map_err(|e| e.to_string())
-        },
-    )
+    let fresh_res = timeout(PROBE_BUDGET, async {
+        let (peer, _svc) = connect_client(&daemon_url, "fresh").await?;
+        peer.call_tool_once(fleet_params())
+            .await
+            .map_err(|e| e.to_string())
+    })
     .await;
     let fresh_fleet_latency = fresh_started.elapsed();
     let (fresh_fleet_ok, fresh_connect_err) = match &fresh_res {
         Ok(Ok(_)) => (true, None),
         Ok(Err(e)) => (false, Some(e.clone())),
-        Err(_) => (false, Some(format!("timed out after {fresh_fleet_latency:?}"))),
+        Err(_) => (
+            false,
+            Some(format!("timed out after {fresh_fleet_latency:?}")),
+        ),
     };
 
     for (_, svc) in &mut sessions {
@@ -611,9 +621,7 @@ async fn multi_client_storm_does_not_freeze() {
     let pids: Vec<u32> = (0..4).map(|i| 4240 + i).collect();
     let mut peers = Vec::new();
     for pid in &pids {
-        peers.push(
-            fake_td_peer(daemon.pipe.clone(), *pid, PEER_DELAY, SLOW_CALL_DELAY).await,
-        );
+        peers.push(fake_td_peer(daemon.pipe.clone(), *pid, PEER_DELAY, SLOW_CALL_DELAY).await);
     }
 
     // Wait for bridges to register.
@@ -634,10 +642,7 @@ async fn multi_client_storm_does_not_freeze() {
     // With pooled clients the count stays bounded (connections reused); the
     // pre-fix no-pool clients burned ~16k TIME_WAIT sockets in 20s.
     let mut time_wait_count = 0usize;
-    if let Ok(out) = std::process::Command::new("netstat")
-        .arg("-ano")
-        .output()
-    {
+    if let Ok(out) = std::process::Command::new("netstat").arg("-ano").output() {
         let text = String::from_utf8_lossy(&out.stdout);
         let matching: Vec<&str> = text
             .lines()
@@ -650,7 +655,11 @@ async fn multi_client_storm_does_not_freeze() {
             }
         }
         time_wait_count = by_state.get("TIME_WAIT").copied().unwrap_or(0);
-        println!("netstat on :{port}: {} conns {:?}", matching.len(), by_state);
+        println!(
+            "netstat on :{port}: {} conns {:?}",
+            matching.len(),
+            by_state
+        );
     }
 
     let max_probe = report
@@ -667,7 +676,10 @@ async fn multi_client_storm_does_not_freeze() {
 
     println!("probe samples: {}", report.probe_latencies.len());
     println!("max probe latency: {max_probe:?}");
-    println!("missed probes (>{PROBE_BUDGET:?}): {}", report.missed_probes);
+    println!(
+        "missed probes (>{PROBE_BUDGET:?}): {}",
+        report.missed_probes
+    );
     println!("slow probes (>{PROBE_BUDGET:?}): {slow_probes}");
     println!("missed health probes: {}", report.missed_health);
     println!("tcp connect failures: {}", report.connect_failures);

@@ -75,5 +75,11 @@ It then rebuilds `tdmcp-daemon` with `--features gui` and copies it into
 binary). This avoids shipping a stale headless binary from a prior
 `--no-default-features` build.
 
-If Cursor still has the MCP server connected, it may respawn `tdmcp-daemon mcp`
-and re-lock the file — pause/reload MCP when rebuild still fails after kill.
+After a build, run `target/release/tdmcp-daemon install` to copy the binary into
+the stable install location (`{data_dir}/bin/`) and record its path in
+`config.toml`. That install copy is the one Cursor should point at; it can be
+locked by running processes while `target/release/` stays writable for the next
+`cargo build`.
+
+If the MCP daemon is running from the installed location, stop it before
+re-running `install` so the installed binary can be overwritten.

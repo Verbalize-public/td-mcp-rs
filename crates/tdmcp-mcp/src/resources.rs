@@ -249,12 +249,8 @@ pub fn list_resources() -> ListResourcesResult {
 /// Read one resource by URI (`tdmcp://docs/<id>`).
 pub fn read_resource(uri: &str) -> Result<ReadResourceResult, String> {
     let entry = find_entry(uri).ok_or_else(|| format!("unknown resource uri: {uri}"))?;
-    let file = file_for(entry).ok_or_else(|| {
-        format!(
-            "embedded file missing for {}: {}",
-            entry.id, entry.rel_path
-        )
-    })?;
+    let file = file_for(entry)
+        .ok_or_else(|| format!("embedded file missing for {}: {}", entry.id, entry.rel_path))?;
     let text = std::str::from_utf8(file.contents())
         .map_err(|e| format!("resource {} is not utf-8: {e}", entry.id))?;
     let contents = ResourceContents::text(text, uri_for(entry.id)).with_mime_type("text/markdown");

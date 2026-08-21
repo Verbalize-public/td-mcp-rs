@@ -101,21 +101,20 @@ impl ReconnectConfig {
             std::env::var("TDMCP_RECONNECT_PROBE_MAX_MS")
                 .ok()
                 .as_deref(),
-            std::env::var("TDMCP_PROXY_CALL_TIMEOUT_MS")
-                .ok()
-                .as_deref(),
+            std::env::var("TDMCP_PROXY_CALL_TIMEOUT_MS").ok().as_deref(),
             std::env::var("TDMCP_PROXY_SCRIPT_TIMEOUT_MS")
                 .ok()
                 .as_deref(),
-            std::env::var("TDMCP_PROXY_LIST_TIMEOUT_MS")
-                .ok()
-                .as_deref(),
+            std::env::var("TDMCP_PROXY_LIST_TIMEOUT_MS").ok().as_deref(),
         )
     }
 
     /// Parse optional raw env strings (tests).
     #[must_use]
-    #[allow(clippy::too_many_arguments, reason = "one param per env knob; mirrors config surface")]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "one param per env knob; mirrors config surface"
+    )]
     pub fn from_env_vars(
         recent: Option<&str>,
         stale: Option<&str>,
@@ -549,7 +548,10 @@ async fn connect_http(daemon_url: &str) -> Result<RunningService<RoleClient, Cli
         ClientCapabilities::default(),
         Implementation::new(STDIO_PROXY_CLIENT_NAME, env!("CARGO_PKG_VERSION")),
     );
-    client_info.serve(transport).await.map_err(|e| e.to_string())
+    client_info
+        .serve(transport)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Whether this error warrants a reconnect attempt.
@@ -792,7 +794,10 @@ mod tests {
         // (45s / 120s) so a live call is never cut early.
         assert!(cfg.call_timeout > Duration::from_secs(45));
         assert!(cfg.script_timeout > Duration::from_secs(120));
-        assert_eq!(cfg.call_timeout, Duration::from_millis(DEFAULT_PROXY_CALL_TIMEOUT_MS));
+        assert_eq!(
+            cfg.call_timeout,
+            Duration::from_millis(DEFAULT_PROXY_CALL_TIMEOUT_MS)
+        );
         assert_eq!(
             cfg.script_timeout,
             Duration::from_millis(DEFAULT_PROXY_SCRIPT_TIMEOUT_MS)

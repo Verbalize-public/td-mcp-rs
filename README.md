@@ -73,7 +73,7 @@ target\release\tdmcp-daemon.exe install
 target/release/tdmcp-daemon install
 ```
 
-`install` is idempotent and does two things:
+`install` is idempotent and does three things:
 
 1. **Extracts the embedded assets** — `bridge/` (Python package),
    `diagnostics/catalog.yaml`, `bootstrap.tox`, and `skills/` (operate pack) —
@@ -83,6 +83,11 @@ target/release/tdmcp-daemon install
 2. **Resets `config.toml`** to the shipped defaults
    (`%APPDATA%\tdmcp-rs\config.toml` on Windows; Application Support / XDG
    config elsewhere).
+3. **Copies the daemon binary** to `{data_dir}/bin/tdmcp-daemon[.exe]` and records
+   its absolute path as `[advanced] daemon_bin` in `config.toml`. Spawn,
+   restart, and autostart prefer this path over `current_exe()`, so the
+   original build artifact (`target/release/`) is never locked by an
+   IDE-spawned process.
 
 Strictly, `install` is optional — `start`, `ensure`, and `mcp` all extract the
 assets on first use. Run `install` when you want an explicit, clean setup or
@@ -91,14 +96,15 @@ to reset the config to defaults. Every setting lives in `config.toml`; see
 
 ## Quickstart
 
-1. **Add to Cursor** — see [`mcp.tdmcp.example.json`](mcp.tdmcp.example.json);
+1. **Add to Cursor** — after `install`, point Cursor at the installed binary
+   so the build artifact stays unlocked. See [`mcp.tdmcp.example.json`](mcp.tdmcp.example.json);
    use an absolute path (on Unix omit `.exe`):
 
    ```json
    {
      "mcpServers": {
        "tdmcp-rs": {
-         "command": "C:/absolute/path/to/tdmcp-daemon.exe",
+         "command": "C:/Users/<you>/AppData/Local/tdmcp-rs/bin/tdmcp-daemon.exe",
          "args": ["mcp"]
        }
      }

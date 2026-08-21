@@ -22,8 +22,8 @@ container and promote later.
 ## Safety
 
 - Never destroy nodes you did not create without explicit approval by the user.
-- Never mutate outside the current zone without fresh explicit authorization.
-- Non-trivial builds (>3 nodes / COMP hub): sketch in OpSketch before mutating
+- Never mutate outside the current zone explicit authorization.
+- **ALWAYS** sketch in OpSketch before mutating.
   (`tdmcp://docs/opsketch-notation`).
 
 

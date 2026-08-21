@@ -208,11 +208,7 @@ pub fn configure_detached_spawn(cmd: &mut Command, no_gui: bool) {
 }
 
 /// Like [`configure_detached_spawn`], optionally appending logs under `data_dir`.
-pub fn configure_detached_spawn_with_log(
-    cmd: &mut Command,
-    no_gui: bool,
-    data_dir: Option<&Path>,
-) {
+pub fn configure_detached_spawn_with_log(cmd: &mut Command, no_gui: bool, data_dir: Option<&Path>) {
     cmd.stdin(Stdio::null());
 
     #[cfg(windows)]
@@ -251,7 +247,10 @@ pub fn configure_detached_spawn_with_log(
 fn attach_unix_daemon_log(cmd: &mut Command, data_dir: &Path) -> std::io::Result<()> {
     fs::create_dir_all(data_dir)?;
     let log_path = data_dir.join("daemon.log");
-    let file = OpenOptions::new().create(true).append(true).open(&log_path)?;
+    let file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)?;
     match file.try_clone() {
         Ok(err_file) => {
             cmd.stdout(Stdio::from(file)).stderr(Stdio::from(err_file));

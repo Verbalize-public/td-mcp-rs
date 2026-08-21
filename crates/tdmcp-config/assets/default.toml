@@ -16,7 +16,7 @@ port = 9860
 [daemon]
 # When true, the daemon never auto-exits after idle (no MCP sessions and no TD bridges).
 # Default false: idle exit after ~30s (override timeout with TDMCP_IDLE_EXIT_SECS).
-keep_alive = true
+keep_alive = false
 
 # When true, register the daemon to start at user login (OS autostart).
 # Default false. Applied once at daemon start.
@@ -45,6 +45,9 @@ idle_dead_secs = 20
 
 [advanced]
 # Optional overrides. Leave unset to use built-in defaults under the data dir.
+# `daemon_bin` is set automatically by `tdmcp-daemon install` and is the
+# stable path used for spawn / restart / autostart.
 # data_dir = "C:/path/to/tdmcp-rs-data"
 # bridge_dir = "C:/path/to/bridge"
 # catalog_path = "C:/path/to/diagnostics/catalog.yaml"
+# daemon_bin = "C:/path/to/tdmcp-daemon.exe"

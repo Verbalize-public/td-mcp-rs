@@ -537,9 +537,11 @@ async fn stdio_proxy_call_timeout_heals_and_returns_budget_error() {
         .cloned()
         .unwrap_or_default();
     let started = std::time::Instant::now();
-    let result = tokio::time::timeout(Duration::from_secs(10), client.call_tool(
-        CallToolRequestParams::new("inspect").with_arguments(inspect_args.clone()),
-    ))
+    let result = tokio::time::timeout(
+        Duration::from_secs(10),
+        client
+            .call_tool(CallToolRequestParams::new("inspect").with_arguments(inspect_args.clone())),
+    )
     .await
     .expect("proxy must not hang past the bounded budget");
 

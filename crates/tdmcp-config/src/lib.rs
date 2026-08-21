@@ -113,6 +113,9 @@ pub struct AdvancedSection {
     pub bridge_dir: Option<PathBuf>,
     /// Override diagnostics catalog path.
     pub catalog_path: Option<PathBuf>,
+    /// Path to the installed daemon binary (set automatically by `tdmcp-daemon install`).
+    /// Used for spawn / restart / autostart instead of `current_exe()`.
+    pub daemon_bin: Option<PathBuf>,
 }
 
 /// Field descriptions shared by docs, GUI tooltips, and the default template.
@@ -187,6 +190,11 @@ pub const FIELD_DESCS: &[FieldDesc] = &[
         key: "advanced.catalog_path",
         label: "Catalog path",
         help: "Optional override for diagnostics/catalog.yaml.",
+    },
+    FieldDesc {
+        key: "advanced.daemon_bin",
+        label: "Daemon bin",
+        help: "Path to the installed daemon binary (auto-set by `install`; used for spawn / restart / autostart).",
     },
 ];
 
@@ -282,6 +290,11 @@ pub fn save(path: &Path, cfg: &ConfigFile) -> Result<()> {
         &mut doc["advanced"],
         "catalog_path",
         cfg.advanced.catalog_path.as_ref(),
+    );
+    set_optional_path(
+        &mut doc["advanced"],
+        "daemon_bin",
+        cfg.advanced.daemon_bin.as_ref(),
     );
 
     fs::write(path, doc.to_string()).with_context(|| format!("write config {}", path.display()))?;
