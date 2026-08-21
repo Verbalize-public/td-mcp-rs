@@ -75,6 +75,8 @@ struct StatusBody {
     pid: u32,
     mcp_session_count: usize,
     bridge_count: usize,
+    /// True when this process was started with `--no-gui` / headless.
+    no_gui: bool,
 }
 
 async fn status(State(state): State<AdminState>) -> Json<StatusBody> {
@@ -95,6 +97,7 @@ async fn status(State(state): State<AdminState>) -> Json<StatusBody> {
         pid: std::process::id(),
         mcp_session_count: state.app.mcp_session_count(),
         bridge_count,
+        no_gui: state.restart.no_gui,
     })
 }
 

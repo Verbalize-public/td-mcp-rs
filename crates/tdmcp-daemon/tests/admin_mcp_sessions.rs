@@ -117,6 +117,7 @@ async fn mcp_sessions_list_and_annotate() {
     assert_eq!(sv["ok"], true);
     assert_eq!(sv["mcpSessionCount"], 1);
     assert_eq!(sv["bridgeCount"], 0);
+    assert_eq!(sv["noGui"], true);
 
     let list = state.mcp_sessions.list();
     assert_eq!(list[0].client_name, "Cursor");

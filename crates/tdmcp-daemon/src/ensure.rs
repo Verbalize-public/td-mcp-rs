@@ -68,16 +68,29 @@ pub struct EnsureResult {
 }
 
 /// Health-check `:port`; if down, lock + spawn detached `tdmcp-daemon start`.
+///
+/// When the caller wants a tray (`no_gui = false`) but a healthy **headless**
+/// daemon is already listening, shut it down and respawn with the tray so a
+/// leftover `--no-gui` debug start cannot pin the port forever.
 pub async fn ensure_daemon(opts: EnsureOptions) -> Result<EnsureResult> {
     let base_url = format!("http://127.0.0.1:{}", opts.port);
     install::ensure_installed(&opts.data_dir, opts.force_install)?;
 
     if health_ok(opts.port).await {
-        return Ok(EnsureResult {
-            base_url,
-            already_running: true,
-            spawned: false,
-        });
+        if !opts.no_gui && daemon_is_headless(opts.port).await {
+            info!(
+                port = opts.port,
+                "ensure: healthy headless daemon but tray requested — restarting with tray"
+            );
+            let _ = request_shutdown(opts.port).await;
+            wait_until_unhealthy(opts.port, Duration::from_secs(5)).await;
+        } else {
+            return Ok(EnsureResult {
+                base_url,
+                already_running: true,
+                spawned: false,
+            });
+        }
     }
     if opts.poll_only {
         bail!("ensure: daemon not healthy at {base_url} (pollOnly)");
@@ -141,6 +154,30 @@ pub async fn ensure_daemon(opts: EnsureOptions) -> Result<EnsureResult> {
         });
     }
     bail!("ensure: timed out waiting for {base_url} (spawned={spawned})")
+}
+
+/// GET `/admin/status` and return whether the live daemon is headless.
+async fn daemon_is_headless(port: u16) -> bool {
+    let url = format!("http://127.0.0.1:{port}/admin/status");
+    match tokio::time::timeout(Duration::from_millis(800), crate::http_util::get_json(&url)).await {
+        Ok(Ok(v)) => v.get("noGui").and_then(|x| x.as_bool()).unwrap_or(false),
+        _ => false,
+    }
+}
+
+async fn request_shutdown(port: u16) -> Result<()> {
+    let url = format!("http://127.0.0.1:{port}/admin/shutdown");
+    crate::http_util::post_empty(&url).await
+}
+
+async fn wait_until_unhealthy(port: u16, budget: Duration) {
+    let deadline = Instant::now() + budget;
+    while Instant::now() < deadline {
+        if !health_ok(port).await {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
 }
 
 /// GET `/mcp/health` and require JSON `ok: true`.
