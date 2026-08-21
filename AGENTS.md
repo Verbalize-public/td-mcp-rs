@@ -21,7 +21,6 @@ Law: [`CONSTITUTION.md`](CONSTITUTION.md). User install/quickstart: [`README.md`
 | Config file / Settings | [`docs/CONFIG.md`](docs/CONFIG.md) |
 | Packaging | [`docs/DELIVERY.md`](docs/DELIVERY.md) |
 | Curated architecture / stability review | [`docs/CURATED_REVIEW.md`](docs/CURATED_REVIEW.md) |
-| Typing / schema policy | [`TODO_ENFORCE_TYPE.md`](TODO_ENFORCE_TYPE.md) |
 
 ## Agent ops (when driving live TD via this daemon)
 
