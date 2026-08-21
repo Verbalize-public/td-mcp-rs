@@ -162,6 +162,45 @@ pub fn section_header(ui: &mut egui::Ui, title: &str) {
         .hline(rect.x_range(), rect.bottom(), Stroke::new(1.0, BORDER));
 }
 
+/// Filled accent button — the settings primary action (Save).
+pub fn filled_button(ui: &mut egui::Ui, label: &str) -> egui::Response {
+    let galley = ui.painter().layout_no_wrap(
+        label.to_owned(),
+        font_label(),
+        Color32::from_rgb(0x13, 0x13, 0x13),
+    );
+    let pad = egui::vec2(10.0, 3.0);
+    let size = egui::vec2((galley.size().x + pad.x * 2.0).max(48.0), 22.0);
+    let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+
+    let hovered = response.hovered();
+    let pressed = response.is_pointer_button_down_on();
+    let fill = if pressed {
+        // Darker accent while held.
+        Color32::from_rgb(0xc9, 0x5d, 0x0e)
+    } else if hovered {
+        // Lighter accent on hover.
+        Color32::from_rgb(0xff, 0x8f, 0x3a)
+    } else {
+        ACCENT
+    };
+    let text_color = Color32::from_rgb(0x13, 0x13, 0x13);
+
+    ui.painter().rect_filled(rect, 0.0, fill);
+    let text_galley = ui
+        .painter()
+        .layout_no_wrap(label.to_owned(), font_label(), text_color);
+    ui.painter().galley(
+        egui::pos2(
+            rect.center().x - text_galley.size().x * 0.5,
+            rect.center().y - text_galley.size().y * 0.5,
+        ),
+        text_galley,
+        text_color,
+    );
+    response
+}
+
 /// Ghost (borderless) text/icon button — transparent at rest, hover fill only.
 ///
 /// * `rest` — text color at rest

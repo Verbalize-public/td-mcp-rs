@@ -165,18 +165,29 @@ async fn daemon_is_headless(port: u16) -> bool {
     }
 }
 
-async fn request_shutdown(port: u16) -> Result<()> {
+/// POST `/admin/shutdown` on `port` (best-effort; a missing daemon is fine).
+pub async fn request_shutdown(port: u16) -> Result<()> {
     let url = format!("http://127.0.0.1:{port}/admin/shutdown");
     crate::http_util::post_empty(&url).await
 }
 
-async fn wait_until_unhealthy(port: u16, budget: Duration) {
+/// Wait until no daemon answers health on `port`, up to `budget`.
+pub async fn wait_until_unhealthy(port: u16, budget: Duration) {
     let deadline = Instant::now() + budget;
     while Instant::now() < deadline {
         if !health_ok(port).await {
             return;
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+/// Version reported by `/admin/status` on `port`, if a daemon answers.
+pub async fn running_version(port: u16) -> Option<String> {
+    let url = format!("http://127.0.0.1:{port}/admin/status");
+    match tokio::time::timeout(Duration::from_millis(800), crate::http_util::get_json(&url)).await {
+        Ok(Ok(v)) => v.get("version").and_then(|x| x.as_str()).map(String::from),
+        _ => None,
     }
 }
 

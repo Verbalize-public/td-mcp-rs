@@ -3,7 +3,7 @@
 #![allow(clippy::exit, reason = "process boundary")]
 
 use std::net::SocketAddr;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -24,7 +24,8 @@ use tdmcp_daemon::autostart;
 use tdmcp_daemon::bridge::{run_ipc_accept, BridgeSessions};
 use tdmcp_daemon::config::{Config, ConfigOverrides};
 use tdmcp_daemon::ensure::{
-    daemon_lock_path, ensure_daemon, refuse_if_daemon_owned, EnsureOptions,
+    daemon_lock_path, ensure_daemon, health_ok, refuse_if_daemon_owned, request_shutdown,
+    running_version, wait_until_unhealthy, EnsureOptions,
 };
 use tdmcp_daemon::idle::{idle_exit_timeout, run_idle_watcher};
 use tdmcp_daemon::install::{self, InstallOutcome};
@@ -190,6 +191,19 @@ fn main() -> Result<()> {
             cfg.advanced.daemon_bin = Some(daemon_bin.clone());
             tdmcp_config::save(&config_path, &cfg)?;
             println!("daemon bin → {}", daemon_bin.display());
+
+            // The copied binary must report this build's version.
+            install::verify_installed_version(&daemon_bin)?;
+
+            // If a daemon is already running, restart it onto the new binary and
+            // confirm the live version matches this build.
+            let rt = tokio::runtime::Runtime::new().context("tokio runtime")?;
+            rt.block_on(restart_running_daemon(
+                cfg.server.port,
+                &data_dir,
+                &daemon_bin,
+                &config_path,
+            ))?;
             Ok(())
         }
         Commands::Ensure {
@@ -339,6 +353,64 @@ fn resolve_port(port: Option<u16>) -> Result<u16> {
         return Ok(p);
     }
     Ok(Config::load(ConfigOverrides::default())?.port)
+}
+
+/// After `install` swaps in a new binary, bounce a running daemon onto it and
+/// confirm the live `/admin/status` reports this build's version.
+///
+/// When nothing is running there is nothing to bounce — the next ensure/start
+/// loads the new binary. The mcp proxy may win the respawn race after the
+/// shutdown; that is harmless because the config `daemon_bin` already points at
+/// the freshly installed copy. The poll below verifies the *running* version,
+/// not just health.
+async fn restart_running_daemon(
+    port: u16,
+    data_dir: &Path,
+    daemon_bin: &Path,
+    config_path: &Path,
+) -> Result<()> {
+    let expected = env!("CARGO_PKG_VERSION");
+    if !health_ok(port).await {
+        println!("daemon not running on port {port} — next start loads {expected}");
+        return Ok(());
+    }
+    if running_version(port).await.as_deref() == Some(expected) {
+        println!("running daemon already at {expected} on port {port}");
+        return Ok(());
+    }
+
+    println!("restarting running daemon on port {port} to load {expected}");
+    let _ = request_shutdown(port).await;
+    wait_until_unhealthy(port, Duration::from_secs(5)).await;
+
+    let _ = ensure_daemon(EnsureOptions {
+        port,
+        data_dir: data_dir.to_path_buf(),
+        exe: Some(daemon_bin.to_path_buf()),
+        timeout: Duration::from_secs(15),
+        poll_only: false,
+        no_gui: false,
+        idle_exit_secs: None,
+        force_install: false,
+        ipc_pipe: None,
+        config_path: Some(config_path.to_path_buf()),
+    })
+    .await?;
+
+    let deadline = Instant::now() + Duration::from_secs(15);
+    loop {
+        if running_version(port).await.as_deref() == Some(expected) {
+            println!("running daemon {expected} on port {port}");
+            return Ok(());
+        }
+        if Instant::now() >= deadline {
+            bail!(
+                "daemon on port {port} does not report {expected} after install — \
+                 check `tdmcp-daemon status`"
+            );
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
 }
 
 fn start_daemon(cfg: Config) -> Result<()> {

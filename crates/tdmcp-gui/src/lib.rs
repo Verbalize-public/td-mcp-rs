@@ -23,9 +23,9 @@ use tray_icon::{
 };
 
 use theme::{
-    font_label, font_meta, font_mono, font_title, ghost_button, section_header, status_led, ACCENT,
-    BG_HOVER, BG_PANEL, BG_ROW, BG_ROW_ALT, BORDER, ERR, OK, TEXT, TEXT_DIM, TEXT_FAINT, WARN,
-    WINDOW_MAX_HEIGHT, WINDOW_WIDTH,
+    filled_button, font_label, font_meta, font_mono, font_title, ghost_button, section_header,
+    status_led, ACCENT, BG_HOVER, BG_PANEL, BG_ROW, BG_ROW_ALT, BORDER, ERR, OK, TEXT, TEXT_DIM,
+    TEXT_FAINT, WARN, WINDOW_MAX_HEIGHT, WINDOW_WIDTH,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -619,13 +619,6 @@ impl DashboardApp {
         }
     }
 
-    fn reveal_skills(&self) {
-        let skills = self.data_dir.join("skills");
-        if let Err(e) = reveal_in_file_manager(&skills, &skills) {
-            warn!(error = %e, "reveal skills failed");
-        }
-    }
-
     fn handle_tray_events(&mut self, ctx: &egui::Context) {
         while let Ok(event) = TrayIconEvent::receiver().try_recv() {
             match event {
@@ -713,7 +706,7 @@ impl DashboardApp {
                         .color(TEXT_FAINT),
                 );
             }
-            // Right-anchored ghost actions: Stop · Restart · .tox · skills · gear (RTL).
+            // Right-anchored ghost actions: Stop · Restart · .tox · gear (RTL).
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let stop = ghost_button(ui, "■", TEXT_DIM, ERR).on_hover_text("Stop daemon");
                 if stop.clicked() {
@@ -731,13 +724,6 @@ impl DashboardApp {
                 let tox = ghost_button(ui, ".tox", TEXT_DIM, ACCENT).on_hover_text(tip);
                 if tox.clicked() {
                     self.reveal_tox();
-                }
-                ui.add_space(4.0);
-                let skills_path = self.data_dir.join("skills");
-                let tip = format!("Reveal {}", skills_path.display());
-                let skills = ghost_button(ui, "skills", TEXT_DIM, ACCENT).on_hover_text(tip);
-                if skills.clicked() {
-                    self.reveal_skills();
                 }
                 ui.add_space(4.0);
                 let gear = ghost_button(ui, "⚙", TEXT_DIM, ACCENT).on_hover_text("Settings");
@@ -785,192 +771,154 @@ impl DashboardApp {
 
         ui.add_space(8.0);
         section_header(ui, "SERVER");
-        ui.horizontal(|ui| {
-            ui.add_space(12.0);
-            ui.label(egui::RichText::new("Port").font(font_label()).color(TEXT));
+        settings_row(ui, "Port", Self::field_help("server.port"), |ui| {
             ui.add(
                 egui::DragValue::new(&mut self.draft.server.port)
                     .range(1..=65535)
                     .speed(1),
-            )
-            .on_hover_text(Self::field_help("server.port"));
+            );
         });
 
         ui.add_space(4.0);
         section_header(ui, "DAEMON");
-        ui.horizontal(|ui| {
-            ui.add_space(12.0);
-            ui.checkbox(&mut self.draft.daemon.keep_alive, "Keep alive")
-                .on_hover_text(Self::field_help("daemon.keep_alive"));
-        });
-        ui.horizontal(|ui| {
-            ui.add_space(12.0);
-            ui.checkbox(&mut self.draft.daemon.always_on, "Always on")
-                .on_hover_text(Self::field_help("daemon.always_on"));
-        });
-        ui.horizontal(|ui| {
-            ui.add_space(12.0);
-            ui.checkbox(&mut self.draft.daemon.show_tray, "Show tray")
-                .on_hover_text(Self::field_help("daemon.show_tray"));
-        });
+        settings_row(
+            ui,
+            "Keep alive",
+            Self::field_help("daemon.keep_alive"),
+            |ui| {
+                ui.add(egui::Checkbox::without_text(
+                    &mut self.draft.daemon.keep_alive,
+                ));
+            },
+        );
+        settings_row(
+            ui,
+            "Always on",
+            Self::field_help("daemon.always_on"),
+            |ui| {
+                ui.add(egui::Checkbox::without_text(
+                    &mut self.draft.daemon.always_on,
+                ));
+            },
+        );
+        settings_row(
+            ui,
+            "Show tray",
+            Self::field_help("daemon.show_tray"),
+            |ui| {
+                ui.add(egui::Checkbox::without_text(
+                    &mut self.draft.daemon.show_tray,
+                ));
+            },
+        );
 
         ui.add_space(4.0);
         section_header(ui, "BRIDGE");
-        ui.horizontal(|ui| {
-            ui.add_space(12.0);
-            ui.label(
-                egui::RichText::new("Call timeout (s)")
-                    .font(font_label())
-                    .color(TEXT),
-            );
-            ui.add(
-                egui::DragValue::new(&mut self.draft.bridge.call_timeout_secs)
-                    .range(1..=600)
-                    .speed(1),
-            )
-            .on_hover_text(Self::field_help("bridge.call_timeout_secs"));
-        });
-        ui.horizontal(|ui| {
-            ui.add_space(12.0);
-            ui.label(
-                egui::RichText::new("Script timeout (s)")
-                    .font(font_label())
-                    .color(TEXT),
-            );
-            ui.add(
-                egui::DragValue::new(&mut self.draft.bridge.script_timeout_secs)
-                    .range(1..=600)
-                    .speed(1),
-            )
-            .on_hover_text(Self::field_help("bridge.script_timeout_secs"));
-        });
-        ui.horizontal(|ui| {
-            ui.add_space(12.0);
-            ui.label(
-                egui::RichText::new("Heartbeat interval (s)")
-                    .font(font_label())
-                    .color(TEXT),
-            );
-            ui.add(
-                egui::DragValue::new(&mut self.draft.bridge.heartbeat_interval_secs)
-                    .range(1..=120)
-                    .speed(1),
-            )
-            .on_hover_text(Self::field_help("bridge.heartbeat_interval_secs"));
-        });
-        ui.horizontal(|ui| {
-            ui.add_space(12.0);
-            ui.label(
-                egui::RichText::new("Pong timeout (s)")
-                    .font(font_label())
-                    .color(TEXT),
-            );
-            ui.add(
-                egui::DragValue::new(&mut self.draft.bridge.pong_timeout_secs)
-                    .range(1..=120)
-                    .speed(1),
-            )
-            .on_hover_text(Self::field_help("bridge.pong_timeout_secs"));
-        });
-        ui.horizontal(|ui| {
-            ui.add_space(12.0);
-            ui.label(
-                egui::RichText::new("Idle dead (s)")
-                    .font(font_label())
-                    .color(TEXT),
-            );
-            ui.add(
-                egui::DragValue::new(&mut self.draft.bridge.idle_dead_secs)
-                    .range(1..=300)
-                    .speed(1),
-            )
-            .on_hover_text(Self::field_help("bridge.idle_dead_secs"));
-        });
+        settings_row(
+            ui,
+            "Call timeout (s)",
+            Self::field_help("bridge.call_timeout_secs"),
+            |ui| {
+                ui.add(
+                    egui::DragValue::new(&mut self.draft.bridge.call_timeout_secs)
+                        .range(1..=600)
+                        .speed(1),
+                );
+            },
+        );
+        settings_row(
+            ui,
+            "Script timeout (s)",
+            Self::field_help("bridge.script_timeout_secs"),
+            |ui| {
+                ui.add(
+                    egui::DragValue::new(&mut self.draft.bridge.script_timeout_secs)
+                        .range(1..=600)
+                        .speed(1),
+                );
+            },
+        );
+        settings_row(
+            ui,
+            "Heartbeat interval (s)",
+            Self::field_help("bridge.heartbeat_interval_secs"),
+            |ui| {
+                ui.add(
+                    egui::DragValue::new(&mut self.draft.bridge.heartbeat_interval_secs)
+                        .range(1..=120)
+                        .speed(1),
+                );
+            },
+        );
+        settings_row(
+            ui,
+            "Pong timeout (s)",
+            Self::field_help("bridge.pong_timeout_secs"),
+            |ui| {
+                ui.add(
+                    egui::DragValue::new(&mut self.draft.bridge.pong_timeout_secs)
+                        .range(1..=120)
+                        .speed(1),
+                );
+            },
+        );
+        settings_row(
+            ui,
+            "Idle dead (s)",
+            Self::field_help("bridge.idle_dead_secs"),
+            |ui| {
+                ui.add(
+                    egui::DragValue::new(&mut self.draft.bridge.idle_dead_secs)
+                        .range(1..=300)
+                        .speed(1),
+                );
+            },
+        );
 
         ui.add_space(4.0);
         section_header(ui, "ADVANCED");
-        ui.horizontal(|ui| {
-            ui.add_space(12.0);
-            ui.label(
-                egui::RichText::new("Data dir")
-                    .font(font_label())
-                    .color(TEXT),
-            );
-            ui.add(
-                egui::TextEdit::singleline(&mut self.data_dir_edit)
-                    .desired_width(220.0)
-                    .font(font_mono()),
-            )
-            .on_hover_text(Self::field_help("advanced.data_dir"));
-        });
-        ui.horizontal(|ui| {
-            ui.add_space(12.0);
-            ui.label(
-                egui::RichText::new("Bridge dir")
-                    .font(font_label())
-                    .color(TEXT),
-            );
-            ui.add(
-                egui::TextEdit::singleline(&mut self.bridge_dir_edit)
-                    .desired_width(220.0)
-                    .font(font_mono()),
-            )
-            .on_hover_text(Self::field_help("advanced.bridge_dir"));
-        });
-        ui.horizontal(|ui| {
-            ui.add_space(12.0);
-            ui.label(
-                egui::RichText::new("Catalog")
-                    .font(font_label())
-                    .color(TEXT),
-            );
-            ui.add(
-                egui::TextEdit::singleline(&mut self.catalog_path_edit)
-                    .desired_width(220.0)
-                    .font(font_mono()),
-            )
-            .on_hover_text(Self::field_help("advanced.catalog_path"));
-        });
+        settings_row(
+            ui,
+            "Data dir",
+            Self::field_help("advanced.data_dir"),
+            |ui| {
+                path_edit(ui, &mut self.data_dir_edit, false);
+            },
+        );
+        settings_row(
+            ui,
+            "Bridge dir",
+            Self::field_help("advanced.bridge_dir"),
+            |ui| {
+                path_edit(ui, &mut self.bridge_dir_edit, false);
+            },
+        );
+        settings_row(
+            ui,
+            "Catalog",
+            Self::field_help("advanced.catalog_path"),
+            |ui| {
+                path_edit(ui, &mut self.catalog_path_edit, false);
+            },
+        );
         if !self.daemon_bin_edit.is_empty() {
-            ui.horizontal(|ui| {
-                ui.add_space(12.0);
-                ui.label(
-                    egui::RichText::new("Daemon bin")
-                        .font(font_label())
-                        .color(TEXT),
-                );
-                ui.add(
-                    egui::TextEdit::singleline(&mut self.daemon_bin_edit)
-                        .desired_width(220.0)
-                        .font(font_mono())
-                        .interactive(false),
-                );
+            settings_row(ui, "Daemon bin", "", |ui| {
+                path_edit(ui, &mut self.daemon_bin_edit, true);
             });
         }
+    }
 
-        ui.add_space(12.0);
-        ui.painter().rect_filled(
-            ui.available_rect_before_wrap()
-                .with_max_y(ui.cursor().top() + 28.0),
-            0.0,
-            BG_PANEL,
-        );
+    fn draw_settings_footer(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            ui.add_space(12.0);
             if ghost_button(ui, "← Back", TEXT_DIM, TEXT).clicked() {
                 self.discard_settings();
             }
             ui.add_space(8.0);
-            if ghost_button(ui, "Discard", TEXT_DIM, WARN).clicked() {
-                self.discard_settings();
-            }
-            ui.add_space(8.0);
-            if ghost_button(ui, "Reset", TEXT_DIM, WARN).clicked() {
+            if ghost_button(ui, "↺ Reset", TEXT_DIM, WARN).clicked() {
                 self.reset_settings();
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.add_space(12.0);
-                if ghost_button(ui, "Save", TEXT_DIM, ACCENT).clicked() {
+                if filled_button(ui, "Save").clicked() {
                     self.save_settings();
                 }
             });
@@ -1202,8 +1150,20 @@ impl eframe::App for DashboardApp {
                 ui.add_space(8.0);
                 match self.view {
                     View::Settings => {
+                        // Pinned footer: the panel reserves the bottom strip and
+                        // the ScrollArea takes only the space above it.
+                        egui::Panel::bottom("settings-footer")
+                            .exact_size(30.0)
+                            .frame(
+                                egui::Frame::NONE
+                                    .fill(BG_PANEL)
+                                    .inner_margin(egui::Margin::symmetric(12, 4)),
+                            )
+                            .show(ui, |ui| {
+                                self.draw_settings_footer(ui);
+                            });
                         egui::ScrollArea::vertical()
-                            .max_height(WINDOW_MAX_HEIGHT - 48.0)
+                            .max_height(WINDOW_MAX_HEIGHT - 78.0)
                             .show(ui, |ui| {
                                 self.draw_settings(ui);
                             });
@@ -1226,6 +1186,33 @@ impl eframe::App for DashboardApp {
                 ui.add_space(8.0);
             });
     }
+}
+
+/// One settings row: label left, control right-aligned, full row width.
+/// The help tooltip rides the whole row when one is given.
+fn settings_row(ui: &mut egui::Ui, label: &str, help: &str, add: impl FnOnce(&mut egui::Ui)) {
+    let response = ui
+        .horizontal(|ui| {
+            ui.add_space(12.0);
+            ui.label(egui::RichText::new(label).font(font_label()).color(TEXT));
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                add(ui);
+            });
+        })
+        .response;
+    if !help.is_empty() {
+        response.on_hover_text(help);
+    }
+}
+
+/// Full-width mono path input; `read_only` locks it (the resolved daemon bin).
+fn path_edit(ui: &mut egui::Ui, text: &mut String, read_only: bool) {
+    ui.add_sized(
+        egui::vec2(ui.available_width(), 20.0),
+        egui::TextEdit::singleline(text)
+            .font(font_mono())
+            .interactive(!read_only),
+    );
 }
 
 fn path_edits_from(cfg: &ConfigFile) -> (String, String, String, String) {

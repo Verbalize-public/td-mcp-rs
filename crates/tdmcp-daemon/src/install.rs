@@ -5,8 +5,9 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use include_dir::{include_dir, Dir, DirEntry};
 use tdmcp_mcp::{RenderMode, TemplateEngine};
 
@@ -159,9 +160,11 @@ pub fn skills_dir(data_dir: &Path) -> Result<PathBuf> {
 /// Copy the current binary into `{data_dir}/bin/` so the installed daemon has a
 /// stable, independent path that is not the original build artifact.
 ///
-/// Returns the absolute destination path. Skips with a warning when source
-/// equals destination (already installed) or when the copy fails (e.g. target
-/// locked by a running process).
+/// Returns the absolute destination path. The swap tolerates a running daemon
+/// or MCP proxy on Windows: an executing exe cannot be overwritten, but it can
+/// be renamed aside, so the old binary is moved to a unique backup name first
+/// and the new one takes its place. Stale backups that are no longer locked are
+/// swept after the swap.
 pub fn copy_daemon_binary(data_dir: &Path) -> Result<PathBuf> {
     let src = std::env::current_exe().context("resolve current_exe for install copy")?;
     let bin_dir = data_dir.join("bin");
@@ -184,25 +187,108 @@ pub fn copy_daemon_binary(data_dir: &Path) -> Result<PathBuf> {
         _ => {}
     }
 
-    match fs::copy(&src, &dest) {
-        Ok(_) => {
-            tracing::info!(
-                src = %src.display(),
-                dest = %dest.display(),
-                "install: copied daemon binary to install location"
-            );
+    sweep_old_backups(&bin_dir, name);
+    replace_binary(&src, &dest)?;
+    tracing::info!(
+        src = %src.display(),
+        dest = %dest.display(),
+        "install: copied daemon binary to install location"
+    );
+    Ok(dest)
+}
+
+/// Replace `dest` with `src`, renaming a running `dest` aside first.
+///
+/// On Windows the destination exe is locked for overwrite while any process
+/// executes it, but renaming it is allowed; a unique backup name avoids
+/// colliding with a still-locked backup from a previous install.
+fn replace_binary(src: &Path, dest: &Path) -> Result<()> {
+    if dest.exists() {
+        let backup = unique_backup_path(dest);
+        fs::rename(dest, &backup)
+            .with_context(|| format!("rename {} → {}", dest.display(), backup.display()))?;
+        match fs::copy(src, dest) {
+            Ok(_) => {
+                // Best-effort: the old image may still be locked by a running
+                // process; sweep_old_backups retries on the next install.
+                let _ = fs::remove_file(&backup);
+                Ok(())
+            }
+            Err(e) => {
+                // Restore the previous binary so install never leaves a gap.
+                let _ = fs::rename(&backup, dest);
+                Err(anyhow::anyhow!(
+                    "copy daemon binary to {} failed: {e}",
+                    dest.display()
+                ))
+            }
         }
-        Err(e) => {
-            tracing::warn!(
-                error = %e,
-                src = %src.display(),
-                dest = %dest.display(),
-                "install: could not copy daemon binary (target may be locked by a running daemon) — \
-                 existing binary at dest will be used if present"
-            );
+    } else {
+        fs::copy(src, dest).with_context(|| format!("copy daemon binary to {}", dest.display()))?;
+        Ok(())
+    }
+}
+
+/// A backup name that cannot collide with a still-locked previous backup.
+fn unique_backup_path(dest: &Path) -> PathBuf {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let name = dest
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    dest.with_file_name(format!("{name}.old-{nanos}"))
+}
+
+/// Remove `{name}.old-*` backups that are no longer locked by a running process.
+fn sweep_old_backups(bin_dir: &Path, name: &std::ffi::OsStr) {
+    let prefix = format!("{}.old-", name.to_string_lossy());
+    let Ok(entries) = fs::read_dir(bin_dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let file_name = entry.file_name();
+        let Some(s) = file_name.to_str() else {
+            continue;
+        };
+        if s.starts_with(&prefix) {
+            // Ignore failures: a locked backup waits for its process to exit.
+            let _ = fs::remove_file(entry.path());
         }
     }
-    Ok(dest)
+}
+
+/// Verify the installed binary reports this build's version via `--version`.
+///
+/// Guards against a partial copy or a swapped-in artifact of the wrong build.
+pub fn verify_installed_version(exe: &Path) -> Result<()> {
+    let expected = env!("CARGO_PKG_VERSION");
+    let out = std::process::Command::new(exe)
+        .arg("--version")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .with_context(|| format!("run {} --version", exe.display()))?;
+    if !out.status.success() {
+        bail!(
+            "installed binary at {} failed `--version` (status {})",
+            exe.display(),
+            out.status
+        );
+    }
+    let text = String::from_utf8_lossy(&out.stdout);
+    if !text.contains(expected) {
+        bail!(
+            "installed binary at {} reports {:?}; expected {}",
+            exe.display(),
+            text.trim(),
+            expected
+        );
+    }
+    tracing::info!(exe = %exe.display(), version = expected, "install: verified installed binary version");
+    Ok(())
 }
 /// Render all skill cards in filesystem mode into `dest`.
 ///
@@ -296,6 +382,47 @@ mod tests {
                 .trim(),
             env!("CARGO_PKG_VERSION")
         );
+    }
+
+    #[test]
+    fn replace_binary_swaps_running_dest() {
+        let dir = tempdir().expect("tempdir");
+        let src = dir.path().join("new-daemon.exe");
+        let dest = dir.path().join("bin").join("tdmcp-daemon.exe");
+        fs::create_dir_all(dest.parent().expect("bin parent")).expect("mkdir bin");
+        fs::write(&src, b"new-binary").expect("write src");
+        fs::write(&dest, b"old-binary").expect("write dest");
+        replace_binary(&src, &dest).expect("replace");
+        assert_eq!(fs::read(&dest).expect("read dest"), b"new-binary");
+        // The old image was moved aside and dropped once unlocked.
+        let leftovers = fs::read_dir(dest.parent().expect("bin"))
+            .expect("read bin")
+            .filter_map(Result::ok)
+            .filter(|e| {
+                e.file_name()
+                    .to_string_lossy()
+                    .starts_with("tdmcp-daemon.exe.old-")
+            })
+            .count();
+        assert_eq!(leftovers, 0);
+    }
+
+    #[test]
+    fn replace_binary_restores_on_copy_failure() {
+        let dir = tempdir().expect("tempdir");
+        let dest = dir.path().join("bin").join("tdmcp-daemon.exe");
+        fs::create_dir_all(dest.parent().expect("bin parent")).expect("mkdir bin");
+        fs::write(&dest, b"old-binary").expect("write dest");
+        // Missing src makes the copy fail; the previous binary must come back.
+        let err = replace_binary(&dir.path().join("missing.exe"), &dest).expect_err("copy fails");
+        assert!(err.to_string().contains("copy daemon binary to"));
+        assert_eq!(fs::read(&dest).expect("read dest"), b"old-binary");
+    }
+
+    #[test]
+    fn unique_backup_paths_do_not_collide() {
+        let dest = Path::new("bin").join("tdmcp-daemon.exe");
+        assert_ne!(unique_backup_path(&dest), unique_backup_path(&dest));
     }
 
     #[test]

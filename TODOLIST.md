@@ -1,5 +1,7 @@
 # TODOLIST
 
+# Inspect is not returning the wires  (bug)
+
 # Sequenced tool call -> allo the agent to perform perflectly timed inspect/execute python sequence
 
 # Force gpu noise if resoluton > 64px (almost laways) -> via skill
@@ -32,9 +34,3 @@ I want to improve the diagnostic feature of td-mcp-rs
 
 # Guidance
 - Be carefull when updating the install, if you are stunt handoff to the user dont try alambigate things i will restart mcp ect as needed (sometime need harness restart)
-
-
-# GUI update
-- in the settings page, the back, save ect button must be at the top of the view/stick to the bottom  (like display fixed)/not scroll + make a visual effort so buttons are pretty (maybe icon)
-- Still in the settings page, make sure various input fields take the full avail width or use a kind of justify space betwen  (eg: for checkbox) so its not ugly
-- Merge the `skills`/`tox` button into a single folder icon button

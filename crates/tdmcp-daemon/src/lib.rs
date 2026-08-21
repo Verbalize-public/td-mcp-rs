@@ -23,9 +23,9 @@ pub use bridge::{
 pub use ensure::{
     configure_detached_spawn, configure_detached_spawn_with_log, daemon_lock_path, ensure_daemon,
     health_ok, pid_alive, read_daemon_lock_pid, reclaim_stale_daemon_lock, refuse_if_daemon_owned,
-    EnsureOptions, EnsureResult,
+    request_shutdown, running_version, wait_until_unhealthy, EnsureOptions, EnsureResult,
 };
 pub use install::{
     copy_daemon_binary, default_data_dir, ensure_installed, render_skills_to, skills_dir,
-    InstallOutcome,
+    verify_installed_version, InstallOutcome,
 };
