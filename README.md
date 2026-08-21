@@ -2,99 +2,88 @@
 
 # td-mcp-rs 🎛️
 
-**A curated MCP control plane for TouchDesigner — not another thin wrapper.**
+**Bring AI coding assistants into your TouchDesigner workflow — live, local, and in the editor you already use.**
 
 ![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
 ![Rust](https://img.shields.io/badge/Rust-1.88-000000?style=for-the-badge&logo=rust&logoColor=white)
 ![Version](https://img.shields.io/badge/version-0.1.1-blue?style=for-the-badge)
 ![MCP](https://img.shields.io/badge/MCP-Streamable_HTTP-7C3AED?style=for-the-badge)
-![Platform](https://img.shields.io/badge/Windows%20%7C%20macOS%20%7C%20Linux-9cf?style=for-the-badge)
+![Platform](https://img.shields.io/badge/Windows%20%7C%20macOS-9cf?style=for-the-badge)
 
-**One long-lived local daemon fronts any number of TouchDesigner instances for
-any number of MCP clients — Cursor, Claude, or anything speaking Streamable
-HTTP — over a resilient named-pipe / UDS link.**
+<!-- TODO: add a screenshot or GIF — an AI editing a TouchDesigner project from the editor -->
 
-<!-- TODO: add a screenshot or GIF — tray dashboard + a TD session driven through MCP -->
-
-[About](#-about) · [Features](#-features) · [Quick Start](#-quick-start) · [Tools](#-tools) · [Tech Stack](#-tech-stack) · [Docs](#-docs) · [Roadmap](#-roadmap) · [Contributing](#-contributing) · [License](#-license)
+[What is it?](#-what-is-td-mcp-rs) · [What you can do](#-what-you-can-do-with-it) · [Quick Start](#-quick-start) · [Tools](#-what-you-can-ask-the-ai-to-do) · [Roadmap](#-roadmap) · [License](#-license)
 
 </div>
 
 ---
 
-## 💡 About
+## 💡 What is td-mcp-rs?
 
-> A curated control plane, not a thin wrapper around the TouchDesigner Python API.
+> An AI copilot for building TouchDesigner projects — right from your code editor.
 
-td-mcp-rs gives AI coding agents a safe, agent-shaped way to work *inside*
-TouchDesigner. Every call addresses a specific TD instance by OS `pid`, runs
-through one long-lived local daemon that survives MCP client restarts, and
-lands on a small tool set built around the `fleet → inspect → capture` read
-model agents actually need. A drop-in `.tox` dialer plus an embedded Python
-bridge do the heavy lifting inside TouchDesigner itself.
+td-mcp-rs connects AI coding assistants (Cursor, Claude Code, or any
+MCP-compatible tool) to your **running** TouchDesigner. Instead of an AI
+guessing how TouchDesigner works, it gets eyes and hands inside your project:
+it can look at your network, edit operators, run Python, and see previews —
+all over a local connection that never leaves your machine.
+
+```
+Your editor (Cursor, Claude Code, …)
+        │  MCP over localhost
+        ▼
+td-mcp-rs (a small app running in your system tray)
+        │  local connection
+        ▼
+Your TouchDesigner project (via the tdmcp_rs .tox you drop in)
+```
 
 ---
 
-## ✨ Features
+## ✨ What you can do with it
 
-| Feature | What it gives you |
+| Feature | What it means for you |
 | --- | --- |
-| **Multi-instance first** | Address any TouchDesigner instance by OS `pid` — no sticky "current target", no generated peer ids |
-| **Any MCP client** | Cursor, Claude, and other Streamable HTTP callers share one daemon; it stays up across client restarts |
-| **Resilient IPC** | Named-pipe / UDS link between daemon and TD, with heartbeat, per-`pid` task queues, and resurrection of cancelled tasks on reconnect |
-| **Agent-shaped tools** | `fleet` → `inspect` → `capture` read model plus `execute_python`, `mutate_nodes`, `api_help`, `editor_context` |
-| **Context-aware** | `editor_context` reports which panes / owner COMPs / selection the user is looking at |
-| **Operate skills** | Jinja-templated TouchDesigner skill pack (primers + references) served as MCP resources or rendered to disk |
-| **Self-contained** | One binary with the bridge, diagnostics catalog, bootstrap `.tox`, and skill templates embedded |
-| **Cross-platform** | Windows, macOS, Linux — system-tray dashboard by default, headless on request |
+| **Works with your editor** | Use Cursor, Claude Code, or any MCP-compatible assistant — they all share one connection |
+| **Multiple projects at once** | Each running TouchDesigner is tracked by its own ID — keep several connected and jump between them |
+| **Sees what you see** | The AI knows which network and operator you're looking at |
+| **Teaches itself TouchDesigner** | A built-in skill pack (primers + references) is served to the assistant automatically |
+| **Everything in one place** | One binary carries the bridge, catalog, bootstrap `.tox`, and skills — no extra installs |
+| **Windows & macOS** | System-tray dashboard by default, headless if you prefer |
 
 ---
 
 ## 🚀 Quick Start
 
-**You need:** Rust 1.88+ ([`rustup`](https://rustup.rs)) and TouchDesigner
-installed. Everything else is pulled in and embedded at build time.
+**You need:** [Rust](https://rustup.rs) (free, install once) and TouchDesigner.
 
-### 1. Build the daemon
+### 1. Build the app
 
 ```text
 cargo build --release -p tdmcp-daemon
 ```
 
-The binary lands at `target/release/tdmcp-daemon` (`.exe` on Windows). The
-system-tray dashboard is compiled in by default via the `gui` feature.
+Takes a few minutes the first time. The app lands in
+`target/release/tdmcp-daemon` (`.exe` on Windows).
 
-### 2. Install assets + register the binary
+### 2. Install it
 
 ```text
 # Windows
 target\release\tdmcp-daemon.exe install
 
-# macOS / Linux
+# macOS
 target/release/tdmcp-daemon install
 ```
 
-`install` is idempotent and does three things:
+This copies the app to a permanent folder and prepares the TouchDesigner
+bridge file for you. Run it once and forget it.
 
-1. **Extracts the embedded assets** — `bridge/` (Python package),
-   `diagnostics/catalog.yaml`, `bootstrap.tox`, and the skill templates — into
-   the data dir (`%LOCALAPPDATA%\tdmcp-rs\` on Windows; Application Support /
-   XDG data elsewhere). Add `--force` to re-extract.
-2. **Resets `config.toml`** to the shipped defaults (`%APPDATA%\tdmcp-rs\`
-   on Windows; Application Support / XDG config elsewhere).
-3. **Copies the daemon binary** to `{data_dir}/bin/tdmcp-daemon[.exe]` and
-   records it in `config.toml`, so IDE-spawned processes never lock the build
-   artifact in `target/release/`.
+### 3. Add it to your editor (Cursor example)
 
-Strictly, `install` is optional — `start`, `ensure`, and `mcp` all extract
-assets on first use. Run it when you want a clean, explicit setup. Every
-setting lives in `config.toml`; see [`docs/CONFIG.md`](docs/CONFIG.md).
-
-### 3. Point an MCP client at it (Cursor)
-
-Add a server entry to your MCP client config — copy
-[`mcp.tdmcp.example.json`](mcp.tdmcp.example.json) and use the **absolute
-path** to the installed binary (drop `.exe` on Unix):
+Copy this into your MCP settings (also in
+[`mcp.tdmcp.example.json`](mcp.tdmcp.example.json)), replacing `<you>` with
+your username:
 
 ```json
 {
@@ -107,106 +96,105 @@ path** to the installed binary (drop `.exe` on Unix):
 }
 ```
 
-Cursor spawns `tdmcp-daemon mcp`, which makes sure the long-lived daemon is up
-(`ensure`: health → lock → detached spawn → poll), then serves a stdio MCP
-proxy to `http://127.0.0.1:9860/mcp/rpc`. Keep the MCP config minimal — all
-settings live in `config.toml`, not in `args` / `env`.
+### 4. Load the bridge into TouchDesigner
 
-### 4. Drop the bootstrap into TouchDesigner
+Drag `%LOCALAPPDATA%\tdmcp-rs\bootstrap.tox` into any project. A small
+`tdmcp_rs` component appears and connects on its own — its color-coded status
+face shows when the connection is live.
 
-Load `%LOCALAPPDATA%\tdmcp-rs\bootstrap.tox` into a project — it's a thin
-dialer COMP (`tdmcp_rs`) that dials the daemon's IPC endpoint, handshakes, and
-loads the bridge package from the path the daemon returns. The COMP Operator
-Viewer shows a color-banded status face and the live task list; bridge page
-pars: `Connect`, `Autoconnect`, `Status`, `Cancelqueued`.
+### 5. Say hello
 
-### 5. Verify
+In Cursor, type:
 
-```text
-tdmcp-daemon status                  # → {"ok":true}
-```
+> Connect to my TouchDesigner and show me what's in my project.
 
-Then call `fleet` from the MCP client — your TouchDesigner process should list
-with `bridge: "connected"`.
+You should see your project appear in the `fleet` view with a connected status.
 
 <details>
-<summary><b>Power users</b> — manual daemon, headless mode, tray dashboard</summary>
+<summary><b>Under the hood</b> — what's running, headless mode, other commands</summary>
 
-Run the daemon directly and speak Streamable HTTP without the stdio shim:
+- When your editor starts it (`tdmcp-daemon mcp`), the app makes sure the
+  background service is up, then connects on port `9860`. The service keeps
+  running in your system tray even if the editor closes.
+- By default it shuts itself down after ~30s with no active connections; set
+  `keep_alive = true` in `config.toml` (or tray Settings) to disable that.
+- The tray icon shows a compact dashboard on left-click; **Stop** (right-click
+  or `tdmcp-daemon stop`) ends the process — closing the window only hides it.
+- Headless: `tdmcp-daemon start --port 9860 --no-gui` or `TDMCP_NO_GUI=1`.
 
-```text
-tdmcp-daemon start --port 9860
-# Headless:   tdmcp-daemon start --port 9860 --no-gui
-# MCP client: http://127.0.0.1:9860/mcp/rpc
-# Health:     GET http://127.0.0.1:9860/mcp/health → {"ok":true}
-```
-
-By default the daemon exits after ~30s with no MCP sessions and no TD bridges;
-set `keep_alive = true` in `config.toml` (or tray Settings) to disable that.
-The tray dashboard (default) shows an icon + startup toast on start; left-click
-toggles the compact dashboard (Docker-style, auto-hides on focus loss),
-right-click offers Restart / Stop. Closing the window only hides it — use
-**Stop** or `tdmcp-daemon stop` to end the process. Headless: `--no-gui` /
-`TDMCP_NO_GUI=1` / `show_tray = false`.
-
-Other CLI commands:
-
-| Command | Job |
+| Command | What it does |
 | --- | --- |
-| `install [--force]` | Extract embedded assets **and** reset config to defaults |
-| `ensure [--force]` | Spawn the daemon if down; `--force` re-extracts assets |
-| `start [--port N]` | Run the daemon in the foreground |
-| `status` | Print daemon health (`GET /mcp/health`) |
-| `stop` | Ask a running daemon to shut down (`/admin/shutdown`) |
-| `mcp` | Cursor/IDE entrypoint: ensure daemon, then speak MCP over stdio |
-| `skills path` | Print the extracted skills dir (`{dataDir}/skills`) |
-| `skills render --dest <dir>` | Render the Jinja skill templates to files |
-
-Build **and** assemble a release tree in one step (kills leftover daemons,
-rebuilds with `gui`, copies into `target/dist/`):
-
-```text
-cargo run -p xtask -- dist
-```
-
-Packaging details: [`docs/DELIVERY.md`](docs/DELIVERY.md).
+| `install [--force]` | Set up assets + reset config to defaults |
+| `ensure [--force]` | Start the background service if it's not running |
+| `start [--port N]` | Run the service in the foreground |
+| `status` | Check if the service is healthy |
+| `stop` | Shut the service down |
+| `mcp` | Editor entrypoint (what your editor spawns) |
+| `skills path` / `skills render --dest <dir>` | Where the skill files live / export them |
 
 </details>
 
 ---
 
-## 🛠️ Tools
+## 🛠️ What you can ask the AI to do
 
-The MCP surface is small on purpose — every tool is process-scoped by `pid`:
+Once connected, the AI has a small, focused toolbox:
 
-| Tool | Job |
+| Tool | What it lets the AI do |
 | --- | --- |
-| `fleet` | Fleet view — processes by `pid`, bridge status, tasks, cancelled traces |
-| `inspect` | Structural read for explicit `paths[]` (nodes / params / errors / warnings; no auto-recursion) |
-| `execute_python` | Run Python in TD (`result = …`); optional `logs`; structured `exception` on failure |
-| `mutate_nodes` | Ordered create / set / delete / connect / disconnect steps; sequential apply, stop on first hard error |
-| `capture` | Perception — `top` / `preview` / `auto` / `chop_data` (`chop_image` / `pop` = `preview` aliases) |
-| `api_help` | Live TD Python API cards (class / classes index / thin module) — not wiki/help dumps |
-| `editor_context` | Live editor panes + per-pane selection (`ownerPath`, `focused`, `selection`) |
-| `describe_tools` | Manifest of available tools |
+| `fleet` | See all your TouchDesigner instances and their connection status |
+| `inspect` | Look inside any operator — parameters, errors, wiring |
+| `execute_python` | Run Python code in TouchDesigner and get the result |
+| `mutate_nodes` | Create, edit, delete, and connect operators |
+| `capture` | Take a screenshot or preview of a network / TOP |
+| `api_help` | Look up the TouchDesigner Python API while working |
+| `editor_context` | See what you have selected in the editor |
+| `describe_tools` | List what it can do right now |
 
-MCP **resources** (`resources/list` / `resources/read`) serve the operate
-skill pack under `tdmcp://docs/*` — OpSketch, Python cheatsheet, primers,
-Definition of Done, look-grade, tooling-concurrency, and more. Prefer
-resources over inventing TD procedure from memory. The same Jinja templates can
-be rendered to plain files with `tdmcp-daemon skills render --dest <dir>`.
+The AI can also read built-in TouchDesigner guides (OpSketch, Python
+cheatsheet, primers, …) through the connection, so it doesn't have to guess —
+or ask you to explain your setup.
 
-> [!NOTE]
-> `inspect` takes a required non-empty `paths` array (soft-capped at 96; no
-> auto-recursion). Prefer `detailLevel: summary` — each node's direct-child
-> roster is `name` + `opType`, capped at 96 (`node.truncation` when
-> truncated). Use `capture` when look is the claim (`preview` rasterizes any
-> family via the bridge's shared OP Viewer TOP). Full contract:
-> [`docs/CONTRACT.md`](docs/CONTRACT.md).
+<details>
+<summary><b>Fine print</b> — caps and conventions for power users</summary>
+
+- `inspect` takes a required `paths` array (soft-cap 96; no auto-recursion).
+  Prefer `detailLevel: summary` — each node's child roster is `name` +
+  `opType`, capped at 96 (`node.truncation` when truncated).
+- Use `capture` when visual look is the claim; `preview` rasterizes any family
+  via the bridge's shared OP Viewer TOP.
+- Full contract: [`docs/CONTRACT.md`](docs/CONTRACT.md).
+
+</details>
 
 ---
 
-## 🏗️ Tech Stack
+## 🗺️ Roadmap
+
+**Shipped (v1)**
+
+- [x] Multiple TouchDesigner instances, addressed by OS `pid`
+- [x] One shared service for multiple editors (survives editor restarts)
+- [x] Reliable local connection — heartbeat + recovery of cancelled tasks
+- [x] Agent-shaped tool set (`fleet` / `inspect` / `capture` + friends)
+- [x] Self-contained delivery — one binary + one drop-in `.tox`
+- [x] Built-in operate skills (served over MCP, or rendered to files)
+- [x] Windows & macOS — tray dashboard / headless modes
+
+**Planned**
+
+- [ ] `dialogs` — list / dismiss OS dialogs (P1)
+- [ ] Lifecycle — create / start / stop TD projects (P2)
+- [ ] Remote / multi-machine master–slave control (reserved, not v1)
+- [ ] Offline `.toe` / `.tox` editing (out of scope for v1; the adopt path is
+      the drop-in tox)
+
+---
+
+<details>
+<summary><b>🧑‍💻 For developers</b> — tech stack, repo layout, docs, contributing</summary>
+
+**Tech stack**
 
 | Layer | Technology |
 | --- | --- |
@@ -218,8 +206,7 @@ be rendered to plain files with `tdmcp-daemon skills render --dest <dir>`.
 | Skills | Jinja templates (minijinja), embedded via `include_dir` |
 | TD side | Embedded Python bridge package + drop-in `bootstrap.tox` |
 
-<details>
-<summary><b>Repository layout</b></summary>
+**Repository layout**
 
 ```text
 td-mcp-rs/
@@ -240,11 +227,7 @@ td-mcp-rs/
 └── xtask/                  # packaging (cargo run -p xtask -- dist)
 ```
 
-</details>
-
----
-
-## 📚 Docs
+**Docs**
 
 | Doc | Role |
 | --- | --- |
@@ -260,35 +243,7 @@ td-mcp-rs/
 | [`RISKS.md`](RISKS.md) | Accepted panic/unsafe exceptions |
 | [`AGENTS.md`](AGENTS.md) | Agent route-first entry |
 
-MCP resources `tdmcp://docs/*` — operate pack (OpSketch, Python, DoD, primers,
-…). Local quality gate: `scripts/check.ps1` (Windows) or `scripts/check.sh`
-(Unix).
-
----
-
-## 🗺️ Roadmap
-
-**Shipped (v1)**
-
-- [x] Multi-instance addressing by OS `pid`
-- [x] One shared daemon for multiple MCP clients (survives client restarts)
-- [x] Resilient named-pipe / UDS IPC — heartbeat + task resurrection
-- [x] Agent-shaped tool set (`fleet` / `inspect` / `capture` + friends)
-- [x] Self-contained delivery — one binary + one drop-in `.tox`
-- [x] Jinja-templated operate skills (MCP resources + filesystem render)
-- [x] Cross-platform daemon — tray dashboard / headless modes
-
-**Planned**
-
-- [ ] `dialogs` — list / dismiss OS dialogs (P1)
-- [ ] Lifecycle — create / start / stop TD projects (P2)
-- [ ] Remote / multi-machine master–slave control (reserved, not v1)
-- [ ] Offline `.toe` / `.tox` editing (out of scope for v1; the adopt path is
-      the drop-in tox)
-
----
-
-## 🤝 Contributing
+**Contributing**
 
 1. Fork the repo and create a feature branch (`feature/your-thing`).
 2. Keep the quality gate green: `scripts/check.ps1` (Windows) or
@@ -298,6 +253,8 @@ MCP resources `tdmcp://docs/*` — operate pack (OpSketch, Python, DoD, primers,
    deny-by-default lints.
 4. Open a PR against `main` and say what you verified (tests + live TD where
    it applies).
+
+</details>
 
 ---
 
