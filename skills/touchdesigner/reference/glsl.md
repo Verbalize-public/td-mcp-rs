@@ -38,4 +38,4 @@ Invalid GLSL can hard-crash Vulkan TD — keep experiments in `/project1/_agent_
 
 ---
 
-**Canonical:** `tdmcp://docs/glsl` · disk: `reference/glsl.md`
+**Canonical:** `tdmcp://docs/glsl` 

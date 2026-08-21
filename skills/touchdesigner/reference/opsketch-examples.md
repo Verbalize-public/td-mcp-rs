@@ -137,4 +137,4 @@ On `tdmcp.op.unknown_type`, diagnostics may include `{ "kind": "api_help", "quer
 
 ---
 
-**Canonical:** `tdmcp://docs/opsketch-examples` · disk: `reference/opsketch-examples.md`
+**Canonical:** `tdmcp://docs/opsketch-examples` 

@@ -3,7 +3,7 @@
 Condensed TD software facts for agents. Prefer live `inspect` / `api_help` for
 exact names.
 
-**Canonical:** `tdmcp://docs/primer/cook-and-families` · disk: `primer/cook-and-families.md`
+**Canonical:** `tdmcp://docs/primer/cook-and-families` 
 
 ## Pull-based cook
 

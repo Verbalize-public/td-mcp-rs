@@ -55,4 +55,4 @@ returning it.
 
 ---
 
-**Canonical:** `tdmcp://docs/opsketch-importance-gating` · disk: `reference/opsketch-importance-gating.md`
+**Canonical:** `tdmcp://docs/opsketch-importance-gating` 

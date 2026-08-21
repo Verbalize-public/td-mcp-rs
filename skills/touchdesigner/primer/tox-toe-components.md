@@ -1,6 +1,6 @@
 # Primer: projects, tox, and components
 
-**Canonical:** `tdmcp://docs/primer/tox-toe-components` · disk: `primer/tox-toe-components.md`
+**Canonical:** `tdmcp://docs/primer/tox-toe-components` 
 
 ## Files
 

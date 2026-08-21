@@ -155,8 +155,6 @@ Other CLI helpers:
 | `status` | Print daemon health (`GET /mcp/health`) |
 | `stop` | Ask a running daemon to shut down (`/admin/shutdown`) |
 | `mcp` | Cursor/IDE entrypoint: ensure daemon, then speak MCP over stdio |
-| `skills path` | Print `{dataDir}/skills` (extracts assets if needed) |
-| `skills copy --dest <dir>` | Copy skill folders into a host skills root (e.g. `~/.cursor/skills`) |
 
 ## Tools
 
@@ -172,9 +170,8 @@ Other CLI helpers:
 | `describe_tools` | Manifest of available tools |
 
 MCP **resources** (`resources/list` / `resources/read`): operate docs under
-`tdmcp://docs/*` (OpSketch, Python cheatsheet, DoD, primers, …). See
-[`skills/README.md`](skills/README.md). Prefer resources over inventing TD
-procedure from memory.
+`tdmcp://docs/*` (OpSketch, Python cheatsheet, DoD, primers, …). Prefer
+resources over inventing TD procedure from memory.
 
 Process-scoped tools require `pid`. `inspect` takes a required non-empty
 `paths` array (soft-capped at 96; no auto-recursion). Prefer
@@ -190,7 +187,7 @@ Viewer TOP); grade look via `tdmcp://docs/look-grade`. Full contract:
 | Doc | Role |
 | --- | --- |
 | [`docs/CONTRACT.md`](docs/CONTRACT.md) | v1 contract, tools, OpPath, diagnostics, phases |
-| [`skills/README.md`](skills/README.md) | Operate pack + MCP resource URI catalog |
+| MCP resources `tdmcp://docs/*` | Operate pack — OpSketch, Python, DoD, primers, … |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | Crate boundaries and topology |
 | [`AGENTS.md`](AGENTS.md) | Agent route-first entry |
 | [`CONSTITUTION.md`](CONSTITUTION.md) | Rust engineering law |

@@ -1,6 +1,6 @@
 # Primer: editor and network layout
 
-**Canonical:** `tdmcp://docs/primer/editor-and-layout` · disk: `primer/editor-and-layout.md`
+**Canonical:** `tdmcp://docs/primer/editor-and-layout` 
 
 ## Shell (operate-relevant)
 

@@ -59,4 +59,4 @@ Custom parameters on COMPs (Component Editor) are the **control** API of a compo
 
 ---
 
-**Canonical:** `tdmcp://docs/operator-families` · disk: `reference/operator-families.md`
+**Canonical:** `tdmcp://docs/operator-families` 

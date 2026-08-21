@@ -1,9 +1,9 @@
 # Look / FPS grade
 
 Operating-agent contract for visual and time-sliced claims. Structural verdicts:
-`tdmcp://docs/definition-of-done` (file: `definition-of-done.md`).
+`tdmcp://docs/definition-of-done`.
 
-**Canonical:** `tdmcp://docs/look-grade` · disk: `reference/look-grade.md`
+**Canonical:** `tdmcp://docs/look-grade` 
 
 ## Ownership
 

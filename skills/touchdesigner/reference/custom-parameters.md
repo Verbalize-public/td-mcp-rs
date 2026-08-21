@@ -244,4 +244,4 @@ After mutate: `inspect` the COMP with `include: ["nodes","params","errors","warn
 
 ---
 
-**Canonical:** `tdmcp://docs/custom-parameters` · disk: `reference/custom-parameters.md`
+**Canonical:** `tdmcp://docs/custom-parameters` 

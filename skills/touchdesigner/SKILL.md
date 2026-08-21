@@ -1,19 +1,15 @@
 ---
 name: touchdesigner
 description: >-
-  TouchDesigner operate umbrella for td-mcp-rs. Use when inspecting, creating,
-  wiring, or mutating TouchDesigner nodes/networks/components/parameters, writing
-  TD Python, porting GLSL into TD, or verifying live TD state/look/FPS. Covers
-  tool routing, mutation zones, OpSketch, In/Out + relative-ref hard rules, and
-  MCP resource deepen paths (tdmcp://docs/*).
+  TouchDesigner operate umbrella for td-mcp-rs.
+  **MUST READ** before doing anything related to TouchDesigner:
+  inspecting, creating, wiring, or mutating TouchDesigner nodes/networks/components/parameters,
+  Ealborating plan, writing Python or porting GLSL for TouchDesigner.
 ---
 
 # TouchDesigner (td-mcp-rs)
 
-**SoT (tools):** td-mcp-rs `docs/CONTRACT.md` + live tools.
-**SoT (operate deepen):** MCP resources `tdmcp://docs/*` (same files under
-`skills/touchdesigner/` on disk). This skill is the sole TD entrypoint — read
-this body before other TD cards. Also available as `tdmcp://docs/operate`.
+This skill is the sole TD (TouichDesigner) entrypoint — read this body before other TD cards.
 
 ## Quick tool routing
 
@@ -36,13 +32,12 @@ first.
 
 ## Target identification
 
-1. **One shot** `fleet` → pick a connected `pid`. Pass `pid` on every call.
-2. Resolve a mutation zone: self-created named COMP (default), user-named
+1. `fleet` → pick a connected `pid`. Pass `pid` on every call.
+2. Resolve a mutation zone: prefers self-created named COMP over polluting existing network, user-named
    subtree, or `editor_context` `ownerPath` as a **hint only** — confirm with
-   `inspect` before mutating. Depth: `resources/read` `tdmcp://docs/mutation-zones`
-   (file: `reference/mutation-zones.md`).
-3. Prefer `detailLevel: summary` / `diagnosticLevel: summary`. Store-first for
-   `capture`.
+   `inspect` before mutating. Depth: `resources/read` `tdmcp://docs/mutation-zones`.
+3. Prefer `detailLevel: summary` / `diagnosticLevel: summary`. Store-first/sub-agent for
+   `capture`, always make sure that vision capability are available before capturing, rely on programatic image analysis when needed or no vision capability.
 
 ## Operator meaning (quick table)
 
@@ -62,18 +57,10 @@ Depth: `tdmcp://docs/operator-families` / `tdmcp://docs/primer/cook-and-families
 
 ## Hard rules
 
-### Sequential bridged tools — HARD RULE
-
-Never fire parallel bridged MCP tools (`execute_python`, `inspect`, `capture`,
-`mutate_nodes`, `api_help`, `editor_context`) against the same `pid`.
-
-- Call bridged tools **one at a time**; wait for each result before the next.
-- `fleet` / `describe_tools` stay available during an in-flight call.
 - On `tdmcp.mcp.session_busy` or `tdmcp.bridge.queue_busy`: wait, then retry —
-  do **not** disconnect or restart.
+  do **not** disconnect or restart. After 3 failed attempt handoff to the user.
 
-Depth: `resources/read` `tdmcp://docs/tooling-concurrency`
-(file: `reference/tooling-concurrency.md`).
+Depth: `resources/read` `tdmcp://docs/tooling-concurrency`.
 
 ### `inspect` over `execute_python` for networks — HARD RULE
 
@@ -85,7 +72,7 @@ done.
 ### Python cheatsheet before Python — HARD RULE
 
 Before `execute_python` or any TD expression/script, **`resources/read`
-`tdmcp://docs/python-api`** in this turn (file: `reference/python-api.md`).
+`tdmcp://docs/python-api`** in this turn.
 Exact live names still go through `api_help`.
 
 ### In/Out operator harness — HARD RULE
@@ -97,12 +84,12 @@ inputs or reaching into another COMP's internals. Depth:
 ### Relative references — HARD RULE
 
 Never use absolute `/project1/...` inside a reusable network. Prefer relative
-paths / `parent().par` / `parent(n)`. Depth: `tdmcp://docs/network-design`.
+paths: Depth: **MUST READ WHEN EDITING/CREATING/REMOVING reference** `tdmcp://docs/network-design`.
 
 ### Play state before “why isn’t it updating” — HARD RULE
 
 Paused transport stalls most cooks; captures can look stale. Check play state
-first. Depth: `tdmcp://docs/play-state`.
+first. Depth: **MUST READ WHEN DEBUGING A NETWORK OR CAPTURING IT** `tdmcp://docs/play-state`.
 
 ## Custom component basics
 
@@ -157,28 +144,28 @@ Doubt → **FAIL**. Depth: `tdmcp://docs/definition-of-done`, look claims
 
 ## Resource index (deepen here)
 
-| Need | Resource | Disk |
-|------|----------|------|
-| This umbrella | `tdmcp://docs/operate` | `SKILL.md` |
-| OpSketch | `tdmcp://docs/opsketch-notation` (+ gating, examples) | `reference/opsketch-*.md` |
-| Python | `tdmcp://docs/python-api` | `reference/python-api.md` |
-| Custom pars | `tdmcp://docs/custom-parameters` | `reference/custom-parameters.md` |
-| Mutation zones | `tdmcp://docs/mutation-zones` | `reference/mutation-zones.md` |
-| Network / relative refs | `tdmcp://docs/network-design` | `reference/network-design.md` |
-| Components | `tdmcp://docs/component-checklist` | `reference/component-checklist.md` |
-| Families | `tdmcp://docs/operator-families` | `reference/operator-families.md` |
-| POP | `tdmcp://docs/pops` | `reference/pops.md` |
-| GLSL dialect | `tdmcp://docs/glsl` | `reference/glsl.md` |
-| Shadertoy port | `tdmcp://docs/shadertoy-conversion` | `reference/shadertoy-conversion.md` |
-| GLSL traps | `tdmcp://docs/td-glsl-ground-truth` | `reference/td-glsl-ground-truth.md` |
-| Structural DoD | `tdmcp://docs/definition-of-done` | `reference/definition-of-done.md` |
-| Look / capture | `tdmcp://docs/look-grade` | `reference/look-grade.md` |
-| Parallel / session_busy | `tdmcp://docs/tooling-concurrency` | `reference/tooling-concurrency.md` |
-| Paused / stale | `tdmcp://docs/play-state` | `reference/play-state.md` |
-| Cook / families depth | `tdmcp://docs/primer/cook-and-families` | `primer/cook-and-families.md` |
-| Editor / layout | `tdmcp://docs/primer/editor-and-layout` | `primer/editor-and-layout.md` |
-| Params / channels | `tdmcp://docs/primer/parameters-and-channels` | `primer/parameters-and-channels.md` |
-| Scripting surfaces | `tdmcp://docs/primer/scripting-surfaces` | `primer/scripting-surfaces.md` |
-| tox / toe | `tdmcp://docs/primer/tox-toe-components` | `primer/tox-toe-components.md` |
-| GLSL / render chain | `tdmcp://docs/primer/glsl-and-render` | `primer/glsl-and-render.md` |
-| Performance | `tdmcp://docs/primer/performance` | `primer/performance.md` |
+| Need | Resource |
+|------|----------|
+| This umbrella | `tdmcp://docs/operate` |
+| OpSketch | `tdmcp://docs/opsketch-notation` (+ gating, examples) |
+| Python | `tdmcp://docs/python-api` |
+| Custom pars | `tdmcp://docs/custom-parameters` |
+| Mutation zones | `tdmcp://docs/mutation-zones` |
+| Network / relative refs | `tdmcp://docs/network-design` |
+| Components | `tdmcp://docs/component-checklist` |
+| Families | `tdmcp://docs/operator-families` |
+| POP | `tdmcp://docs/pops` |
+| GLSL dialect | `tdmcp://docs/glsl` |
+| Shadertoy port | `tdmcp://docs/shadertoy-conversion` |
+| GLSL traps | `tdmcp://docs/td-glsl-ground-truth` |
+| Structural DoD | `tdmcp://docs/definition-of-done` |
+| Look / capture | `tdmcp://docs/look-grade` |
+| Parallel / session_busy | `tdmcp://docs/tooling-concurrency` |
+| Paused / stale | `tdmcp://docs/play-state` |
+| Cook / families depth | `tdmcp://docs/primer/cook-and-families` |
+| Editor / layout | `tdmcp://docs/primer/editor-and-layout` |
+| Params / channels | `tdmcp://docs/primer/parameters-and-channels` |
+| Scripting surfaces | `tdmcp://docs/primer/scripting-surfaces` |
+| tox / toe | `tdmcp://docs/primer/tox-toe-components` |
+| GLSL / render chain | `tdmcp://docs/primer/glsl-and-render` |
+| Performance | `tdmcp://docs/primer/performance` |

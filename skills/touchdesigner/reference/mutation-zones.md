@@ -27,4 +27,4 @@ container and promote later.
 
 ---
 
-**Canonical:** `tdmcp://docs/mutation-zones` · disk: `reference/mutation-zones.md`
+**Canonical:** `tdmcp://docs/mutation-zones` 

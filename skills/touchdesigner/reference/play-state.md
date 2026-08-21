@@ -3,7 +3,7 @@
 When TD looks "stuck" or captures look frozen, check transport **before**
 rewriting the network.
 
-**Canonical:** `tdmcp://docs/play-state` · disk: `reference/play-state.md`
+**Canonical:** `tdmcp://docs/play-state` 
 
 ## Agent rules
 

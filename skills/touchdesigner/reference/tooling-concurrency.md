@@ -2,7 +2,7 @@
 
 Sequential bridged tools against one TD `pid` — HARD RULE for agents.
 
-**Canonical:** `tdmcp://docs/tooling-concurrency` · disk: `reference/tooling-concurrency.md`
+**Canonical:** `tdmcp://docs/tooling-concurrency` 
 
 ## Bridged vs exempt
 

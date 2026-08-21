@@ -1,6 +1,6 @@
 # Primer: GLSL and render chain
 
-**Canonical:** `tdmcp://docs/primer/glsl-and-render` · disk: `primer/glsl-and-render.md`
+**Canonical:** `tdmcp://docs/primer/glsl-and-render` 
 
 ## Where shaders live
 

@@ -1,7 +1,7 @@
 # Custom component checklist
 
 Reusable COMP boundary / About / reuse audit. Router: `tdmcp://docs/operate`.
-Custom pars depth: `tdmcp://docs/custom-parameters` (file: `custom-parameters.md`).
+Custom pars depth: `tdmcp://docs/custom-parameters`.
 
 ## Statefulness & resolution
 
@@ -151,4 +151,4 @@ Stop and simplify if you notice:
 
 ---
 
-**Canonical:** `tdmcp://docs/component-checklist` · disk: `reference/component-checklist.md`
+**Canonical:** `tdmcp://docs/component-checklist` 

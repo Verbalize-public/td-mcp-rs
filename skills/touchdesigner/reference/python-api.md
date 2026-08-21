@@ -413,4 +413,4 @@ comp.par.Gain.destroy()                   # one par
 
 ---
 
-**Canonical:** `tdmcp://docs/python-api` · disk: `reference/python-api.md`
+**Canonical:** `tdmcp://docs/python-api` 

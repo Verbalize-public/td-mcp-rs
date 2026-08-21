@@ -1,6 +1,6 @@
 # Primer: performance
 
-**Canonical:** `tdmcp://docs/primer/performance` · disk: `primer/performance.md`
+**Canonical:** `tdmcp://docs/primer/performance` 
 
 ## Agent habits
 

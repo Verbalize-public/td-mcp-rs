@@ -81,4 +81,4 @@ booleans, no NURBS. Keep SOPs for those; convert at the boundary.
 
 ---
 
-**Canonical:** `tdmcp://docs/pops` · disk: `reference/pops.md`
+**Canonical:** `tdmcp://docs/pops` 

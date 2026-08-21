@@ -421,7 +421,7 @@ Result (summary):
 - Canonical absolute `path` is echoed per step so the agent can re-`inspect` without re-resolving.
 - `diagnosticLevel` (default `summary` on most bridge-backed tools) gates `rawTraceback` inclusion (`detailed` only). `**execute_python` defaults to `detailed**` (tool-local only — the global `DiagnosticLevel` default remains `summary`).
 
-**Mutation zones are not enforced by the daemon in v1.** Zone discipline lives in the agent layer ([`skills/touchdesigner/`](../skills/touchdesigner/SKILL.md) → `tdmcp://docs/mutation-zones`): the agent only passes paths under a self-created named COMP or an authorized subtree. `tdmcp.op.outside_zone` stays **reserved** in the catalog, not emitted by the daemon. A future P2 may add per-pid zone registration if operate experience demands it.
+**Mutation zones are not enforced by the daemon in v1.** Zone discipline lives in the agent layer (`tdmcp://docs/mutation-zones`): the agent only passes paths under a self-created named COMP or an authorized subtree. `tdmcp.op.outside_zone` stays **reserved** in the catalog, not emitted by the daemon. A future P2 may add per-pid zone registration if operate experience demands it.
 
 **Bridge package version checks are not enforced in v1.** `tdmcp.bridge.version` stays **reserved** in the catalog (not emitted). Handshake `minDaemon` is unused until a future compat gate lands.
 

@@ -10,7 +10,7 @@ Law: [`CONSTITUTION.md`](CONSTITUTION.md). User install/quickstart: [`README.md`
 | --- | --- |
 | v1 contract / tools / OpPath / diagnostics | [`docs/CONTRACT.md`](docs/CONTRACT.md) |
 | Install / quickstart | [`README.md`](README.md) |
-| Operate skill + MCP docs | [`skills/touchdesigner/`](skills/touchdesigner/SKILL.md) · `tdmcp://docs/*` · `{dataDir}/skills/` |
+| Operate skill + MCP docs | `tdmcp://docs/*` |
 | Crate boundaries / topology | [`ARCHITECTURE.md`](ARCHITECTURE.md) |
 | Never-panic / lints / DRY | [`CONSTITUTION.md`](CONSTITUTION.md) |
 | Accepted panic/unsafe exceptions | [`RISKS.md`](RISKS.md) |
@@ -29,8 +29,7 @@ Law: [`CONSTITUTION.md`](CONSTITUTION.md). User install/quickstart: [`README.md`
    `tdmcp-daemon ensure` before probing. Health URL
    (`http://127.0.0.1:9860/mcp/health`) still valid. Stdio is only the MCP
    client shim — the HTTP daemon stays up across MCP restarts. Operate deepen
-   paths: MCP `resources/read` `tdmcp://docs/*` (see
-   [`skills/README.md`](skills/README.md)).
+   paths: MCP `resources/read` `tdmcp://docs/*`.
 2. `fleet` → pick connected `pid` → optional `editor_context` (pane/selection
  hint) → `inspect` (default includes wires) → mutate → `inspect`
  errors/warnings/wires → `capture` (perception) → look grade via
@@ -62,8 +61,7 @@ Law: [`CONSTITUTION.md`](CONSTITUTION.md). User install/quickstart: [`README.md`
 
 1. **MCP-first** for live claims — never claim success from code alone.
 2. Do not invent sticky targets or `targetId` — **`pid` only**.
-3. Operate procedure SoT: [`skills/touchdesigner/`](skills/touchdesigner/SKILL.md)
-   and MCP `tdmcp://docs/*` — keep in sync with CONTRACT tool semantics.
+3. Operate procedure SoT: MCP `tdmcp://docs/*` — keep in sync with CONTRACT tool semantics.
 4. Never-panic: no `unwrap`/`expect`/`panic!` in lib release paths without
    `RISKS.md`.
 5. Stop after 3 failed probes with no new evidence.

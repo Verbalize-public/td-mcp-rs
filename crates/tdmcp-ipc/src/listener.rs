@@ -216,7 +216,6 @@ impl IpcListener {
                 .create(name)?;
             // Only spend the first-instance claim after create succeeds.
             self.first.store(false, Ordering::SeqCst);
-            debug!(%name, first, "waiting for named pipe client");
             server.connect().await?;
             let (req, server) =
                 complete_handshake_io(server, bridge_package_dir, daemon_version, offer).await?;

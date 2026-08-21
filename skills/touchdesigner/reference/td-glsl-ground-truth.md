@@ -100,4 +100,4 @@ into anything, and keep experiments in the scratch container.
 
 ---
 
-**Canonical:** `tdmcp://docs/td-glsl-ground-truth` · disk: `reference/td-glsl-ground-truth.md`
+**Canonical:** `tdmcp://docs/td-glsl-ground-truth` 

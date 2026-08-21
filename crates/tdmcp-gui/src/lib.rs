@@ -60,6 +60,7 @@ pub fn run(
         height: icon_normal_full.height,
     };
 
+    #[allow(unused_mut)]
     let mut options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([WINDOW_WIDTH, 320.0])

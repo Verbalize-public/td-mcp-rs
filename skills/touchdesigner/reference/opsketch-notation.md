@@ -118,4 +118,4 @@ higher depth.
 
 ---
 
-**Canonical:** `tdmcp://docs/opsketch-notation` · disk: `reference/opsketch-notation.md`
+**Canonical:** `tdmcp://docs/opsketch-notation` 

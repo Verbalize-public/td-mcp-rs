@@ -1,10 +1,9 @@
 # Definition of Done (structural)
 
 Observable runtime evidence only — never PASS from code, parameter values, or
-docs alone. Look / FPS claims use `tdmcp://docs/look-grade`
-(file: `look-grade.md`).
+docs alone. Look / FPS claims use `tdmcp://docs/look-grade`.
 
-**Canonical:** `tdmcp://docs/definition-of-done` · disk: `reference/definition-of-done.md`
+**Canonical:** `tdmcp://docs/definition-of-done` 
 
 ## Verdicts
 

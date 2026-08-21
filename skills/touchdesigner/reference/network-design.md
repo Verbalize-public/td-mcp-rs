@@ -136,4 +136,4 @@ Rules of thumb:
 
 ---
 
-**Canonical:** `tdmcp://docs/network-design` · disk: `reference/network-design.md`
+**Canonical:** `tdmcp://docs/network-design` 

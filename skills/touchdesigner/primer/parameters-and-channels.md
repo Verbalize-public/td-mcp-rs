@@ -1,6 +1,6 @@
 # Primer: parameters and channels
 
-**Canonical:** `tdmcp://docs/primer/parameters-and-channels` · disk: `primer/parameters-and-channels.md`
+**Canonical:** `tdmcp://docs/primer/parameters-and-channels` 
 
 ## Four parameter modes
 

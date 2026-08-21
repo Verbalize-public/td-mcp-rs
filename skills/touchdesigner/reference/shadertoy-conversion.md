@@ -109,4 +109,4 @@ its own and errors otherwise).
 
 ---
 
-**Canonical:** `tdmcp://docs/shadertoy-conversion` · disk: `reference/shadertoy-conversion.md`
+**Canonical:** `tdmcp://docs/shadertoy-conversion` 

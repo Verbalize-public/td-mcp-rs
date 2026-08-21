@@ -1,6 +1,6 @@
 # Primer: scripting surfaces
 
-**Canonical:** `tdmcp://docs/primer/scripting-surfaces` · disk: `primer/scripting-surfaces.md`
+**Canonical:** `tdmcp://docs/primer/scripting-surfaces` 
 
 ## Where Python runs
 
