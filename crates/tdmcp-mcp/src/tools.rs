@@ -5,26 +5,33 @@
 //! the task outcome on the registry. Diagnostic mapping lives in
 //! [`crate::outcomes`].
 
+use std::ops::ControlFlow;
 use std::sync::Arc;
 use std::time::Duration;
 
+use chrono::Utc;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use tdmcp_core::{BridgeMethod, OpPath, Pid, PidRegistry, TaskMode};
+use tdmcp_core::{
+    AggregatedFleetProcess, BridgeMethod, DaemonId, OpPath, Pid, PidRegistry, PidResolve,
+    SlaveReachability, TaskMode,
+};
 use tdmcp_diagnostics::DiagnosticLevel;
 use thiserror::Error;
 use tokio::sync::Mutex;
 
 use crate::bridge_rpc::{BridgeRpc, BridgeRpcError};
 use crate::editor_context::EditorContextParams;
-use crate::fleet::{fleet_summary, FleetParams};
+use crate::fleet::{fleet_summary, FleetParams, FleetProcess, FleetResponse};
 use crate::outcomes::{
-    map_api_help_outcome, map_editor_context_outcome, map_inspect_outcome, map_mutate_outcome,
-    map_perception_outcome, map_script_outcome, session_busy,
+    ambiguous_pid, map_api_help_outcome, map_editor_context_outcome, map_inspect_outcome,
+    map_mutate_outcome, map_perception_outcome, map_script_outcome, session_busy,
+    slave_unreachable,
 };
 use crate::schema::input_schema_for;
-use crate::session_registry::{BridgeCallSlot, McpSessionRegistry};
+use crate::server::FederationCtx;
+use crate::session_registry::{BridgeCallSlot, McpSessionRegistry, DAEMON_SCOPE_LOCAL};
 
 /// Outer safety ceiling for awaiting a daemon bridge oneshot.
 ///
@@ -33,6 +40,9 @@ use crate::session_registry::{BridgeCallSlot, McpSessionRegistry};
 /// completes (e.g. actor crash without reply). Keep it above the max script
 /// timeout default (120s).
 pub const BRIDGE_TIMEOUT: Duration = Duration::from_secs(180);
+
+/// Master→slave HTTP proxy timeout (bridge script budget + margin).
+pub const PROXY_TIMEOUT: Duration = Duration::from_secs(130);
 
 /// Soft-cap on `inspect` `paths[]` (bridge enforces; mirrored in docs).
 pub const INSPECT_PATHS_LIMIT: usize = 96;
@@ -285,6 +295,9 @@ fn default_detailed() -> DiagnosticLevel {
 pub struct ExecutePythonParams {
     /// Target pid.
     pub pid: Pid,
+    /// Optional federated daemon id (omit for local / unique remote resolve).
+    #[serde(default)]
+    pub daemon_id: Option<String>,
     /// Script body.
     pub script: String,
     /// Ignored — bridged tools always exclusive-enqueue (kept for wire compat).
@@ -348,6 +361,9 @@ pub const CAPTURE_DEFAULT_MAX_SIZE: u32 = 256;
 pub struct CaptureParams {
     /// Target pid.
     pub pid: Pid,
+    /// Optional federated daemon id (omit for local / unique remote resolve).
+    #[serde(default)]
+    pub daemon_id: Option<String>,
     /// Operator path (OpPath; relative to contextPath or /project1).
     pub path: OpPath,
     /// Capture mode.
@@ -413,6 +429,9 @@ impl DetailLevel {
 pub struct InspectParams {
     /// Target pid.
     pub pid: Pid,
+    /// Optional federated daemon id (omit for local / unique remote resolve).
+    #[serde(default)]
+    pub daemon_id: Option<String>,
     /// Explicit operator paths to inspect (required, non-empty). Soft-capped at 96.
     /// No auto-recursion — caller chooses exactly which nodes to fetch.
     pub paths: Vec<OpPath>,
@@ -499,6 +518,9 @@ pub enum MutateStep {
 pub struct MutateNodesParams {
     /// Target pid.
     pub pid: Pid,
+    /// Optional federated daemon id (omit for local / unique remote resolve).
+    #[serde(default)]
+    pub daemon_id: Option<String>,
     /// Ordered steps; apply stops at the first hard failure.
     pub steps: Vec<MutateStep>,
     /// Resolution base for relative paths.
@@ -582,6 +604,9 @@ pub enum ApiHelpQuery {
 pub struct ApiHelpParams {
     /// Target pid.
     pub pid: Pid,
+    /// Optional federated daemon id (omit for local / unique remote resolve).
+    #[serde(default)]
+    pub daemon_id: Option<String>,
     /// Batch of API card / index queries (required, non-empty). Soft-capped at 32.
     pub queries: Vec<ApiHelpQuery>,
     /// Caps member lists / whether wikiUrl + full mro appear (not help prose).
@@ -608,7 +633,7 @@ pub enum BridgeOutcome {
 pub struct SessionGate<'a> {
     /// Streamable HTTP MCP session lease id.
     pub session_id: &'a str,
-    /// Shared session registry holding `(session, pid)` in-flight slots.
+    /// Shared session registry holding `(session, daemon_scope, pid)` in-flight slots.
     pub sessions: &'a McpSessionRegistry,
 }
 
@@ -617,6 +642,8 @@ pub struct SessionGate<'a> {
 /// Never holds the registry lock across a bridge await.
 /// Pass [`Some`] [`SessionGate`] from the rmcp handler; JSON fallback passes [`None`]
 /// (pid exclusive still applies; session chill is skipped).
+///
+/// When `federation` is set, bridged tools may proxy to a registered slave.
 pub async fn dispatch_tool(
     registry: &Arc<Mutex<PidRegistry>>,
     catalog: &tdmcp_diagnostics::Catalog,
@@ -624,6 +651,7 @@ pub async fn dispatch_tool(
     name: &str,
     args: Value,
     session: Option<SessionGate<'_>>,
+    federation: Option<&FederationCtx>,
 ) -> Result<Value, ToolCallError> {
     let tool =
         ToolName::from_wire(name).ok_or_else(|| ToolCallError::UnknownTool(name.to_owned()))?;
@@ -646,17 +674,38 @@ pub async fn dispatch_tool(
                     }
                 }
             }
-            let reg = registry.lock().await;
-            Ok(
-                serde_json::to_value(fleet_summary(&reg, &params, &ipc_depths))
-                    .map_err(|e| ToolCallError::InvalidArgs(e.to_string()))?,
-            )
+            let local = {
+                let reg = registry.lock().await;
+                fleet_summary(&reg, &params, &ipc_depths)
+            };
+            if let Some(fed) = federation {
+                Ok(serde_json::to_value(federated_fleet_summary(fed, local).await)
+                    .map_err(|e| ToolCallError::InvalidArgs(e.to_string()))?)
+            } else {
+                Ok(serde_json::to_value(local)
+                    .map_err(|e| ToolCallError::InvalidArgs(e.to_string()))?)
+            }
         }
         ToolName::DescribeTools => Ok(serde_json::json!({ "tools": tool_descriptors() })),
         ToolName::ExecutePython => {
-            let params: ExecutePythonParams = serde_json::from_value(args)
+            let params: ExecutePythonParams = serde_json::from_value(args.clone())
                 .map_err(|e| ToolCallError::InvalidArgs(e.to_string()))?;
-            let _slot = begin_session_slot(session, catalog, "execute_python", params.pid)?;
+            if let ControlFlow::Break(v) = maybe_proxy_bridged(
+                federation,
+                registry,
+                catalog,
+                "execute_python",
+                args,
+                params.daemon_id.as_deref(),
+                params.pid,
+                session,
+            )
+            .await?
+            {
+                return Ok(v);
+            }
+            let _slot =
+                begin_session_slot(session, catalog, "execute_python", DAEMON_SCOPE_LOCAL, params.pid)?;
             let method = BridgeMethod::ExecutePython;
             let outcome = enqueue_and_call(
                 registry,
@@ -681,9 +730,24 @@ pub async fn dispatch_tool(
             )
         }
         ToolName::Capture => {
-            let params: CaptureParams = serde_json::from_value(args)
+            let params: CaptureParams = serde_json::from_value(args.clone())
                 .map_err(|e| ToolCallError::InvalidArgs(e.to_string()))?;
-            let _slot = begin_session_slot(session, catalog, "capture", params.pid)?;
+            if let ControlFlow::Break(v) = maybe_proxy_bridged(
+                federation,
+                registry,
+                catalog,
+                "capture",
+                args,
+                params.daemon_id.as_deref(),
+                params.pid,
+                session,
+            )
+            .await?
+            {
+                return Ok(v);
+            }
+            let _slot =
+                begin_session_slot(session, catalog, "capture", DAEMON_SCOPE_LOCAL, params.pid)?;
             let method = BridgeMethod::Capture;
             let outcome = enqueue_and_call(
                 registry,
@@ -708,14 +772,29 @@ pub async fn dispatch_tool(
             )
         }
         ToolName::Inspect => {
-            let params: InspectParams = serde_json::from_value(args)
+            let params: InspectParams = serde_json::from_value(args.clone())
                 .map_err(|e| ToolCallError::InvalidArgs(e.to_string()))?;
             if params.paths.is_empty() {
                 return Err(ToolCallError::InvalidArgs(
                     "inspect requires a non-empty paths array".into(),
                 ));
             }
-            let _slot = begin_session_slot(session, catalog, "inspect", params.pid)?;
+            if let ControlFlow::Break(v) = maybe_proxy_bridged(
+                federation,
+                registry,
+                catalog,
+                "inspect",
+                args,
+                params.daemon_id.as_deref(),
+                params.pid,
+                session,
+            )
+            .await?
+            {
+                return Ok(v);
+            }
+            let _slot =
+                begin_session_slot(session, catalog, "inspect", DAEMON_SCOPE_LOCAL, params.pid)?;
             let method = BridgeMethod::Inspect;
             let include: Vec<&str> = params
                 .include
@@ -754,9 +833,24 @@ pub async fn dispatch_tool(
             )
         }
         ToolName::MutateNodes => {
-            let params: MutateNodesParams = serde_json::from_value(args)
+            let params: MutateNodesParams = serde_json::from_value(args.clone())
                 .map_err(|e| ToolCallError::InvalidArgs(e.to_string()))?;
-            let _slot = begin_session_slot(session, catalog, "mutate_nodes", params.pid)?;
+            if let ControlFlow::Break(v) = maybe_proxy_bridged(
+                federation,
+                registry,
+                catalog,
+                "mutate_nodes",
+                args,
+                params.daemon_id.as_deref(),
+                params.pid,
+                session,
+            )
+            .await?
+            {
+                return Ok(v);
+            }
+            let _slot =
+                begin_session_slot(session, catalog, "mutate_nodes", DAEMON_SCOPE_LOCAL, params.pid)?;
             let method = BridgeMethod::MutateNodes;
             let steps = serde_json::to_value(&params.steps)
                 .map_err(|e| ToolCallError::InvalidArgs(e.to_string()))?;
@@ -781,14 +875,29 @@ pub async fn dispatch_tool(
             )
         }
         ToolName::ApiHelp => {
-            let params: ApiHelpParams = serde_json::from_value(args)
+            let params: ApiHelpParams = serde_json::from_value(args.clone())
                 .map_err(|e| ToolCallError::InvalidArgs(e.to_string()))?;
             if params.queries.is_empty() {
                 return Err(ToolCallError::InvalidArgs(
                     "api_help requires a non-empty queries array".into(),
                 ));
             }
-            let _slot = begin_session_slot(session, catalog, "api_help", params.pid)?;
+            if let ControlFlow::Break(v) = maybe_proxy_bridged(
+                federation,
+                registry,
+                catalog,
+                "api_help",
+                args,
+                params.daemon_id.as_deref(),
+                params.pid,
+                session,
+            )
+            .await?
+            {
+                return Ok(v);
+            }
+            let _slot =
+                begin_session_slot(session, catalog, "api_help", DAEMON_SCOPE_LOCAL, params.pid)?;
             let queries = serde_json::to_value(&params.queries)
                 .map_err(|e| ToolCallError::InvalidArgs(e.to_string()))?;
             let outcome = enqueue_and_call(
@@ -805,9 +914,29 @@ pub async fn dispatch_tool(
             map_api_help_outcome(catalog, params.pid, outcome, params.diagnostic_level)
         }
         ToolName::EditorContext => {
-            let params: EditorContextParams = serde_json::from_value(args)
+            let params: EditorContextParams = serde_json::from_value(args.clone())
                 .map_err(|e| ToolCallError::InvalidArgs(e.to_string()))?;
-            let _slot = begin_session_slot(session, catalog, "editor_context", params.pid)?;
+            if let ControlFlow::Break(v) = maybe_proxy_bridged(
+                federation,
+                registry,
+                catalog,
+                "editor_context",
+                args,
+                params.daemon_id.as_deref(),
+                params.pid,
+                session,
+            )
+            .await?
+            {
+                return Ok(v);
+            }
+            let _slot = begin_session_slot(
+                session,
+                catalog,
+                "editor_context",
+                DAEMON_SCOPE_LOCAL,
+                params.pid,
+            )?;
             let outcome = enqueue_and_call(
                 registry,
                 bridge,
@@ -821,10 +950,246 @@ pub async fn dispatch_tool(
     }
 }
 
+async fn federated_fleet_summary(fed: &FederationCtx, local: FleetResponse) -> FleetResponse {
+    let tagged: Vec<AggregatedFleetProcess> = local
+        .processes
+        .iter()
+        .map(|p| AggregatedFleetProcess {
+            pid: p.pid.get(),
+            title: p.title.clone(),
+            toe_path: p.toe_path.clone(),
+            bridge: p.bridge,
+            daemon_id: Some(fed.local_daemon_id.clone()),
+            hostname: Some(fed.local_hostname.clone()),
+        })
+        .collect();
+    let mut slaves = fed.slaves.lock().await;
+    slaves.tick_stale(Utc::now());
+    let aggregated = slaves.aggregate_fleet(&fed.local_daemon_id, &fed.local_hostname, tagged);
+    let mut by_pid: std::collections::HashMap<u32, FleetProcess> = local
+        .processes
+        .into_iter()
+        .map(|mut p| {
+            p.daemon_id = Some(fed.local_daemon_id.as_str().to_owned());
+            p.hostname = Some(fed.local_hostname.clone());
+            (p.pid.get(), p)
+        })
+        .collect();
+    let mut processes = Vec::with_capacity(aggregated.len());
+    for row in aggregated {
+        let is_local =
+            row.daemon_id.as_ref().map(DaemonId::as_str) == Some(fed.local_daemon_id.as_str());
+        if is_local {
+            if let Some(local_row) = by_pid.remove(&row.pid) {
+                processes.push(local_row);
+                continue;
+            }
+        }
+        processes.push(FleetProcess {
+            pid: Pid::new(row.pid),
+            title: row.title,
+            window_status: None,
+            toe_path: row.toe_path,
+            bridge: row.bridge,
+            tasks: None,
+            ipc_queue_depth: None,
+            resurrected: false,
+            last_disconnect_at: None,
+            cancelled_tasks: Vec::new(),
+            daemon_id: row.daemon_id.map(DaemonId::into_inner),
+            hostname: row.hostname,
+        });
+    }
+    FleetResponse { processes }
+}
+
+/// Resolve whether a bridged call should run locally or be proxied to a slave.
+///
+/// [`ControlFlow::Continue`] → run locally. [`ControlFlow::Break`] → proxied result.
+async fn maybe_proxy_bridged(
+    federation: Option<&FederationCtx>,
+    registry: &Arc<Mutex<PidRegistry>>,
+    catalog: &tdmcp_diagnostics::Catalog,
+    tool_name: &str,
+    mut args: Value,
+    daemon_id: Option<&str>,
+    pid: Pid,
+    session: Option<SessionGate<'_>>,
+) -> Result<ControlFlow<Value>, ToolCallError> {
+    let Some(fed) = federation else {
+        return Ok(ControlFlow::Continue(()));
+    };
+    let local_id = fed.local_daemon_id.as_str();
+
+    let target_slave_id = if let Some(id) = daemon_id {
+        if id == local_id {
+            return Ok(ControlFlow::Continue(()));
+        }
+        Some(id.to_owned())
+    } else {
+        let local_has = {
+            let reg = registry.lock().await;
+            reg.get(pid.get()).is_some()
+        };
+        let resolve = {
+            let slaves = fed.slaves.lock().await;
+            slaves.resolve_pid(pid.get())
+        };
+        match (local_has, resolve) {
+            (true, PidResolve::Unique(remote_id)) => {
+                let slaves = fed.slaves.lock().await;
+                let remote_host = slaves
+                    .get(&remote_id)
+                    .map(|e| e.hostname.clone())
+                    .unwrap_or_default();
+                return Err(ambiguous_pid(
+                    catalog,
+                    tool_name,
+                    pid,
+                    &[
+                        (fed.local_daemon_id.clone(), fed.local_hostname.clone()),
+                        (remote_id, remote_host),
+                    ],
+                ));
+            }
+            (true, PidResolve::Ambiguous(mut hits)) => {
+                hits.insert(
+                    0,
+                    (fed.local_daemon_id.clone(), fed.local_hostname.clone()),
+                );
+                return Err(ambiguous_pid(catalog, tool_name, pid, &hits));
+            }
+            (false, PidResolve::Ambiguous(hits)) => {
+                return Err(ambiguous_pid(catalog, tool_name, pid, &hits));
+            }
+            (false, PidResolve::Unique(remote_id)) => Some(remote_id.into_inner()),
+            (true, PidResolve::Local | PidResolve::NotFound) => {
+                return Ok(ControlFlow::Continue(()));
+            }
+            (false, PidResolve::Local | PidResolve::NotFound) => {
+                // Fall through to local unknown_pid path.
+                return Ok(ControlFlow::Continue(()));
+            }
+        }
+    };
+
+    let Some(slave_id_str) = target_slave_id else {
+        return Ok(ControlFlow::Continue(()));
+    };
+    let slave_id = DaemonId::new(slave_id_str.clone());
+
+    let (base_url, auth_token) = {
+        let slaves = fed.slaves.lock().await;
+        let Some(entry) = slaves.get(&slave_id) else {
+            return Err(slave_unreachable(catalog, tool_name, pid, &slave_id_str));
+        };
+        if entry.reachability == SlaveReachability::Unreachable {
+            return Err(slave_unreachable(catalog, tool_name, pid, &slave_id_str));
+        }
+        (entry.base_url.clone(), entry.auth_token.clone())
+    };
+
+    let _slot = begin_session_slot(session, catalog, tool_name, &slave_id_str, pid)?;
+
+    if let Some(obj) = args.as_object_mut() {
+        obj.remove("daemonId");
+    }
+
+    let url = format!(
+        "{}/mcp/tools/call",
+        base_url.trim_end_matches('/')
+    );
+    let body = serde_json::json!({
+        "name": tool_name,
+        "arguments": args,
+    });
+    let mut req = fed.http.post(&url).json(&body).timeout(PROXY_TIMEOUT);
+    if !auth_token.is_empty() {
+        req = req.bearer_auth(&auth_token);
+    }
+
+    let resp = match req.send().await {
+        Ok(r) => r,
+        Err(_) => {
+            return Err(slave_unreachable(catalog, tool_name, pid, &slave_id_str));
+        }
+    };
+    if !resp.status().is_success() {
+        return Err(slave_unreachable(catalog, tool_name, pid, &slave_id_str));
+    }
+    let body: Value = match resp.json().await {
+        Ok(v) => v,
+        Err(_) => {
+            return Err(slave_unreachable(catalog, tool_name, pid, &slave_id_str));
+        }
+    };
+
+    if body.get("ok") == Some(&Value::Bool(true)) {
+        let mut data = body.get("data").cloned().unwrap_or(Value::Null);
+        inject_routed(&mut data);
+        return Ok(ControlFlow::Break(data));
+    }
+
+    // Soft/hard tool failure from slave — return as Failed preserving diagnostics.
+    Err(proxy_slave_tool_failed(catalog, tool_name, pid, body))
+}
+
+fn inject_routed(value: &mut Value) {
+    if let Some(obj) = value.as_object_mut() {
+        obj.insert("routed".into(), Value::Bool(true));
+    }
+}
+
+fn proxy_slave_tool_failed(
+    catalog: &tdmcp_diagnostics::Catalog,
+    tool: &str,
+    pid: Pid,
+    body: Value,
+) -> ToolCallError {
+    use crate::outcomes::{build_diag, failed_one_with_image_and_data};
+    use tdmcp_diagnostics::{DiagnosticContext, DiagnosticLayer, DiagnosticSpan};
+
+    let code = body
+        .pointer("/items/0/code")
+        .and_then(Value::as_str)
+        .unwrap_or(tdmcp_diagnostics::codes::FEDERATION_SLAVE_UNREACHABLE);
+    let message = body
+        .get("summary")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .or_else(|| {
+            body.pointer("/items/0/message")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        });
+    let item = build_diag(
+        catalog,
+        code,
+        DiagnosticSpan {
+            tool: tool.into(),
+            mutation_index: None,
+            field: None,
+            line: None,
+            column: None,
+            snippet: None,
+        },
+        message,
+        DiagnosticContext {
+            pid: Some(pid.get()),
+            op_path: None,
+            context_path: None,
+            logs: None,
+        },
+        DiagnosticLayer::Fleet,
+    );
+    failed_one_with_image_and_data(item, None, Some(body))
+}
+
 fn begin_session_slot<'a>(
     session: Option<SessionGate<'a>>,
     catalog: &tdmcp_diagnostics::Catalog,
     tool: &str,
+    daemon_scope: &str,
     pid: Pid,
 ) -> Result<Option<BridgeCallSlot<'a>>, ToolCallError> {
     let Some(gate) = session else {
@@ -832,7 +1197,7 @@ fn begin_session_slot<'a>(
     };
     match gate
         .sessions
-        .try_begin_bridge_call(gate.session_id, pid.get())
+        .try_begin_bridge_call(gate.session_id, daemon_scope, pid.get())
     {
         Some(slot) => Ok(Some(slot)),
         None => Err(session_busy(catalog, tool, pid)),

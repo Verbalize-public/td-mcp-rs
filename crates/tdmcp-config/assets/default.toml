@@ -13,6 +13,31 @@
 # HTTP listen port for MCP + admin (default: 9860).
 port = 9860
 
+# Listen IP. Default 127.0.0.1 (loopback only). Use 0.0.0.0 for remote;
+# non-loopback requires [auth] mode = "psk" with a non-empty psk.
+bind_address = "127.0.0.1"
+
+[auth]
+# Incoming request auth: "none" (default) or "psk" (Bearer token required).
+mode = "none"
+
+# Shared secret for Authorization: Bearer <psk> when mode = "psk".
+psk = ""
+
+
+[federation]
+# Role: "standalone" (default), "master" (accept slaves), or "slave" (register + push).
+role = "standalone"
+
+# Persistent UUID for this daemon; auto-generated on first start — do not hand-edit.
+daemon_id = ""
+
+# When role = "slave": master base URL (http://host:port).
+master_url = ""
+
+# When role = "slave": Bearer token matching the master's auth.psk.
+master_psk = ""
+
 [daemon]
 # When true, the daemon never auto-exits after idle (no MCP sessions and no TD bridges).
 # Default false: idle exit after ~30s (override timeout with TDMCP_IDLE_EXIT_SECS).

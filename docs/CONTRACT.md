@@ -63,14 +63,15 @@ Crate layout: `[ARCHITECTURE.md](../ARCHITECTURE.md)`. Engineering law: `[CONSTI
 | IDE → daemon      | stdio (`tdmcp-daemon mcp` → stdio proxy → HTTP `/mcp/rpc`)           | Cursor entrypoint                | **Shipped** |
 | TD → daemon       | Local IPC                                                            | Bridge                           | **Shipped** |
 | Operator → daemon | In-process tray + admin HTTP + OS toasts (`gui` feature, default on) | Human monitor                    | **Shipped** |
-| IDE → daemon      | WebSocket                                                            | —                                | **Planned** |
+| IDE → daemon      | Streamable HTTP remote (`bind_address` + optional Bearer PSK)        | LAN / non-loopback MCP           | **P3**      |
+| Master → slave    | Streamable HTTP tool proxy (`daemonId`) + `/admin/federation/*`      | Single-level federation          | **P3**      |
 
 
-**Singleton:** one owner per listen port. Exclusivity = `daemon.lock` (pid) + TCP bind on `127.0.0.1:{port}`. Stale locks (dead pid) are reclaimed on `start` / `ensure`. A second `start` while healthy refuses with a clear error. `/admin/restart` clears the lock then spawn-then-exit; the replacement retries bind briefly. No distributed leader election — localhost only.
+**Singleton:** one owner per listen port. Exclusivity = `daemon.lock` (pid) + TCP bind on `{bind_address}:{port}` (default `127.0.0.1`). Stale locks (dead pid) are reclaimed on `start` / `ensure`. A second `start` while healthy refuses with a clear error. `/admin/restart` clears the lock then spawn-then-exit; the replacement retries bind briefly. No distributed leader election — single-host by default; P3 federation is single-level master→slave, not multi-master.
 
 **Idle auto-exit:** after **30s** with zero connected bridges and zero live Streamable HTTP MCP session leases (stdio proxy counts), the daemon toasts and cancels the serve loop (same path as `/admin/shutdown` / ctrl_c). A **5s startup grace** after the idle watcher starts prevents a freshly-(re)started daemon from exiting before the stdio proxy re-acquires a Streamable HTTP lease. Drain is deadline-bounded (~2s); the process then ends on the main thread — never via `process::exit` from a background tokio task. Admin/health polls and JSON `/mcp/tools/`* do not keep it alive. Assumes session-mode MCP (not per-request handlers); production Streamable HTTP disables SSE keepalive and wires the daemon shutdown token (same as integration tests). Override: `TDMCP_IDLE_EXIT_SECS` (`0` disables). `ensure` / `mcp` respawn on next use. Tests may set `TDMCP_IPC_PIPE` so a live TD on the production pipe cannot attach.
 
-**Listen:** `127.0.0.1:9860` (override via CLI / env / RC); loopback only; no auth.
+**Listen:** `{bind_address}:{port}` default `127.0.0.1:9860` (override via CLI / env / RC / `[server]`). Non-loopback bind requires `[auth] mode = "psk"` with a non-empty PSK (`Authorization: Bearer`). Admin surfaces: loopback-only for shutdown/restart/sessions; auth-gated remote allowlist for `/admin/federation/*` and `/admin/config`; minimal unauth probe at `/admin/federation/status` for LAN discovery. Design SoT: [`P3_FEDERATION_PLAN.md`](P3_FEDERATION_PLAN.md).
 
 **Stdio proxy (v1):** forwards tools request/response only (`list_tools` /
 `call_tool`). Server-initiated notifications are **not** forwarded. The HTTP
@@ -588,7 +589,7 @@ Daemon CLI: `start` (foreground; tray + toast by default, dashboard hidden until
 | **P1**   | `mutate_nodes` (incl. connect/disconnect), `capture` `chop_data`, dialogs (Win), op lint engine                                                                 | `mutate_nodes` sequential apply stops at first bad path with `failedAt`; later steps emit `tdmcp.batch.skipped_dependent`; pure `apply_step` seam unit-covered without TD | Partial (`mutate_nodes` + `capture` `chop_data` **Shipped**; dialogs / op lint **Planned**) |
 | **P1.x** | Universal `capture` via shared OP Viewer; `inspect` explicit `paths[]`; `api_help` live API cards                                                              | Any-family preview; chop_image/pop aliases; inspect batch + partial success; api_help class/classes/module                                                                 | **Shipped** (unit + FakeTdPeer; E2E rows 17–19 for inspect/capture)                         |
 | **P2**   | Lifecycle create/start/stop (tray already shipped)                                                                                                              | Operator create/start/stop; new project by pid                                                                                                                            | Partial (tray **Shipped**; lifecycle **Planned**)                                           |
-| **P3**   | WebSocket / remote RFC                                                                                                                                          | Separate design review                                                                                                                                                    | **Planned**                                                                                 |
+| **P3**   | Streamable HTTP remote + single-level federation (`bind_address`, PSK auth, register/fleet-push, `daemonId` tool proxy)                                           | Automated: `admin_auth` + `federation_registration` + `federation_proxy` (inspect/capture/ambiguous/unreachable); see [`P3_FEDERATION_PLAN.md`](P3_FEDERATION_PLAN.md) | **Planned**                                                                                 |
 
 
 ---
@@ -597,7 +598,7 @@ Daemon CLI: `start` (foreground; tray + toast by default, dashboard hidden until
 
 - TD↔daemon: local IPC (named pipe / UDS); handshake returns FS path to bridge package.
 - Cursor↔daemon: `tdmcp-daemon mcp` (stdio proxy → Streamable HTTP at `/mcp/rpc`; v1 tools only, no notification forward). Direct HTTP clients may use `http://127.0.0.1:9860/mcp` (JSON fallback on `/mcp/tools/*`).
-- Identity: `pid` only; bridged tools always exclusive-enqueue (fail iff queue non-empty); session chill on `(mcp_session, pid)`; resurrection stacks until first success.
+- Identity: `pid` required on bridged tools; optional `daemonId` when federated (ambiguous pid → `tdmcp.federation.ambiguous_pid`). Bridged tools always exclusive-enqueue (fail iff queue non-empty); session chill on `(mcp_session, pid)` locally and `(mcp_session, daemonId, pid)` when proxied; resurrection stacks until first success.
 - Perception: `capture` only; builders never self-grade look.
 - Paths: `OpPath` + optional `contextPath`; TD resolves; default base `/project1`.
 - Diagnostics: catalog-backed codes; free-string-only failures forbidden.

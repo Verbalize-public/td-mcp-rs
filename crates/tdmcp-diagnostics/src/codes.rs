@@ -24,6 +24,16 @@ pub const BRIDGE_VERSION: &str = "tdmcp.bridge.version";
 /// Stdio proxy ↔ daemon HTTP link lost / unreachable (reconnect-only; no upsert).
 pub const DAEMON_UNREACHABLE: &str = "tdmcp.daemon.unreachable";
 
+/// Auth token missing or wrong on a protected remote path.
+pub const REMOTE_UNAUTHORIZED: &str = "tdmcp.remote.unauthorized";
+
+/// Slave registration rejected by master (PSK mismatch / auth failure).
+pub const FEDERATION_AUTH_REJECTED: &str = "tdmcp.federation.auth_rejected";
+/// Master cannot reach a slave for a proxied tool call.
+pub const FEDERATION_SLAVE_UNREACHABLE: &str = "tdmcp.federation.slave_unreachable";
+/// Pid matches multiple daemons; response includes candidates.
+pub const FEDERATION_AMBIGUOUS_PID: &str = "tdmcp.federation.ambiguous_pid";
+
 /// OpPath resolution failed.
 pub const OP_NOT_FOUND: &str = "tdmcp.op.not_found";
 /// Similar node name found nearby (lint).
@@ -123,6 +133,10 @@ pub const ALL: &[&str] = &[
     BRIDGE_TIMEOUT,
     BRIDGE_VERSION,
     DAEMON_UNREACHABLE,
+    REMOTE_UNAUTHORIZED,
+    FEDERATION_AUTH_REJECTED,
+    FEDERATION_SLAVE_UNREACHABLE,
+    FEDERATION_AMBIGUOUS_PID,
     OP_NOT_FOUND,
     OP_SIMILAR_NAME,
     OP_RENAMED,

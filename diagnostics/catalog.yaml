@@ -116,6 +116,47 @@ entries:
       - kind: tool
         id: fleet
 
+  - code: tdmcp.remote.unauthorized
+    layer: fleet
+    message: "Auth token missing or wrong on a protected path"
+    mitigation:
+      - "Send Authorization: Bearer <psk> matching the daemon auth.psk"
+      - "Confirm auth.mode = \"psk\" and the PSK is non-empty when binding non-loopback"
+    references:
+      - kind: tool
+        id: fleet
+
+
+  - code: tdmcp.federation.auth_rejected
+    layer: fleet
+    message: "Slave registration rejected by master (PSK mismatch)"
+    mitigation:
+      - "Confirm federation.master_psk matches the master's auth.psk"
+      - "Send Authorization: Bearer <master_psk> on register / fleet-push"
+    references:
+      - kind: tool
+        id: fleet
+
+  - code: tdmcp.federation.slave_unreachable
+    layer: fleet
+    message: "Master cannot reach a slave for a proxied tool call"
+    mitigation:
+      - "Check slave daemon is running and network-reachable"
+      - "Confirm the slave re-registers / fleet-pushes after reconnect"
+    references:
+      - kind: tool
+        id: fleet
+
+  - code: tdmcp.federation.ambiguous_pid
+    layer: fleet
+    message: "Pid matches multiple daemons; include daemonId to disambiguate"
+    mitigation:
+      - "Pass daemonId from fleet alongside pid"
+      - "Inspect fleet candidates listed in the diagnostic payload"
+    references:
+      - kind: tool
+        id: fleet
+
   - code: tdmcp.op.not_found
     layer: mutate
     message: "Could not resolve OpPath for a mutate step"

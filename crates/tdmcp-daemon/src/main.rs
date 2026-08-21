@@ -2,13 +2,14 @@
 
 #![allow(clippy::exit, reason = "process boundary")]
 
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
+use axum::middleware::from_fn_with_state;
 use axum::Router;
 use clap::{Parser, Subcommand};
 use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
@@ -20,6 +21,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
 use tdmcp_daemon::admin::{build_admin_router, RestartArgs};
+use tdmcp_daemon::federation::{spawn_slave_loop, FederationRuntime};
 use tdmcp_daemon::autostart;
 use tdmcp_daemon::bridge::{run_ipc_accept, BridgeSessions};
 use tdmcp_daemon::config::{Config, ConfigOverrides};
@@ -29,6 +31,7 @@ use tdmcp_daemon::ensure::{
 };
 use tdmcp_daemon::idle::{idle_exit_timeout, run_idle_watcher};
 use tdmcp_daemon::install::{self, InstallOutcome};
+use tdmcp_daemon::middleware::{auth_and_loopback, AuthState};
 use tdmcp_diagnostics::Catalog;
 use tdmcp_mcp::{build_mcp_router, AppState, McpHandler};
 
@@ -506,11 +509,13 @@ async fn run_daemon(
 ) -> Result<()> {
     info!(
         port = cfg.port,
+        bind_address = %cfg.bind_address,
         data_dir = %cfg.data_dir.display(),
         bridge_dir = %cfg.bridge_dir.display(),
         config = %cfg.config_path.display(),
         keep_alive = cfg.keep_alive,
         always_on = cfg.always_on,
+        auth_mode = %cfg.auth_mode,
         no_gui,
         "starting tdmcp-daemon"
     );
@@ -562,7 +567,17 @@ async fn run_daemon(
         tdmcp_mcp::ResourceProvider::from_embedded()
             .map_err(|e| anyhow::anyhow!("initialize embedded skills resource provider: {e}"))?,
     );
-    let state = AppState::new_shared(registry.clone(), catalog, bridge, resource_provider);
+
+    let federation = FederationRuntime::from_config(&cfg);
+    let federation_for_slave = federation.clone();
+    let fed_ctx = tdmcp_mcp::FederationCtx {
+        local_daemon_id: federation.daemon_id.clone(),
+        local_hostname: federation.hostname.clone(),
+        slaves: federation.slaves.clone(),
+        http: tdmcp_mcp::FederationCtx::build_http_client(),
+    };
+    let state = AppState::new_shared(registry.clone(), catalog, bridge, resource_provider)
+        .with_federation(fed_ctx);
     let admin_state = state.clone();
     let mcp_handler_state = state.clone();
     let mcp_sessions = state.mcp_sessions.clone();
@@ -586,10 +601,16 @@ async fn run_daemon(
     let restart = RestartArgs {
         exe: exe.clone(),
         port: cfg.port,
+        bind_address: cfg.bind_address.clone(),
         data_dir: cfg.data_dir.clone(),
         bridge_dir: cfg.bridge_dir.clone(),
         catalog_path: cfg.catalog_path.clone(),
         no_gui,
+    };
+
+    let slave_app = admin_state.clone();    let auth_state = AuthState {
+        mode: cfg.auth_mode.clone(),
+        psk: cfg.auth_psk.clone(),
     };
 
     let app = Router::new()
@@ -599,10 +620,16 @@ async fn run_daemon(
             restart,
             shutdown.clone(),
             Arc::clone(&quit),
+            federation.clone(),
         ))
-        .nest_service("/mcp/rpc", streamable_http);
+        .nest_service("/mcp/rpc", streamable_http)
+        .layer(from_fn_with_state(auth_state, auth_and_loopback));
 
-    let addr = SocketAddr::from(([127, 0, 0, 1], cfg.port));
+    let bind_ip: IpAddr = cfg
+        .bind_address
+        .parse()
+        .with_context(|| format!("parse bind_address {:?}", cfg.bind_address))?;
+    let addr = SocketAddr::from((bind_ip, cfg.port));
     let listener = bind_with_retry(addr).await?;
     // Diagnostic wrapper: log every accepted TCP connection when
     // TDMCP_TRACE_ACCEPT=1 (used to locate multi-client accept stalls).
@@ -631,8 +658,20 @@ async fn run_daemon(
         run_ipc_accept(endpoint, bridge_dir, ipc_registry, ipc_sessions).await;
     });
 
-    let idle_handle = if cfg.keep_alive {
-        info!("idle exit disabled (keep_alive=true)");
+    
+    let _slave_handle = if cfg.federation_role == "slave" {
+        Some(spawn_slave_loop(
+            federation_for_slave,
+            slave_app,
+            shutdown.clone(),
+        ))
+    } else {
+        let _ = federation_for_slave;
+        None
+    };
+
+let idle_handle = if cfg.keep_alive || cfg.federation_role == "slave" {
+        info!(role = %cfg.federation_role, keep_alive = cfg.keep_alive, "idle exit disabled");
         None
     } else if let Some(timeout) = idle_exit_timeout() {
         info!(idle_secs = timeout.as_secs(), "idle exit armed");
@@ -657,7 +696,11 @@ async fn run_daemon(
     let shutdown_for_signal = shutdown.clone();
     let quit_for_signal = Arc::clone(&quit);
     let shutdown_for_deadline = shutdown.clone();
-    let serve = axum::serve(listener, app).with_graceful_shutdown(async move {
+    let serve = axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(async move {
         wait_shutdown(shutdown_for_signal, quit_for_signal).await;
     });
 

@@ -13,6 +13,20 @@ pub struct Config {
     pub config_path: PathBuf,
     /// Listen port.
     pub port: u16,
+    /// Bind IP string from `[server].bind_address`.
+    pub bind_address: String,
+    /// `[auth].mode` (`none` | `psk`).
+    pub auth_mode: String,
+    /// `[auth].psk` (Bearer token when mode is psk).
+    pub auth_psk: String,
+    /// `[federation].role` (`standalone` | `master` | `slave`).
+    pub federation_role: String,
+    /// Persistent `[federation].daemon_id`.
+    pub daemon_id: String,
+    /// `[federation].master_url` when role is slave.
+    pub master_url: String,
+    /// `[federation].master_psk` when role is slave.
+    pub master_psk: String,
     /// Data directory.
     pub data_dir: PathBuf,
     /// Bridge package directory.
@@ -63,9 +77,12 @@ impl Config {
     /// Build resolved config from an already-loaded file + overrides.
     pub fn from_file(
         config_path: PathBuf,
-        file: ConfigFile,
+        mut file: ConfigFile,
         overrides: ConfigOverrides,
     ) -> Result<Self> {
+        cfgfile::validate_remote_auth(&file)?;
+        let _ = cfgfile::ensure_daemon_id(&config_path, &mut file)?;
+
         let default_data = crate::install::default_data_dir();
         let data_dir = overrides
             .data_dir
@@ -88,6 +105,13 @@ impl Config {
         Ok(Self {
             config_path,
             port,
+            bind_address: file.server.bind_address,
+            auth_mode: file.auth.mode,
+            auth_psk: file.auth.psk,
+            federation_role: file.federation.role,
+            daemon_id: file.federation.daemon_id,
+            master_url: file.federation.master_url,
+            master_psk: file.federation.master_psk,
             data_dir,
             bridge_dir,
             catalog_path,

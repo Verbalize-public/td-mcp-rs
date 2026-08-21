@@ -23,6 +23,7 @@ tdmcp-config = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tray-icon = { workspace = true }
+uuid = { workspace = true }
 winit = { workspace = true }
 
 [lints]

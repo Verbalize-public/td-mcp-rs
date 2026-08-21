@@ -8,7 +8,7 @@ Sequential bridged tools against one TD `pid` — HARD RULE for agents.
 
 | Kind | Tools | Rule |
 |------|-------|------|
-| **Bridged** | `execute_python`, `inspect`, `capture`, `mutate_nodes`, `api_help`, `editor_context` | At most **one** in-flight per `(mcp_session, pid)` |
+| **Bridged** | `execute_python`, `inspect`, `capture`, `mutate_nodes`, `api_help`, `editor_context` | At most **one** in-flight per `(mcp_session, daemon_scope, pid)` — `daemon_scope` is `local` or remote `daemonId` when federated |
 | **Exempt** | `fleet`, `describe_tools` | Safe during an in-flight bridged call |
 
 ## What to do
@@ -20,8 +20,9 @@ Sequential bridged tools against one TD `pid` — HARD RULE for agents.
 
 ## Daemon gates (summary)
 
-- **Session chill:** `(mcp_session_id, pid)` — one in-flight bridged tool.
-- **Pid exclusive:** per-pid task queue rejects enqueue if non-empty
+- **Session chill:** `(mcp_session_id, daemon_scope, pid)` — one in-flight bridged tool (local or proxied).
+- **Federation:** pass optional `daemonId` on pid tools when the master aggregates multiple daemons; ambiguous pid → `tdmcp.federation.ambiguous_pid`.
+- **Pid exclusive:** per-pid task queue rejects enqueue if non-empty (on the daemon that owns the pid)
   (`tdmcp.bridge.queue_busy`).
 
 ## Related

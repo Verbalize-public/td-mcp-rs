@@ -66,6 +66,12 @@ pub struct FleetProcess {
     /// Cancelled task stack (always when non-empty / resurrected).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub cancelled_tasks: Vec<tdmcp_core::CancelledTask>,
+    /// Owning daemon id when federated (local or remote).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub daemon_id: Option<String>,
+    /// Owning hostname when federated.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hostname: Option<String>,
 }
 
 /// Fleet tool response.
@@ -114,6 +120,8 @@ pub fn fleet_summary(
             resurrected: entry.resurrection.resurrected,
             last_disconnect_at: entry.resurrection.last_disconnect_at,
             cancelled_tasks: entry.resurrection.cancelled_tasks.clone(),
+            daemon_id: None,
+            hostname: None,
         });
     }
     FleetResponse { processes }

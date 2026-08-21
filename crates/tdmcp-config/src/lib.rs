@@ -31,6 +31,10 @@ pub const APP_DIR_NAME: &str = "tdmcp-rs";
 pub struct ConfigFile {
     /// Listen / MCP server settings.
     pub server: ServerSection,
+    /// Incoming request authentication.
+    pub auth: AuthSection,
+    /// Federation / master–slave role.
+    pub federation: FederationSection,
     /// Daemon lifecycle settings.
     pub daemon: DaemonSection,
     /// Bridge IPC call / heartbeat budgets.
@@ -45,11 +49,60 @@ pub struct ConfigFile {
 pub struct ServerSection {
     /// HTTP listen port (MCP + admin).
     pub port: u16,
+    /// Bind IP (`127.0.0.1` loopback, `0.0.0.0` for remote).
+    pub bind_address: String,
 }
 
 impl Default for ServerSection {
     fn default() -> Self {
-        Self { port: DEFAULT_PORT }
+        Self {
+            port: DEFAULT_PORT,
+            bind_address: "127.0.0.1".to_owned(),
+        }
+    }
+}
+
+/// `[auth]` table — Bearer PSK for non-loopback / optional local auth.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AuthSection {
+    /// `"none"` | `"psk"`.
+    pub mode: String,
+    /// Shared secret for `Authorization: Bearer <psk>` when `mode = "psk"`.
+    pub psk: String,
+}
+
+impl Default for AuthSection {
+    fn default() -> Self {
+        Self {
+            mode: "none".to_owned(),
+            psk: String::new(),
+        }
+    }
+}
+
+/// `[federation]` table — standalone / master / slave identity.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct FederationSection {
+    /// `"standalone"` | `"master"` | `"slave"`.
+    pub role: String,
+    /// Persistent UUID generated on first start; never changes once set.
+    pub daemon_id: String,
+    /// Master base URL when `role = "slave"` (e.g. `http://192.168.1.100:9860`).
+    pub master_url: String,
+    /// PSK to present to the master (the master’s `auth.psk`).
+    pub master_psk: String,
+}
+
+impl Default for FederationSection {
+    fn default() -> Self {
+        Self {
+            role: "standalone".to_owned(),
+            daemon_id: String::new(),
+            master_url: String::new(),
+            master_psk: String::new(),
+        }
     }
 }
 
@@ -135,6 +188,41 @@ pub const FIELD_DESCS: &[FieldDesc] = &[
         key: "server.port",
         label: "Port",
         help: "HTTP listen port for MCP and admin (default 9860).",
+    },
+    FieldDesc {
+        key: "server.bind_address",
+        label: "Bind address",
+        help: "Listen IP (default 127.0.0.1). Use 0.0.0.0 for remote; requires auth.mode=psk.",
+    },
+    FieldDesc {
+        key: "auth.mode",
+        label: "Auth mode",
+        help: "Incoming auth: none (local default) or psk (Bearer token required).",
+    },
+    FieldDesc {
+        key: "auth.psk",
+        label: "Auth PSK",
+        help: "Shared secret for Authorization: Bearer when auth.mode=psk.",
+    },
+    FieldDesc {
+        key: "federation.role",
+        label: "Federation role",
+        help: "standalone (default), master (accept slaves), or slave (register + push fleet).",
+    },
+    FieldDesc {
+        key: "federation.daemon_id",
+        label: "Daemon ID",
+        help: "Persistent UUID for this daemon; auto-generated on first start.",
+    },
+    FieldDesc {
+        key: "federation.master_url",
+        label: "Master URL",
+        help: "When role=slave: master base URL (http://host:port).",
+    },
+    FieldDesc {
+        key: "federation.master_psk",
+        label: "Master PSK",
+        help: "When role=slave: Bearer token matching the master’s auth.psk.",
     },
     FieldDesc {
         key: "daemon.keep_alive",
@@ -243,6 +331,45 @@ pub fn load(path: &Path) -> Result<ConfigFile> {
     Ok(file)
 }
 
+/// True when `bind_address` is IPv4/IPv6 loopback (`127.0.0.1` or `::1`).
+#[must_use]
+pub fn is_loopback_bind(bind_address: &str) -> bool {
+    matches!(bind_address.trim(), "127.0.0.1" | "::1")
+}
+
+/// Reject non-loopback bind without `auth.mode = "psk"` and a non-empty PSK.
+pub fn validate_remote_auth(file: &ConfigFile) -> Result<()> {
+    if is_loopback_bind(&file.server.bind_address) {
+        return Ok(());
+    }
+    if file.auth.mode != "psk" {
+        anyhow::bail!(
+            "non-loopback bind_address {:?} requires auth.mode = \"psk\" (got {:?})",
+            file.server.bind_address,
+            file.auth.mode
+        );
+    }
+    if file.auth.psk.trim().is_empty() {
+        anyhow::bail!(
+            "non-loopback bind_address {:?} requires a non-empty auth.psk",
+            file.server.bind_address
+        );
+    }
+    Ok(())
+}
+
+/// Ensure [`FederationSection::daemon_id`] is set; generate a UUIDv4 and save when empty.
+///
+/// Returns `true` when the file was written.
+pub fn ensure_daemon_id(path: &Path, cfg: &mut ConfigFile) -> Result<bool> {
+    if !cfg.federation.daemon_id.trim().is_empty() {
+        return Ok(false);
+    }
+    cfg.federation.daemon_id = uuid::Uuid::new_v4().to_string();
+    save(path, cfg)?;
+    Ok(true)
+}
+
 /// Save `cfg` into `path`, preserving comments/formatting when possible.
 pub fn save(path: &Path, cfg: &ConfigFile) -> Result<()> {
     if let Some(parent) = path.parent() {
@@ -261,11 +388,20 @@ pub fn save(path: &Path, cfg: &ConfigFile) -> Result<()> {
         .unwrap_or_else(|_| DocumentMut::new());
 
     ensure_table(&mut doc, "server");
+    ensure_table(&mut doc, "auth");
+    ensure_table(&mut doc, "federation");
     ensure_table(&mut doc, "daemon");
     ensure_table(&mut doc, "bridge");
     ensure_table(&mut doc, "advanced");
 
     doc["server"]["port"] = value(i64::from(cfg.server.port));
+    doc["server"]["bind_address"] = value(cfg.server.bind_address.as_str());
+    doc["auth"]["mode"] = value(cfg.auth.mode.as_str());
+    doc["auth"]["psk"] = value(cfg.auth.psk.as_str());
+    doc["federation"]["role"] = value(cfg.federation.role.as_str());
+    doc["federation"]["daemon_id"] = value(cfg.federation.daemon_id.as_str());
+    doc["federation"]["master_url"] = value(cfg.federation.master_url.as_str());
+    doc["federation"]["master_psk"] = value(cfg.federation.master_psk.as_str());
     doc["daemon"]["keep_alive"] = value(cfg.daemon.keep_alive);
     doc["daemon"]["always_on"] = value(cfg.daemon.always_on);
     doc["daemon"]["show_tray"] = value(cfg.daemon.show_tray);
@@ -429,9 +565,135 @@ show_tray = true
     fn default_toml_parses() {
         let cfg: ConfigFile = toml_edit::de::from_str(DEFAULT_TOML).expect("parse default");
         assert_eq!(cfg.server.port, 9860);
+        assert_eq!(cfg.server.bind_address, "127.0.0.1");
+        assert_eq!(cfg.auth, AuthSection::default());
         assert!(!cfg.daemon.keep_alive);
         assert!(!cfg.daemon.always_on);
         assert!(cfg.daemon.show_tray);
         assert_eq!(cfg.bridge, BridgeSection::default());
     }
+
+    #[test]
+    fn auth_and_bind_defaults() {
+        let cfg = ConfigFile::default();
+        assert_eq!(cfg.server.bind_address, "127.0.0.1");
+        assert_eq!(cfg.auth.mode, "none");
+        assert!(cfg.auth.psk.is_empty());
+    }
+
+    #[test]
+    fn missing_auth_section_uses_defaults() {
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join("config.toml");
+        fs::write(
+            &path,
+            r#"
+[server]
+port = 9860
+bind_address = "127.0.0.1"
+[daemon]
+keep_alive = false
+always_on = false
+show_tray = true
+"#,
+        )
+        .expect("write");
+        let cfg = load(&path).expect("load");
+        assert_eq!(cfg.auth, AuthSection::default());
+        assert_eq!(cfg.server.bind_address, "127.0.0.1");
+    }
+
+    #[test]
+    fn save_round_trips_bind_and_auth() {
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join("config.toml");
+        ensure_default(&path, true).expect("seed");
+        let mut cfg = load(&path).expect("load");
+        cfg.server.bind_address = "0.0.0.0".to_owned();
+        cfg.auth.mode = "psk".to_owned();
+        cfg.auth.psk = "secret-token".to_owned();
+        save(&path, &cfg).expect("save");
+        let again = load(&path).expect("reload");
+        assert_eq!(again.server.bind_address, "0.0.0.0");
+        assert_eq!(again.auth.mode, "psk");
+        assert_eq!(again.auth.psk, "secret-token");
+    }
+
+    #[test]
+    fn validate_remote_auth_rejects_non_loopback_without_psk() {
+        let mut cfg = ConfigFile::default();
+        cfg.server.bind_address = "0.0.0.0".to_owned();
+        assert!(validate_remote_auth(&cfg).is_err());
+        cfg.auth.mode = "psk".to_owned();
+        assert!(validate_remote_auth(&cfg).is_err());
+        cfg.auth.psk = "tok".to_owned();
+        assert!(validate_remote_auth(&cfg).is_ok());
+    }
+
+    #[test]
+    fn validate_remote_auth_accepts_loopback_without_psk() {
+        let cfg = ConfigFile::default();
+        assert!(validate_remote_auth(&cfg).is_ok());
+        let mut v6 = ConfigFile::default();
+        v6.server.bind_address = "::1".to_owned();
+        assert!(validate_remote_auth(&v6).is_ok());
+    }
+
+    #[test]
+    fn missing_federation_section_uses_defaults() {
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join("config.toml");
+        fs::write(
+            &path,
+            r#"
+[server]
+port = 9860
+bind_address = "127.0.0.1"
+[daemon]
+keep_alive = false
+always_on = false
+show_tray = true
+"#,
+        )
+        .expect("write");
+        let cfg = load(&path).expect("load");
+        assert_eq!(cfg.federation, FederationSection::default());
+        assert_eq!(cfg.federation.role, "standalone");
+        assert!(cfg.federation.daemon_id.is_empty());
+    }
+
+    #[test]
+    fn ensure_daemon_id_generates_once_and_survives_reload() {
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join("config.toml");
+        ensure_default(&path, true).expect("seed");
+        let mut cfg = load(&path).expect("load");
+        assert!(cfg.federation.daemon_id.is_empty());
+        assert!(ensure_daemon_id(&path, &mut cfg).expect("ensure"));
+        let id = cfg.federation.daemon_id.clone();
+        assert!(!id.is_empty());
+        assert!(!ensure_daemon_id(&path, &mut cfg).expect("noop"));
+        assert_eq!(cfg.federation.daemon_id, id);
+        let again = load(&path).expect("reload");
+        assert_eq!(again.federation.daemon_id, id);
+    }
+
+    #[test]
+    fn save_round_trips_federation() {
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join("config.toml");
+        ensure_default(&path, true).expect("seed");
+        let mut cfg = load(&path).expect("load");
+        cfg.federation.role = "master".to_owned();
+        cfg.federation.daemon_id = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee".to_owned();
+        cfg.federation.master_url = "http://127.0.0.1:9860".to_owned();
+        cfg.federation.master_psk = "master-secret".to_owned();
+        save(&path, &cfg).expect("save");
+        let again = load(&path).expect("reload");
+        assert_eq!(again.federation.role, "master");
+        assert_eq!(again.federation.daemon_id, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+        assert_eq!(again.federation.master_url, "http://127.0.0.1:9860");
+        assert_eq!(again.federation.master_psk, "master-secret");
+    }
+
 }

@@ -10,12 +10,14 @@ use axum::extract::State;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use chrono::Utc;
+use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
 use tdmcp_mcp::{fleet_summary, AppState, FleetInclude, FleetParams};
 
+use crate::federation::{tag_local_processes, FederationRuntime};
 use crate::ensure::{configure_detached_spawn_with_log, daemon_lock_path};
 
 /// Arguments needed to respawn the daemon after `/admin/restart`.
@@ -25,6 +27,8 @@ pub struct RestartArgs {
     pub exe: PathBuf,
     /// Listen port.
     pub port: u16,
+    /// Configured bind address (reported by `/admin/status`).
+    pub bind_address: String,
     /// Data directory.
     pub data_dir: PathBuf,
     /// Bridge package directory.
@@ -42,6 +46,7 @@ struct AdminState {
     restart: RestartArgs,
     shutdown: CancellationToken,
     quit: Arc<AtomicBool>,
+    federation: FederationRuntime,
 }
 
 /// Admin router.
@@ -50,12 +55,14 @@ pub fn build_admin_router(
     restart: RestartArgs,
     shutdown: CancellationToken,
     quit: Arc<AtomicBool>,
+    federation: FederationRuntime,
 ) -> Router {
     let state = AdminState {
         app: state,
         restart,
         shutdown,
         quit,
+        federation: federation.clone(),
     };
     Router::new()
         .route("/admin/status", get(status))
@@ -65,6 +72,7 @@ pub fn build_admin_router(
         .route("/admin/shutdown", post(shutdown_handler))
         .route("/admin/restart", post(restart_daemon))
         .with_state(state)
+        .merge(crate::federation::federation_router(federation))
 }
 
 #[derive(Serialize)]
@@ -77,20 +85,38 @@ struct StatusBody {
     bridge_count: usize,
     /// True when this process was started with `--no-gui` / headless.
     no_gui: bool,
+    /// Configured listen IP (`server.bind_address`).
+    bind_address: String,
+    /// Federation role.
+    role: String,
+    /// Persistent daemon id.
+    daemon_id: String,
+    /// Local hostname.
+    hostname: String,
+    /// Registered slave count when `role = master`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    slave_count: Option<usize>,
 }
 
 async fn status(State(state): State<AdminState>) -> Json<StatusBody> {
-    let registry = state.app.registry.lock().await;
-    let params = FleetParams {
-        pids: None,
-        include: vec![],
+    let bridge_count = {
+        let registry = state.app.registry.lock().await;
+        let params = FleetParams {
+            pids: None,
+            include: vec![],
+        };
+        let fleet = fleet_summary(&registry, &params, &[]);
+        fleet
+            .processes
+            .iter()
+            .filter(|p| p.bridge == tdmcp_core::BridgeStatus::Connected)
+            .count()
     };
-    let fleet = fleet_summary(&registry, &params, &[]);
-    let bridge_count = fleet
-        .processes
-        .iter()
-        .filter(|p| p.bridge == tdmcp_core::BridgeStatus::Connected)
-        .count();
+    let slave_count = if state.federation.role == "master" {
+        Some(state.federation.slaves.lock().await.len())
+    } else {
+        None
+    };
     Json(StatusBody {
         ok: true,
         version: env!("CARGO_PKG_VERSION"),
@@ -98,6 +124,11 @@ async fn status(State(state): State<AdminState>) -> Json<StatusBody> {
         mcp_session_count: state.app.mcp_session_count(),
         bridge_count,
         no_gui: state.restart.no_gui,
+        bind_address: state.restart.bind_address.clone(),
+        role: state.federation.role.clone(),
+        daemon_id: state.federation.daemon_id.as_str().to_owned(),
+        hostname: state.federation.hostname.clone(),
+        slave_count,
     })
 }
 
@@ -106,10 +137,6 @@ async fn admin_fleet(State(state): State<AdminState>) -> Json<Value> {
         pids: None,
         include: vec![FleetInclude::Tasks, FleetInclude::Cancelled],
     };
-    // Snapshot pids under a brief registry lock, then release before touching
-    // the bridge-sessions lock (`job_queue_depth`) so we never hold the
-    // registry mutex across an await on another lock (lock-order inversion
-    // risk with the actor map under load). Same pattern as `dispatch_tool`.
     let pids: Vec<u32> = {
         let registry = state.app.registry.lock().await;
         registry.pids()
@@ -122,9 +149,27 @@ async fn admin_fleet(State(state): State<AdminState>) -> Json<Value> {
             }
         }
     }
-    let registry = state.app.registry.lock().await;
-    let fleet = fleet_summary(&registry, &params, &ipc_depths);
-    Json(serde_json::to_value(fleet).unwrap_or(Value::Null))
+    let local = {
+        let registry = state.app.registry.lock().await;
+        fleet_summary(&registry, &params, &ipc_depths)
+    };
+    let mut slaves = state.federation.slaves.lock().await;
+    slaves.tick_stale(Utc::now());
+    let tagged = tag_local_processes(
+        &state.federation.daemon_id,
+        &state.federation.hostname,
+        &local.processes,
+    );
+    let aggregated = slaves.aggregate_fleet(
+        &state.federation.daemon_id,
+        &state.federation.hostname,
+        tagged,
+    );
+    let processes: Vec<Value> = aggregated
+        .into_iter()
+        .map(|p| serde_json::to_value(&p).unwrap_or(Value::Null))
+        .collect();
+    Json(json!({ "processes": processes }))
 }
 
 async fn mcp_sessions(State(state): State<AdminState>) -> Json<Value> {

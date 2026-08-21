@@ -11,6 +11,9 @@ use tdmcp_diagnostics::DiagnosticLevel;
 pub struct EditorContextParams {
     /// Target pid.
     pub pid: Pid,
+    /// Optional federated daemon id (omit for local / unique remote resolve).
+    #[serde(default)]
+    pub daemon_id: Option<String>,
     /// Diagnostic payload size (`summary` omits raw traceback).
     #[serde(default)]
     pub diagnostic_level: DiagnosticLevel,

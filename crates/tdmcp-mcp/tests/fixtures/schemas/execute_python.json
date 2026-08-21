@@ -56,6 +56,14 @@
       "default": null,
       "description": "Optional context path (exposed to script as helper; not enforced)."
     },
+    "daemonId": {
+      "default": null,
+      "description": "Optional federated daemon id (omit for local / unique remote resolve).",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "diagnosticLevel": {
       "$ref": "#/$defs/DiagnosticLevel",
       "default": "detailed",

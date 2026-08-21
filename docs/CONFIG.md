@@ -64,6 +64,25 @@ link (fresh session) and returns `tdmcp.daemon.unreachable` with `budgetMs`.
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `port` | `9860` | HTTP listen port (MCP + admin) |
+| `bind_address` | `127.0.0.1` | Listen address. Use `0.0.0.0` for LAN remote access. Non-loopback requires `[auth] mode = "psk"` with a non-empty `psk`. |
+
+### `[auth]`
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `mode` | `none` | `none` (no Bearer) or `psk` (`Authorization: Bearer`). |
+| `psk` | `""` | Shared secret for incoming MCP + federation + remote `/admin/config`. |
+
+### `[federation]`
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `role` | `standalone` | `standalone` \| `master` \| `slave`. |
+| `daemon_id` | *(auto UUID)* | Stable daemon identity; generated on first start; do not copy across machines. |
+| `master_url` | `""` | Slave only: master base URL (e.g. `http://192.168.1.100:9860`). |
+| `master_psk` | `""` | Slave only: PSK to present to the master (master’s `auth.psk`). |
+
+`role = "slave"` disables idle auto-exit (same effect as `keep_alive`). Design SoT: [`P3_FEDERATION_PLAN.md`](P3_FEDERATION_PLAN.md).
 
 ### `[daemon]`
 

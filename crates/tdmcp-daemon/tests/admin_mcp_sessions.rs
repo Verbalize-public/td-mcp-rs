@@ -8,11 +8,13 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use serde_json::{json, Value};
-use tdmcp_core::PidRegistry;
+use tdmcp_core::{DaemonId, PidRegistry, SlaveRegistry};
 use tdmcp_daemon::admin::{build_admin_router, RestartArgs};
+use tdmcp_daemon::federation::FederationRuntime;
 use tdmcp_diagnostics::Catalog;
 use tdmcp_mcp::testing::{test_resource_provider, FakeBridgeRpc};
 use tdmcp_mcp::{AppState, McpHandler};
+use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use tower::ServiceExt;
 
@@ -20,10 +22,27 @@ fn restart_args() -> RestartArgs {
     RestartArgs {
         exe: PathBuf::from("tdmcp-daemon"),
         port: 9860,
+        bind_address: "127.0.0.1".into(),
         data_dir: PathBuf::from("."),
         bridge_dir: PathBuf::from("."),
         catalog_path: PathBuf::from("."),
         no_gui: true,
+    }
+}
+
+fn test_federation() -> FederationRuntime {
+    FederationRuntime {
+        role: "standalone".into(),
+        daemon_id: DaemonId::new("test-daemon"),
+        hostname: "localhost".into(),
+        port: 9860,
+        bind_address: "127.0.0.1".into(),
+        config_path: PathBuf::from("."),
+        slaves: Arc::new(Mutex::new(SlaveRegistry::new())),
+        local_auth_token: String::new(),
+        master_url: String::new(),
+        master_psk: String::new(),
+        version: "0.0.0".into(),
     }
 }
 
@@ -33,6 +52,7 @@ fn admin_router(state: AppState) -> axum::Router {
         restart_args(),
         CancellationToken::new(),
         Arc::new(AtomicBool::new(false)),
+        test_federation(),
     )
 }
 

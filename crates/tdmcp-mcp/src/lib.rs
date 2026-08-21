@@ -31,8 +31,8 @@ pub use resources::{
 };
 pub use rmcp_handler::McpHandler;
 pub use schema::input_schema_for;
-pub use server::{build_mcp_router, AppState};
-pub use session_registry::{BridgeCallSlot, McpSessionInfo, McpSessionRegistry};
+pub use server::{build_mcp_router, AppState, FederationCtx};
+pub use session_registry::{BridgeCallSlot, McpSessionInfo, McpSessionRegistry, DAEMON_SCOPE_LOCAL};
 pub use stdio_proxy::{
     run as run_stdio_proxy, run_with_rw as run_stdio_proxy_rw,
     run_with_rw_config as run_stdio_proxy_rw_config, StdioProxyError,

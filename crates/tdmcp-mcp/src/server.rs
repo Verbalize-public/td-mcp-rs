@@ -4,13 +4,14 @@
 //! Streamable HTTP layer nests on top of the same [`AppState`].
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::extract::State;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::Value;
-use tdmcp_core::PidRegistry;
+use tdmcp_core::{DaemonId, PidRegistry, SlaveRegistry};
 use tdmcp_diagnostics::Catalog;
 use tokio::sync::Mutex;
 
@@ -18,6 +19,31 @@ use crate::bridge_rpc::BridgeRpc;
 use crate::resources::ResourceProvider;
 use crate::session_registry::McpSessionRegistry;
 use crate::tools::{dispatch_tool, tool_descriptors, ToolCallError};
+
+/// Master-side federation context shared with tool proxy dispatch.
+#[derive(Clone)]
+pub struct FederationCtx {
+    /// This daemon's persistent id.
+    pub local_daemon_id: DaemonId,
+    /// Local hostname for aggregated fleet rows.
+    pub local_hostname: String,
+    /// Shared slave map (same `Arc` as the daemon federation runtime).
+    pub slaves: Arc<Mutex<SlaveRegistry>>,
+    /// Pooled HTTP client for master→slave tool proxy.
+    pub http: reqwest::Client,
+}
+
+impl FederationCtx {
+    /// Build a pooled client for proxy calls (`pool_max_idle_per_host=8`, idle 60s).
+    #[must_use]
+    pub fn build_http_client() -> reqwest::Client {
+        reqwest::Client::builder()
+            .pool_max_idle_per_host(8)
+            .pool_idle_timeout(Duration::from_secs(60))
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new())
+    }
+}
 
 /// Shared daemon state for MCP + admin handlers.
 #[derive(Clone)]
@@ -32,6 +58,8 @@ pub struct AppState {
     pub mcp_sessions: Arc<McpSessionRegistry>,
     /// MCP resource provider (skills rendered in MCP mode).
     pub resource_provider: Arc<ResourceProvider>,
+    /// Federation (master) context when role is master/standalone with slaves.
+    pub federation: Option<FederationCtx>,
 }
 
 impl AppState {
@@ -49,6 +77,7 @@ impl AppState {
             bridge,
             mcp_sessions: Arc::new(McpSessionRegistry::new()),
             resource_provider,
+            federation: None,
         }
     }
 
@@ -67,7 +96,15 @@ impl AppState {
             bridge,
             mcp_sessions: Arc::new(McpSessionRegistry::new()),
             resource_provider,
+            federation: None,
         }
+    }
+
+    /// Attach federation context (shared slave registry with the admin runtime).
+    #[must_use]
+    pub fn with_federation(mut self, federation: FederationCtx) -> Self {
+        self.federation = Some(federation);
+        self
     }
 
     /// Number of live Streamable HTTP MCP session leases.
@@ -112,6 +149,7 @@ async fn call_tool(
         &body.name,
         body.arguments,
         None, // JSON fallback has no MCP session lease; pid exclusive still applies
+        state.federation.as_ref(),
     )
     .await
     {

@@ -4709,6 +4709,7 @@ dependencies = [
  "serde",
  "tempfile",
  "toml_edit 0.22.27",
+ "uuid",
 ]
 
 [[package]]
@@ -4784,6 +4785,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tray-icon",
+ "uuid",
  "winit",
 ]
 

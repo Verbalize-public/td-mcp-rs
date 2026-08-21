@@ -34,7 +34,7 @@ first.
 
 ## Target identification
 
-1. `fleet` → pick a connected `pid`. Pass `pid` on every call.
+1. `fleet` → pick a connected `pid` (and `daemonId` when the fleet shows multiple daemons). Pass `pid` on every call; pass `daemonId` when federated / ambiguous.
 2. Resolve a mutation zone: prefer a self-created named COMP over polluting an
    existing network; user-named subtree; or `editor_context` `ownerPath` as a
    **hint only** — confirm with `inspect` before mutating. Depth:

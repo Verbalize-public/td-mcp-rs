@@ -699,6 +699,63 @@ pub fn session_busy(catalog: &Catalog, tool: &str, pid: Pid) -> ToolCallError {
     failed_one(item)
 }
 
+/// Pid matches more than one daemon in a federated fleet.
+pub fn ambiguous_pid(
+    catalog: &Catalog,
+    tool: &str,
+    pid: Pid,
+    candidates: &[(tdmcp_core::DaemonId, String)],
+) -> ToolCallError {
+    let item = build_diag(
+        catalog,
+        codes::FEDERATION_AMBIGUOUS_PID,
+        span(tool, None),
+        Some(format!(
+            "pid {pid} matches multiple daemons — pass daemonId to disambiguate"
+        )),
+        ctx(pid, None, None),
+        DiagnosticLayer::Fleet,
+    );
+    let candidates_json: Vec<Value> = candidates
+        .iter()
+        .map(|(id, hostname)| {
+            serde_json::json!({
+                "daemonId": id.as_str(),
+                "hostname": hostname,
+            })
+        })
+        .collect();
+    failed_one_with_image_and_data(
+        item,
+        None,
+        Some(serde_json::json!({ "candidates": candidates_json })),
+    )
+}
+
+/// Master cannot reach a slave for a proxied tool call.
+pub fn slave_unreachable(
+    catalog: &Catalog,
+    tool: &str,
+    pid: Pid,
+    daemon_id: &str,
+) -> ToolCallError {
+    let item = build_diag(
+        catalog,
+        codes::FEDERATION_SLAVE_UNREACHABLE,
+        span(tool, None),
+        Some(format!(
+            "federation slave {daemon_id} unreachable for proxied {tool} (pid {pid})"
+        )),
+        ctx(pid, None, None),
+        DiagnosticLayer::Fleet,
+    );
+    failed_one_with_image_and_data(
+        item,
+        None,
+        Some(serde_json::json!({ "daemonId": daemon_id })),
+    )
+}
+
 fn transport(catalog: &Catalog, tool: &str, pid: Pid, err: BridgeRpcError) -> ToolCallError {
     let code = match &err {
         BridgeRpcError::NotConnected { .. } | BridgeRpcError::Disconnected { .. } => {

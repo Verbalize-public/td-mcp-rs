@@ -211,7 +211,7 @@ async fn session_chill_rejects_parallel_same_session_pid() {
                 session_id: &sid1,
                 sessions: sessions1.as_ref(),
             }),
-        )
+            None)
         .await
     });
 
@@ -227,7 +227,7 @@ async fn session_chill_rejects_parallel_same_session_pid() {
             session_id: &sid,
             sessions: mcp_sessions.as_ref(),
         }),
-    )
+            None)
     .await
     .expect_err("second same-session call must chill");
     match &err {
@@ -248,7 +248,7 @@ async fn session_chill_rejects_parallel_same_session_pid() {
             session_id: &sid,
             sessions: mcp_sessions.as_ref(),
         }),
-    )
+            None)
     .await
     .expect("fleet exempt");
     assert!(fleet.get("processes").is_some());
@@ -820,7 +820,7 @@ async fn transport_not_connected_clears_queue_for_exclusive() {
         "execute_python",
         json!({"pid": 34, "script": "result=1"}),
         None,
-    )
+    None)
     .await
     .expect_err("NotConnected must fail the tool call");
     match err {

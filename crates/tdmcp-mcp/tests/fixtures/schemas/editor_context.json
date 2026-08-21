@@ -25,6 +25,14 @@
   "additionalProperties": false,
   "description": "Args for `editor_context`.",
   "properties": {
+    "daemonId": {
+      "default": null,
+      "description": "Optional federated daemon id (omit for local / unique remote resolve).",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "diagnosticLevel": {
       "$ref": "#/$defs/DiagnosticLevel",
       "default": "summary",

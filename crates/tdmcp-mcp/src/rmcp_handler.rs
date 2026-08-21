@@ -155,6 +155,7 @@ impl ServerHandler for McpHandler {
                 session_id: self.session_id(),
                 sessions: self.state.mcp_sessions.as_ref(),
             }),
+            self.state.federation.as_ref(),
         )
         .await
         {

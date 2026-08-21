@@ -8,22 +8,25 @@ crate boundaries and process topology.
 
 ```text
  IDE (Cursor / …)  ──┐
-                     │  MCP Streamable HTTP  http://127.0.0.1:9860/mcp
- Other MCP callers ──┤
+                     │  MCP Streamable HTTP  http://{bind_address}:9860/mcp
+ Other MCP callers ──┤   (default bind 127.0.0.1; P3 may use 0.0.0.0 + PSK)
                      ▼
  ┌────────── Daemon process (tdmcp-daemon) ─────────────────────────────┐
- │  bg thread: axum + rmcp │ admin │ PidRegistry │ per-pid queues         │
- │  main thread (gui feature, default): tray + egui → loopback /admin/* │
+ │  bg thread: axum + rmcp │ admin │ PidRegistry │ SlaveRegistry │ queues │
+ │  main thread (gui feature, default): tray + egui → /admin/*          │
  └──────────┬───────────────────────────────────────────────────────────┘
             │  local IPC (Win named pipe / Unix UDS)
             ▼
    TD process(es)  ←── bootstrap .tox → handshake → FS load bridge/
+
+ Optional P3: slave daemons register + fleet-push to a master; master proxies
+ tools with optional daemonId (see docs/P3_FEDERATION_PLAN.md).
 ```
 
 ## Crate graph
 
 ```text
-tdmcp-core          domain: PidRegistry, TaskQueue, ResurrectionState (zero I/O)
+tdmcp-core          domain: PidRegistry, SlaveRegistry, TaskQueue, ResurrectionState (zero I/O)
 tdmcp-config        TOML config file (load / save / defaults) — shared by daemon + GUI
 tdmcp-diagnostics   catalog types, YAML loader, envelope builders
 tdmcp-ipc           named pipe / UDS + framing + handshake
@@ -51,14 +54,16 @@ timeouts, teardown) plus process wiring (axum, admin, GUI spawn).
 
 | Surface | Bind | Role |
 | --- | --- | --- |
-| MCP Streamable HTTP | `127.0.0.1:9860/mcp/rpc` | Agent tools (`rmcp` Streamable HTTP); JSON fallback at `/mcp/tools/list` + `/mcp/tools/call` |
-| Admin HTTP | `127.0.0.1:9860/admin/*` | In-process GUI + status / kill / restart |
+| MCP Streamable HTTP | `{bind_address}:9860/mcp/rpc` | Agent tools; JSON fallback `/mcp/tools/*`. Optional Bearer PSK when `[auth] mode=psk`. |
+| Admin HTTP | `{bind_address}:9860/admin/*` | GUI + status; loopback-only for shutdown/restart/sessions; auth-gated remote for `/admin/federation/*` + `/admin/config`. |
+| Federation | master↔slave HTTP | Register, fleet-push, tool proxy (`daemonId`). See [`docs/P3_FEDERATION_PLAN.md`](docs/P3_FEDERATION_PLAN.md). |
 | Bridge IPC | `\\.\pipe\tdmcp-rs` or `{dataDir}/bridge.sock` | TD peer |
 
 ## Identity and queues
 
-- **Only id:** OS `pid`.
-- Per-pid task queue: shared (default) or exclusive (fail if queue non-empty).
+- **Ids:** OS `pid` (required on bridged tools); optional `daemonId` when federated.
+- Ambiguous pid across daemons → `tdmcp.federation.ambiguous_pid`.
+- Per-pid task queue on the owning daemon; session chill on `(mcp_session, daemon_scope, pid)`.
 - Resurrection: stack cancelled tasks on IPC loss; clear on first successful task.
 
 ## Global harnesses

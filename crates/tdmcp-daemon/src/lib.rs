@@ -8,10 +8,12 @@ pub mod admin;
 pub mod autostart;
 pub mod bridge;
 pub mod config;
+pub mod federation;
 pub mod ensure;
 pub mod http_util;
 pub mod idle;
 pub mod install;
+pub mod middleware;
 pub mod tracing_init;
 
 pub use admin::RestartArgs;

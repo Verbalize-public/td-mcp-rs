@@ -34,8 +34,10 @@ Law: [`CONSTITUTION.md`](CONSTITUTION.md). User install/quickstart: [`README.md`
  errors/warnings/wires → `capture` (perception) → look grade via
  `tdmcp://docs/look-grade`. Bridged tools **one at a time**
  (`tdmcp://docs/tooling-concurrency`).
-3. Pass `pid` every process-scoped call. Use `contextPath` for relative
- `OpPath`s (default base = `/project1`).
+3. Pass `pid` every process-scoped call. When federated (master GUI/fleet
+ shows multiple `daemonId`s), also pass `daemonId` if the pid is ambiguous
+ or remote. Use `contextPath` for relative `OpPath`s (default base =
+ `/project1`).
 4. On failure, read **`diagnostics`** (codes, lints, mitigation) — not raw
  strings alone.
 5. Prefer `detailLevel: summary` / `diagnosticLevel: summary`; store-first for

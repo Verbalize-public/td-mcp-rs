@@ -155,6 +155,14 @@
   "additionalProperties": false,
   "description": "Args for api_help.",
   "properties": {
+    "daemonId": {
+      "default": null,
+      "description": "Optional federated daemon id (omit for local / unique remote resolve).",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "detailLevel": {
       "$ref": "#/$defs/DetailLevel",
       "default": "summary",

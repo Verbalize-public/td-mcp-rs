@@ -21,6 +21,7 @@ use tray_icon::menu::{Menu, MenuEvent, MenuItem};
 use tray_icon::{
     Icon, MouseButton, MouseButtonState, Rect, TrayIcon, TrayIconBuilder, TrayIconEvent,
 };
+use uuid::Uuid;
 
 use theme::{
     filled_button, font_label, font_meta, font_mono, font_title, ghost_button, section_header,
@@ -32,6 +33,14 @@ use theme::{
 enum View {
     Fleet,
     Settings,
+}
+
+/// Overlay panels on the Fleet view (add-slave / slave settings).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FleetPanel {
+    None,
+    AddSlave,
+    SlaveSettings,
 }
 
 /// Coalesce tray left-clicks so burst/double events cannot flip twice.
@@ -151,6 +160,8 @@ struct DashboardApp {
     status: Option<StatusView>,
     fleet_json: String,
     sessions_json: String,
+    /// Master-only: `/admin/federation/slaves` body.
+    slaves_json: String,
     last_poll: Option<Instant>,
     error: Option<String>,
     tray: Option<TrayIcon>,
@@ -182,6 +193,29 @@ struct DashboardApp {
     last_tray_rect: Option<Rect>,
     /// Shared with the daemon thread — when set, close the event loop for real.
     quit: Arc<AtomicBool>,
+    /// Show auth PSK in Settings.
+    show_psk: bool,
+    /// Show master PSK in Settings.
+    show_master_psk: bool,
+    /// Confirm label after federation role change in Settings.
+    role_change_note: Option<String>,
+    /// Slave: awaiting confirm for Go standalone.
+    confirm_go_standalone: bool,
+    /// Fleet overlay panel.
+    fleet_panel: FleetPanel,
+    add_slave_host: String,
+    add_slave_port: u16,
+    add_slave_psk: String,
+    add_slave_message: Option<String>,
+    add_slave_probe: Option<FederationProbe>,
+    scan_results: Vec<ScanHit>,
+    scan_busy: bool,
+    /// Target slave for settings panel.
+    slave_settings_target: Option<SlaveSettingsTarget>,
+    slave_settings_call_timeout: u64,
+    slave_settings_script_timeout: u64,
+    slave_settings_error: Option<String>,
+    show_add_slave_psk: bool,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -225,6 +259,7 @@ impl DashboardApp {
             status: None,
             fleet_json: String::new(),
             sessions_json: String::new(),
+            slaves_json: String::new(),
             last_poll: None,
             error: None,
             // Defer tray build to the first `logic` tick. Creating a status-item
@@ -249,6 +284,23 @@ impl DashboardApp {
             last_tray_toggle_at: None,
             last_tray_rect: None,
             quit,
+            show_psk: false,
+            show_master_psk: false,
+            role_change_note: None,
+            confirm_go_standalone: false,
+            fleet_panel: FleetPanel::None,
+            add_slave_host: String::new(),
+            add_slave_port: tdmcp_config::DEFAULT_PORT,
+            add_slave_psk: String::new(),
+            add_slave_message: None,
+            add_slave_probe: None,
+            scan_results: Vec::new(),
+            scan_busy: false,
+            slave_settings_target: None,
+            slave_settings_call_timeout: 45,
+            slave_settings_script_timeout: 120,
+            slave_settings_error: None,
+            show_add_slave_psk: false,
         })
     }
 
@@ -319,9 +371,14 @@ impl DashboardApp {
 
     fn save_settings(&mut self) {
         self.apply_path_edits();
+        if let Err(e) = cfgfile::validate_remote_auth(&self.draft) {
+            self.settings_error = Some(e.to_string());
+            return;
+        }
         match cfgfile::save(&self.config_path, &self.draft) {
             Ok(()) => {
                 self.settings_error = None;
+                self.role_change_note = None;
                 self.view = View::Fleet;
             }
             Err(e) => self.settings_error = Some(format!("save failed: {e}")),
@@ -466,7 +523,8 @@ impl DashboardApp {
 
     fn poll(&mut self) {
         self.ensure_base();
-        let status_ok = match http_get_blocking(&format!("{}/admin/status", self.admin_base)) {
+        let status_ok = match http_get_blocking(&format!("{}/admin/status", self.admin_base), None)
+        {
             Ok(body) => {
                 self.status = serde_json::from_str(&body).ok();
                 self.error = None;
@@ -478,20 +536,39 @@ impl DashboardApp {
                 false
             }
         };
-        match http_get_blocking(&format!("{}/admin/fleet", self.admin_base)) {
+        match http_get_blocking(&format!("{}/admin/fleet", self.admin_base), None) {
             Ok(body) => {
                 self.fleet_json = body;
                 self.apply_fleet_status();
             }
             Err(e) => self.error = Some(e),
         }
-        match http_get_blocking(&format!("{}/admin/mcp-sessions", self.admin_base)) {
+        match http_get_blocking(&format!("{}/admin/mcp-sessions", self.admin_base), None) {
             Ok(body) => self.sessions_json = body,
             Err(e) => {
                 if self.error.is_none() {
                     self.error = Some(e);
                 }
             }
+        }
+
+        let is_master = self
+            .status
+            .as_ref()
+            .is_some_and(|s| s.role.eq_ignore_ascii_case("master"));
+        if is_master {
+            let bearer = local_master_psk(&self.draft);
+            match http_get_blocking(
+                &format!("{}/admin/federation/slaves", self.admin_base),
+                bearer.as_deref(),
+            ) {
+                Ok(body) => self.slaves_json = body,
+                Err(_) => {
+                    // Keep last snapshot; auth may be unset on old daemons.
+                }
+            }
+        } else {
+            self.slaves_json.clear();
         }
 
         if status_ok {
@@ -604,12 +681,12 @@ impl DashboardApp {
 
     fn shutdown_daemon(&mut self) {
         self.ensure_base();
-        let _ = http_post_blocking(&format!("{}/admin/shutdown", self.admin_base));
+        let _ = http_post_blocking(&format!("{}/admin/shutdown", self.admin_base), None, None);
     }
 
     fn restart_daemon(&mut self) {
         self.ensure_base();
-        let _ = http_post_blocking(&format!("{}/admin/restart", self.admin_base));
+        let _ = http_post_blocking(&format!("{}/admin/restart", self.admin_base), None, None);
     }
 
     fn reveal_tox(&self) {
@@ -667,9 +744,8 @@ impl DashboardApp {
         if !self.visible {
             return;
         }
-        // Keep Settings open while editing — avoid discarding the draft on
-        // accidental focus blips from text fields / OS chrome.
-        if self.view == View::Settings {
+        // Keep Settings / fleet panels open while editing.
+        if self.view == View::Settings || self.fleet_panel != FleetPanel::None {
             return;
         }
         if self
@@ -689,11 +765,12 @@ impl DashboardApp {
         ui.horizontal(|ui| {
             status_led(ui, ACCENT);
             ui.add_space(2.0);
-            ui.label(
-                egui::RichText::new("td-mcp-rs")
-                    .font(font_title())
-                    .color(TEXT),
-            );
+            let title = match self.status.as_ref().map(|s| s.role.as_str()) {
+                Some("master") => "td-mcp-rs (master)",
+                Some("slave") => "td-mcp-rs (slave)",
+                _ => "td-mcp-rs",
+            };
+            ui.label(egui::RichText::new(title).font(font_title()).color(TEXT));
             if let Some(st) = &self.status {
                 ui.label(
                     egui::RichText::new(format!("· v{}", st.version))
@@ -705,6 +782,19 @@ impl DashboardApp {
                         .font(font_mono())
                         .color(TEXT_FAINT),
                 );
+                let bind = st.bind_address.as_str();
+                if !bind.is_empty() {
+                    let bind_label = if cfgfile::is_loopback_bind(bind) {
+                        "loopback"
+                    } else {
+                        "remote"
+                    };
+                    ui.label(
+                        egui::RichText::new(format!("· {bind_label}"))
+                            .font(font_meta())
+                            .color(TEXT_FAINT),
+                    );
+                }
             }
             // Right-anchored ghost actions: Stop · Restart · .tox · gear (RTL).
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -778,6 +868,152 @@ impl DashboardApp {
                     .speed(1),
             );
         });
+
+        ui.add_space(4.0);
+        section_header(ui, "REMOTE ACCESS");
+        settings_row(
+            ui,
+            "Bind address",
+            Self::field_help("server.bind_address"),
+            |ui| {
+                ui.add_sized(
+                    egui::vec2(ui.available_width().min(180.0), 20.0),
+                    egui::TextEdit::singleline(&mut self.draft.server.bind_address)
+                        .font(font_mono()),
+                );
+            },
+        );
+        settings_row(ui, "Auth mode", Self::field_help("auth.mode"), |ui| {
+            let mut mode_psk = self.draft.auth.mode == "psk";
+            if ui
+                .selectable_label(!mode_psk, "none")
+                .on_hover_text("No Bearer required")
+                .clicked()
+            {
+                self.draft.auth.mode = "none".to_owned();
+                mode_psk = false;
+            }
+            if ui
+                .selectable_label(mode_psk, "psk")
+                .on_hover_text("Require Authorization: Bearer")
+                .clicked()
+            {
+                self.draft.auth.mode = "psk".to_owned();
+                if self.draft.auth.psk.trim().is_empty() {
+                    self.draft.auth.psk = generate_psk();
+                }
+            }
+        });
+        settings_row(ui, "Auth PSK", Self::field_help("auth.psk"), |ui| {
+            let resp = ui.add_sized(
+                egui::vec2(ui.available_width().min(160.0), 20.0),
+                egui::TextEdit::singleline(&mut self.draft.auth.psk)
+                    .font(font_mono())
+                    .password(!self.show_psk),
+            );
+            if ghost_button(ui, if self.show_psk { "hide" } else { "show" }, TEXT_DIM, TEXT)
+                .clicked()
+            {
+                self.show_psk = !self.show_psk;
+            }
+            let _ = resp;
+        });
+        if !cfgfile::is_loopback_bind(&self.draft.server.bind_address)
+            && self.draft.auth.mode != "psk"
+        {
+            ui.horizontal(|ui| {
+                ui.add_space(12.0);
+                ui.colored_label(ERR, "non-loopback bind requires auth.mode = psk");
+            });
+        }
+
+        ui.add_space(4.0);
+        section_header(ui, "FEDERATION");
+        settings_row(
+            ui,
+            "Role",
+            Self::field_help("federation.role"),
+            |ui| {
+                let current = self.draft.federation.role.clone();
+                egui::ComboBox::from_id_salt("federation_role")
+                    .selected_text(&current)
+                    .show_ui(ui, |ui| {
+                        for role in ["standalone", "master", "slave"] {
+                            if ui
+                                .selectable_label(current == role, role)
+                                .clicked()
+                                && current != role
+                            {
+                                self.draft.federation.role = role.to_owned();
+                                self.role_change_note = Some(format!(
+                                    "role → {role} (applies after save + restart)"
+                                ));
+                            }
+                        }
+                    });
+            },
+        );
+        if let Some(note) = &self.role_change_note {
+            ui.horizontal(|ui| {
+                ui.add_space(12.0);
+                ui.label(
+                    egui::RichText::new(note.clone())
+                        .font(font_meta())
+                        .color(WARN),
+                );
+            });
+        }
+        if !self.draft.federation.daemon_id.is_empty() {
+            settings_row(
+                ui,
+                "Daemon ID",
+                Self::field_help("federation.daemon_id"),
+                |ui| {
+                    ui.label(
+                        egui::RichText::new(&self.draft.federation.daemon_id)
+                            .font(font_mono())
+                            .color(TEXT_FAINT),
+                    );
+                },
+            );
+        }
+        if self.draft.federation.role == "slave" {
+            settings_row(
+                ui,
+                "Master URL",
+                Self::field_help("federation.master_url"),
+                |ui| {
+                    ui.add_sized(
+                        egui::vec2(ui.available_width().min(200.0), 20.0),
+                        egui::TextEdit::singleline(&mut self.draft.federation.master_url)
+                            .font(font_mono()),
+                    );
+                },
+            );
+            settings_row(
+                ui,
+                "Master PSK",
+                Self::field_help("federation.master_psk"),
+                |ui| {
+                    ui.add_sized(
+                        egui::vec2(ui.available_width().min(140.0), 20.0),
+                        egui::TextEdit::singleline(&mut self.draft.federation.master_psk)
+                            .font(font_mono())
+                            .password(!self.show_master_psk),
+                    );
+                    if ghost_button(
+                        ui,
+                        if self.show_master_psk { "hide" } else { "show" },
+                        TEXT_DIM,
+                        TEXT,
+                    )
+                    .clicked()
+                    {
+                        self.show_master_psk = !self.show_master_psk;
+                    }
+                },
+            );
+        }
 
         ui.add_space(4.0);
         section_header(ui, "DAEMON");

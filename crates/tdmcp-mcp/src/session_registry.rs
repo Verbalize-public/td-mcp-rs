@@ -7,6 +7,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::Serialize;
 use uuid::Uuid;
 
+/// Daemon scope key for local (non-proxied) bridged calls.
+pub const DAEMON_SCOPE_LOCAL: &str = "local";
+
 /// One live MCP client session visible to operators.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -21,19 +24,21 @@ pub struct McpSessionInfo {
     pub connected_at: u64,
 }
 
-/// RAII guard for one `(session_id, pid)` bridged-tool slot.
+/// RAII guard for one `(session_id, daemon_scope, pid)` bridged-tool slot.
 ///
 /// Dropping the guard (including on panic / early return) releases the slot.
 #[derive(Debug)]
 pub struct BridgeCallSlot<'a> {
     registry: &'a McpSessionRegistry,
     session_id: String,
+    daemon_scope: String,
     pid: u32,
 }
 
 impl Drop for BridgeCallSlot<'_> {
     fn drop(&mut self) {
-        self.registry.end_bridge_call(&self.session_id, self.pid);
+        self.registry
+            .end_bridge_call(&self.session_id, &self.daemon_scope, self.pid);
     }
 }
 
@@ -41,8 +46,8 @@ impl Drop for BridgeCallSlot<'_> {
 #[derive(Debug, Default)]
 pub struct McpSessionRegistry {
     inner: Mutex<Vec<McpSessionInfo>>,
-    /// In-flight bridged tools keyed by `(session_id, pid)`.
-    bridge_inflight: Mutex<HashSet<(String, u32)>>,
+    /// In-flight bridged tools keyed by `(session_id, daemon_scope, pid)`.
+    bridge_inflight: Mutex<HashSet<(String, String, u32)>>,
 }
 
 impl McpSessionRegistry {
@@ -74,19 +79,20 @@ impl McpSessionRegistry {
             guard.retain(|s| s.id != id);
         }
         if let Ok(mut inflight) = self.bridge_inflight.lock() {
-            inflight.retain(|(sid, _)| sid != id);
+            inflight.retain(|(sid, _, _)| sid != id);
         }
     }
 
-    /// Try to reserve one bridged-tool slot for `(session_id, pid)`.
+    /// Try to reserve one bridged-tool slot for `(session_id, daemon_scope, pid)`.
     ///
-    /// Returns [`None`] when that pair already has an in-flight call (N=1).
+    /// Returns [`None`] when that triple already has an in-flight call (N=1).
     pub fn try_begin_bridge_call<'a>(
         &'a self,
         session_id: &str,
+        daemon_scope: &str,
         pid: u32,
     ) -> Option<BridgeCallSlot<'a>> {
-        let key = (session_id.to_owned(), pid);
+        let key = (session_id.to_owned(), daemon_scope.to_owned(), pid);
         let inserted = self
             .bridge_inflight
             .lock()
@@ -98,24 +104,24 @@ impl McpSessionRegistry {
         Some(BridgeCallSlot {
             registry: self,
             session_id: session_id.to_owned(),
+            daemon_scope: daemon_scope.to_owned(),
             pid,
         })
     }
 
     /// Release a bridged-tool slot (also invoked by [`BridgeCallSlot`] Drop).
-    pub fn end_bridge_call(&self, session_id: &str, pid: u32) {
+    pub fn end_bridge_call(&self, session_id: &str, daemon_scope: &str, pid: u32) {
         if let Ok(mut g) = self.bridge_inflight.lock() {
-            g.remove(&(session_id.to_owned(), pid));
+            g.remove(&(session_id.to_owned(), daemon_scope.to_owned(), pid));
         }
     }
 
-    /// Whether `(session_id, pid)` currently holds a bridged-tool slot (tests).
+    /// Whether `(session_id, daemon_scope, pid)` currently holds a bridged-tool slot (tests).
     #[must_use]
-    pub fn has_bridge_call(&self, session_id: &str, pid: u32) -> bool {
-        self.bridge_inflight
-            .lock()
-            .ok()
-            .is_some_and(|g| g.contains(&(session_id.to_owned(), pid)))
+    pub fn has_bridge_call(&self, session_id: &str, daemon_scope: &str, pid: u32) -> bool {
+        self.bridge_inflight.lock().ok().is_some_and(|g| {
+            g.contains(&(session_id.to_owned(), daemon_scope.to_owned(), pid))
+        })
     }
 
     /// Set client identity after MCP `initialize` (or annotate).
@@ -227,26 +233,35 @@ mod tests {
     }
 
     #[test]
-    fn bridge_call_slot_n1_per_session_pid() {
+    fn bridge_call_slot_n1_per_session_scope_pid() {
         let reg = McpSessionRegistry::new();
         let a = reg
-            .try_begin_bridge_call("sess-1", 10)
+            .try_begin_bridge_call("sess-1", DAEMON_SCOPE_LOCAL, 10)
             .expect("first acquire");
-        assert!(reg.has_bridge_call("sess-1", 10));
-        assert!(reg.try_begin_bridge_call("sess-1", 10).is_none());
+        assert!(reg.has_bridge_call("sess-1", DAEMON_SCOPE_LOCAL, 10));
+        assert!(reg
+            .try_begin_bridge_call("sess-1", DAEMON_SCOPE_LOCAL, 10)
+            .is_none());
+        // Same session+pid, different daemon scope is allowed.
+        let remote = reg
+            .try_begin_bridge_call("sess-1", "slave-a", 10)
+            .expect("remote scope");
         // Different pid on same session is allowed.
-        let b = reg.try_begin_bridge_call("sess-1", 11).expect("other pid");
+        let b = reg
+            .try_begin_bridge_call("sess-1", DAEMON_SCOPE_LOCAL, 11)
+            .expect("other pid");
         // Different session on same pid is allowed (pid exclusive is separate).
         let c = reg
-            .try_begin_bridge_call("sess-2", 10)
+            .try_begin_bridge_call("sess-2", DAEMON_SCOPE_LOCAL, 10)
             .expect("other session");
         drop(a);
-        assert!(!reg.has_bridge_call("sess-1", 10));
+        assert!(!reg.has_bridge_call("sess-1", DAEMON_SCOPE_LOCAL, 10));
         let a2 = reg
-            .try_begin_bridge_call("sess-1", 10)
+            .try_begin_bridge_call("sess-1", DAEMON_SCOPE_LOCAL, 10)
             .expect("re-acquire after drop");
-        assert!(reg.has_bridge_call("sess-1", 10));
+        assert!(reg.has_bridge_call("sess-1", DAEMON_SCOPE_LOCAL, 10));
         drop(a2);
+        drop(remote);
         drop(b);
         drop(c);
     }
@@ -255,11 +270,13 @@ mod tests {
     fn release_session_clears_bridge_slots() {
         let reg = Arc::new(McpSessionRegistry::new());
         let id = reg.acquire();
-        let slot = reg.try_begin_bridge_call(&id, 42).expect("slot");
-        assert!(reg.has_bridge_call(&id, 42));
+        let slot = reg
+            .try_begin_bridge_call(&id, DAEMON_SCOPE_LOCAL, 42)
+            .expect("slot");
+        assert!(reg.has_bridge_call(&id, DAEMON_SCOPE_LOCAL, 42));
         // Disconnect clears slots even while a guard is still alive.
         reg.release(&id);
-        assert!(!reg.has_bridge_call(&id, 42));
+        assert!(!reg.has_bridge_call(&id, DAEMON_SCOPE_LOCAL, 42));
         drop(slot); // must not panic after session release
     }
 }
