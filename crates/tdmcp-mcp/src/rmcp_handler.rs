@@ -23,7 +23,7 @@ use rmcp::service::RequestContext;
 use rmcp::{ErrorData, RoleServer, ServerHandler};
 use serde_json::Value;
 
-use crate::resources::{self, SERVER_INSTRUCTIONS};
+use crate::resources::{server_capabilities, SERVER_INSTRUCTIONS};
 use crate::schema::input_schema_for;
 use crate::session_registry::McpSessionRegistry;
 use crate::tools::ToolName;
@@ -74,7 +74,7 @@ impl McpHandler {
 
 impl ServerHandler for McpHandler {
     fn get_info(&self) -> ServerInfo {
-        ServerInfo::new(resources::server_capabilities())
+        ServerInfo::new(server_capabilities())
             .with_server_info(Implementation::new(
                 "tdmcp-daemon",
                 env!("CARGO_PKG_VERSION"),
@@ -123,7 +123,7 @@ impl ServerHandler for McpHandler {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListResourcesResult, ErrorData> {
-        Ok(resources::list_resources())
+        Ok(self.state.resource_provider.list_resources())
     }
 
     async fn read_resource(
@@ -131,7 +131,7 @@ impl ServerHandler for McpHandler {
         request: ReadResourceRequestParams,
         _context: RequestContext<RoleServer>,
     ) -> Result<ReadResourceResponse, ErrorData> {
-        match resources::read_resource(&request.uri) {
+        match self.state.resource_provider.read_resource(&request.uri) {
             Ok(result) => Ok(ReadResourceResponse::Complete(result)),
             Err(msg) => Err(ErrorData::resource_not_found(msg, None)),
         }
@@ -269,7 +269,7 @@ mod tests {
     use tdmcp_core::PidRegistry;
     use tdmcp_diagnostics::Catalog;
 
-    use crate::testing::FakeBridgeRpc;
+    use crate::testing::{test_resource_provider, FakeBridgeRpc};
 
     #[test]
     fn session_lease_counts_acquire_and_shared_drop() {
@@ -277,6 +277,7 @@ mod tests {
             PidRegistry::new(),
             Catalog::fallback(),
             Arc::new(FakeBridgeRpc::responding(json!({}))),
+            test_resource_provider().expect("resource provider"),
         );
         assert_eq!(state.mcp_session_count(), 0);
         let a = McpHandler::new(state.clone());

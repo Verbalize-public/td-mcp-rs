@@ -129,11 +129,9 @@ enum SkillsCmd {
         #[arg(long, env = "TDMCP_DATA_DIR")]
         data_dir: Option<PathBuf>,
     },
-    /// Copy skill folders into `--dest` (e.g. `~/.cursor/skills`).
-    Copy {
-        #[arg(long, env = "TDMCP_DATA_DIR")]
-        data_dir: Option<PathBuf>,
-        /// Destination directory (host skills root).
+    /// Render skill cards (filesystem mode) into `--dest`.
+    Render {
+        /// Destination directory for rendered skills.
         #[arg(long)]
         dest: PathBuf,
     },
@@ -291,18 +289,10 @@ fn main() -> Result<()> {
                 println!("{}", path.display());
                 Ok(())
             }
-            SkillsCmd::Copy { data_dir, dest } => {
-                let data_dir = data_dir.unwrap_or_else(install::default_data_dir);
-                let copied = install::copy_skills_to(&data_dir, &dest)?;
-                if copied.is_empty() {
-                    println!(
-                        "no skill folders found under {}",
-                        data_dir.join("skills").display()
-                    );
-                } else {
-                    for p in copied {
-                        println!("copied → {}", p.display());
-                    }
+            SkillsCmd::Render { dest } => {
+                let written = install::render_skills_to(&dest)?;
+                for (rel, out) in written {
+                    println!("{rel} → {}", out.display());
                 }
                 Ok(())
             }
@@ -496,7 +486,11 @@ async fn run_daemon(
         .with_heartbeat(heartbeat)
         .with_timeouts(timeouts);
     let bridge: Arc<dyn tdmcp_mcp::BridgeRpc> = Arc::new(sessions.clone());
-    let state = AppState::new_shared(registry.clone(), catalog, bridge);
+    let resource_provider = Arc::new(
+        tdmcp_mcp::ResourceProvider::from_embedded()
+            .map_err(|e| anyhow::anyhow!("initialize embedded skills resource provider: {e}"))?,
+    );
+    let state = AppState::new_shared(registry.clone(), catalog, bridge, resource_provider);
     let admin_state = state.clone();
     let mcp_handler_state = state.clone();
     let mcp_sessions = state.mcp_sessions.clone();

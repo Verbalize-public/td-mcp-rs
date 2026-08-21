@@ -11,7 +11,7 @@ use serde_json::{json, Value};
 use tdmcp_core::PidRegistry;
 use tdmcp_daemon::admin::{build_admin_router, RestartArgs};
 use tdmcp_diagnostics::Catalog;
-use tdmcp_mcp::testing::FakeBridgeRpc;
+use tdmcp_mcp::testing::{test_resource_provider, FakeBridgeRpc};
 use tdmcp_mcp::{AppState, McpHandler};
 use tokio_util::sync::CancellationToken;
 use tower::ServiceExt;
@@ -42,6 +42,7 @@ async fn mcp_sessions_list_and_annotate() {
         PidRegistry::new(),
         Catalog::fallback(),
         Arc::new(FakeBridgeRpc::responding(json!({}))),
+        test_resource_provider().expect("resource provider"),
     );
     let handler = McpHandler::new(state.clone());
     assert_eq!(state.mcp_session_count(), 1);

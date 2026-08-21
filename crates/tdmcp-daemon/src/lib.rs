@@ -26,6 +26,6 @@ pub use ensure::{
     EnsureOptions, EnsureResult,
 };
 pub use install::{
-    copy_daemon_binary, copy_skills_to, default_data_dir, ensure_installed, skills_dir,
+    copy_daemon_binary, default_data_dir, ensure_installed, render_skills_to, skills_dir,
     InstallOutcome,
 };

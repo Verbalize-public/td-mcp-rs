@@ -8,12 +8,10 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use include_dir::{include_dir, Dir, DirEntry};
+use tdmcp_mcp::{RenderMode, TemplateEngine};
 
 /// Embedded bridge package (repo `bridge/` at compile time).
 static BRIDGE: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../../bridge");
-
-/// Embedded agent skills / operate docs (repo `skills/` at compile time).
-static SKILLS: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../../skills");
 
 /// Embedded diagnostics catalog.
 const CATALOG_YAML: &str = include_str!("../../../diagnostics/catalog.yaml");
@@ -87,7 +85,7 @@ fn extract_all(data_dir: &Path) -> Result<()> {
     }
     fs::create_dir_all(&skills_dir)
         .with_context(|| format!("create skills dir {}", skills_dir.display()))?;
-    extract_dir(&SKILLS, &skills_dir)?;
+    render_skills_to(&skills_dir)?;
 
     let diag_dir = data_dir.join("diagnostics");
     fs::create_dir_all(&diag_dir)
@@ -206,46 +204,31 @@ pub fn copy_daemon_binary(data_dir: &Path) -> Result<PathBuf> {
     }
     Ok(dest)
 }
+/// Render all skill cards in filesystem mode into `dest`.
 ///
-/// Copies each immediate subdirectory of `{data_dir}/skills/` (skips top-level
-/// README.md) into `{dest}/<name>/`.
-pub fn copy_skills_to(data_dir: &Path, dest: &Path) -> Result<Vec<PathBuf>> {
-    let src_root = skills_dir(data_dir)?;
-    fs::create_dir_all(dest).with_context(|| format!("create dest {}", dest.display()))?;
-    let mut copied = Vec::new();
-    for entry in fs::read_dir(&src_root)
-        .with_context(|| format!("read skills dir {}", src_root.display()))?
-    {
-        let entry = entry?;
-        let ty = entry.file_type()?;
-        if !ty.is_dir() {
-            continue;
-        }
-        let name = entry.file_name();
-        let target = dest.join(&name);
-        if target.exists() {
-            fs::remove_dir_all(&target)
-                .with_context(|| format!("remove old {}", target.display()))?;
-        }
-        copy_dir_recursive(&entry.path(), &target)?;
-        copied.push(target);
-    }
-    Ok(copied)
-}
+/// Each card's cross-references become relative Markdown links (no
+/// `tdmcp://docs/*` URIs). Returns `(relative_path, absolute_output_path)`
+/// pairs for every file written.
+pub fn render_skills_to(dest: &Path) -> Result<Vec<(String, PathBuf)>> {
+    let catalog = tdmcp_mcp::Catalog::from_manifest_yaml(tdmcp_mcp::MANIFEST_YAML)
+        .map_err(|e| anyhow::anyhow!("parse embedded skills MANIFEST: {e}"))?;
+    let engine = TemplateEngine::new(catalog, &tdmcp_mcp::TEMPLATES)
+        .map_err(|e| anyhow::anyhow!("initialize skills template engine: {e}"))?;
+    let rendered = engine
+        .render_all(RenderMode::FileSystem)
+        .map_err(|e| anyhow::anyhow!("render skills in filesystem mode: {e}"))?;
 
-fn copy_dir_recursive(src: &Path, dest: &Path) -> Result<()> {
-    fs::create_dir_all(dest).with_context(|| format!("mkdir {}", dest.display()))?;
-    for entry in fs::read_dir(src).with_context(|| format!("read {}", src.display()))? {
-        let entry = entry?;
-        let to = dest.join(entry.file_name());
-        if entry.file_type()?.is_dir() {
-            copy_dir_recursive(&entry.path(), &to)?;
-        } else {
-            fs::copy(entry.path(), &to)
-                .with_context(|| format!("copy {} → {}", entry.path().display(), to.display()))?;
+    fs::create_dir_all(dest).with_context(|| format!("create dest {}", dest.display()))?;
+    let mut written = Vec::new();
+    for (rel_path, content) in rendered {
+        let out = dest.join(&rel_path);
+        if let Some(parent) = out.parent() {
+            fs::create_dir_all(parent).with_context(|| format!("mkdir {}", parent.display()))?;
         }
+        fs::write(&out, &content).with_context(|| format!("write {}", out.display()))?;
+        written.push((rel_path, out));
     }
-    Ok(())
+    Ok(written)
 }
 
 #[cfg(test)]
@@ -316,13 +299,15 @@ mod tests {
     }
 
     #[test]
-    fn copy_skills_to_dest() {
+    fn render_skills_to_dest() {
         let dir = tempdir().expect("tempdir");
-        let data = dir.path().join("data");
         let dest = dir.path().join("host-skills");
-        ensure_installed(&data, false).expect("install");
-        let copied = copy_skills_to(&data, &dest).expect("copy");
-        assert!(!copied.is_empty());
+        let written = render_skills_to(&dest).expect("render");
+        assert!(!written.is_empty());
         assert!(dest.join("touchdesigner/SKILL.md").is_file());
+        // Filesystem mode must not contain any tdmcp:// resource URIs.
+        let skill_body =
+            fs::read_to_string(dest.join("touchdesigner/SKILL.md")).expect("read SKILL.md");
+        assert!(!skill_body.contains("tdmcp://docs/"));
     }
 }

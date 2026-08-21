@@ -10,6 +10,16 @@ use serde_json::Value;
 use tokio::sync::Mutex;
 
 use crate::bridge_rpc::{BridgeRpc, BridgeRpcError};
+use crate::resources::ResourceProvider;
+
+/// Build a resource provider from the embedded MANIFEST + templates.
+///
+/// Test helper only (integration tests need a real provider for the MCP
+/// resource surface). Returns an error when the embedded assets are
+/// inconsistent.
+pub fn test_resource_provider() -> Result<Arc<ResourceProvider>, String> {
+    Ok(Arc::new(ResourceProvider::from_embedded()?))
+}
 
 /// A fake bridge that returns a canned value, optionally gated by a held lock
 /// so callers can keep a call in-flight (e.g. to exercise exclusive-while-busy).

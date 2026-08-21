@@ -1,0 +1,156 @@
+# Skills catalog — single source of truth for id → path + metadata.
+# Every entry must have a matching template file at the given path under skills/templates/.
+#
+# id            → MCP resource URI becomes tdmcp://docs/<id>
+# template_path → relative to skills/templates/, with .jinja.md extension
+# output_path   → rendered output filename (drops .jinja stem)
+
+operate:
+  template_path: touchdesigner/SKILL.jinja.md
+  output_path: touchdesigner/SKILL.md
+  title: TouchDesigner operate
+  description: "Umbrella skill: tool routing, hard rules, resource index"
+
+opsketch-notation:
+  template_path: touchdesigner/reference/opsketch-notation.jinja.md
+  output_path: touchdesigner/reference/opsketch-notation.md
+  title: OpSketch notation
+  description: Primary network sketch grammar
+
+opsketch-importance-gating:
+  template_path: touchdesigner/reference/opsketch-importance-gating.jinja.md
+  output_path: touchdesigner/reference/opsketch-importance-gating.md
+  title: OpSketch importance gating
+  description: Which parameters to surface in OpSketch
+
+opsketch-examples:
+  template_path: touchdesigner/reference/opsketch-examples.jinja.md
+  output_path: touchdesigner/reference/opsketch-examples.md
+  title: OpSketch examples
+  description: Worked OpSketch transcriptions
+
+python-api:
+  template_path: touchdesigner/reference/python-api.jinja.md
+  output_path: touchdesigner/reference/python-api.md
+  title: TD Python API cheatsheet
+  description: Mandatory before execute_python / expressions
+
+custom-parameters:
+  template_path: touchdesigner/reference/custom-parameters.jinja.md
+  output_path: touchdesigner/reference/custom-parameters.md
+  title: Custom parameters
+  description: Custom par naming and create/update API
+
+mutation-zones:
+  template_path: touchdesigner/reference/mutation-zones.jinja.md
+  output_path: touchdesigner/reference/mutation-zones.md
+  title: Mutation zones
+  description: Where agents may mutate
+
+network-design:
+  template_path: touchdesigner/reference/network-design.jinja.md
+  output_path: touchdesigner/reference/network-design.md
+  title: Network design
+  description: Naming, relative refs, layout hygiene
+
+component-checklist:
+  template_path: touchdesigner/reference/component-checklist.jinja.md
+  output_path: touchdesigner/reference/component-checklist.md
+  title: Component checklist
+  description: In/Out, About page, reuse audit
+
+operator-families:
+  template_path: touchdesigner/reference/operator-families.jinja.md
+  output_path: touchdesigner/reference/operator-families.md
+  title: Operator families
+  description: Family meaning and cook-model depth
+
+pops:
+  template_path: touchdesigner/reference/pops.jinja.md
+  output_path: touchdesigner/reference/pops.md
+  title: POP family
+  description: POP deep-dive
+
+glsl:
+  template_path: touchdesigner/reference/glsl.jinja.md
+  output_path: touchdesigner/reference/glsl.md
+  title: TD GLSL dialect
+  description: GLSL TOP/MAT dialect and workflow
+
+shadertoy-conversion:
+  template_path: touchdesigner/reference/shadertoy-conversion.jinja.md
+  output_path: touchdesigner/reference/shadertoy-conversion.md
+  title: Shadertoy conversion
+  description: Wrap-don't-rewrite Shadertoy → TD
+
+td-glsl-ground-truth:
+  template_path: touchdesigner/reference/td-glsl-ground-truth.jinja.md
+  output_path: touchdesigner/reference/td-glsl-ground-truth.md
+  title: TD GLSL ground truth
+  description: Uniform and resolution traps
+
+definition-of-done:
+  template_path: touchdesigner/reference/definition-of-done.jinja.md
+  output_path: touchdesigner/reference/definition-of-done.md
+  title: Definition of Done
+  description: Structural PASS/FAIL/BLOCKED/SKIP
+
+look-grade:
+  template_path: touchdesigner/reference/look-grade.jinja.md
+  output_path: touchdesigner/reference/look-grade.md
+  title: Look / FPS grade
+  description: Capture and look claim grading
+
+tooling-concurrency:
+  template_path: touchdesigner/reference/tooling-concurrency.jinja.md
+  output_path: touchdesigner/reference/tooling-concurrency.md
+  title: Tooling concurrency
+  description: Sequential bridged tools / session_busy
+
+play-state:
+  template_path: touchdesigner/reference/play-state.jinja.md
+  output_path: touchdesigner/reference/play-state.md
+  title: Play state
+  description: Paused timeline and stale capture
+
+primer/cook-and-families:
+  template_path: touchdesigner/primer/cook-and-families.jinja.md
+  output_path: touchdesigner/primer/cook-and-families.md
+  title: "Primer: cook and families"
+  description: Pull cook model and seven families
+
+primer/editor-and-layout:
+  template_path: touchdesigner/primer/editor-and-layout.jinja.md
+  output_path: touchdesigner/primer/editor-and-layout.md
+  title: "Primer: editor and layout"
+  description: Network editor and layout hygiene
+
+primer/parameters-and-channels:
+  template_path: touchdesigner/primer/parameters-and-channels.jinja.md
+  output_path: touchdesigner/primer/parameters-and-channels.md
+  title: "Primer: parameters and channels"
+  description: Parameter modes and driving values
+
+primer/scripting-surfaces:
+  template_path: touchdesigner/primer/scripting-surfaces.jinja.md
+  output_path: touchdesigner/primer/scripting-surfaces.md
+  title: "Primer: scripting surfaces"
+  description: Textport, Execute DATs, extensions vs MCP
+
+primer/tox-toe-components:
+  template_path: touchdesigner/primer/tox-toe-components.jinja.md
+  output_path: touchdesigner/primer/tox-toe-components.md
+  title: "Primer: tox / toe / components"
+  description: Project files and reusable COMPs
+
+primer/glsl-and-render:
+  template_path: touchdesigner/primer/glsl-and-render.jinja.md
+  output_path: touchdesigner/primer/glsl-and-render.md
+  title: "Primer: GLSL and render"
+  description: GLSL TOP/MAT and Render TOP chain
+
+primer/performance:
+  template_path: touchdesigner/primer/performance.jinja.md
+  output_path: touchdesigner/primer/performance.md
+  title: "Primer: performance"
+  description: Cook cost and FPS evidence habits

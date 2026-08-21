@@ -7,7 +7,7 @@
 | `tdmcp-daemon` binary | Control plane + MCP + admin API + (default) in-process tray UI |
 | `bridge/` | Python package + `manifest.json` beside install/data dir |
 | `diagnostics/catalog.yaml` | Diagnostic catalog |
-| `skills/` | Agent operate pack (`touchdesigner/` skill + reference/primer); served as MCP `tdmcp://docs/*` resources |
+| `skills/` | Agent operate pack (Jinja templates under `templates/touchdesigner/`); served as MCP `tdmcp://docs/*` resources and exported via `tdmcp-daemon skills render` |
 | bootstrap `.tox` | Tiny TD dialer COMP `tdmcp_rs` (handshake → FS load of `bridge/`). Embedded in the daemon; extracted to `{dataDir}/bootstrap.tox`. Rebuild recipe: [`scripts/pack_bootstrap_tox.md`](../scripts/pack_bootstrap_tox.md) |
 
 The tray dashboard lives in the `tdmcp-gui` **library** crate, linked into

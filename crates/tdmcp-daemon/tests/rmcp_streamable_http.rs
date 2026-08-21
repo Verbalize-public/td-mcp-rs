@@ -18,7 +18,7 @@ use rmcp::transport::streamable_http_server::{StreamableHttpServerConfig, Stream
 use serde_json::{json, Value};
 use tdmcp_core::{PidRegistry, ProcessAttrs, ProcessFingerprint};
 use tdmcp_diagnostics::Catalog;
-use tdmcp_mcp::testing::FakeBridgeRpc;
+use tdmcp_mcp::testing::{test_resource_provider, FakeBridgeRpc};
 use tdmcp_mcp::{AppState, BridgeRpc, McpHandler};
 use tokio_util::sync::CancellationToken;
 
@@ -44,7 +44,12 @@ fn registry_with_pid() -> PidRegistry {
 /// ephemeral port, backed by `bridge`. Returns the base URL and a shutdown
 /// token.
 async fn spawn(bridge: Arc<dyn BridgeRpc>) -> (reqwest::Client, String, CancellationToken) {
-    let state = AppState::new(registry_with_pid(), Catalog::fallback(), bridge);
+    let state = AppState::new(
+        registry_with_pid(),
+        Catalog::fallback(),
+        bridge,
+        test_resource_provider().expect("resource provider"),
+    );
     let ct = CancellationToken::new();
     let service: StreamableHttpService<McpHandler, LocalSessionManager> =
         StreamableHttpService::new(

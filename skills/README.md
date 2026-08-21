@@ -1,43 +1,53 @@
-# td-mcp-rs operate resources
+# td-mcp-rs operate skills
 
-Agent reference cards for TouchDesigner. Served as MCP resources under
-`tdmcp://docs/*` — use `resources/read` exclusively; no local file access.
+Agent reference cards for TouchDesigner, authored as Jinja templates and
+rendered into two output modes from one source.
 
-## Lambda path (only path)
-
-Connect td-mcp-rs MCP. The server `instructions` list when → which URI. Then:
+## Source of truth
 
 ```text
-resources/read  uri=tdmcp://docs/opsketch-notation
-resources/read  uri=tdmcp://docs/python-api
+skills/
+├── MANIFEST.yaml        id → template/output path + title/description
+├── templates/           Jinja templates (`.jinja.md`)
+│   └── touchdesigner/
+│       ├── SKILL.jinja.md
+│       ├── reference/*.jinja.md
+│       └── primer/*.jinja.md
+└── README.md            (this file)
 ```
 
-## Resource URI catalog
+Every cross-reference uses a Jinja procedure, not a hardcoded URI:
 
-| URI |
-|-----|
-| `tdmcp://docs/operate` |
-| `tdmcp://docs/opsketch-notation` |
-| `tdmcp://docs/opsketch-importance-gating` |
-| `tdmcp://docs/opsketch-examples` |
-| `tdmcp://docs/python-api` |
-| `tdmcp://docs/custom-parameters` |
-| `tdmcp://docs/mutation-zones` |
-| `tdmcp://docs/network-design` |
-| `tdmcp://docs/component-checklist` |
-| `tdmcp://docs/operator-families` |
-| `tdmcp://docs/pops` |
-| `tdmcp://docs/glsl` |
-| `tdmcp://docs/shadertoy-conversion` |
-| `tdmcp://docs/td-glsl-ground-truth` |
-| `tdmcp://docs/definition-of-done` |
-| `tdmcp://docs/look-grade` |
-| `tdmcp://docs/tooling-concurrency` |
-| `tdmcp://docs/play-state` |
-| `tdmcp://docs/primer/cook-and-families` |
-| `tdmcp://docs/primer/editor-and-layout` |
-| `tdmcp://docs/primer/parameters-and-channels` |
-| `tdmcp://docs/primer/scripting-surfaces` |
-| `tdmcp://docs/primer/tox-toe-components` |
-| `tdmcp://docs/primer/glsl-and-render` |
-| `tdmcp://docs/primer/performance` |
+```jinja
+Depth: {{ skill("opsketch-notation") }}.
+Before Python: {{ skill_read("python-api") }}.
+```
+
+## Two output modes
+
+| Mode | `skill("python-api")` renders as | `skill_read("python-api")` renders as |
+|------|----------------------------------|---------------------------------------|
+| **MCP resources** | `` `tdmcp://docs/python-api` `` | `` `resources/read` `tdmcp://docs/python-api` `` |
+| **Filesystem** | `` [`python-api`](./reference/python-api.md) `` | `` see [`python-api.md`](./reference/python-api.md) `` |
+
+### MCP resources (harnesses that support `resources/read`)
+
+Served by the daemon. The catalog is `resources/list`; each card is
+`resources/read` `tdmcp://docs/<id>`. Cross-references are resource URIs.
+
+### Filesystem export (any harness)
+
+```text
+tdmcp-daemon skills render --dest ./td-skills/
+```
+
+Renders every card with relative Markdown links (`./path/to/card.md`), so a
+harness with only filesystem skills (DSH, Cursor skills dirs, etc.) reads them
+without any `resources/read` or `tdmcp://` URI. The umbrella is
+`touchdesigner/SKILL.md`; every referenced card is a sibling path.
+
+## Catalog
+
+The canonical id list lives in `MANIFEST.yaml`. MCP URIs are
+`tdmcp://docs/<id>`. Filesystem paths are `touchdesigner/...` under the render
+root (mirroring the `templates/` layout with `.jinja.md` → `.md`).

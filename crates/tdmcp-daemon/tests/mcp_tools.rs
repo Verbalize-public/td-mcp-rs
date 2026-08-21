@@ -11,7 +11,7 @@ use axum::http::{Request, StatusCode};
 use serde_json::json;
 use tdmcp_core::{PidRegistry, ProcessAttrs, ProcessFingerprint};
 use tdmcp_diagnostics::Catalog;
-use tdmcp_mcp::testing::FakeBridgeRpc;
+use tdmcp_mcp::testing::{test_resource_provider, FakeBridgeRpc};
 use tdmcp_mcp::{build_mcp_router, AppState, BridgeRpc};
 use tower::ServiceExt;
 
@@ -36,7 +36,12 @@ fn registry_with_pid() -> PidRegistry {
 #[tokio::test]
 async fn tools_list_includes_derived_input_schema() {
     let bridge: Arc<dyn BridgeRpc> = Arc::new(FakeBridgeRpc::responding(json!({})));
-    let state = AppState::new(registry_with_pid(), Catalog::fallback(), bridge);
+    let state = AppState::new(
+        registry_with_pid(),
+        Catalog::fallback(),
+        bridge,
+        test_resource_provider().expect("resource provider"),
+    );
     let app = build_mcp_router(state);
 
     let req = Request::builder()
@@ -66,7 +71,12 @@ async fn tools_list_includes_derived_input_schema() {
 async fn unknown_field_rejected() {
     let bridge: Arc<dyn BridgeRpc> =
         Arc::new(FakeBridgeRpc::responding(json!({"ok": true, "result": 1})));
-    let state = AppState::new(registry_with_pid(), Catalog::fallback(), bridge);
+    let state = AppState::new(
+        registry_with_pid(),
+        Catalog::fallback(),
+        bridge,
+        test_resource_provider().expect("resource provider"),
+    );
     let app = build_mcp_router(state);
 
     let req = Request::builder()
@@ -86,7 +96,12 @@ async fn unknown_field_rejected() {
 async fn execute_python_happy_path() {
     let bridge: Arc<dyn BridgeRpc> =
         Arc::new(FakeBridgeRpc::responding(json!({"ok": true, "result": 1})));
-    let state = AppState::new(registry_with_pid(), Catalog::fallback(), bridge);
+    let state = AppState::new(
+        registry_with_pid(),
+        Catalog::fallback(),
+        bridge,
+        test_resource_provider().expect("resource provider"),
+    );
     let app = build_mcp_router(state);
 
     let req = Request::builder()
@@ -117,7 +132,12 @@ async fn exclusive_fails_while_shared_in_flight() {
     let bridge: Arc<dyn BridgeRpc> = Arc::new(fake);
     let gate = gate_handle.lock().await;
 
-    let state = AppState::new(registry_with_pid(), Catalog::fallback(), bridge);
+    let state = AppState::new(
+        registry_with_pid(),
+        Catalog::fallback(),
+        bridge,
+        test_resource_provider().expect("resource provider"),
+    );
     let app = build_mcp_router(state.clone());
 
     let app1 = app.clone();
@@ -243,7 +263,12 @@ async fn script_failure_returns_diagnostics() {
     let bridge: Arc<dyn BridgeRpc> = Arc::new(FakeBridgeRpc::responding(
         json!({"ok": false, "error": "NameError: 'x'", "traceback": "  File \"<td>\", line 1"}),
     ));
-    let state = AppState::new(registry_with_pid(), Catalog::fallback(), bridge);
+    let state = AppState::new(
+        registry_with_pid(),
+        Catalog::fallback(),
+        bridge,
+        test_resource_provider().expect("resource provider"),
+    );
     let app = build_mcp_router(state);
 
     let req = Request::builder()
@@ -288,7 +313,12 @@ async fn script_failure_summary_omits_raw_traceback() {
             "raw": "  File \"<td>\", line 1"
         }
     })));
-    let state = AppState::new(registry_with_pid(), Catalog::fallback(), bridge);
+    let state = AppState::new(
+        registry_with_pid(),
+        Catalog::fallback(),
+        bridge,
+        test_resource_provider().expect("resource provider"),
+    );
     let app = build_mcp_router(state);
 
     let req = Request::builder()
@@ -332,7 +362,12 @@ async fn script_failure_default_level_includes_raw_traceback() {
             "raw": "Traceback (most recent call last):\n  File \"<td>\", line 1"
         }
     })));
-    let state = AppState::new(registry_with_pid(), Catalog::fallback(), bridge);
+    let state = AppState::new(
+        registry_with_pid(),
+        Catalog::fallback(),
+        bridge,
+        test_resource_provider().expect("resource provider"),
+    );
     let app = build_mcp_router(state);
 
     let req = Request::builder()
@@ -364,7 +399,12 @@ async fn mutate_nodes_happy_path() {
             {"ok": true, "path": "/project1/noise1"}
         ]
     })));
-    let state = AppState::new(registry_with_pid(), Catalog::fallback(), bridge);
+    let state = AppState::new(
+        registry_with_pid(),
+        Catalog::fallback(),
+        bridge,
+        test_resource_provider().expect("resource provider"),
+    );
     let app = build_mcp_router(state);
 
     let req = Request::builder()
@@ -410,7 +450,12 @@ async fn mutate_nodes_first_step_failure() {
             {"ok": false, "skipped": true, "code": "tdmcp.batch.skipped_dependent", "path": "/project1/x"}
         ]
     })));
-    let state = AppState::new(registry_with_pid(), Catalog::fallback(), bridge);
+    let state = AppState::new(
+        registry_with_pid(),
+        Catalog::fallback(),
+        bridge,
+        test_resource_provider().expect("resource provider"),
+    );
     let app = build_mcp_router(state);
 
     let req = Request::builder()
@@ -457,7 +502,12 @@ async fn mutate_nodes_mid_batch_failure() {
             {"ok": false, "skipped": true, "code": "tdmcp.batch.skipped_dependent", "path": "/project1/noise1"}
         ]
     })));
-    let state = AppState::new(registry_with_pid(), Catalog::fallback(), bridge);
+    let state = AppState::new(
+        registry_with_pid(),
+        Catalog::fallback(),
+        bridge,
+        test_resource_provider().expect("resource provider"),
+    );
     let app = build_mcp_router(state);
 
     let req = Request::builder()
@@ -497,7 +547,12 @@ async fn mutate_nodes_unknown_field_rejected() {
     let bridge: Arc<dyn BridgeRpc> = Arc::new(FakeBridgeRpc::responding(
         json!({"ok": true, "applied": 0, "failedAt": null, "steps": []}),
     ));
-    let state = AppState::new(registry_with_pid(), Catalog::fallback(), bridge);
+    let state = AppState::new(
+        registry_with_pid(),
+        Catalog::fallback(),
+        bridge,
+        test_resource_provider().expect("resource provider"),
+    );
     let app = build_mcp_router(state);
 
     let req = Request::builder()
@@ -532,7 +587,12 @@ async fn mutate_nodes_detail_level_detailed_echoes_values() {
             "flags": {"viewer": true, "display": true}
         }]
     })));
-    let state = AppState::new(registry_with_pid(), Catalog::fallback(), bridge);
+    let state = AppState::new(
+        registry_with_pid(),
+        Catalog::fallback(),
+        bridge,
+        test_resource_provider().expect("resource provider"),
+    );
     let app = build_mcp_router(state);
 
     let req = Request::builder()
@@ -583,7 +643,12 @@ async fn mutate_nodes_flag_unknown_surfaces_diagnostics() {
             }
         ]
     })));
-    let state = AppState::new(registry_with_pid(), Catalog::fallback(), bridge);
+    let state = AppState::new(
+        registry_with_pid(),
+        Catalog::fallback(),
+        bridge,
+        test_resource_provider().expect("resource provider"),
+    );
     let app = build_mcp_router(state);
 
     let req = Request::builder()
@@ -639,7 +704,12 @@ async fn mutate_nodes_wrong_collection_lint_forwarded() {
             }]
         }]
     })));
-    let state = AppState::new(registry_with_pid(), Catalog::fallback(), bridge);
+    let state = AppState::new(
+        registry_with_pid(),
+        Catalog::fallback(),
+        bridge,
+        test_resource_provider().expect("resource provider"),
+    );
     let app = build_mcp_router(state);
 
     let req = Request::builder()
@@ -692,7 +762,12 @@ async fn mutate_nodes_malformed_lints_keep_hard_error() {
             "lints": "bogus"
         }]
     })));
-    let state = AppState::new(registry_with_pid(), Catalog::fallback(), bridge);
+    let state = AppState::new(
+        registry_with_pid(),
+        Catalog::fallback(),
+        bridge,
+        test_resource_provider().expect("resource provider"),
+    );
     let app = build_mcp_router(state);
 
     let req = Request::builder()

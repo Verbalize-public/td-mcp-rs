@@ -35,7 +35,7 @@ use crate::daemon_link::{
     call_timeout_error, is_transport_error, unreachable_error, DaemonLink, HealOutcome,
     ReconnectConfig,
 };
-use crate::resources::{self, STDIO_SERVER_INSTRUCTIONS};
+use crate::resources::{server_capabilities, ResourceProvider, STDIO_SERVER_INSTRUCTIONS};
 use crate::schema::input_schema_for;
 use crate::tools::{tool_descriptors, ToolName};
 
@@ -115,12 +115,18 @@ where
     let admin_base = admin_base_from_daemon_url(daemon_url);
     info!(%daemon_url, "stdio_proxy: serving stdio (daemon link lazy)");
 
+    let resource_provider = Arc::new(
+        ResourceProvider::from_embedded()
+            .map_err(|e| StdioProxyError::Serve(format!("resource provider: {e}")))?,
+    );
+
     let proxy = StdioProxy {
         daemon_url: daemon_url.to_owned(),
         admin_base: admin_base.clone(),
         config: config.clone(),
         link: Arc::new(OnceCell::new()),
         pending_ide: Arc::new(Mutex::new(None)),
+        resource_provider,
     };
 
     // Prefetch HTTP link without blocking Cursor initialize / tools/list.
@@ -179,11 +185,12 @@ struct StdioProxy {
     config: ReconnectConfig,
     link: Arc<OnceCell<Arc<DaemonLink>>>,
     pending_ide: Arc<Mutex<Option<(String, String)>>>,
+    resource_provider: Arc<ResourceProvider>,
 }
 
 impl ServerHandler for StdioProxy {
     fn get_info(&self) -> ServerInfo {
-        ServerInfo::new(resources::server_capabilities())
+        ServerInfo::new(server_capabilities())
             .with_server_info(Implementation::new(
                 "tdmcp-daemon",
                 env!("CARGO_PKG_VERSION"),
@@ -248,7 +255,7 @@ impl ServerHandler for StdioProxy {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListResourcesResult, ErrorData> {
-        Ok(resources::list_resources())
+        Ok(self.resource_provider.list_resources())
     }
 
     async fn read_resource(
@@ -256,7 +263,7 @@ impl ServerHandler for StdioProxy {
         request: ReadResourceRequestParams,
         _context: RequestContext<RoleServer>,
     ) -> Result<ReadResourceResponse, ErrorData> {
-        match resources::read_resource(&request.uri) {
+        match self.resource_provider.read_resource(&request.uri) {
             Ok(result) => Ok(ReadResourceResponse::Complete(result)),
             Err(msg) => Err(ErrorData::resource_not_found(msg, None)),
         }

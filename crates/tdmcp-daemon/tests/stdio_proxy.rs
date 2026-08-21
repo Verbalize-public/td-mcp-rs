@@ -19,7 +19,7 @@ use serde_json::json;
 use tdmcp_core::{PidRegistry, ProcessAttrs, ProcessFingerprint};
 use tdmcp_diagnostics::codes;
 use tdmcp_diagnostics::Catalog;
-use tdmcp_mcp::testing::FakeBridgeRpc;
+use tdmcp_mcp::testing::{test_resource_provider, FakeBridgeRpc};
 use tdmcp_mcp::{
     run_stdio_proxy_rw, run_stdio_proxy_rw_config, AppState, BridgeRpc, McpHandler, ReconnectConfig,
 };
@@ -56,7 +56,12 @@ async fn spawn_http_daemon_on(
     bridge: Arc<dyn BridgeRpc>,
     listener: tokio::net::TcpListener,
 ) -> CancellationToken {
-    let state = AppState::new(registry_with_pid(), Catalog::fallback(), bridge);
+    let state = AppState::new(
+        registry_with_pid(),
+        Catalog::fallback(),
+        bridge,
+        test_resource_provider().expect("resource provider"),
+    );
     let ct = CancellationToken::new();
     let service: StreamableHttpService<McpHandler, LocalSessionManager> =
         StreamableHttpService::new(

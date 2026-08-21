@@ -15,6 +15,7 @@ use tdmcp_diagnostics::Catalog;
 use tokio::sync::Mutex;
 
 use crate::bridge_rpc::BridgeRpc;
+use crate::resources::ResourceProvider;
 use crate::session_registry::McpSessionRegistry;
 use crate::tools::{dispatch_tool, tool_descriptors, ToolCallError};
 
@@ -29,17 +30,25 @@ pub struct AppState {
     pub bridge: Arc<dyn BridgeRpc>,
     /// Live Streamable HTTP MCP session registry (GUI + idle exit).
     pub mcp_sessions: Arc<McpSessionRegistry>,
+    /// MCP resource provider (skills rendered in MCP mode).
+    pub resource_provider: Arc<ResourceProvider>,
 }
 
 impl AppState {
     /// Construct shared state from an owned registry.
     #[must_use]
-    pub fn new(registry: PidRegistry, catalog: Catalog, bridge: Arc<dyn BridgeRpc>) -> Self {
+    pub fn new(
+        registry: PidRegistry,
+        catalog: Catalog,
+        bridge: Arc<dyn BridgeRpc>,
+        resource_provider: Arc<ResourceProvider>,
+    ) -> Self {
         Self {
             registry: Arc::new(Mutex::new(registry)),
             catalog: Arc::new(catalog),
             bridge,
             mcp_sessions: Arc::new(McpSessionRegistry::new()),
+            resource_provider,
         }
     }
 
@@ -50,12 +59,14 @@ impl AppState {
         registry: Arc<Mutex<PidRegistry>>,
         catalog: Catalog,
         bridge: Arc<dyn BridgeRpc>,
+        resource_provider: Arc<ResourceProvider>,
     ) -> Self {
         Self {
             registry,
             catalog: Arc::new(catalog),
             bridge,
             mcp_sessions: Arc::new(McpSessionRegistry::new()),
+            resource_provider,
         }
     }
 
