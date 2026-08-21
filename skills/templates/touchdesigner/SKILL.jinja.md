@@ -19,6 +19,7 @@ Also available as {{ skill("operate") }}.
 | List TD processes, pick a `pid` | `fleet` |
 | Where is the user looking / selection | `editor_context` (hint only) |
 | Structure / params / errors / network | `inspect` (**default** — `paths[]` required) |
+| DAT text/table bodies / GLSL sources | `inspect` with `include: ["content"]` (opt-in; follows GLSL DAT refs) |
 | Create / set / delete / wire | `mutate_nodes` |
 | Arbitrary Python (not network walks) | `execute_python` — see hard rules |
 | Perception / look claims | `capture` |
@@ -83,9 +84,11 @@ Depth: {{ skill("opsketch-notation") }} (+ gating, examples).
 ### `inspect` over `execute_python` for networks — HARD RULE
 
 `inspect` is the primary tool for network analysis. Do **not** use
-`execute_python` as the main network inspector. After any mutation pass, a
-**final `inspect` on the touched network parent** is mandatory before claiming
-done.
+`execute_python` as the main network inspector. For DAT `.text` bodies and
+GLSL shader sources, prefer `inspect` with `include: ["content"]` (follows
+shader DAT refs + `compileResult`) over hand-rolled Python reads. After any
+mutation pass, a **final `inspect` on the touched network parent** is mandatory
+before claiming done.
 
 ### Python cheatsheet before Python — HARD RULE
 

@@ -212,7 +212,7 @@ safety net only — the daemon owns the real per-method budgets.
 | --------------------------- | ------------------------------------------------------------------------------------------------------ | --------------------- |
 | `fleet`                     | Fleet view — processes by pid, bridge, tasks, cancelled traces                                         | **Shipped**           |
 | `execute_python`            | Run Python in TD; `result = …`; optional `logs`; structured `exception` on failure                     | **Shipped**           |
-| `inspect`                   | Structural read for explicit `paths[]` batch (nodes + wires / params / errors / warnings); no auto-recursion | **Shipped**           |
+| `inspect`                   | Structural read for explicit `paths[]` batch (nodes + wires / params / errors / warnings / content); no auto-recursion | **Shipped**           |
 | `capture`                   | Perception — `top` / `preview` / `auto` / `chop_data` / `chop_image`† / `pop`† († aliases of preview)  | **Shipped**           |
 | `describe_tools`            | Manifest of available tools                                                                            | **Shipped**           |
 | `mutate_nodes`              | Ordered create / set / delete / connect / disconnect steps; sequential apply, stop on first hard error | **Shipped**           |
@@ -280,13 +280,13 @@ Unknown `include` values are **rejected** at MCP arg deserialize (invalid params
 ### `inspect` / `include`
 
 
-| `include`      | Sections                                                    |
-| -------------- | ----------------------------------------------------------- |
-| `[]` / omitted | `nodes` + `errors` + `warnings`                             |
-| non-empty      | allowlist only (`nodes` / `params` / `errors` / `warnings`) |
+| `include`      | Sections                                                              |
+| -------------- | --------------------------------------------------------------------- |
+| `[]` / omitted | `nodes` + `errors` + `warnings`                                       |
+| non-empty      | allowlist only (`nodes` / `params` / `errors` / `warnings` / `content`) |
 
 
-`params` is opt-in. `errors` / `warnings` are string arrays from `OP.errors()` / `OP.warnings()` (no recurse). Not gated by `detailLevel`. When those sections are included (including via default empty `include`), empty arrays are still emitted as “section loaded” — they never flip MCP tool failure. Tool-level failure is only bridge soft-fail (`ok: false`), queue busy, or transport. Unknown `include` values are **rejected** at MCP arg deserialize.
+`params` and `content` are opt-in. `errors` / `warnings` are string arrays from `OP.errors()` / `OP.warnings()` (no recurse). Not gated by `detailLevel`. When those sections are included (including via default empty `include`), empty arrays are still emitted as “section loaded” — they never flip MCP tool failure. Tool-level failure is only bridge soft-fail (`ok: false`), queue busy, or transport. Unknown `include` values are **rejected** at MCP arg deserialize.
 
 Child roster fields (`childCount`, `childrenReturned`, `children`, and when truncated `childrenTruncated` / `truncation`) and positional wire peers (`inputs`, `outputs`) are emitted **only when `nodes` is in the effective include set** (default empty `include` includes `nodes`). When a non-empty `include` omits `nodes`, those keys are absent entirely — same "section not loaded" signal as omitted `params` / `errors` / `warnings`.
 
@@ -320,6 +320,37 @@ When `params` is included, each entry is `{ name, mode, val, expr? }`:
 | `val`  | Evaluated value, JSON-safe (live `OP` → path string; eval failure → `null`) |
 | `expr` | Present only when `mode == "EXPRESSION"` — the expression string            |
 
+
+
+When `content` is included, eligible nodes gain a `content` object (omitted on non-DAT / non-GLSL ops). Independent of `detailLevel` (roster shape only). **No size cap** — full `.text` / followed shader bodies. Content read/follow failures never flip node or top-level `ok`.
+
+**DAT** (`family == "DAT"` / `isDAT`):
+
+| Field | Content |
+| ----- | ------- |
+| `kind` | `"dat"` |
+| `isText` | `OP.isText` |
+| `isTable` | `OP.isTable` (tables included; body is still `.text` TSV) |
+| `bytes` | UTF-8 byte length of `text` |
+| `text` | Full `OP.text` |
+
+**GLSL** (`opType` in `glslTOP` / `glslmultiTOP` / `glslMAT` / `glslPOP`):
+
+| Field | Content |
+| ----- | ------- |
+| `kind` | `"shader"` |
+| `compileResult` | `OP.compileResult` string (may be empty) |
+| `stages` | Followed DAT refs — see role map below |
+
+Each stage is `{ role, path, opType, bytes, text }` when the DAT resolves; broken/invalid follow yields `{ role, path, opType?, error }` with no `text`. Unset/null DAT pars omit that stage.
+
+| Op | Pars → `role` |
+| -- | ------------- |
+| `glslTOP` / `glslmultiTOP` | `pixeldat`→`pixel`, `vertexdat`→`vertex`, `computedat`→`compute`, `predat`→`pre` |
+| `glslMAT` | `pdat`→`pixel`, `vdat`→`vertex`, `gdat`→`geometry`, `predat`→`pre` |
+| `glslPOP` | `computedat`→`compute` |
+
+Info DAT compile dumps are ordinary DAT `content` (not merged into the GLSL node). Prefer `inspect` + `include: content` over `execute_python` for DAT/GLSL body reads.
 
 **Cooking:** `inspect` does **not** force-cook. TD cooks on demand when operators are read; agents that need a forced cook use `execute_python` (`op('…').cook(force=True)`). Errors/warnings remain non-recursive (target only).
 

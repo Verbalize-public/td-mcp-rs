@@ -97,7 +97,7 @@ impl ToolName {
                 "Run Python in TD; failures return structured exception (type/frames/syntax); default diagnosticLevel detailed; formatMode debug adds capped locals; prints tee to Debug DAT / logs."
             }
             Self::Inspect => {
-                "Structural read for an explicit paths[] batch (required, non-empty; soft-capped at 96). No auto-recursion — caller chooses nodes. Empty include defaults to nodes+errors+warnings; params opt-in; non-empty include is an allowlist. When nodes is included, each ok node includes positional inputs/outputs peer lists ({path, name, opType} or null per connector; [] when empty). Params entries are {name, mode, val, expr?} (expr only when mode is EXPRESSION; val is evaluated and JSON-safe). Per-node summary includes a direct-child roster ({name, opType}); detailed adds path+family. Roster capped at 96 — when truncated see node.truncation. Bad paths return ok:false inline; siblings still succeed."
+                "Structural read for an explicit paths[] batch (required, non-empty; soft-capped at 96). No auto-recursion — caller chooses nodes. Empty include defaults to nodes+errors+warnings; params and content opt-in; non-empty include is an allowlist. When nodes is included, each ok node includes positional inputs/outputs peer lists ({path, name, opType} or null per connector; [] when empty). Params entries are {name, mode, val, expr?} (expr only when mode is EXPRESSION; val is evaluated and JSON-safe). Content (opt-in) returns DAT .text bodies (text+table) and GLSL shader stages by following DAT refs plus compileResult — no size cap; omit content key on non-eligible ops. Per-node summary includes a direct-child roster ({name, opType}); detailed adds path+family. Roster capped at 96 — when truncated see node.truncation. Bad paths return ok:false inline; siblings still succeed."
             }
             Self::MutateNodes => {
                 "Ordered create/set/delete/connect/disconnect steps; sequential apply, stop on first hard error; later steps skipped (tdmcp.batch.skipped_dependent). Fix from failedAt only."
@@ -381,6 +381,8 @@ pub enum InspectInclude {
     Errors,
     /// TD warnings.
     Warnings,
+    /// DAT text/table bodies and GLSL shader stages (opt-in; not in empty default).
+    Content,
 }
 
 /// Structural detail level.
@@ -417,7 +419,7 @@ pub struct InspectParams {
     /// Resolution base for relative entries in `paths`.
     #[serde(default)]
     pub context_path: Option<OpPath>,
-    /// Sections to include. Empty/omitted = nodes+errors+warnings; params opt-in; non-empty = allowlist.
+    /// Sections to include. Empty/omitted = nodes+errors+warnings; params/content opt-in; non-empty = allowlist.
     #[serde(default)]
     pub include: Vec<InspectInclude>,
     /// Structural detail level.
@@ -723,6 +725,7 @@ pub async fn dispatch_tool(
                     InspectInclude::Params => "params",
                     InspectInclude::Errors => "errors",
                     InspectInclude::Warnings => "warnings",
+                    InspectInclude::Content => "content",
                 })
                 .collect();
             // Soft-cap is enforced on the bridge; still forward the full list

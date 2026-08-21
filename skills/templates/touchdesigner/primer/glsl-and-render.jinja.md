@@ -15,6 +15,10 @@ Never paste a foreign shader unmodified — use a TD bridge wrapper. Dialect and
 port procedure: {{ skill("glsl") }}, {{ skill("shadertoy-conversion") }},
 {{ skill("td-glsl-ground-truth") }}.
 
+To **read** live shader source from a GLSL TOP/MAT/POP, prefer `inspect` with
+`include: ["content"]` (follows DAT refs + `compileResult`) over
+`execute_python`.
+
 ## 3D to pixels (summary)
 
 Geometry COMP + Camera + Light → Render TOP (and Render Pass TOP for multipass).

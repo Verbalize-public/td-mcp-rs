@@ -52,6 +52,11 @@
           "const": "warnings",
           "description": "TD warnings.",
           "type": "string"
+        },
+        {
+          "const": "content",
+          "description": "DAT text/table bodies and GLSL shader stages (opt-in; not in empty default).",
+          "type": "string"
         }
       ]
     },
@@ -93,7 +98,7 @@
     },
     "include": {
       "default": [],
-      "description": "Sections to include. Empty/omitted = nodes+errors+warnings; params opt-in; non-empty = allowlist.",
+      "description": "Sections to include. Empty/omitted = nodes+errors+warnings; params/content opt-in; non-empty = allowlist.",
       "items": {
         "$ref": "#/$defs/InspectInclude"
       },

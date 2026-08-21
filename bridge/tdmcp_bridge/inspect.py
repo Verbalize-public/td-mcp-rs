@@ -170,6 +170,134 @@ def _inspect_param_entry(p: Any) -> dict[str, Any]:
     return entry
 
 
+# GLSL opTypes that expose shader DAT refs (live TD class names).
+_GLSL_OP_TYPES = frozenset({"glslTOP", "glslmultiTOP", "glslMAT", "glslPOP"})
+
+# Par name → stage role per GLSL family (live TD par names).
+_GLSL_STAGE_PARS: dict[str, tuple[tuple[str, str], ...]] = {
+    "glslTOP": (
+        ("pixeldat", "pixel"),
+        ("vertexdat", "vertex"),
+        ("computedat", "compute"),
+        ("predat", "pre"),
+    ),
+    "glslmultiTOP": (
+        ("pixeldat", "pixel"),
+        ("vertexdat", "vertex"),
+        ("computedat", "compute"),
+        ("predat", "pre"),
+    ),
+    "glslMAT": (
+        ("pdat", "pixel"),
+        ("vdat", "vertex"),
+        ("gdat", "geometry"),
+        ("predat", "pre"),
+    ),
+    "glslPOP": (("computedat", "compute"),),
+}
+
+
+def _text_bytes(text: str) -> int:
+    """UTF-8 byte length of a text body."""
+    return len(text.encode("utf-8"))
+
+
+def _dat_content(n: Any) -> dict[str, Any]:
+    """Shape DAT body from ``.text`` / ``isText`` / ``isTable``."""
+    raw = getattr(n, "text", None)
+    text = "" if raw is None else str(raw)
+    return {
+        "kind": "dat",
+        "isText": bool(getattr(n, "isText", False)),
+        "isTable": bool(getattr(n, "isTable", False)),
+        "bytes": _text_bytes(text),
+        "text": text,
+    }
+
+
+def _eval_par(n: Any, par_name: str) -> Any:
+    """Best-effort ``n.par.<name>.eval()``; None when missing/fails."""
+    par_owner = getattr(n, "par", None)
+    if par_owner is None:
+        return None
+    par = getattr(par_owner, par_name, None)
+    if par is None:
+        return None
+    try:
+        return par.eval()
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _shader_stage_from_ref(role: str, ref: Any) -> dict[str, Any] | None:
+    """Follow one shader DAT ref into a stage object; None when unset."""
+    if ref is None:
+        return None
+    # Bare path string (unusual but possible) — report without body.
+    if isinstance(ref, str):
+        path = ref.strip()
+        if not path:
+            return None
+        return {
+            "role": role,
+            "path": path,
+            "error": "shader DAT ref is a path string, not an OP",
+        }
+    path = getattr(ref, "path", None)
+    if path is None:
+        return None
+    path_s = str(path)
+    stage: dict[str, Any] = {
+        "role": role,
+        "path": path_s,
+        "opType": getattr(ref, "opType", None),
+    }
+    if getattr(ref, "valid", True) is False:
+        stage["error"] = "shader DAT ref is invalid"
+        return stage
+    try:
+        raw = getattr(ref, "text", None)
+        text = "" if raw is None else str(raw)
+        stage["bytes"] = _text_bytes(text)
+        stage["text"] = text
+    except Exception as exc:  # noqa: BLE001 — surface follow error, keep node ok
+        stage["error"] = str(exc) or type(exc).__name__
+    return stage
+
+
+def _shader_content(n: Any) -> dict[str, Any]:
+    """Shape GLSL content: compileResult + followed DAT stages."""
+    op_type = getattr(n, "opType", None) or ""
+    compile_raw = getattr(n, "compileResult", None)
+    compile_result = "" if compile_raw is None else str(compile_raw)
+    stages: list[dict[str, Any]] = []
+    for par_name, role in _GLSL_STAGE_PARS.get(op_type, ()):
+        ref = _eval_par(n, par_name)
+        stage = _shader_stage_from_ref(role, ref)
+        if stage is not None:
+            stages.append(stage)
+    return {
+        "kind": "shader",
+        "compileResult": compile_result,
+        "stages": stages,
+    }
+
+
+def _attach_content(n: Any, out: dict[str, Any]) -> None:
+    """Attach ``content`` when node is DAT or known GLSL op; omit otherwise."""
+    try:
+        family = getattr(n, "family", None)
+        is_dat = family == "DAT" or bool(getattr(n, "isDAT", False))
+        if is_dat:
+            out["content"] = _dat_content(n)
+            return
+        op_type = getattr(n, "opType", None)
+        if op_type in _GLSL_OP_TYPES:
+            out["content"] = _shader_content(n)
+    except Exception:  # noqa: BLE001 — content must never fail inspect
+        return
+
+
 def build_inspect_node(
     n: Any,
     *,
@@ -178,6 +306,7 @@ def build_inspect_node(
     want_params: bool = False,
     want_errors: bool = False,
     want_warnings: bool = False,
+    want_content: bool = False,
 ) -> dict[str, Any]:
     """Shape one inspect node payload (pure enough for unit tests without TD)."""
     children: list[dict[str, Any]] = []
@@ -246,6 +375,8 @@ def build_inspect_node(
             if issues:
                 out["parmExprIssues"] = issues
                 out["diagnostics"] = _enable_expr_diagnostics(issues)
+    if want_content:
+        _attach_content(n, out)
     return out
 
 
@@ -276,11 +407,13 @@ def handle_inspect(params: dict[str, Any]) -> dict[str, Any]:
     if not include:
         want_nodes = want_errors = want_warnings = True
         want_params = False
+        want_content = False
     else:
         want_nodes = "nodes" in include
         want_params = "params" in include
         want_errors = "errors" in include
         want_warnings = "warnings" in include
+        want_content = "content" in include
 
     path_list = [str(p) for p in raw_paths]
     truncated = False
@@ -307,6 +440,7 @@ def handle_inspect(params: dict[str, Any]) -> dict[str, Any]:
                 want_params=want_params,
                 want_errors=want_errors,
                 want_warnings=want_warnings,
+                want_content=want_content,
             )
             shaped["ok"] = True
             nodes_out.append(shaped)

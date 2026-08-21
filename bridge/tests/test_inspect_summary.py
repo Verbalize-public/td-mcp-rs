@@ -65,6 +65,9 @@ class FakeEnableParGroup:
 def _fake_node(
     children: list[SimpleNamespace],
     *,
+    path: str = "/project1",
+    family: str = "COMP",
+    op_type: str = "baseCOMP",
     errors: object = "",
     warnings: object = "",
     cook: object | None = None,
@@ -75,6 +78,11 @@ def _fake_node(
     eval_expression_raises: Exception | None = None,
     inputs: list[Any] | None = None,
     outputs: list[Any] | None = None,
+    text: str | None = None,
+    is_text: bool = False,
+    is_table: bool = False,
+    compile_result: str | None = None,
+    par: Any | None = None,
 ) -> SimpleNamespace:
     par_list = list(pars) if pars is not None else []
 
@@ -86,9 +94,9 @@ def _fake_node(
         return None
 
     ns = SimpleNamespace(
-        path="/project1",
-        family="COMP",
-        opType="baseCOMP",
+        path=path,
+        family=family,
+        opType=op_type,
         children=children,
         pars=lambda: par_list,
         errors=lambda: errors,
@@ -103,7 +111,54 @@ def _fake_node(
         ns.customParGroups = custom_par_groups
     if custom_pars is not None:
         ns.customPars = custom_pars
+    if text is not None:
+        ns.text = text
+        ns.isText = is_text
+        ns.isTable = is_table
+    if compile_result is not None:
+        ns.compileResult = compile_result
+    if par is not None:
+        ns.par = par
     return ns
+
+
+class _FakeShaderPar:
+    """Minimal Par that ``.eval()`` returns a shader DAT ref (or raises)."""
+
+    def __init__(self, val: Any = None, *, eval_raises: Exception | None = None) -> None:
+        self._val = val
+        self._eval_raises = eval_raises
+
+    def eval(self) -> Any:
+        if self._eval_raises is not None:
+            raise self._eval_raises
+        return self._val
+
+
+def _fake_dat(
+    *,
+    path: str = "/project1/code",
+    op_type: str = "textDAT",
+    text: str = "",
+    is_text: bool = True,
+    is_table: bool = False,
+    valid: bool = True,
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        path=path,
+        family="DAT",
+        opType=op_type,
+        text=text,
+        isText=is_text,
+        isTable=is_table,
+        valid=valid,
+        children=[],
+        pars=lambda: [],
+        errors=lambda: "",
+        warnings=lambda: "",
+        inputs=[],
+        outputs=[],
+    )
 
 
 class _BrokenInputsNode:
@@ -688,6 +743,152 @@ class InspectWiresTest(unittest.TestCase):
         self.assertEqual(out["inputs"], [])
         self.assertEqual(out["outputs"], [])
         self.assertEqual(out["path"], "/project1/broken")
+
+
+class InspectContentTest(unittest.TestCase):
+    def test_want_content_false_omits_key_on_dat(self) -> None:
+        node = _fake_dat(text="hello")
+        out = tdmcp_bridge.build_inspect_node(node, want_content=False)
+        self.assertNotIn("content", out)
+
+    def test_dat_text_content(self) -> None:
+        body = "void main() {}\n"
+        node = _fake_dat(path="/project1/shader", text=body)
+        out = tdmcp_bridge.build_inspect_node(node, want_nodes=False, want_content=True)
+        self.assertEqual(
+            out["content"],
+            {
+                "kind": "dat",
+                "isText": True,
+                "isTable": False,
+                "bytes": len(body.encode("utf-8")),
+                "text": body,
+            },
+        )
+
+    def test_dat_table_content(self) -> None:
+        body = "name\tval\na\t1\n"
+        node = _fake_dat(
+            path="/project1/tbl",
+            op_type="tableDAT",
+            text=body,
+            is_text=False,
+            is_table=True,
+        )
+        out = tdmcp_bridge.build_inspect_node(node, want_nodes=False, want_content=True)
+        content = out["content"]
+        self.assertEqual(content["kind"], "dat")
+        self.assertFalse(content["isText"])
+        self.assertTrue(content["isTable"])
+        self.assertEqual(content["text"], body)
+
+    def test_non_eligible_omits_content(self) -> None:
+        node = _fake_node([], family="TOP", op_type="noiseTOP")
+        out = tdmcp_bridge.build_inspect_node(node, want_nodes=False, want_content=True)
+        self.assertNotIn("content", out)
+
+    def test_handle_inspect_default_include_omits_content(self) -> None:
+        dat = _fake_dat(path="/project1/code", text="x = 1\n")
+        with patch.dict(sys.modules, {"td": SimpleNamespace()}):
+            with patch.object(tdmcp_bridge, "tdmcp_resolve", return_value=dat):
+                out = tdmcp_bridge.handle_inspect({"paths": ["/project1/code"]})
+        self.assertTrue(out["ok"])
+        self.assertNotIn("content", out["nodes"][0])
+
+    def test_handle_inspect_allowlist_without_content_omits(self) -> None:
+        dat = _fake_dat(path="/project1/code", text="x = 1\n")
+        with patch.dict(sys.modules, {"td": SimpleNamespace()}):
+            with patch.object(tdmcp_bridge, "tdmcp_resolve", return_value=dat):
+                out = tdmcp_bridge.handle_inspect({
+                    "paths": ["/project1/code"],
+                    "include": ["nodes", "errors"],
+                })
+        self.assertNotIn("content", out["nodes"][0])
+
+    def test_handle_inspect_include_content_pulls_dat(self) -> None:
+        dat = _fake_dat(path="/project1/code", text="print(1)\n")
+        with patch.dict(sys.modules, {"td": SimpleNamespace()}):
+            with patch.object(tdmcp_bridge, "tdmcp_resolve", return_value=dat):
+                out = tdmcp_bridge.handle_inspect({
+                    "paths": ["/project1/code"],
+                    "include": ["nodes", "content"],
+                })
+        self.assertEqual(out["nodes"][0]["content"]["kind"], "dat")
+        self.assertEqual(out["nodes"][0]["content"]["text"], "print(1)\n")
+
+    def test_glsl_follow_pixeldat_and_compile_result(self) -> None:
+        pixel = _fake_dat(
+            path="/project1/rd_sim_glsl",
+            text="// pixel\n",
+        )
+        node = _fake_node(
+            [],
+            path="/project1/rd_sim",
+            family="TOP",
+            op_type="glslTOP",
+            compile_result="Compiled Successfully\n",
+            par=SimpleNamespace(pixeldat=_FakeShaderPar(pixel)),
+        )
+        out = tdmcp_bridge.build_inspect_node(node, want_nodes=False, want_content=True)
+        content = out["content"]
+        self.assertEqual(content["kind"], "shader")
+        self.assertEqual(content["compileResult"], "Compiled Successfully\n")
+        self.assertEqual(len(content["stages"]), 1)
+        stage = content["stages"][0]
+        self.assertEqual(stage["role"], "pixel")
+        self.assertEqual(stage["path"], "/project1/rd_sim_glsl")
+        self.assertEqual(stage["opType"], "textDAT")
+        self.assertEqual(stage["text"], "// pixel\n")
+        self.assertNotIn("error", stage)
+
+    def test_glsl_null_par_omits_stage(self) -> None:
+        node = _fake_node(
+            [],
+            path="/project1/g",
+            family="TOP",
+            op_type="glslTOP",
+            compile_result="",
+            par=SimpleNamespace(
+                pixeldat=_FakeShaderPar(None),
+                vertexdat=None,
+            ),
+        )
+        out = tdmcp_bridge.build_inspect_node(node, want_nodes=False, want_content=True)
+        self.assertEqual(out["content"]["stages"], [])
+
+    def test_glsl_broken_follow_stage_error(self) -> None:
+        bad = SimpleNamespace(
+            path="/project1/missing_glsl",
+            opType="textDAT",
+            valid=False,
+        )
+        node = _fake_node(
+            [],
+            path="/project1/g",
+            family="TOP",
+            op_type="glslTOP",
+            compile_result="err",
+            par=SimpleNamespace(pixeldat=_FakeShaderPar(bad)),
+        )
+        out = tdmcp_bridge.build_inspect_node(node, want_nodes=False, want_content=True)
+        stage = out["content"]["stages"][0]
+        self.assertEqual(stage["path"], "/project1/missing_glsl")
+        self.assertIn("error", stage)
+        self.assertNotIn("text", stage)
+
+    def test_glsl_mat_stage_par_names(self) -> None:
+        pixel = _fake_dat(path="/project1/mat_pixel", text="void main(){}")
+        node = _fake_node(
+            [],
+            path="/project1/mat",
+            family="MAT",
+            op_type="glslMAT",
+            compile_result="ok",
+            par=SimpleNamespace(pdat=_FakeShaderPar(pixel)),
+        )
+        out = tdmcp_bridge.build_inspect_node(node, want_nodes=False, want_content=True)
+        self.assertEqual(out["content"]["stages"][0]["role"], "pixel")
+        self.assertEqual(out["content"]["stages"][0]["path"], "/project1/mat_pixel")
 
 
 if __name__ == "__main__":

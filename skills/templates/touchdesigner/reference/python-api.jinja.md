@@ -261,12 +261,17 @@ n.export, n.rate
 
 ## DAT — table & text
 
+Prefer `inspect` with `include: ["content"]` to read DAT bodies (text + table
+TSV via `.text`) and GLSL shader stages. Use the Python surface below when
+mutating or when `execute_python` is otherwise required.
+
 ```python
 # Content
 n.text                  # Tab-delimited (R/W)
 n.csv                   # CSV (multi-line cells)
 n.jsonObject            # Parse as dict
 n.numRows, n.numCols
+n.isText, n.isTable     # Discriminate text vs table presentation
 
 # Cells
 n[2, 3]                 # Index
