@@ -76,10 +76,10 @@ target/release/tdmcp-daemon install
 `install` is idempotent and does two things:
 
 1. **Extracts the embedded assets** — `bridge/` (Python package),
-   `diagnostics/catalog.yaml`, and `bootstrap.tox` — into the data dir
-   (`%LOCALAPPDATA%\tdmcp-rs\` on Windows; Application Support / XDG data
-   elsewhere). Add `--force` to re-extract even when the assets are already
-   current.
+   `diagnostics/catalog.yaml`, `bootstrap.tox`, and `skills/` (operate pack) —
+   into the data dir (`%LOCALAPPDATA%\tdmcp-rs\` on Windows; Application Support /
+   XDG data elsewhere). Add `--force` to re-extract even when the assets are
+   already current.
 2. **Resets `config.toml`** to the shipped defaults
    (`%APPDATA%\tdmcp-rs\config.toml` on Windows; Application Support / XDG
    config elsewhere).
@@ -155,6 +155,8 @@ Other CLI helpers:
 | `status` | Print daemon health (`GET /mcp/health`) |
 | `stop` | Ask a running daemon to shut down (`/admin/shutdown`) |
 | `mcp` | Cursor/IDE entrypoint: ensure daemon, then speak MCP over stdio |
+| `skills path` | Print `{dataDir}/skills` (extracts assets if needed) |
+| `skills copy --dest <dir>` | Copy skill folders into a host skills root (e.g. `~/.cursor/skills`) |
 
 ## Tools
 
@@ -169,13 +171,18 @@ Other CLI helpers:
 | `editor_context` | Live editor panes + per-pane selection (`ownerPath`, `focused`, `selection`) |
 | `describe_tools` | Manifest of available tools |
 
+MCP **resources** (`resources/list` / `resources/read`): operate docs under
+`tdmcp://docs/*` (OpSketch, Python cheatsheet, DoD, primers, …). See
+[`skills/README.md`](skills/README.md). Prefer resources over inventing TD
+procedure from memory.
+
 Process-scoped tools require `pid`. `inspect` takes a required non-empty
 `paths` array (soft-capped at 96; no auto-recursion). Prefer
 `detailLevel: summary` — each node's direct-child roster is `name` + `opType`,
 capped at 96 (`node.truncation` when truncated). `editor_context` returns all
 panes (cap 32) with optional per-pane selection (cap 96). Use `capture` when
 look is the claim (`preview` rasterizes any family via the bridge's shared OP
-Viewer TOP); builders never self-grade perception. Full contract:
+Viewer TOP); grade look via `tdmcp://docs/look-grade`. Full contract:
 [`docs/CONTRACT.md`](docs/CONTRACT.md).
 
 ## Docs
@@ -183,6 +190,7 @@ Viewer TOP); builders never self-grade perception. Full contract:
 | Doc | Role |
 | --- | --- |
 | [`docs/CONTRACT.md`](docs/CONTRACT.md) | v1 contract, tools, OpPath, diagnostics, phases |
+| [`skills/README.md`](skills/README.md) | Operate pack + MCP resource URI catalog |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | Crate boundaries and topology |
 | [`AGENTS.md`](AGENTS.md) | Agent route-first entry |
 | [`CONSTITUTION.md`](CONSTITUTION.md) | Rust engineering law |

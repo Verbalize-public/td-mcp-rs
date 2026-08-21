@@ -358,7 +358,7 @@ Requires `pid` and a non-empty `queries[]` (soft-cap **32**; `queriesTruncated` 
 | `classes` | Optional `family` (TOP/CHOP/SOP/DAT/MAT/COMP/POP) + `prefix` (casefold). Returns op-like type **names** index |
 | `module` | `name: "td"` only in v1 — thin `{ doc, publicCount, typeCount, sample }` |
 
-**Parameter names** are **not** listed by `api_help` (class `.par` is not enumerable). Use `inspect` with `include: ["params"]` on an existing node. Conceptual “when to use X” stays in creative-corpus / Derivative wiki.
+**Parameter names** are **not** listed by `api_help` (class `.par` is not enumerable). Use `inspect` with `include: ["params"]` on an existing node. Conceptual “when to use X” lives in the operate pack (`tdmcp://docs/operator-families`, primers) and Derivative wiki.
 
 Diagnostic references may include `{ kind: "api_help", query: "<opType>" }` on `tdmcp.op.unknown_type` / `tdmcp.par.unknown` (params mitigation still points at `inspect`).
 
@@ -421,7 +421,7 @@ Result (summary):
 - Canonical absolute `path` is echoed per step so the agent can re-`inspect` without re-resolving.
 - `diagnosticLevel` (default `summary` on most bridge-backed tools) gates `rawTraceback` inclusion (`detailed` only). `**execute_python` defaults to `detailed**` (tool-local only — the global `DiagnosticLevel` default remains `summary`).
 
-**Mutation zones are not enforced by the daemon in v1.** Zone discipline lives in the agent layer (`creative-operator` → `cop-touchdesigner-mcp` → `reference/mutation-zones.md`): the agent only passes paths under a self-created named COMP or an authorized subtree. `tdmcp.op.outside_zone` stays **reserved** in the catalog, not emitted by the daemon. A future P2 may add per-pid zone registration if operate experience demands it.
+**Mutation zones are not enforced by the daemon in v1.** Zone discipline lives in the agent layer ([`skills/touchdesigner/`](../skills/touchdesigner/SKILL.md) → `tdmcp://docs/mutation-zones`): the agent only passes paths under a self-created named COMP or an authorized subtree. `tdmcp.op.outside_zone` stays **reserved** in the catalog, not emitted by the daemon. A future P2 may add per-pid zone registration if operate experience demands it.
 
 **Bridge package version checks are not enforced in v1.** `tdmcp.bridge.version` stays **reserved** in the catalog (not emitted). Handshake `minDaemon` is unused until a future compat gate lands.
 

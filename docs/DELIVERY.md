@@ -7,6 +7,7 @@
 | `tdmcp-daemon` binary | Control plane + MCP + admin API + (default) in-process tray UI |
 | `bridge/` | Python package + `manifest.json` beside install/data dir |
 | `diagnostics/catalog.yaml` | Diagnostic catalog |
+| `skills/` | Agent operate pack (`touchdesigner/` skill + reference/primer); also MCP `tdmcp://docs/*` resources |
 | bootstrap `.tox` | Tiny TD dialer COMP `tdmcp_rs` (handshake → FS load of `bridge/`). Embedded in the daemon; extracted to `{dataDir}/bootstrap.tox`. Rebuild recipe: [`scripts/pack_bootstrap_tox.md`](../scripts/pack_bootstrap_tox.md) |
 
 The tray dashboard lives in the `tdmcp-gui` **library** crate, linked into
@@ -58,10 +59,11 @@ process retries bind for a few seconds.
 
 ## Assets
 
-Bridge, diagnostic catalog, and bootstrap `.tox` are embedded in the
-`tdmcp-daemon` binary. `install`, `ensure`, `start`, and `mcp` extract them
-into the data dir on first use (no separate asset bundle required for dev
-builds).
+Bridge, diagnostic catalog, bootstrap `.tox`, and the **skills/** operate pack are
+embedded in the `tdmcp-daemon` binary. `install`, `ensure`, `start`, and `mcp`
+extract them into the data dir on first use (no separate asset bundle required
+for dev builds). Skills also surface as MCP resources (`tdmcp://docs/*`); see
+[`../skills/README.md`](../skills/README.md).
 
 ## Packaging
 
@@ -69,7 +71,7 @@ builds).
 (soft `/admin/shutdown`, then force-kills only workspace `target/release` /
 `target/dist` images) so leftover Cursor `mcp` shims do not lock the exe.
 It then rebuilds `tdmcp-daemon` with `--features gui` and copies it into
-`target/dist/` (bridge, catalog, and bootstrap `.tox` are embedded in the
+`target/dist/` (bridge, catalog, bootstrap `.tox`, and `skills/` are embedded in the
 binary). This avoids shipping a stale headless binary from a prior
 `--no-default-features` build.
 

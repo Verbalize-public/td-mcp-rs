@@ -73,7 +73,7 @@ enum Commands {
         #[arg(long, env = "TDMCP_PORT")]
         port: Option<u16>,
     },
-    /// Materialize embedded bridge/catalog/tox into the data directory.
+    /// Materialize embedded bridge/catalog/tox/skills into the data directory.
     Install {
         /// Data directory override.
         #[arg(long, env = "TDMCP_DATA_DIR")]
@@ -114,6 +114,28 @@ enum Commands {
         /// Spawn the daemon with `--no-gui` when ensure needs to start it.
         #[arg(long, env = "TDMCP_NO_GUI", default_value_t = false)]
         no_gui: bool,
+    },
+    /// Operate skills: print extract path or copy into a host skills folder.
+    Skills {
+        #[command(subcommand)]
+        action: SkillsCmd,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum SkillsCmd {
+    /// Ensure assets are extracted and print `{dataDir}/skills`.
+    Path {
+        #[arg(long, env = "TDMCP_DATA_DIR")]
+        data_dir: Option<PathBuf>,
+    },
+    /// Copy skill folders into `--dest` (e.g. `~/.cursor/skills`).
+    Copy {
+        #[arg(long, env = "TDMCP_DATA_DIR")]
+        data_dir: Option<PathBuf>,
+        /// Destination directory (host skills root).
+        #[arg(long)]
+        dest: PathBuf,
     },
 }
 
@@ -253,6 +275,26 @@ fn main() -> Result<()> {
                 }
             })
         }
+        Commands::Skills { action } => match action {
+            SkillsCmd::Path { data_dir } => {
+                let data_dir = data_dir.unwrap_or_else(install::default_data_dir);
+                let path = install::skills_dir(&data_dir)?;
+                println!("{}", path.display());
+                Ok(())
+            }
+            SkillsCmd::Copy { data_dir, dest } => {
+                let data_dir = data_dir.unwrap_or_else(install::default_data_dir);
+                let copied = install::copy_skills_to(&data_dir, &dest)?;
+                if copied.is_empty() {
+                    println!("no skill folders found under {}", data_dir.join("skills").display());
+                } else {
+                    for p in copied {
+                        println!("copied → {}", p.display());
+                    }
+                }
+                Ok(())
+            }
+        },
         Commands::Status { port } => {
             let port = resolve_port(port)?;
             let rt = tokio::runtime::Runtime::new().context("tokio runtime")?;

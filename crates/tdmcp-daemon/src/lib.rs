@@ -25,4 +25,6 @@ pub use ensure::{
     health_ok, pid_alive, read_daemon_lock_pid, reclaim_stale_daemon_lock, refuse_if_daemon_owned,
     EnsureOptions, EnsureResult,
 };
-pub use install::{default_data_dir, ensure_installed, InstallOutcome};
+pub use install::{
+    copy_skills_to, default_data_dir, ensure_installed, skills_dir, InstallOutcome,
+};

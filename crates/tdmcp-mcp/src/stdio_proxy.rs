@@ -1,29 +1,43 @@
-//! Stdio MCP server that proxies tool calls to a remote Streamable HTTP daemon.
+//! Stdio MCP server that proxies tool *calls* to a remote Streamable HTTP daemon.
 //!
-//! v1 implements request/response forwarding only (`list_tools` / `get_tool` /
-//! `call_tool`). Server-initiated notifications are not forwarded.
+//! `list_tools` / `get_tool` / operate **resources** (`tdmcp://docs/*`) are served
+//! locally from the embedded catalog (no HTTP round-trip) so Cursor and other
+//! clients always see a stable tool/resource list even if the daemon is mid-restart.
+//! `call_tool` still forwards to the HTTP daemon.
+//!
+//! The HTTP daemon link is established **after** stdio `initialize` can proceed
+//! (background prefetch + lazy ensure on first tool call). Blocking on the HTTP
+//! handshake before reading stdio caused Cursor `Client closed` when the daemon
+//! was slow or mid-restart.
+//!
+//! Server-initiated notifications are not forwarded.
 //!
 //! When the HTTP daemon connection is lost, the proxy attempts a reconnect-only
 //! heal (never spawns a daemon) and returns an informative
 //! `tdmcp.daemon.unreachable` error for the failed call. The next call benefits
 //! from a healed link.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use rmcp::model::{
     CallToolRequestParams, CallToolResponse, Implementation, InitializeRequestParams,
-    InitializeResult, ListToolsResult, PaginatedRequestParams, ProtocolVersion, ServerCapabilities,
-    ServerInfo, Tool,
+    InitializeResult, ListResourcesResult, ListToolsResult, PaginatedRequestParams, ProtocolVersion,
+    ReadResourceRequestParams, ReadResourceResponse, ServerInfo, Tool,
 };
 use rmcp::service::RequestContext;
 use rmcp::{ErrorData, RoleServer, ServerHandler, ServiceError, ServiceExt};
 use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::sync::OnceCell;
 use tracing::{debug, info, warn};
 
 use crate::daemon_link::{
-    call_timeout_error, is_transport_error, unreachable_error, DaemonLink, ReconnectConfig,
+    call_timeout_error, is_transport_error, unreachable_error, DaemonLink, HealOutcome,
+    ReconnectConfig,
 };
+use crate::resources::{self, STDIO_SERVER_INSTRUCTIONS};
+use crate::schema::input_schema_for;
+use crate::tools::{tool_descriptors, ToolName};
 
 /// Client name advertised on the HTTP side so the daemon GUI can list the lease.
 pub use crate::daemon_link::STDIO_PROXY_CLIENT_NAME;
@@ -98,28 +112,52 @@ where
     T: rmcp::transport::IntoTransport<RoleServer, E, A> + Send + 'static,
     E: std::error::Error + Send + Sync + 'static,
 {
-    info!(%daemon_url, "stdio_proxy: connecting to daemon");
     let admin_base = admin_base_from_daemon_url(daemon_url);
-    let link = DaemonLink::connect(daemon_url, admin_base, config)
-        .await
-        .map_err(StdioProxyError::Connect)?;
+    info!(%daemon_url, "stdio_proxy: serving stdio (daemon link lazy)");
 
     let proxy = StdioProxy {
-        link: Arc::clone(&link),
+        daemon_url: daemon_url.to_owned(),
+        admin_base: admin_base.clone(),
+        config: config.clone(),
+        link: Arc::new(OnceCell::new()),
+        pending_ide: Arc::new(Mutex::new(None)),
     };
 
+    // Prefetch HTTP link without blocking Cursor initialize / tools/list.
+    {
+        let prefetch = Arc::clone(&proxy.link);
+        let url = daemon_url.to_owned();
+        let admin = admin_base.clone();
+        let cfg = config.clone();
+        let pending = Arc::clone(&proxy.pending_ide);
+        tokio::spawn(async move {
+            match DaemonLink::connect(&url, admin, cfg).await {
+                Ok(link) => {
+                    apply_pending_ide(&link, &pending);
+                    let _ = prefetch.set(link);
+                }
+                Err(e) => {
+                    warn!(error = %e, "stdio_proxy: background daemon connect failed");
+                }
+            }
+        });
+    }
+
+    let link_cell = Arc::clone(&proxy.link);
     let server = proxy
         .serve(transport)
         .await
         .map_err(|e| StdioProxyError::Serve(e.to_string()))?;
 
-    info!("stdio_proxy: serving (request/response only; notifications not forwarded)");
+    info!("stdio_proxy: initialized (request/response only; notifications not forwarded)");
     let quit = server
         .waiting()
         .await
         .map_err(|e| StdioProxyError::Session(e.to_string()))?;
     debug!(?quit, "stdio_proxy: stdio session ended");
-    link.shutdown().await;
+    if let Some(link) = link_cell.get() {
+        link.shutdown().await;
+    }
     Ok(())
 }
 
@@ -133,26 +171,24 @@ fn admin_base_from_daemon_url(daemon_url: &str) -> String {
         .to_owned()
 }
 
-/// Stdio-facing handler that forwards tool ops through a [`DaemonLink`].
+/// Stdio-facing handler that forwards tool ops through a lazily connected [`DaemonLink`].
 #[derive(Clone)]
 struct StdioProxy {
-    link: Arc<DaemonLink>,
+    daemon_url: String,
+    admin_base: String,
+    config: ReconnectConfig,
+    link: Arc<OnceCell<Arc<DaemonLink>>>,
+    pending_ide: Arc<Mutex<Option<(String, String)>>>,
 }
 
 impl ServerHandler for StdioProxy {
     fn get_info(&self) -> ServerInfo {
-        ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
+        ServerInfo::new(resources::server_capabilities())
             .with_server_info(Implementation::new(
                 "tdmcp-daemon",
                 env!("CARGO_PKG_VERSION"),
             ))
-            .with_instructions(
-                "td-mcp-rs control plane (stdio proxy). Call `fleet` to discover connected \
-				 TouchDesigner processes by pid, then `editor_context` / `execute_python` / \
-				 `inspect` / `capture` against a pid. v1 proxy forwards tools only — server \
-				 notifications are not forwarded. If the daemon restarts, the proxy reconnects \
-				 (never auto-spawns) and returns `tdmcp.daemon.unreachable` for the failed call.",
-            )
+            .with_instructions(STDIO_SERVER_INSTRUCTIONS)
     }
 
     async fn initialize(
@@ -161,14 +197,19 @@ impl ServerHandler for StdioProxy {
         context: RequestContext<RoleServer>,
     ) -> Result<InitializeResult, ErrorData> {
         context.peer.set_peer_info(request.clone());
-        self.link.set_ide_client(
-            request.client_info.name.clone(),
-            request.client_info.version.clone(),
-        );
-        // Best-effort: annotate the daemon-side HTTP lease with the IDE clientInfo.
-        let admin_base = self.link.admin_base().to_owned();
         let name = request.client_info.name.clone();
         let version = request.client_info.version.clone();
+        if let Some(link) = self.link.get() {
+            link.set_ide_client(name.clone(), version.clone());
+        } else if let Ok(mut guard) = self.pending_ide.lock() {
+            *guard = Some((name.clone(), version.clone()));
+        }
+        // Best-effort: annotate the daemon-side HTTP lease with the IDE clientInfo.
+        let admin_base = self
+            .link
+            .get()
+            .map(|l| l.admin_base().to_owned())
+            .unwrap_or_else(|| self.admin_base.clone());
         tokio::spawn(async move {
             if let Err(e) = annotate_daemon_session(&admin_base, &name, &version).await {
                 warn!(error = %e, "stdio_proxy: annotate MCP session failed");
@@ -183,20 +224,42 @@ impl ServerHandler for StdioProxy {
 
     async fn list_tools(
         &self,
-        request: Option<PaginatedRequestParams>,
+        _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, ErrorData> {
-        let budget = self.link.config().list_timeout;
-        self.forward_bounded(budget, |peer| async move {
-            peer.list_tools(request).await
-        })
-        .await
+        // Local catalog — do not depend on HTTP forward for discovery (Cursor
+        // tool count / enable UI reads this on connect).
+        let tools = tool_descriptors()
+            .into_iter()
+            .map(tool_from_descriptor)
+            .collect();
+        Ok(ListToolsResult::with_all_items(tools))
     }
 
     fn get_tool(&self, name: &str) -> Option<Tool> {
-        // Sync API — cannot await the peer. Clients use list_tools for the catalog.
-        let _ = name;
-        None
+        tool_descriptors()
+            .into_iter()
+            .find(|d| d.name == name)
+            .map(tool_from_descriptor)
+    }
+
+    async fn list_resources(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ListResourcesResult, ErrorData> {
+        Ok(resources::list_resources())
+    }
+
+    async fn read_resource(
+        &self,
+        request: ReadResourceRequestParams,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ReadResourceResponse, ErrorData> {
+        match resources::read_resource(&request.uri) {
+            Ok(result) => Ok(ReadResourceResponse::Complete(result)),
+            Err(msg) => Err(ErrorData::resource_not_found(msg, None)),
+        }
     }
 
     async fn call_tool(
@@ -204,15 +267,54 @@ impl ServerHandler for StdioProxy {
         request: CallToolRequestParams,
         _context: RequestContext<RoleServer>,
     ) -> Result<CallToolResponse, ErrorData> {
-        let budget = self.link.config().tool_call_budget(&request.name);
-        self.forward_bounded(budget, |peer| async move {
+        let link = self.ensure_link().await?;
+        let budget = link.config().tool_call_budget(&request.name);
+        self.forward_bounded(&link, budget, |peer| async move {
             peer.call_tool_once(request).await
         })
         .await
     }
 }
 
+fn tool_from_descriptor(d: crate::tools::ToolDescriptor) -> Tool {
+    let schema = if d.input_schema.is_empty() {
+        let tool = ToolName::from_wire(&d.name).unwrap_or(ToolName::DescribeTools);
+        Arc::new(input_schema_for(tool))
+    } else {
+        Arc::new(d.input_schema)
+    };
+    Tool::new(d.name.clone(), d.description, schema)
+}
+
 impl StdioProxy {
+    /// Resolve (or create) the HTTP daemon link. Discovery never needs this.
+    async fn ensure_link(&self) -> Result<Arc<DaemonLink>, ErrorData> {
+        if let Some(link) = self.link.get() {
+            return Ok(Arc::clone(link));
+        }
+        match DaemonLink::connect(&self.daemon_url, self.admin_base.clone(), self.config.clone())
+            .await
+        {
+            Ok(link) => {
+                apply_pending_ide(&link, &self.pending_ide);
+                match self.link.set(Arc::clone(&link)) {
+                    Ok(()) => Ok(link),
+                    Err(_existing) => Ok(Arc::clone(self.link.get().expect("OnceCell set raced"))),
+                }
+            }
+            Err(e) => {
+                warn!(error = %e, "stdio_proxy: daemon connect failed on tool call");
+                Err(unreachable_error(
+                    HealOutcome {
+                        healed: false,
+                        downtime: None,
+                    },
+                    &self.config,
+                ))
+            }
+        }
+    }
+
     /// Forward one operation with a hard wall-clock budget.
     ///
     /// A wedged daemon session would otherwise hang the MCP client forever:
@@ -222,18 +324,23 @@ impl StdioProxy {
     /// call like a transport failure: heal the link (fresh session), which
     /// also closes the old HTTP connections and lets the daemon-side session
     /// unwedge and drain.
-    async fn forward_bounded<F, Fut, T>(&self, budget: Duration, op: F) -> Result<T, ErrorData>
+    async fn forward_bounded<F, Fut, T>(
+        &self,
+        link: &DaemonLink,
+        budget: Duration,
+        op: F,
+    ) -> Result<T, ErrorData>
     where
         F: FnOnce(Arc<rmcp::Peer<rmcp::RoleClient>>) -> Fut,
         Fut: std::future::Future<Output = Result<T, ServiceError>>,
     {
-        let (peer, gen) = self.link.current_peer().await;
+        let (peer, gen) = link.current_peer().await;
         match tokio::time::timeout(budget, op(peer)).await {
             Ok(Ok(response)) => Ok(response),
             Ok(Err(e)) if is_transport_error(&e) => {
                 warn!(error = %e, "stdio_proxy: transport error — attempting heal");
-                let outcome = self.link.heal(gen).await;
-                Err(unreachable_error(outcome, self.link.config()))
+                let outcome = link.heal(gen).await;
+                Err(unreachable_error(outcome, link.config()))
             }
             Ok(Err(e)) => {
                 warn!(error = %e, "stdio_proxy: call forward failed");
@@ -244,11 +351,18 @@ impl StdioProxy {
                     budget_ms = budget.as_millis(),
                     "stdio_proxy: call exceeded budget — healing link"
                 );
-                let outcome = self.link.heal(gen).await;
+                let outcome = link.heal(gen).await;
                 Err(call_timeout_error(budget, outcome))
             }
         }
     }
+}
+
+fn apply_pending_ide(link: &DaemonLink, pending: &Mutex<Option<(String, String)>>) {
+    let Some((name, version)) = pending.lock().ok().and_then(|mut g| g.take()) else {
+        return;
+    };
+    link.set_ide_client(name, version);
 }
 
 /// Whether the daemon-side wait budget for this method is the long script

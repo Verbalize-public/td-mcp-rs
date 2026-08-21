@@ -4790,6 +4790,7 @@ dependencies = [
  "async-trait",
  "axum",
  "chrono",
+ "include_dir",
  "reqwest",
  "rmcp",
  "schemars",

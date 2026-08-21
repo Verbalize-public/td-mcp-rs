@@ -607,8 +607,16 @@ impl DashboardApp {
     }
 
     fn reveal_tox(&self) {
-        if let Err(e) = reveal_bootstrap_tox(&self.data_dir) {
+        if let Err(e) = reveal_in_file_manager(&self.data_dir.join("bootstrap.tox"), &self.data_dir)
+        {
             warn!(error = %e, "reveal bootstrap.tox failed");
+        }
+    }
+
+    fn reveal_skills(&self) {
+        let skills = self.data_dir.join("skills");
+        if let Err(e) = reveal_in_file_manager(&skills, &skills) {
+            warn!(error = %e, "reveal skills failed");
         }
     }
 
@@ -699,7 +707,7 @@ impl DashboardApp {
                         .color(TEXT_FAINT),
                 );
             }
-            // Right-anchored ghost actions: Stop · Restart · .tox · gear (RTL).
+            // Right-anchored ghost actions: Stop · Restart · .tox · skills · gear (RTL).
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let stop = ghost_button(ui, "■", TEXT_DIM, ERR).on_hover_text("Stop daemon");
                 if stop.clicked() {
@@ -717,6 +725,13 @@ impl DashboardApp {
                 let tox = ghost_button(ui, ".tox", TEXT_DIM, ACCENT).on_hover_text(tip);
                 if tox.clicked() {
                     self.reveal_tox();
+                }
+                ui.add_space(4.0);
+                let skills_path = self.data_dir.join("skills");
+                let tip = format!("Reveal {}", skills_path.display());
+                let skills = ghost_button(ui, "skills", TEXT_DIM, ACCENT).on_hover_text(tip);
+                if skills.clicked() {
+                    self.reveal_skills();
                 }
                 ui.add_space(4.0);
                 let gear = ghost_button(ui, "⚙", TEXT_DIM, ACCENT).on_hover_text("Settings");
@@ -1278,19 +1293,24 @@ fn notify(summary: &str, body: &str) {
     toast(summary, body);
 }
 
-/// Open the file manager on `bootstrap.tox` (select file when present).
-fn reveal_bootstrap_tox(data_dir: &Path) -> Result<()> {
-    let tox = data_dir.join("bootstrap.tox");
+/// Open the file manager on `target` (select file when it is a file; else open dir).
+/// `fallback_dir` is used when `target` is missing.
+fn reveal_in_file_manager(target: &Path, fallback_dir: &Path) -> Result<()> {
     #[cfg(windows)]
     {
-        if tox.is_file() {
+        if target.is_file() {
             Command::new("explorer")
-                .arg(format!("/select,{}", tox.display()))
+                .arg(format!("/select,{}", target.display()))
                 .spawn()
                 .map_err(|e| anyhow::anyhow!("explorer /select: {e}"))?;
         } else {
+            let dir = if target.is_dir() {
+                target
+            } else {
+                fallback_dir
+            };
             Command::new("explorer")
-                .arg(data_dir.as_os_str())
+                .arg(dir.as_os_str())
                 .spawn()
                 .map_err(|e| anyhow::anyhow!("explorer: {e}"))?;
         }
@@ -1298,14 +1318,19 @@ fn reveal_bootstrap_tox(data_dir: &Path) -> Result<()> {
     }
     #[cfg(target_os = "macos")]
     {
-        if tox.is_file() {
+        if target.is_file() {
             Command::new("open")
-                .args(["-R", &tox.to_string_lossy()])
+                .args(["-R", &target.to_string_lossy()])
                 .spawn()
                 .map_err(|e| anyhow::anyhow!("open -R: {e}"))?;
         } else {
+            let dir = if target.is_dir() {
+                target
+            } else {
+                fallback_dir
+            };
             Command::new("open")
-                .arg(data_dir)
+                .arg(dir)
                 .spawn()
                 .map_err(|e| anyhow::anyhow!("open: {e}"))?;
         }
@@ -1313,16 +1338,22 @@ fn reveal_bootstrap_tox(data_dir: &Path) -> Result<()> {
     }
     #[cfg(all(unix, not(target_os = "macos")))]
     {
-        let _ = tox;
+        let dir = if target.is_dir() {
+            target
+        } else if target.is_file() {
+            target.parent().unwrap_or(fallback_dir)
+        } else {
+            fallback_dir
+        };
         Command::new("xdg-open")
-            .arg(data_dir)
+            .arg(dir)
             .spawn()
             .map_err(|e| anyhow::anyhow!("xdg-open: {e}"))?;
         Ok(())
     }
     #[cfg(not(any(windows, unix)))]
     {
-        let _ = tox;
+        let _ = (target, fallback_dir);
         anyhow::bail!("reveal not supported on this platform");
     }
 }

@@ -12,6 +12,9 @@ use include_dir::{include_dir, Dir, DirEntry};
 /// Embedded bridge package (repo `bridge/` at compile time).
 static BRIDGE: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../../bridge");
 
+/// Embedded agent skills / operate docs (repo `skills/` at compile time).
+static SKILLS: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../../skills");
+
 /// Embedded diagnostics catalog.
 const CATALOG_YAML: &str = include_str!("../../../diagnostics/catalog.yaml");
 
@@ -30,7 +33,7 @@ pub enum InstallOutcome {
 }
 
 /// Ensure `{data_dir}` contains bridge/, diagnostics/catalog.yaml, bootstrap.tox,
-/// and an `install.version` stamp matching this binary.
+/// skills/, and an `install.version` stamp matching this binary.
 ///
 /// When `force` is true, always re-extract even if the stamp and marker files
 /// already match this binary version (same-version bridge/catalog refresh).
@@ -60,6 +63,11 @@ fn assets_current(data_dir: &Path, stamp_path: &Path, version: &str) -> bool {
     data_dir.join("bridge").join("manifest.json").is_file()
         && data_dir.join("diagnostics").join("catalog.yaml").is_file()
         && data_dir.join("bootstrap.tox").is_file()
+        && data_dir
+            .join("skills")
+            .join("touchdesigner")
+            .join("SKILL.md")
+            .is_file()
 }
 
 fn extract_all(data_dir: &Path) -> Result<()> {
@@ -71,6 +79,15 @@ fn extract_all(data_dir: &Path) -> Result<()> {
     fs::create_dir_all(&bridge_dir)
         .with_context(|| format!("create bridge dir {}", bridge_dir.display()))?;
     extract_dir(&BRIDGE, &bridge_dir)?;
+
+    let skills_dir = data_dir.join("skills");
+    if skills_dir.exists() {
+        fs::remove_dir_all(&skills_dir)
+            .with_context(|| format!("remove old skills {}", skills_dir.display()))?;
+    }
+    fs::create_dir_all(&skills_dir)
+        .with_context(|| format!("create skills dir {}", skills_dir.display()))?;
+    extract_dir(&SKILLS, &skills_dir)?;
 
     let diag_dir = data_dir.join("diagnostics");
     fs::create_dir_all(&diag_dir)
@@ -135,6 +152,55 @@ pub fn default_data_dir() -> PathBuf {
         .join(tdmcp_config::APP_DIR_NAME)
 }
 
+/// Path to the extracted skills tree (`{data_dir}/skills`), ensuring assets exist.
+pub fn skills_dir(data_dir: &Path) -> Result<PathBuf> {
+    ensure_installed(data_dir, false)?;
+    Ok(data_dir.join("skills"))
+}
+
+/// Copy extracted skill folders into `dest` (e.g. `~/.cursor/skills`).
+///
+/// Copies each immediate subdirectory of `{data_dir}/skills/` (skips top-level
+/// README.md) into `{dest}/<name>/`.
+pub fn copy_skills_to(data_dir: &Path, dest: &Path) -> Result<Vec<PathBuf>> {
+    let src_root = skills_dir(data_dir)?;
+    fs::create_dir_all(dest).with_context(|| format!("create dest {}", dest.display()))?;
+    let mut copied = Vec::new();
+    for entry in fs::read_dir(&src_root)
+        .with_context(|| format!("read skills dir {}", src_root.display()))?
+    {
+        let entry = entry?;
+        let ty = entry.file_type()?;
+        if !ty.is_dir() {
+            continue;
+        }
+        let name = entry.file_name();
+        let target = dest.join(&name);
+        if target.exists() {
+            fs::remove_dir_all(&target)
+                .with_context(|| format!("remove old {}", target.display()))?;
+        }
+        copy_dir_recursive(&entry.path(), &target)?;
+        copied.push(target);
+    }
+    Ok(copied)
+}
+
+fn copy_dir_recursive(src: &Path, dest: &Path) -> Result<()> {
+    fs::create_dir_all(dest).with_context(|| format!("mkdir {}", dest.display()))?;
+    for entry in fs::read_dir(src).with_context(|| format!("read {}", src.display()))? {
+        let entry = entry?;
+        let to = dest.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_dir_recursive(&entry.path(), &to)?;
+        } else {
+            fs::copy(entry.path(), &to)
+                .with_context(|| format!("copy {} → {}", entry.path().display(), to.display()))?;
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, reason = "unit tests")]
 mod tests {
@@ -150,6 +216,10 @@ mod tests {
         assert!(data.join("bridge/manifest.json").is_file());
         assert!(data.join("diagnostics/catalog.yaml").is_file());
         assert!(data.join("bootstrap.tox").is_file());
+        assert!(data.join("skills/touchdesigner/SKILL.md").is_file());
+        assert!(data
+            .join("skills/touchdesigner/reference/opsketch-notation.md")
+            .is_file());
         assert_eq!(
             fs::read_to_string(data.join("install.version"))
                 .expect("stamp")
@@ -189,11 +259,23 @@ mod tests {
         let forced = ensure_installed(data, true).expect("force");
         assert_eq!(forced, InstallOutcome::Extracted);
         assert!(data.join("bridge/manifest.json").is_file());
+        assert!(data.join("skills/touchdesigner/SKILL.md").is_file());
         assert_eq!(
             fs::read_to_string(data.join("install.version"))
                 .expect("stamp")
                 .trim(),
             env!("CARGO_PKG_VERSION")
         );
+    }
+
+    #[test]
+    fn copy_skills_to_dest() {
+        let dir = tempdir().expect("tempdir");
+        let data = dir.path().join("data");
+        let dest = dir.path().join("host-skills");
+        ensure_installed(&data, false).expect("install");
+        let copied = copy_skills_to(&data, &dest).expect("copy");
+        assert!(!copied.is_empty());
+        assert!(dest.join("touchdesigner/SKILL.md").is_file());
     }
 }

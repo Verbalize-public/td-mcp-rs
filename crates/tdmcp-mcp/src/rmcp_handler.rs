@@ -15,13 +15,15 @@ use std::sync::Arc;
 
 use rmcp::model::{
     CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, Implementation,
-    InitializeRequestParams, InitializeResult, ListToolsResult, PaginatedRequestParams,
-    ProtocolVersion, ServerCapabilities, ServerInfo, Tool,
+    InitializeRequestParams, InitializeResult, ListResourcesResult, ListToolsResult,
+    PaginatedRequestParams, ProtocolVersion, ReadResourceRequestParams, ReadResourceResponse,
+    ServerInfo, Tool,
 };
 use rmcp::service::RequestContext;
 use rmcp::{ErrorData, RoleServer, ServerHandler};
 use serde_json::Value;
 
+use crate::resources::{self, SERVER_INSTRUCTIONS};
 use crate::schema::input_schema_for;
 use crate::session_registry::McpSessionRegistry;
 use crate::tools::ToolName;
@@ -72,16 +74,9 @@ impl McpHandler {
 
 impl ServerHandler for McpHandler {
     fn get_info(&self) -> ServerInfo {
-        ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
-            .with_server_info(Implementation::new(
-                "tdmcp-daemon",
-                env!("CARGO_PKG_VERSION"),
-            ))
-            .with_instructions(
-                "td-mcp-rs control plane. Call `fleet` to discover connected TouchDesigner \
-                 processes by pid, then `editor_context` / `execute_python` / `inspect` / \
-                 `capture` against a pid.",
-            )
+        ServerInfo::new(resources::server_capabilities()).with_server_info(
+            Implementation::new("tdmcp-daemon", env!("CARGO_PKG_VERSION")),
+        ).with_instructions(SERVER_INSTRUCTIONS)
     }
 
     async fn initialize(
@@ -118,6 +113,25 @@ impl ServerHandler for McpHandler {
             .into_iter()
             .find(|d| d.name == name)
             .map(tool_from_descriptor)
+    }
+
+    async fn list_resources(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ListResourcesResult, ErrorData> {
+        Ok(resources::list_resources())
+    }
+
+    async fn read_resource(
+        &self,
+        request: ReadResourceRequestParams,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ReadResourceResponse, ErrorData> {
+        match resources::read_resource(&request.uri) {
+            Ok(result) => Ok(ReadResourceResponse::Complete(result)),
+            Err(msg) => Err(ErrorData::resource_not_found(msg, None)),
+        }
     }
 
     async fn call_tool(

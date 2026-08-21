@@ -10,6 +10,7 @@ mod daemon_link;
 mod editor_context;
 mod fleet;
 mod outcomes;
+pub mod resources;
 mod rmcp_handler;
 mod schema;
 mod server;
@@ -22,6 +23,10 @@ pub use bridge_rpc::{BridgeRpc, BridgeRpcError};
 pub use daemon_link::ReconnectConfig;
 pub use editor_context::EditorContextParams;
 pub use fleet::{fleet_summary, FleetInclude, FleetParams, FleetProcess, FleetResponse};
+pub use resources::{
+    catalog_files_present, catalog_len, list_resources, read_resource, server_capabilities,
+    SERVER_INSTRUCTIONS, STDIO_SERVER_INSTRUCTIONS,
+};
 pub use rmcp_handler::McpHandler;
 pub use schema::input_schema_for;
 pub use server::{build_mcp_router, AppState};
