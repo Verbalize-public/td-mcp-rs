@@ -29,6 +29,35 @@ before declaring a gate green.
    - Hard: saturate actor `JOB_CHANNEL_CAPACITY` then drain; saturate then disconnect flushes; supersede while in-flight held
    - Extreme: saturate then supersede; asymmetric A-saturate / B-storm
    - Reproducibility: `Notify` phase barriers (not sleep-as-sync); poll-with-budget; outer + caller timeouts; Medium+ use `multi_thread` (4 workers). Double-run baseline: [`CONCURRENCY_FUSES_BASELINE.md`](CONCURRENCY_FUSES_BASELINE.md).
+9. **Multi-client transport freeze** (no live TD) — `crates/tdmcp-daemon/tests/multi_client_freeze.rs`:
+   - Spawns a real `tdmcp-daemon` binary (no GUI) on a free port with fake TD peers
+     over the real named pipe, then drives it with several concurrent rmcp Streamable
+     HTTP sessions firing bursts of `fleet` / `inspect` / `execute_python` calls,
+     session churn, and mid-call session teardown.
+   - Asserts: a probe session's `fleet` never misses its budget, raw TCP connects and
+     fresh-session `fleet` still work after the storm, and the number of `TIME_WAIT`
+     sockets on the daemon port stays bounded (< 2000).
+   - **Root cause this guards against:** rmcp's default Streamable HTTP client sets
+     `pool_max_idle_per_host(0)` (no connection reuse), so every tool call opens a
+     fresh TCP connection; each closed connection parks in Windows `TIME_WAIT` for
+     minutes, exhausting the machine-wide dynamic port range (49152–65535) under
+     sustained multi-client load. `connect()` then fails with `WSAEADDRINUSE` and the
+     MCP transport looks completely frozen while the daemon itself is healthy. The
+     stdio proxy supplies its own bounded idle pool instead
+     (`tdmcp_mcp::daemon_link::connect_http`).
+10. **Wedged-session rescue** (no live TD) — `crates/tdmcp-daemon/tests/stdio_proxy.rs`
+    (`stdio_proxy_call_timeout_heals_and_returns_budget_error`):
+    - A bridged call the daemon never answers (fake bridge gate held) must not hang
+      the MCP client forever: the stdio proxy bounds every forwarded call (defaults
+      above the `[bridge]` budgets, env-tunable via `TDMCP_PROXY_*_TIMEOUT_MS`), and
+      on budget expiry heals the link (fresh session) and returns
+      `tdmcp.daemon.unreachable` with `budgetMs`. A follow-up bridged call on the
+      healed link then succeeds.
+    - This is the recovery half of the SSE-backpressure hazard: rmcp's per-session
+      worker can block on a full SSE stream when a client stops reading, and new
+      requests from that session pile up behind it with no server-side timeout. The
+      proxy timeout converts that indefinite hang into a bounded error + heal; the
+      heal's disconnect also unwedges the daemon-side session.
 
 ## Running
 

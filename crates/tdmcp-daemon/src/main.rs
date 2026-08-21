@@ -480,6 +480,17 @@ async fn run_daemon(
 
     let addr = SocketAddr::from(([127, 0, 0, 1], cfg.port));
     let listener = bind_with_retry(addr).await?;
+    // Diagnostic wrapper: log every accepted TCP connection when
+    // TDMCP_TRACE_ACCEPT=1 (used to locate multi-client accept stalls).
+    let listener = axum::serve::ListenerExt::tap_io(listener, |io| {
+        if std::env::var("TDMCP_TRACE_ACCEPT").is_ok() {
+            let peer = io
+                .peer_addr()
+                .map(|a| a.to_string())
+                .unwrap_or_else(|_| "?".into());
+            tracing::info!(peer, "accepted tcp connection");
+        }
+    });
     info!(%addr, "listening (MCP rmcp /mcp/rpc + JSON fallback /mcp/* + admin /admin/*)");
 
     let lock_path = daemon_lock_path(&cfg.data_dir);
@@ -525,6 +536,24 @@ async fn run_daemon(
     let serve = axum::serve(listener, app).with_graceful_shutdown(async move {
         wait_shutdown(shutdown_for_signal, quit_for_signal).await;
     });
+
+    // Diagnostic heartbeat: proves the runtime is still schedulable while
+    // TDMCP_TRACE_ACCEPT is set (accept stalls vs runtime starvation).
+    if std::env::var("TDMCP_TRACE_ACCEPT").is_ok() {
+        let hb_shutdown = shutdown.clone();
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(std::time::Duration::from_secs(2));
+            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                tokio::select! {
+                    _ = ticker.tick() => {
+                        info!("heartbeat: runtime schedulable");
+                    }
+                    _ = hb_shutdown.cancelled() => break,
+                }
+            }
+        });
+    }
 
     tokio::select! {
         result = serve => {

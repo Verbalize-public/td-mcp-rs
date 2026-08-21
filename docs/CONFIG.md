@@ -43,6 +43,20 @@ The template is `crates/tdmcp-config/assets/default.toml`, embedded via
 `TDMCP_IDLE_EXIT_SECS` remains a test/escape hatch for the idle timeout length
 (`0` disables idle exit even when `keep_alive = false`).
 
+### Stdio proxy per-call ceilings (env only)
+
+The stdio proxy (`tdmcp-daemon mcp`) bounds every forwarded call with a
+wall-clock ceiling so a wedged daemon session surfaces as an error instead of
+hanging the MCP client forever. Defaults sit above the `[bridge]` budgets
+(45s / 120s) so live calls are never cut early. On expiry the proxy heals the
+link (fresh session) and returns `tdmcp.daemon.unreachable` with `budgetMs`.
+
+| Env | Default | Meaning |
+| --- | --- | --- |
+| `TDMCP_PROXY_CALL_TIMEOUT_MS` | `105000` | Ceiling for short tools (`inspect` / `capture` / `fleet` / …) |
+| `TDMCP_PROXY_SCRIPT_TIMEOUT_MS` | `180000` | Ceiling for `execute_python` / `mutate_nodes` |
+| `TDMCP_PROXY_LIST_TIMEOUT_MS` | `30000` | Ceiling for `tools/list` |
+
 ## Fields
 
 ### `[server]`

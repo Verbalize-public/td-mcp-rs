@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 
 use rmcp::model::{ClientCapabilities, ClientInfo, Implementation};
 use rmcp::service::RunningService;
+use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
 use rmcp::transport::StreamableHttpClientTransport;
 use rmcp::{ErrorData, Peer, RoleClient, ServiceError, ServiceExt};
 use serde_json::json;
@@ -32,6 +33,16 @@ pub const DEFAULT_DEBOUNCE_MS: u64 = 250;
 pub const DEFAULT_PROBE_INTERVAL_MS: u64 = 500;
 /// Default: watcher backoff cap while unhealthy.
 pub const DEFAULT_PROBE_MAX_MS: u64 = 5_000;
+/// Default ceiling for short tool calls: the daemon's `[bridge]`
+/// `call_timeout_secs` default (45s) plus margin, so a live call is never cut
+/// early while a wedged session still fails fast.
+pub const DEFAULT_PROXY_CALL_TIMEOUT_MS: u64 = 105_000;
+/// Default ceiling for script-class calls: the daemon's `[bridge]`
+/// `script_timeout_secs` default (120s) plus margin (mirrors the daemon's own
+/// 180s `BRIDGE_TIMEOUT`).
+pub const DEFAULT_PROXY_SCRIPT_TIMEOUT_MS: u64 = 180_000;
+/// Default ceiling for `tools/list` (cheap; fail fast on a wedged session).
+pub const DEFAULT_PROXY_LIST_TIMEOUT_MS: u64 = 30_000;
 /// Health GET budget (mirrors `ensure::health_ok`).
 const HEALTH_TIMEOUT: Duration = Duration::from_millis(800);
 /// Fresh `serve()` handshake budget.
@@ -39,7 +50,7 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 /// Bound for waiters blocked on an in-flight heal (single-flight gate).
 const HEAL_GATE_WAIT: Duration = Duration::from_secs(5);
 
-/// Env-configurable reconnect timing.
+/// Env-configurable proxy timing (reconnect + per-call ceilings).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReconnectConfig {
     /// Downtime below this → "likely mid-restart" message.
@@ -52,6 +63,12 @@ pub struct ReconnectConfig {
     pub probe_interval: Duration,
     /// Watcher sleep cap while unhealthy.
     pub probe_max: Duration,
+    /// Wall-clock ceiling for short tool calls.
+    pub call_timeout: Duration,
+    /// Wall-clock ceiling for script-class calls (`execute_python` / `mutate_nodes`).
+    pub script_timeout: Duration,
+    /// Wall-clock ceiling for `tools/list`.
+    pub list_timeout: Duration,
 }
 
 impl Default for ReconnectConfig {
@@ -62,12 +79,16 @@ impl Default for ReconnectConfig {
             debounce: Duration::from_millis(DEFAULT_DEBOUNCE_MS),
             probe_interval: Duration::from_millis(DEFAULT_PROBE_INTERVAL_MS),
             probe_max: Duration::from_millis(DEFAULT_PROBE_MAX_MS),
+            call_timeout: Duration::from_millis(DEFAULT_PROXY_CALL_TIMEOUT_MS),
+            script_timeout: Duration::from_millis(DEFAULT_PROXY_SCRIPT_TIMEOUT_MS),
+            list_timeout: Duration::from_millis(DEFAULT_PROXY_LIST_TIMEOUT_MS),
         }
     }
 }
 
 impl ReconnectConfig {
-    /// Load from `TDMCP_RECONNECT_*` env vars; invalid values fall back to defaults.
+    /// Load from `TDMCP_RECONNECT_*` / `TDMCP_PROXY_*` env vars; invalid values
+    /// fall back to defaults.
     #[must_use]
     pub fn from_env() -> Self {
         Self::from_env_vars(
@@ -80,17 +101,30 @@ impl ReconnectConfig {
             std::env::var("TDMCP_RECONNECT_PROBE_MAX_MS")
                 .ok()
                 .as_deref(),
+            std::env::var("TDMCP_PROXY_CALL_TIMEOUT_MS")
+                .ok()
+                .as_deref(),
+            std::env::var("TDMCP_PROXY_SCRIPT_TIMEOUT_MS")
+                .ok()
+                .as_deref(),
+            std::env::var("TDMCP_PROXY_LIST_TIMEOUT_MS")
+                .ok()
+                .as_deref(),
         )
     }
 
     /// Parse optional raw env strings (tests).
     #[must_use]
+    #[allow(clippy::too_many_arguments, reason = "one param per env knob; mirrors config surface")]
     pub fn from_env_vars(
         recent: Option<&str>,
         stale: Option<&str>,
         debounce: Option<&str>,
         probe_interval: Option<&str>,
         probe_max: Option<&str>,
+        call_timeout: Option<&str>,
+        script_timeout: Option<&str>,
+        list_timeout: Option<&str>,
     ) -> Self {
         let defaults = Self::default();
         Self {
@@ -107,6 +141,31 @@ impl ReconnectConfig {
                 defaults.probe_max,
                 "TDMCP_RECONNECT_PROBE_MAX_MS",
             ),
+            call_timeout: parse_ms(
+                call_timeout,
+                defaults.call_timeout,
+                "TDMCP_PROXY_CALL_TIMEOUT_MS",
+            ),
+            script_timeout: parse_ms(
+                script_timeout,
+                defaults.script_timeout,
+                "TDMCP_PROXY_SCRIPT_TIMEOUT_MS",
+            ),
+            list_timeout: parse_ms(
+                list_timeout,
+                defaults.list_timeout,
+                "TDMCP_PROXY_LIST_TIMEOUT_MS",
+            ),
+        }
+    }
+
+    /// Wall-clock budget for a forwarded `tools/call`, by method class.
+    #[must_use]
+    pub fn tool_call_budget(&self, name: &str) -> Duration {
+        if matches!(name, "execute_python" | "mutate_nodes") {
+            self.script_timeout
+        } else {
+            self.call_timeout
         }
     }
 }
@@ -461,13 +520,36 @@ impl DaemonLink {
     }
 }
 
+/// Idle connections the stdio proxy keeps per daemon host for reuse.
+///
+/// rmcp's default Streamable HTTP client sets `pool_max_idle_per_host(0)`
+/// (no reuse, to dodge a Linux delayed-ACK stall), which makes **every** tool
+/// call open a fresh TCP connection. On Windows each closed connection parks
+/// in TIME_WAIT for minutes, so sustained multi-client load exhausts the
+/// machine-wide dynamic port range (49152–65535) and the MCP transport
+/// freezes: new connects fail with WSAEADDRINUSE and the client can neither
+/// reconnect nor answer `fleet`. A small idle pool fixes the churn while
+/// keeping reuse bounded.
+const HTTP_POOL_MAX_IDLE: usize = 8;
+
 async fn connect_http(daemon_url: &str) -> Result<RunningService<RoleClient, ClientInfo>, String> {
-    let http = StreamableHttpClientTransport::from_uri(daemon_url.to_string());
+    // Own pooled client instead of `StreamableHttpClientTransport::from_uri`,
+    // whose default disables connection reuse entirely (see above).
+    let http = reqwest::Client::builder()
+        .pool_max_idle_per_host(HTTP_POOL_MAX_IDLE)
+        .pool_idle_timeout(Duration::from_secs(60))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|e| e.to_string())?;
+    let transport = StreamableHttpClientTransport::with_client(
+        http,
+        StreamableHttpClientTransportConfig::with_uri(daemon_url.to_string()),
+    );
     let client_info = ClientInfo::new(
         ClientCapabilities::default(),
         Implementation::new(STDIO_PROXY_CLIENT_NAME, env!("CARGO_PKG_VERSION")),
     );
-    client_info.serve(http).await.map_err(|e| e.to_string())
+    client_info.serve(transport).await.map_err(|e| e.to_string())
 }
 
 /// Whether this error warrants a reconnect attempt.
@@ -560,6 +642,33 @@ pub fn unreachable_error(outcome: HealOutcome, config: &ReconnectConfig) -> Erro
     ErrorData::internal_error(message, Some(data))
 }
 
+/// Build `ErrorData` for a forwarded call that exceeded its budget.
+///
+/// Distinct from [`unreachable_error`]: the link may be healthy, but the
+/// daemon-side MCP session stalled (rmcp's per-session worker blocks on a full
+/// SSE stream when the client stops reading, and new requests pile up behind
+/// it with no server-side timeout). The proxy already healed the link before
+/// constructing this error; the effect of the timed-out call is unknown.
+#[must_use]
+pub fn call_timeout_error(budget: Duration, outcome: HealOutcome) -> ErrorData {
+    let budget_ms = budget.as_millis() as u64;
+    let healed = outcome.healed;
+    let data = json!({
+        "code": codes::DAEMON_UNREACHABLE,
+        "budgetMs": budget_ms,
+        "healed": healed,
+        "suggestion": "verify with inspect before retrying a mutation",
+    });
+    ErrorData::internal_error(
+        format!(
+            "daemon call exceeded its {budget_ms}ms budget (the MCP session may have stalled) \
+             and the proxy has reconnected to a fresh session. \
+             This call's effect on the target is unknown — verify with `inspect` before retrying a mutation."
+        ),
+        Some(data),
+    )
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, reason = "unit tests")]
 mod tests {
@@ -649,7 +758,7 @@ mod tests {
 
     #[test]
     fn env_parse_defaults_and_overrides() {
-        let cfg = ReconnectConfig::from_env_vars(None, None, None, None, None);
+        let cfg = ReconnectConfig::from_env_vars(None, None, None, None, None, None, None, None);
         assert_eq!(cfg, ReconnectConfig::default());
 
         let cfg = ReconnectConfig::from_env_vars(
@@ -658,15 +767,40 @@ mod tests {
             Some("100"),
             Some("250"),
             Some("2000"),
+            Some("7000"),
+            Some("99999"),
+            Some("1234"),
         );
         assert_eq!(cfg.recent, Duration::from_millis(1000));
         assert_eq!(cfg.stale, Duration::from_millis(20000));
         assert_eq!(cfg.debounce, Duration::from_millis(100));
         assert_eq!(cfg.probe_interval, Duration::from_millis(250));
         assert_eq!(cfg.probe_max, Duration::from_millis(2000));
+        assert_eq!(cfg.call_timeout, Duration::from_millis(7000));
+        assert_eq!(cfg.script_timeout, Duration::from_millis(99_999));
+        assert_eq!(cfg.list_timeout, Duration::from_millis(1234));
 
-        let cfg = ReconnectConfig::from_env_vars(Some("nope"), None, None, None, None);
+        let cfg =
+            ReconnectConfig::from_env_vars(Some("nope"), None, None, None, None, None, None, None);
         assert_eq!(cfg.recent, Duration::from_millis(DEFAULT_RECENT_MS));
+    }
+
+    #[test]
+    fn tool_call_budget_by_class_and_defaults() {
+        let cfg = ReconnectConfig::default();
+        // Defaults must stay above the daemon's [bridge] call/script budgets
+        // (45s / 120s) so a live call is never cut early.
+        assert!(cfg.call_timeout > Duration::from_secs(45));
+        assert!(cfg.script_timeout > Duration::from_secs(120));
+        assert_eq!(cfg.call_timeout, Duration::from_millis(DEFAULT_PROXY_CALL_TIMEOUT_MS));
+        assert_eq!(
+            cfg.script_timeout,
+            Duration::from_millis(DEFAULT_PROXY_SCRIPT_TIMEOUT_MS)
+        );
+        assert_eq!(cfg.tool_call_budget("fleet"), cfg.call_timeout);
+        assert_eq!(cfg.tool_call_budget("inspect"), cfg.call_timeout);
+        assert_eq!(cfg.tool_call_budget("execute_python"), cfg.script_timeout);
+        assert_eq!(cfg.tool_call_budget("mutate_nodes"), cfg.script_timeout);
     }
 
     #[test]
@@ -687,5 +821,26 @@ mod tests {
         );
         assert_eq!(data.get("healed").and_then(|h| h.as_bool()), Some(false));
         assert!(err.message.contains("mid-restart") || err.message.contains("retry"));
+    }
+
+    #[test]
+    fn call_timeout_error_payload() {
+        let err = call_timeout_error(
+            Duration::from_secs(105),
+            HealOutcome {
+                healed: true,
+                downtime: None,
+            },
+        );
+        assert_eq!(err.code, ErrorCode::INTERNAL_ERROR);
+        let data = err.data.expect("data");
+        assert_eq!(
+            data.get("code").and_then(|c| c.as_str()),
+            Some(codes::DAEMON_UNREACHABLE)
+        );
+        assert_eq!(data.get("budgetMs").and_then(|b| b.as_u64()), Some(105_000));
+        assert_eq!(data.get("healed").and_then(|h| h.as_bool()), Some(true));
+        assert!(err.message.contains("budget"));
+        assert!(err.message.contains("verify"));
     }
 }

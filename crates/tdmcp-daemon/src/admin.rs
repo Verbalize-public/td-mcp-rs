@@ -99,19 +99,27 @@ async fn status(State(state): State<AdminState>) -> Json<StatusBody> {
 }
 
 async fn admin_fleet(State(state): State<AdminState>) -> Json<Value> {
-    let registry = state.app.registry.lock().await;
     let params = FleetParams {
         pids: None,
         include: vec![FleetInclude::Tasks, FleetInclude::Cancelled],
     };
+    // Snapshot pids under a brief registry lock, then release before touching
+    // the bridge-sessions lock (`job_queue_depth`) so we never hold the
+    // registry mutex across an await on another lock (lock-order inversion
+    // risk with the actor map under load). Same pattern as `dispatch_tool`.
+    let pids: Vec<u32> = {
+        let registry = state.app.registry.lock().await;
+        registry.pids()
+    };
     let mut ipc_depths = Vec::new();
-    for pid in registry.pids() {
+    for pid in pids {
         if let Some(depth) = state.app.bridge.job_queue_depth(pid).await {
             if depth > 0 {
                 ipc_depths.push((pid, depth));
             }
         }
     }
+    let registry = state.app.registry.lock().await;
     let fleet = fleet_summary(&registry, &params, &ipc_depths);
     Json(serde_json::to_value(fleet).unwrap_or(Value::Null))
 }

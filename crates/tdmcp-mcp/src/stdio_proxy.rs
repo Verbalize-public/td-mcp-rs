@@ -9,6 +9,7 @@
 //! from a healed link.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use rmcp::model::{
     CallToolRequestParams, CallToolResponse, Implementation, InitializeRequestParams,
@@ -20,7 +21,9 @@ use rmcp::{ErrorData, RoleServer, ServerHandler, ServiceError, ServiceExt};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tracing::{debug, info, warn};
 
-use crate::daemon_link::{is_transport_error, unreachable_error, DaemonLink, ReconnectConfig};
+use crate::daemon_link::{
+    call_timeout_error, is_transport_error, unreachable_error, DaemonLink, ReconnectConfig,
+};
 
 /// Client name advertised on the HTTP side so the daemon GUI can list the lease.
 pub use crate::daemon_link::STDIO_PROXY_CLIENT_NAME;
@@ -183,8 +186,11 @@ impl ServerHandler for StdioProxy {
         request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, ErrorData> {
-        self.forward(|peer| async move { peer.list_tools(request).await })
-            .await
+        let budget = self.link.config().list_timeout;
+        self.forward_bounded(budget, |peer| async move {
+            peer.list_tools(request).await
+        })
+        .await
     }
 
     fn get_tool(&self, name: &str) -> Option<Tool> {
@@ -198,31 +204,58 @@ impl ServerHandler for StdioProxy {
         request: CallToolRequestParams,
         _context: RequestContext<RoleServer>,
     ) -> Result<CallToolResponse, ErrorData> {
-        self.forward(|peer| async move { peer.call_tool_once(request).await })
-            .await
+        let budget = self.link.config().tool_call_budget(&request.name);
+        self.forward_bounded(budget, |peer| async move {
+            peer.call_tool_once(request).await
+        })
+        .await
     }
 }
 
 impl StdioProxy {
-    async fn forward<F, Fut, T>(&self, op: F) -> Result<T, ErrorData>
+    /// Forward one operation with a hard wall-clock budget.
+    ///
+    /// A wedged daemon session would otherwise hang the MCP client forever:
+    /// rmcp's per-session worker blocks on a full SSE stream channel when the
+    /// client stops reading, and every new request from that session queues up
+    /// behind it with no server-side timeout. On budget expiry we treat the
+    /// call like a transport failure: heal the link (fresh session), which
+    /// also closes the old HTTP connections and lets the daemon-side session
+    /// unwedge and drain.
+    async fn forward_bounded<F, Fut, T>(&self, budget: Duration, op: F) -> Result<T, ErrorData>
     where
         F: FnOnce(Arc<rmcp::Peer<rmcp::RoleClient>>) -> Fut,
         Fut: std::future::Future<Output = Result<T, ServiceError>>,
     {
         let (peer, gen) = self.link.current_peer().await;
-        match op(peer).await {
-            Ok(response) => Ok(response),
-            Err(e) if is_transport_error(&e) => {
+        match tokio::time::timeout(budget, op(peer)).await {
+            Ok(Ok(response)) => Ok(response),
+            Ok(Err(e)) if is_transport_error(&e) => {
                 warn!(error = %e, "stdio_proxy: transport error — attempting heal");
                 let outcome = self.link.heal(gen).await;
                 Err(unreachable_error(outcome, self.link.config()))
             }
-            Err(e) => {
+            Ok(Err(e)) => {
                 warn!(error = %e, "stdio_proxy: call forward failed");
                 Err(service_err_to_error_data(e))
             }
+            Err(_) => {
+                warn!(
+                    budget_ms = budget.as_millis(),
+                    "stdio_proxy: call exceeded budget — healing link"
+                );
+                let outcome = self.link.heal(gen).await;
+                Err(call_timeout_error(budget, outcome))
+            }
         }
     }
+}
+
+/// Whether the daemon-side wait budget for this method is the long script
+/// timeout (mirrors `tdmcp_daemon::bridge::BridgeTimeouts::for_method`).
+#[cfg(test)]
+fn is_script_class(name: &str) -> bool {
+    matches!(name, "execute_python" | "mutate_nodes")
 }
 
 async fn annotate_daemon_session(
@@ -272,5 +305,17 @@ mod tests {
             admin_base_from_daemon_url("http://127.0.0.1:9860/mcp/rpc/"),
             "http://127.0.0.1:9860"
         );
+    }
+
+    #[test]
+    fn script_class_detection() {
+        assert!(is_script_class("execute_python"));
+        assert!(is_script_class("mutate_nodes"));
+        assert!(!is_script_class("fleet"));
+        assert!(!is_script_class("inspect"));
+        assert!(!is_script_class("capture"));
+        assert!(!is_script_class("api_help"));
+        assert!(!is_script_class("editor_context"));
+        assert!(!is_script_class("list_tools"));
     }
 }

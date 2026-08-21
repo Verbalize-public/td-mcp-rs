@@ -102,6 +102,7 @@ fn fast_reconnect_config() -> ReconnectConfig {
         debounce: Duration::from_millis(50),
         probe_interval: Duration::from_millis(100),
         probe_max: Duration::from_millis(500),
+        ..Default::default()
     }
 }
 
@@ -497,4 +498,84 @@ async fn concurrent_calls_during_heal_share_outcome() {
     let _ = client.cancel().await;
     let _ = proxy_task.await;
     ct2.cancel();
+}
+
+/// A daemon session that never answers must not hang the MCP client forever:
+/// the proxy bounds every forwarded call, and on budget expiry heals the link
+/// (fresh session) and returns a structured `tdmcp.daemon.unreachable` error.
+/// A follow-up call on the healed link then succeeds.
+#[tokio::test]
+async fn stdio_proxy_call_timeout_heals_and_returns_budget_error() {
+    // Bridge that never answers while the gate is held (simulates a wedged
+    // session whose response channel stalls).
+    let fake = FakeBridgeRpc::gated(json!({}));
+    let gate_handle = fake.gate_handle();
+    let held_gate = gate_handle.lock().await;
+    let bridge: Arc<dyn BridgeRpc> = Arc::new(fake);
+
+    let (url, _addr, ct) = spawn_http_daemon(bridge.clone()).await;
+    let (client_side, server_side) = tokio::io::duplex(64 * 1024);
+    let (server_read, server_write) = tokio::io::split(server_side);
+    // Short ceilings for both budget classes so the test completes quickly;
+    // everything else uses the fast reconnect defaults.
+    let cfg = ReconnectConfig {
+        call_timeout: Duration::from_millis(800),
+        script_timeout: Duration::from_millis(800),
+        ..fast_reconnect_config()
+    };
+    let url_clone = url.clone();
+    let proxy_task = tokio::spawn(async move {
+        run_stdio_proxy_rw_config(&url_clone, server_read, server_write, cfg).await
+    });
+
+    let client = ().serve(client_side).await.expect("stdio client initialize");
+
+    // First call: a bridged call the daemon never answers → proxy must time
+    // out (~800ms), heal the link, and surface a budget error — not hang.
+    let inspect_args = json!({ "pid": 34, "paths": ["/project1"] })
+        .as_object()
+        .cloned()
+        .unwrap_or_default();
+    let started = std::time::Instant::now();
+    let result = tokio::time::timeout(Duration::from_secs(10), client.call_tool(
+        CallToolRequestParams::new("inspect").with_arguments(inspect_args.clone()),
+    ))
+    .await
+    .expect("proxy must not hang past the bounded budget");
+
+    let elapsed = started.elapsed();
+    let err = result.expect_err("call must fail after budget expiry");
+    let ServiceError::McpError(data) = err else {
+        panic!("expected McpError, got {err:?}");
+    };
+    let payload = data.data.expect("structured payload");
+    assert_eq!(
+        payload.get("code").and_then(|c| c.as_str()),
+        Some(codes::DAEMON_UNREACHABLE)
+    );
+    assert_eq!(
+        payload.get("healed").and_then(|h| h.as_bool()),
+        Some(true),
+        "proxy must have healed the link on timeout"
+    );
+    assert!(
+        data.message.contains("budget"),
+        "message should mention the budget: {}",
+        data.message
+    );
+    assert!(
+        elapsed < Duration::from_secs(5),
+        "timeout must fire near the budget, took {elapsed:?}"
+    );
+
+    // Release the bridge gate and confirm the healed link serves new calls.
+    drop(held_gate);
+    client
+        .call_tool(CallToolRequestParams::new("inspect").with_arguments(inspect_args))
+        .await
+        .expect("bridged call succeeds on the healed session");
+
+    let _ = client.cancel().await;
+    let _ = proxy_task.await;
+    ct.cancel();
 }
