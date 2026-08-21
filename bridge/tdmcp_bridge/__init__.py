@@ -291,10 +291,11 @@ def bootstrap_threaded(bridge_dir: str | None = None) -> dict[str, Any]:
     ``bridgePackageDir`` → conventional data-dir ``bridge/``. Reloads the
     package from disk on every connect (version bumps without re-baking the tox).
 
-    The caller (the bootstrap Text DAT's owning Execute DAT) **must** also
-    enable `Frame Start` and call [`process_pending`] from `onFrameStart`,
-    or requests will queue forever without a response. Safe to call again
-    after disconnect / dead worker (explicit resurrection).
+    Starts the timeline-independent [`start_pump`] so queued requests drain
+    even when the project is paused. The Execute DAT should still enable
+    `Frame Start` and call [`process_pending`] from `onFrameStart` while
+    playing (larger batch per frame). Safe to call again after disconnect /
+    dead worker (explicit resurrection).
     """
     global _active_stream, _active_thread
     if _active_stream is not None or _active_thread is not None:
@@ -332,6 +333,8 @@ def bootstrap_threaded(bridge_dir: str | None = None) -> dict[str, Any]:
     thread.start()
     pkg._active_stream = stream
     pkg._active_thread = thread
+    # Timeline-independent dispatch so the bridge works while paused.
+    pkg.start_pump()
     return resp
 
 

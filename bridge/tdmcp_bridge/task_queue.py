@@ -174,12 +174,33 @@ def _enqueue_pending(
     return item
 
 
+# Pause-resilient pump state (functions defined after process_pending).
+_pump_scheduled: bool = False
+_pump_lock = threading.Lock()
+_last_schedule: float = 0.0
+
+
+def _set_pump_scheduled(value: bool) -> None:
+    """Update task_queue + package re-export (bools do not share identity)."""
+    global _pump_scheduled
+    _pump_scheduled = value
+    pkg = sys.modules.get("tdmcp_bridge")
+    if pkg is not None:
+        pkg._pump_scheduled = value
+
+
 def _reset_pending_for_tests() -> None:
-    """Clear pending/running state — test harness only."""
-    global _running
+    """Clear pending/running/pump state — test harness only."""
+    global _running, _last_schedule
     with _pending_lock:
         _pending.clear()
         _running = None
+    with _pump_lock:
+        _set_pump_scheduled(False)
+        _last_schedule = 0.0
+        pkg = sys.modules.get("tdmcp_bridge")
+        if pkg is not None:
+            pkg._last_schedule = 0.0
 
 
 def pending_count() -> int:
@@ -275,6 +296,131 @@ def process_pending(max_items: int = 64) -> int:
                     _running = None
         n += 1
     return n
+
+
+# ── Pause-resilient main-thread pump ──────────────────────────────────
+#
+# When the TD project is paused, onFrameStart does not fire, so
+# process_pending is never called — all bridge methods time out at
+# maxCallWaitSecs.  This pump uses td.run(delayMilliSeconds=…) with
+# delayRef=op.TDResources so the delay follows independent time and
+# keeps firing while the root timeline is paused (plain delayMilliSeconds
+# alone is rooted at / and does NOT advance while paused).
+#
+# Lifecycle:
+#   start_pump()  → bootstrap_threaded() calls it after the worker starts.
+#   _pump()       → processes up to 4 items per tick, re-schedules itself
+#                    at ~20 Hz (50 ms) as long as is_connected().
+#   Stop           → when is_connected() → False, the chain intentionally
+#                    does not re-schedule.  No explicit teardown.
+#
+# Resilience:
+#   - Each invocation wraps process_pending() in try/except so a single
+#     bad dispatch never kills the pump.
+#   - _last_schedule with 50 ms minimum prevents backed-up run() bursts
+#     after a long main-thread block (e.g. 30 s execute_python).
+#   - _pump_scheduled flag prevents double-scheduling via start_pump().
+
+def _td_delay_ref():
+    """Independent time COMP so run() delays advance while paused.
+
+    Derivative docs require ``delayRef=op.TDResources`` (Global OP Shortcut).
+    ``td.op.TDResources`` is not always exposed the same way as bare ``op``, so
+    try several lookups and never silently omit the ref.
+    """
+    import td  # noqa: F811
+
+    op_fn = getattr(td, "op", None)
+    if op_fn is None:
+        return None
+
+    # 1) Shortcut attribute on the op finder (same as bare op.TDResources).
+    try:
+        ref = getattr(op_fn, "TDResources", None)
+        if ref is not None:
+            return ref
+    except Exception:  # noqa: BLE001
+        pass
+
+    # 2) Shortcut via op() call patterns used on some builds.
+    for getter in (
+        lambda: op_fn.TDResources,  # type: ignore[attr-defined]
+        lambda: op_fn("/local"),  # may host resources on some installs
+    ):
+        try:
+            ref = getter()
+            if ref is not None and getattr(ref, "time", None) is not None:
+                return ref
+        except Exception:  # noqa: BLE001
+            continue
+
+    return None
+
+
+def _schedule_pump(delay_ms: int) -> None:
+    """Schedule ``_pump`` via ``td.run`` with pause-safe delayRef + wallTime."""
+    import td  # noqa: F811
+
+    # Import package binding so delayed callable sees the live ``_pump``.
+    import tdmcp_bridge as _pkg
+
+    ref = _td_delay_ref()
+    kwargs: dict[str, Any] = {
+        "delayMilliSeconds": delay_ms,
+        # Elapsed-time delay (not frame counting) — pairs with delayRef for pause.
+        "wallTime": True,
+    }
+    if ref is None:
+        print(
+            "tdmcp-rs: pause pump: op.TDResources unavailable; "
+            "run() delay will not advance while paused"
+        )
+    else:
+        kwargs["delayRef"] = ref
+
+    # Callable form (not a string) so we keep the in-process function object.
+    td.run(_pkg._pump, **kwargs)
+
+
+def _pump() -> None:
+    """Self-rescheduling main-thread dispatch pump — callable from run()."""
+    global _last_schedule
+
+    try:
+        process_pending(max_items=4)
+    except Exception:  # noqa: BLE001 — one bad dispatch must not kill the pump
+        pass
+
+    with _pump_lock:
+        import tdmcp_bridge as _pkg
+
+        if not _pkg.is_connected():
+            _set_pump_scheduled(False)
+            return  # clean stop — do not re-schedule
+
+        now = time.monotonic()
+        if now - _last_schedule < 0.050:
+            return  # rate-limited — another pump invocation already scheduled
+        _last_schedule = now
+        try:
+            _schedule_pump(50)
+        except Exception as exc:  # noqa: BLE001
+            print("tdmcp-rs: pause pump reschedule failed:", exc)
+            _set_pump_scheduled(False)
+
+
+def start_pump() -> None:
+    """Idempotent start.  Called from bootstrap_threaded after connection."""
+    with _pump_lock:
+        if _pump_scheduled:
+            return
+        _set_pump_scheduled(True)
+    try:
+        _schedule_pump(0)
+    except Exception as exc:  # noqa: BLE001 — pre-TD 088 or non-TD environment
+        print("tdmcp-rs: start_pump failed:", exc)
+        with _pump_lock:
+            _set_pump_scheduled(False)
 
 
 def _close_serve_stream(stream) -> None:

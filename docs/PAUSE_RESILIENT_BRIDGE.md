@@ -1,6 +1,6 @@
 # Pause-Resilient Bridge
 
-Status: **Planned** — not yet implemented.
+Status: **Implemented** (2026-08-21).
 
 ## Problem
 
@@ -49,8 +49,10 @@ adds a main-thread pump independent of the timeline, plus watchdog reconnection.
 
 ### Pump: `run()`-based self-rescheduling main-thread dispatch
 
-`td.run(code, delayMilliSeconds=N)` schedules deferred execution on the main
-thread using wall-clock time — it fires regardless of play/pause state.
+`td.run(code, delayMilliSeconds=N, delayRef=op.TDResources)` schedules
+deferred execution on the main thread. **`delayRef=op.TDResources` is
+required** — without it, delays are rooted at `/` and do **not** advance
+while the timeline is paused (Derivative Run Command docs).
 
 ```text
 Main thread (always)
@@ -88,6 +90,11 @@ every 2 s. When disconnected with `Connect` and `Autoconnect` enabled, it
 triggers `_run_bootstrap()` — the same reconnection logic already proven in
 `onFrameStart`. This is a separate, slower loop from the dispatch pump so
 reconnection polling doesn't compete with dispatch.
+
+**Scheduling:** `_reconnect_watchdog` lives in the Execute DAT namespace (not
+the importable `tdmcp_bridge` package). It reschedules via
+`op(me.path).module._reconnect_watchdog()` — never
+`tdmcp_bridge._reconnect_watchdog()` (that attribute does not exist).
 
 ### Four resilience layers
 
@@ -247,8 +254,9 @@ def _reconnect_watchdog() -> None:
     if want:  # keep polling while Connect is on
         try:
             import td
+            path = me.path  # Execute DAT
             td.run(
-                "__import__('tdmcp_bridge')._reconnect_watchdog()",
+                f"op('{path}').module._reconnect_watchdog()",
                 delayMilliSeconds=2000,
             )
         except Exception:  # noqa: BLE001
@@ -272,10 +280,10 @@ After `ensure_ui(comp)`, add:
 
 **File:** `RISKS.md`
 
-Add row:
+Add row **R7** (R6 is already used for macOS tray):
 
 ```markdown
-| R6 | `bridge/tdmcp_bridge/task_queue.py` (`_pump`) | `run()`-based self-rescheduling main-thread pump for pause resilience. If `_pump()` dies (uncaught exception in `_pump` itself, not in `process_pending` which has its own guard), the pump stops — identical to the current pause bug. `onFrameStart` watchdog (L3) catches this when playing. When paused, a pump-stopping exception in `_pump`'s own non-`process_pending` code (e.g. a crash in the `import td` / `td.run` calls) leaves the pump dead. | `_pump`'s non-dispatch code is trivial (import + run). `td.run()` has existed since TD 088 and does not throw in normal operation. The daemon-side unwedge (L4) remains the ultimate safety net. | 2026-10-15 |
+| R7 | `bridge/tdmcp_bridge/task_queue.py` (`_pump`) | `run()`-based self-rescheduling main-thread pump for pause resilience. If `_pump()` dies (uncaught exception in `_pump` itself, not in `process_pending` which has its own guard), the pump stops — identical to the current pause bug. `onFrameStart` watchdog (L3) catches this when playing. When paused, a pump-stopping exception in `_pump`'s own non-`process_pending` code (e.g. a crash in the `import td` / `td.run` calls) leaves the pump dead. | `_pump`'s non-dispatch code is trivial (import + run). `td.run()` has existed since TD 088 and does not throw in normal operation. The daemon-side unwedge (L4) remains the ultimate safety net. | 2026-08-21 |
 ```
 
 ### Phase 5 — Tests
@@ -389,3 +397,4 @@ added later as a daemon-side enhancement.
 | Date | Note |
 |------|------|
 | 2026-10-15 | Initial plan — architecture, resilience model, implementation phases |
+| 2026-08-21 | Implemented: `_pump`/`start_pump`, bootstrap wire, tox reconnect via `op(me.path).module`, R7, `PumpTest`. Sync `_pump_scheduled` to package via `_set_pump_scheduled` (re-exported bools do not share identity). |

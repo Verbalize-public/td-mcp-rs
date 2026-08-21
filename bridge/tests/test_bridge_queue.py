@@ -12,6 +12,7 @@ Run: `python -m unittest bridge/tests/test_bridge_queue.py` (no TD, no deps).
 from __future__ import annotations
 
 import os
+import queue
 import socket
 import sys
 import threading
@@ -512,6 +513,148 @@ class MainThreadWaitTimeoutTest(QueuedServeTest):
         pong = self._recv_response()
         self.assertEqual(pong["id"], 91)
         self.assertEqual(pong["result"], {"ok": True, "pong": True})
+
+
+class _FakeTd:
+    """Stand-in for TouchDesigner's ``td`` module — records ``run()`` calls."""
+
+    run_calls: list[tuple[object, int, object | None]] = []
+    TDResources = object()
+
+    class op:  # noqa: N801 — mirrors td.op
+        TDResources = None  # set in setUp
+
+    @staticmethod
+    def run(script_or_callable, delayMilliSeconds: int = 0, delayRef=None, **_kwargs) -> None:
+        _FakeTd.run_calls.append((script_or_callable, delayMilliSeconds, delayRef))
+
+
+class _AliveThread:
+    def is_alive(self) -> bool:
+        return True
+
+
+class PumpTest(unittest.TestCase):
+    """Pause-resilient ``td.run`` main-thread pump (no live TD)."""
+
+    def setUp(self) -> None:
+        tdmcp_bridge._reset_pending_for_tests()  # noqa: SLF001
+        _FakeTd.run_calls.clear()
+        _FakeTd.op.TDResources = _FakeTd.TDResources
+        self._prev_td = sys.modules.get("td")
+        sys.modules["td"] = _FakeTd  # type: ignore[assignment]
+        self._prev_thread = tdmcp_bridge._active_thread  # noqa: SLF001
+        tdmcp_bridge._active_thread = _AliveThread()  # noqa: SLF001
+        self.addCleanup(self._restore)
+
+    def _restore(self) -> None:
+        tdmcp_bridge._active_thread = self._prev_thread  # noqa: SLF001
+        if self._prev_td is None:
+            sys.modules.pop("td", None)
+        else:
+            sys.modules["td"] = self._prev_td
+        tdmcp_bridge._reset_pending_for_tests()  # noqa: SLF001
+
+    def test_pump_processes_and_reschedules(self) -> None:
+        # Arrange
+        slot: queue.Queue = queue.Queue()
+        tdmcp_bridge._enqueue_pending(  # noqa: SLF001
+            {"type": "request", "id": 1, "method": "ping", "params": {}},
+            slot,
+        )
+
+        # Act
+        tdmcp_bridge._pump()  # noqa: SLF001
+
+        # Assert
+        self.assertEqual(tdmcp_bridge.pending_count(), 0)
+        self.assertEqual(len(_FakeTd.run_calls), 1)
+        target, delay, delay_ref = _FakeTd.run_calls[0]
+        self.assertIs(target, tdmcp_bridge._pump)
+        self.assertEqual(delay, 50)
+        self.assertIs(delay_ref, _FakeTd.TDResources)
+        resp = slot.get_nowait()
+        self.assertEqual(resp["id"], 1)
+        self.assertEqual(resp["result"], {"ok": True, "pong": True})
+
+    def test_pump_stops_when_disconnected(self) -> None:
+        # Arrange
+        tdmcp_bridge._active_thread = None  # noqa: SLF001
+        tq = sys.modules["tdmcp_bridge.task_queue"]
+        tq._set_pump_scheduled(True)  # noqa: SLF001
+
+        # Act
+        tdmcp_bridge._pump()  # noqa: SLF001
+
+        # Assert
+        self.assertFalse(tdmcp_bridge._pump_scheduled)  # noqa: SLF001
+        self.assertEqual(_FakeTd.run_calls, [])
+
+    def test_pump_survives_dispatch_exception(self) -> None:
+        # Arrange — patch the module binding ``_pump`` actually calls
+        tq = sys.modules["tdmcp_bridge.task_queue"]
+        real_process = tq.process_pending
+
+        def boom(**_kwargs):
+            raise ValueError("dispatch boom")
+
+        tq.process_pending = boom  # type: ignore[assignment]
+        self.addCleanup(lambda: setattr(tq, "process_pending", real_process))
+
+        # Act
+        tdmcp_bridge._pump()  # noqa: SLF001
+
+        # Assert — pump still rescheduled after exception
+        self.assertEqual(len(_FakeTd.run_calls), 1)
+        self.assertEqual(_FakeTd.run_calls[0][1], 50)
+
+    def test_start_pump_idempotent(self) -> None:
+        # Act
+        tdmcp_bridge.start_pump()
+        tdmcp_bridge.start_pump()
+
+        # Assert — one initial schedule (delay 0), not two
+        self.assertEqual(len(_FakeTd.run_calls), 1)
+        self.assertEqual(_FakeTd.run_calls[0][1], 0)
+        self.assertIs(_FakeTd.run_calls[0][0], tdmcp_bridge._pump)
+        self.assertIs(_FakeTd.run_calls[0][2], _FakeTd.TDResources)
+        self.assertTrue(tdmcp_bridge._pump_scheduled)  # noqa: SLF001
+
+    def test_pump_rate_limits_burst(self) -> None:
+        # Arrange — first call schedules; subsequent immediate calls must not
+        tdmcp_bridge._pump()  # noqa: SLF001
+        first_n = len(_FakeTd.run_calls)
+        self.assertEqual(first_n, 1)
+
+        # Act — rapid burst within the 50 ms window
+        for _ in range(100):
+            tdmcp_bridge._pump()  # noqa: SLF001
+
+        # Assert
+        self.assertEqual(len(_FakeTd.run_calls), 1)
+
+    def test_start_pump_no_td_module(self) -> None:
+        # Arrange
+        sys.modules.pop("td", None)
+        # Force ImportError on ``import td``
+        import builtins
+
+        real_import = builtins.__import__
+
+        def block_td(name, *args, **kwargs):
+            if name == "td" or name.startswith("td."):
+                raise ImportError("no td")
+            return real_import(name, *args, **kwargs)
+
+        builtins.__import__ = block_td  # type: ignore[assignment]
+        self.addCleanup(lambda: setattr(builtins, "__import__", real_import))
+
+        # Act
+        tdmcp_bridge.start_pump()
+
+        # Assert
+        self.assertFalse(tdmcp_bridge._pump_scheduled)  # noqa: SLF001
+        self.assertEqual(_FakeTd.run_calls, [])
 
 
 class WriteFrameTest(unittest.TestCase):

@@ -6,9 +6,11 @@ daemon returns, and starts the framed read loop **on a background thread**
 so TD's main thread keeps cooking.
 
 The shipped ``.tox`` wraps this script in a Text DAT run by the Execute DAT
-callbacks in ``tox_callbacks.py`` (``onStart`` / reconnect). That Execute DAT
-**must** also have ``Frame Start`` enabled and pump
-``tdmcp_bridge.process_pending()`` — see ``tox_callbacks.py``.
+callbacks in ``tox_callbacks.py`` (``onStart`` / reconnect). While playing,
+that Execute DAT should keep ``Frame Start`` enabled and call
+``tdmcp_bridge.process_pending()`` (larger batch). A ``td.run`` pump started
+by ``bootstrap_threaded`` also drains the queue while paused — see
+``tox_callbacks.py`` and ``docs/PAUSE_RESILIENT_BRIDGE.md``.
 
 IMPORTANT: this script is exec'd as a Text DAT's contents, not run from a
 file on disk — ``__file__`` is not meaningful here. Bridge package directory

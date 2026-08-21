@@ -566,6 +566,8 @@ def onStart() -> None:
 	global _phase, _prev_connect
 	comp = _comp()
 	ensure_ui(comp)
+	if not _reconnect_watchdog_scheduled:
+		_reconnect_watchdog()
 	want = _par_bool(comp, "Connect", True)
 	auto = _par_bool(comp, "Autoconnect", True)
 	_prev_connect = want
@@ -650,6 +652,16 @@ def onFrameStart(frame) -> None:  # noqa: ANN001 — TD Execute DAT signature
 	# Connected path
 	_had_connected = True
 	_phase = "Connected"
+	# Watchdog: if the paused-mode pump died (e.g. exception in _pump),
+	# resurrect it while playing.  When paused this check never runs, but
+	# L1 (exception guard in _pump) handles that case.
+	try:
+		if mod is not None and not getattr(mod, "_pump_scheduled", True):
+			fn = getattr(mod, "start_pump", None)
+			if callable(fn):
+				fn()
+	except Exception:  # noqa: BLE001
+		pass
 	try:
 		mod.process_pending()
 	except Exception as exc:  # noqa: BLE001 — never kill the frame pulse
@@ -678,3 +690,63 @@ def onExit() -> None:
 			_safe_disconnect(mod)
 	except Exception:  # noqa: BLE001 — best-effort teardown
 		pass
+
+
+_reconnect_watchdog_scheduled = False
+
+
+def _reconnect_watchdog() -> None:
+	"""Wall-clock reconnection poll — works when the timeline is paused.
+
+	When the project is not playing, onFrameStart never fires and the
+	bridge can neither reconnect nor detect disconnection.  This run()-
+	based loop polls every 2 s and triggers the same _run_bootstrap()
+	path that onFrameStart uses.
+
+	Reschedules via the Execute DAT module path (``op(me.path).module``),
+	not ``tdmcp_bridge`` — this function lives only in tox callbacks.
+	"""
+	global _reconnect_watchdog_scheduled
+	comp = _comp()
+	want = _par_bool(comp, "Connect", True)
+	auto = _par_bool(comp, "Autoconnect", True)
+	mod = _bridge_mod()
+	connected = mod is not None and _bridge_connected(mod)
+
+	if not connected and want and auto:
+		_run_bootstrap()
+
+	if want:  # keep polling while Connect is on
+		try:
+			import td
+
+			path = me.path  # type: ignore[name-defined]  # noqa: F821
+			# delayRef=TDResources: delays must advance while the root
+			# timeline is paused (plain delayMilliSeconds is rooted at /).
+			kwargs = {"delayMilliSeconds": 2000}
+			try:
+				# Prefer bare op shortcut (Execute DAT namespace); fall back to td.op.
+				ref = None
+				try:
+					ref = op.TDResources  # type: ignore[name-defined]  # noqa: F821
+				except Exception:  # noqa: BLE001
+					ref = getattr(td.op, "TDResources", None)
+				if ref is not None:
+					kwargs["delayRef"] = ref
+				else:
+					print(
+						"tdmcp-rs: reconnect watchdog: TDResources missing; "
+						"delay will not advance while paused"
+					)
+			except Exception:  # noqa: BLE001
+				pass
+			td.run(
+				f"op('{path}').module._reconnect_watchdog()",
+				**kwargs,
+			)
+		except Exception:  # noqa: BLE001
+			_reconnect_watchdog_scheduled = False
+		else:
+			_reconnect_watchdog_scheduled = True
+	else:
+		_reconnect_watchdog_scheduled = False
