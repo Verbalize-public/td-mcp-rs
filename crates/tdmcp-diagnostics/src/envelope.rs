@@ -123,14 +123,17 @@ pub struct LintItem {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Reference {
-    /// Kind: `doc`, `corpus`, `api_help`.
+    /// Kind: `doc`, `api_help`, or `tool`.
     pub kind: String,
-    /// Identifier or query.
+    /// Skill id (`doc`), tool name (`tool`), or opaque id.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
     /// Query string for api_help.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub query: Option<String>,
+    /// Absolute MCP resource URI for `doc` (e.g. `tdmcp://docs/python-api`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub uri: Option<String>,
 }
 
 /// One diagnostic item.

@@ -120,11 +120,25 @@ impl Catalog {
             context: Default::default(),
             lints: Vec::new(),
             mitigation: entry.mitigation.clone(),
-            references: entry.references.clone(),
+            references: normalize_references(entry.references.clone()),
             raw_traceback: None,
             exception: None,
         })
     }
+}
+
+/// Ensure `kind:doc` references carry `uri: tdmcp://docs/<id>` when id is set.
+fn normalize_references(mut refs: Vec<Reference>) -> Vec<Reference> {
+    for r in &mut refs {
+        if r.kind == "doc" && r.uri.is_none() {
+            if let Some(id) = r.id.as_deref() {
+                if !id.is_empty() {
+                    r.uri = Some(format!("tdmcp://docs/{id}"));
+                }
+            }
+        }
+    }
+    refs
 }
 
 #[cfg(test)]
@@ -161,5 +175,82 @@ mod tests {
             .expect("known code");
         assert!(!item.mitigation.is_empty());
         assert_eq!(item.layer, DiagnosticLayer::Fleet);
+        let doc = item
+            .references
+            .iter()
+            .find(|r| r.kind == "doc")
+            .expect("doc ref");
+        assert_eq!(doc.id.as_deref(), Some("tooling-concurrency"));
+        assert_eq!(doc.uri.as_deref(), Some("tdmcp://docs/tooling-concurrency"));
+    }
+
+    #[test]
+    fn catalog_doc_ids_match_skills_manifest() {
+        let cat = Catalog::fallback();
+        let manifest = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../skills/MANIFEST.yaml"
+        ));
+        let skill_ids = parse_manifest_skill_ids(manifest);
+        const KNOWN_TOOLS: &[&str] = &[
+            "fleet",
+            "execute_python",
+            "inspect",
+            "mutate_nodes",
+            "capture",
+            "api_help",
+            "editor_context",
+            "describe_tools",
+        ];
+        for code in cat.codes() {
+            let entry = cat.get(code).expect("code");
+            for r in &entry.references {
+                let kind = r.kind.as_str();
+                assert!(
+                    matches!(kind, "doc" | "tool" | "api_help"),
+                    "{code}: unknown reference kind `{kind}` (expected doc|tool|api_help)"
+                );
+                if kind == "doc" {
+                    let id = r.id.as_deref().unwrap_or("");
+                    assert!(!id.is_empty(), "{code}: kind:doc missing id");
+                    assert!(
+                        skill_ids.contains(id),
+                        "{code}: kind:doc id `{id}` not in skills/MANIFEST.yaml"
+                    );
+                    let expected = format!("tdmcp://docs/{id}");
+                    let uri = r.uri.as_deref().unwrap_or("");
+                    assert!(
+                        uri.is_empty() || uri == expected,
+                        "{code}: kind:doc uri `{uri}` must be empty or `{expected}`"
+                    );
+                } else if kind == "tool" {
+                    let id = r.id.as_deref().unwrap_or("");
+                    assert!(
+                        KNOWN_TOOLS.contains(&id),
+                        "{code}: kind:tool id `{id}` is not a shipped MCP tool"
+                    );
+                }
+            }
+        }
+    }
+
+    fn parse_manifest_skill_ids(manifest: &str) -> std::collections::HashSet<String> {
+        // MANIFEST keys are top-level `id:` lines (no leading spaces).
+        let mut ids = std::collections::HashSet::new();
+        for line in manifest.lines() {
+            if line.is_empty()
+                || line.starts_with('#')
+                || line.starts_with(' ')
+                || line.starts_with('\t')
+            {
+                continue;
+            }
+            if let Some(key) = line.strip_suffix(':') {
+                if !key.is_empty() && !key.contains(' ') {
+                    ids.insert(key.to_owned());
+                }
+            }
+        }
+        ids
     }
 }

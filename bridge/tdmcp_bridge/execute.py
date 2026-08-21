@@ -4,7 +4,6 @@ from __future__ import annotations
 import io
 import json
 import sys
-import traceback
 from typing import Any
 
 from . import state as _state
@@ -216,14 +215,15 @@ def handle_execute_python(params: dict[str, Any]) -> dict[str, Any]:
                     "ok": True,
                 }
         except Exception as exc:  # noqa: BLE001 — surface to diagnostics
-            raw_tb = traceback.format_exc()
+            report = build_exception_report(
+                exc, script, format_mode=format_mode
+            )
+            # Prefer trimmed user-only traceback (no execute.py wrapper frames).
             out = {
                 "ok": False,
                 "error": str(exc),
-                "traceback": raw_tb,
-                "exception": build_exception_report(
-                    exc, script, format_mode=format_mode
-                ),
+                "traceback": report.get("raw") or "",
+                "exception": report,
             }
     finally:
         if include_logs:

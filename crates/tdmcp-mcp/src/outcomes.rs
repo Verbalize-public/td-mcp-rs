@@ -608,6 +608,7 @@ fn splice_api_help_references(item: &mut DiagnosticItem, failure: &MutateStepFai
             kind: "api_help".into(),
             id: None,
             query: Some(q),
+            uri: None,
         });
     }
 }
@@ -701,14 +702,17 @@ pub fn session_busy(catalog: &Catalog, tool: &str, pid: Pid) -> ToolCallError {
 fn transport(catalog: &Catalog, tool: &str, pid: Pid, err: BridgeRpcError) -> ToolCallError {
     let code = match &err {
         BridgeRpcError::NotConnected { .. } | BridgeRpcError::Disconnected { .. } => {
-            codes::BRIDGE_LOST
+            codes::BRIDGE_LOST.to_owned()
         }
-        BridgeRpcError::Timeout { .. } => codes::BRIDGE_TIMEOUT,
-        BridgeRpcError::BridgeReturned { .. } => codes::BRIDGE_LOST,
+        BridgeRpcError::Timeout { .. } => codes::BRIDGE_TIMEOUT.to_owned(),
+        BridgeRpcError::BridgeReturned { code: Some(c), .. } if catalog.contains(c.as_str()) => {
+            c.clone()
+        }
+        BridgeRpcError::BridgeReturned { .. } => codes::BRIDGE_LOST.to_owned(),
     };
     let item = build_diag(
         catalog,
-        code,
+        &code,
         span(tool, None),
         Some(err.to_string()),
         ctx(pid, None, None),
@@ -1246,6 +1250,82 @@ mod tests {
                     codes::PERCEPTION_EMPTY_CHOP
                 );
                 assert!(payload.image_base64.is_none());
+            }
+            other => panic!("unexpected error: {other}"),
+        }
+    }
+
+    #[test]
+    fn transport_preserves_bridge_cancelled_code() {
+        let catalog = Catalog::fallback();
+        let err = map_script_outcome(
+            &catalog,
+            Pid::new(1),
+            BridgeOutcome::Transport(BridgeRpcError::BridgeReturned {
+                message: "cancelled".into(),
+                code: Some(codes::BRIDGE_CANCELLED.to_owned()),
+            }),
+            DiagnosticLevel::Summary,
+            FormatMode::Normal,
+            None,
+        )
+        .expect_err("expected transport failure");
+        match err {
+            ToolCallError::Failed(payload) => {
+                assert_eq!(payload.diagnostics.items[0].code, codes::BRIDGE_CANCELLED);
+            }
+            other => panic!("unexpected error: {other}"),
+        }
+    }
+
+    #[test]
+    fn transport_preserves_main_thread_timeout_code() {
+        let catalog = Catalog::fallback();
+        let err = map_inspect_outcome(
+            &catalog,
+            Pid::new(1),
+            None,
+            None,
+            BridgeOutcome::Transport(BridgeRpcError::BridgeReturned {
+                message: "main thread timeout".into(),
+                code: Some(codes::BRIDGE_MAIN_THREAD_TIMEOUT.to_owned()),
+            }),
+            DiagnosticLevel::Summary,
+        )
+        .expect_err("expected transport failure");
+        match err {
+            ToolCallError::Failed(payload) => {
+                assert_eq!(
+                    payload.diagnostics.items[0].code,
+                    codes::BRIDGE_MAIN_THREAD_TIMEOUT
+                );
+                assert!(payload.diagnostics.items[0]
+                    .references
+                    .iter()
+                    .any(|r| r.uri.as_deref() == Some("tdmcp://docs/play-state")));
+            }
+            other => panic!("unexpected error: {other}"),
+        }
+    }
+
+    #[test]
+    fn transport_unknown_bridge_code_falls_back_to_lost() {
+        let catalog = Catalog::fallback();
+        let err = map_script_outcome(
+            &catalog,
+            Pid::new(1),
+            BridgeOutcome::Transport(BridgeRpcError::BridgeReturned {
+                message: "mystery".into(),
+                code: Some("tdmcp.bridge.not_a_real_code".into()),
+            }),
+            DiagnosticLevel::Summary,
+            FormatMode::Normal,
+            None,
+        )
+        .expect_err("expected transport failure");
+        match err {
+            ToolCallError::Failed(payload) => {
+                assert_eq!(payload.diagnostics.items[0].code, codes::BRIDGE_LOST);
             }
             other => panic!("unexpected error: {other}"),
         }

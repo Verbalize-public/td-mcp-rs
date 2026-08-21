@@ -1,66 +1,109 @@
 # Diagnostic catalog for td-mcp-rs
 # Every code emitted by daemon/bridge must appear here.
+# kind:doc id must match skills/MANIFEST.yaml (uri = tdmcp://docs/<id>).
+# kind:tool id must be a shipped MCP tool name.
+# kind:api_help may omit query (spliced at runtime for unknown type/par).
 
 entries:
   - code: tdmcp.bridge.unknown_pid
     layer: fleet
     message: "Unknown or dead pid — process not listed or never connected"
     mitigation:
-      - "Re-fleet; pid exited or never connected"
+      - "Call fleet; pick a connected pid (exited or never connected)"
     references:
-      - kind: doc
+      - kind: tool
         id: fleet
 
   - code: tdmcp.bridge.lost
     layer: fleet
     message: "Bridge IPC link lost for this pid"
     mitigation:
-      - "Re-fleet; check cancelledTasks"
-      - "Wait for same-pid resurrection or re-handshake"
+      - "Call fleet; check cancelledTasks on that pid"
+      - "Wait for same-pid resurrection or re-handshake, then retry"
+    references:
+      - kind: tool
+        id: fleet
+      - kind: doc
+        id: play-state
+        uri: tdmcp://docs/play-state
+
+  - code: tdmcp.bridge.cancelled
+    layer: fleet
+    message: "Queued or in-flight bridge work was cancelled"
+    mitigation:
+      - "Call fleet; check cancelledTasks"
+      - "Retry after the bridge is Connected again"
+    references:
+      - kind: tool
+        id: fleet
+      - kind: doc
+        id: play-state
+        uri: tdmcp://docs/play-state
+
+  - code: tdmcp.bridge.main_thread_timeout
+    layer: fleet
+    message: "Bridge gave up waiting for TD main thread (paused timeline or hung script)"
+    mitigation:
+      - "Ensure the timeline is playing; paused TD stalls main-thread work"
+      - "Call fleet to confirm Connected, then retry"
+      - "`resources/read` `tdmcp://docs/play-state`"
     references:
       - kind: doc
-        id: resurrection
+        id: play-state
+        uri: tdmcp://docs/play-state
+      - kind: tool
+        id: fleet
 
   - code: tdmcp.bridge.queue_busy
     layer: fleet
     message: "Bridge pid queue is busy — call tools sequentially"
     mitigation:
       - "Call bridged tools one at a time against this pid"
-      - "Re-fleet with include: tasks to see the in-flight work"
+      - "Call fleet with include: [\"tasks\"] to see in-flight work"
       - "Do not disconnect or restart — wait for the queue to drain, then retry"
+      - "`resources/read` `tdmcp://docs/tooling-concurrency`"
     references:
       - kind: doc
-        id: task_queue
+        id: tooling-concurrency
+        uri: tdmcp://docs/tooling-concurrency
+      - kind: tool
+        id: fleet
 
   - code: tdmcp.mcp.session_busy
     layer: fleet
-    message: "Chill down — too many concurrent calls for this MCP session against this bridge"
+    message: "Session already has an in-flight bridged call against this pid"
     mitigation:
       - "Wait for the in-flight tool on this session+pid to finish"
       - "Call bridged tools sequentially (no parallel inspect/execute_python/capture/mutate)"
       - "fleet and describe_tools remain available while a call is in flight"
+      - "`resources/read` `tdmcp://docs/tooling-concurrency`"
     references:
       - kind: doc
-        id: task_queue
+        id: tooling-concurrency
+        uri: tdmcp://docs/tooling-concurrency
 
   - code: tdmcp.bridge.timeout
     layer: fleet
     message: "Daemon wait timed out — TD may still be running"
     mitigation:
-      - "Re-fleet to check liveness"
-      - "Do not assume the TD-side work was cancelled"
+      - "Call fleet to check liveness"
+      - "Do not assume the TD-side work was cancelled (timeout ≠ cancel)"
+      - "`resources/read` `tdmcp://docs/play-state`"
     references:
       - kind: doc
-        id: timeouts
+        id: play-state
+        uri: tdmcp://docs/play-state
+      - kind: tool
+        id: fleet
 
   - code: tdmcp.bridge.version
     layer: fleet
     message: "Bridge package version incompatible with daemon"
     mitigation:
-      - "Reserved in v1; not emitted. Upgrade daemon or bridge package so minDaemon is satisfied when a future compat gate lands."
+      - "Reserved in v1; not emitted. Upgrade daemon or bridge so minDaemon matches when a future compat gate lands"
     references:
-      - kind: doc
-        id: bridge_package
+      - kind: tool
+        id: fleet
 
   - code: tdmcp.daemon.unreachable
     layer: fleet
@@ -70,19 +113,21 @@ entries:
       - "Verify with inspect before retrying a mutation whose effect is unknown"
       - "If downtime exceeds ~15s, run `tdmcp-daemon ensure` or restart the MCP client (stdio proxy never auto-spawns)"
     references:
-      - kind: doc
-        id: stdio_proxy_resilience
+      - kind: tool
+        id: fleet
 
   - code: tdmcp.op.not_found
     layer: mutate
     message: "Could not resolve OpPath for a mutate step"
     mitigation:
-      - "Re-inspect the zone with include: nodes"
+      - "Call inspect on the zone with include: [\"nodes\"]"
       - "Fix contextPath or use lint suggestions"
       - "Fix the failedAt step only; later steps are skipped, not replayed"
     references:
-      - kind: doc
-        id: op_path_harness
+      - kind: tool
+        id: inspect
+      - kind: tool
+        id: mutate_nodes
 
   - code: tdmcp.op.similar_name
     layer: mutate
@@ -90,8 +135,8 @@ entries:
     mitigation:
       - "Consider the suggested canonical path if it matches intent"
     references:
-      - kind: doc
-        id: op_path_harness
+      - kind: tool
+        id: inspect
 
   - code: tdmcp.op.renamed
     layer: mutate
@@ -101,18 +146,21 @@ entries:
       - "Later steps in the same mutate_nodes batch that reuse the requested path are remapped to the created op"
       - "To target the pre-existing occupant instead, inspect and use its path, or split batches"
     references:
-      - kind: doc
-        id: op_path_harness
+      - kind: tool
+        id: mutate_nodes
+      - kind: tool
+        id: inspect
 
   - code: tdmcp.op.outside_zone
     layer: mutate
     message: "Path is outside the authorized mutation zone"
     mitigation:
       - "Reserved for future per-pid zone enforcement (P2). v1 daemon is zone-agnostic"
-      - "Zone discipline lives in the agent layer (creative-operator)"
+      - "`resources/read` `tdmcp://docs/mutation-zones`"
     references:
       - kind: doc
-        id: mutation_zones
+        id: mutation-zones
+        uri: tdmcp://docs/mutation-zones
 
   - code: tdmcp.op.children_truncated
     layer: structure
@@ -120,20 +168,19 @@ entries:
     mitigation:
       - "Inspect a child COMP path for nested overview"
       - "detailLevel does not raise this cap"
-      - "Use execute_python if you need the full name list"
+      - "Use execute_python only if you need the full name list"
     references:
-      - kind: doc
+      - kind: tool
         id: inspect
 
   - code: tdmcp.op.paths_truncated
     layer: structure
     message: "Inspect paths batch capped"
     mitigation:
-      - "Split into multiple inspect calls"
+      - "Split into multiple inspect calls (soft cap 96 paths)"
       - "Keep batches small for responsive inspect"
-      - "Soft cap is 96 paths per call"
     references:
-      - kind: doc
+      - kind: tool
         id: inspect
 
   - code: tdmcp.op.paths_required
@@ -141,9 +188,8 @@ entries:
     message: "Inspect requires a non-empty paths array"
     mitigation:
       - "Pass paths: [\"/project1/...\"] with at least one OpPath"
-      - "No single-path shortcut — paths is required"
     references:
-      - kind: doc
+      - kind: tool
         id: inspect
 
   - code: tdmcp.op.inspect_failed
@@ -151,9 +197,9 @@ entries:
     message: "Per-path inspect shaping failed after resolve"
     mitigation:
       - "Re-inspect that single path"
-      - "Check diagnostics.context / traceback at detailed level"
+      - "Check diagnostics at diagnosticLevel: detailed if needed"
     references:
-      - kind: doc
+      - kind: tool
         id: inspect
 
   - code: tdmcp.editor.context_failed
@@ -161,10 +207,9 @@ entries:
     message: "editor_context handler failed unexpectedly"
     mitigation:
       - "Re-call editor_context"
-      - "Check diagnostics.context / traceback at detailed level"
       - "Confirm TD UI is available (not mid-load)"
     references:
-      - kind: doc
+      - kind: tool
         id: editor_context
 
   - code: tdmcp.editor.pane_failed
@@ -174,7 +219,7 @@ entries:
       - "Ignore that pane entry and use siblings"
       - "Re-call editor_context after focusing a network editor"
     references:
-      - kind: doc
+      - kind: tool
         id: editor_context
 
   - code: tdmcp.editor.selection_truncated
@@ -182,20 +227,20 @@ entries:
     message: "editor_context per-pane selection capped"
     mitigation:
       - "Narrow selection in TD"
-      - "Use inspect on the owner COMP for full roster"
-      - "Soft cap is 96 selected ops per pane"
+      - "Call inspect on the owner COMP for full roster (soft cap 96)"
     references:
-      - kind: doc
+      - kind: tool
         id: editor_context
+      - kind: tool
+        id: inspect
 
   - code: tdmcp.editor.panes_truncated
     layer: editor
     message: "editor_context panes array capped"
     mitigation:
-      - "Close unused panes in TD"
-      - "Soft cap is 32 panes per call"
+      - "Close unused panes in TD (soft cap 32)"
     references:
-      - kind: doc
+      - kind: tool
         id: editor_context
 
   - code: tdmcp.batch.skipped_dependent
@@ -204,22 +249,20 @@ entries:
     mitigation:
       - "Fix the failedAt step only"
       - "Do not replay successful create steps"
-      - "Steps after failedAt are skipped, never replayed"
     references:
-      - kind: doc
+      - kind: tool
         id: mutate_nodes
 
   - code: tdmcp.par.unknown
     layer: mutate
     message: "Unknown parameter on node"
     mitigation:
-      - "Re-inspect the node with include: params for live .par names (api_help does not list parameters)"
+      - "Call inspect with include: [\"params\"] for live .par names (api_help does not list parameters)"
       - "Use suggestion.replace when a similar_name lint is present"
-      - "values is for .par.* parameters; flags is for direct OP attributes (display, viewer, bypass, …)"
-      - "Optional: api_help class query on the node's opType for Python members (not .par names)"
+      - "values is for .par.*; flags is for OP attributes (display, viewer, bypass, …)"
     references:
       - kind: api_help
-      - kind: doc
+      - kind: tool
         id: inspect
 
   - code: tdmcp.api_help.not_found
@@ -230,7 +273,7 @@ entries:
       - "Use kind: classes with family/prefix to explore op-like names"
       - "module queries support only name 'td' in v1"
     references:
-      - kind: doc
+      - kind: tool
         id: api_help
 
   - code: tdmcp.api_help.queries_required
@@ -239,7 +282,7 @@ entries:
     mitigation:
       - "Pass queries: [{kind: class, name: …}] or classes/module entries"
     references:
-      - kind: doc
+      - kind: tool
         id: api_help
 
   - code: tdmcp.api_help.queries_truncated
@@ -249,7 +292,7 @@ entries:
       - "Split into multiple api_help calls"
       - "Prefer classes with family/prefix filters"
     references:
-      - kind: doc
+      - kind: tool
         id: api_help
 
   - code: tdmcp.api_help.classes_truncated
@@ -258,7 +301,7 @@ entries:
     mitigation:
       - "Narrow with family and/or prefix filters"
     references:
-      - kind: doc
+      - kind: tool
         id: api_help
 
   - code: tdmcp.flag.unknown
@@ -266,10 +309,10 @@ entries:
     message: "Unknown operator flag name (not in the operate-relevant Common Flags subset)"
     mitigation:
       - "Allowed flags: activeViewer, allowCooking, bypass, cloneImmune, display, lock, render, viewer"
-      - "values is for .par.* parameters; flags is for direct OP attributes"
+      - "values is for .par.*; flags is for direct OP attributes"
       - "Fix the failedAt step only; later steps are skipped, not replayed"
     references:
-      - kind: doc
+      - kind: tool
         id: mutate_nodes
 
   - code: tdmcp.par.wrong_collection
@@ -279,7 +322,7 @@ entries:
       - "Move the name into the step's flags object"
       - "Do not put Common Flags (display, viewer, bypass, …) under values/expressions/pulse"
     references:
-      - kind: doc
+      - kind: tool
         id: mutate_nodes
 
   - code: tdmcp.flag.wrong_collection
@@ -289,7 +332,7 @@ entries:
       - "Move the name into the step's values (or expressions/pulse) object"
       - "flags only accepts the operate-relevant Common Flags allowlist"
     references:
-      - kind: doc
+      - kind: tool
         id: mutate_nodes
 
   - code: tdmcp.par.similar_name
@@ -297,9 +340,11 @@ entries:
     message: "Similar parameter name found on the node"
     mitigation:
       - "Retry with the suggested .par name from the lint suggestion.replace"
-      - "Inspect the node with include: params if unsure"
+      - "Call inspect with include: [\"params\"] if unsure"
     references:
-      - kind: doc
+      - kind: tool
+        id: inspect
+      - kind: tool
         id: mutate_nodes
 
   - code: tdmcp.par.enable_expr_failed
@@ -308,8 +353,12 @@ entries:
     mitigation:
       - "Fix custom parameter enableExpr (Component Editor)"
       - "Re-inspect after correcting the expression"
+      - "`resources/read` `tdmcp://docs/custom-parameters`"
     references:
       - kind: doc
+        id: custom-parameters
+        uri: tdmcp://docs/custom-parameters
+      - kind: tool
         id: inspect
 
   - code: tdmcp.op.similar_type
@@ -319,19 +368,23 @@ entries:
       - "Retry create with the suggested opType from the lint suggestion.replace"
       - "TD op class names are case-sensitive (e.g. hsvadjustTOP, not hsvAdjustTOP)"
     references:
-      - kind: doc
+      - kind: tool
         id: mutate_nodes
+      - kind: tool
+        id: api_help
 
   - code: tdmcp.op.unknown_type
     layer: mutate
     message: "Unknown or unresolved opType for create"
     mitigation:
       - "Fix the opType string (e.g. noiseTOP, not noise) — names are case-sensitive"
-      - "Query api_help with kind: class (exact name) or kind: classes + family/prefix"
+      - "Call api_help with queries: [{kind: class, name: …}] or kind: classes + family/prefix"
       - "Fix the failedAt step only; later steps are skipped, not replayed"
     references:
       - kind: api_help
-      - kind: doc
+      - kind: tool
+        id: api_help
+      - kind: tool
         id: mutate_nodes
 
   - code: tdmcp.mutate.step_failed
@@ -342,7 +395,7 @@ entries:
       - "Fix the failedAt step only; later steps are skipped, not replayed"
       - "Common causes: locked node, duplicate name, wrong parent family"
     references:
-      - kind: doc
+      - kind: tool
         id: mutate_nodes
 
   - code: tdmcp.wire.bad_index
@@ -353,7 +406,9 @@ entries:
       - "Re-inspect the node; multi-in/out OPs expose more indices"
       - "Fix the failedAt step only; later steps are skipped, not replayed"
     references:
-      - kind: doc
+      - kind: tool
+        id: inspect
+      - kind: tool
         id: mutate_nodes
 
   - code: tdmcp.wire.connect_failed
@@ -363,19 +418,27 @@ entries:
       - "Confirm both ops exist and share a compatible family for wiring"
       - "Read the message for the TD connector error"
       - "Fix the failedAt step only; later steps are skipped, not replayed"
+      - "`resources/read` `tdmcp://docs/network-design`"
     references:
       - kind: doc
+        id: network-design
+        uri: tdmcp://docs/network-design
+      - kind: tool
         id: mutate_nodes
 
   - code: tdmcp.script.execution_failed
     layer: script
     message: "Python script execution failed"
     mitigation:
-      - "Fix using span + references"
+      - "Fix using span + exception.frames (user script frames only)"
       - "Prefer mutate_nodes for simple create/set/delete/connect/disconnect"
+      - "`resources/read` `tdmcp://docs/python-api`"
     references:
-      - kind: corpus
-        id: corpora/td-software/distilled/python-td-module/README.md
+      - kind: doc
+        id: python-api
+        uri: tdmcp://docs/python-api
+      - kind: tool
+        id: execute_python
 
   - code: tdmcp.script.none_op
     layer: script
@@ -383,9 +446,13 @@ entries:
     mitigation:
       - "Confirm the operator path exists via inspect before reading attributes"
       - "op() returns None when the path is missing — check spelling and parent COMP"
+      - "`resources/read` `tdmcp://docs/python-api`"
     references:
-      - kind: corpus
-        id: corpora/td-software/distilled/python-td-module/README.md
+      - kind: doc
+        id: python-api
+        uri: tdmcp://docs/python-api
+      - kind: tool
+        id: inspect
 
   - code: tdmcp.script.too_large
     layer: script
@@ -395,8 +462,10 @@ entries:
       - "Prefer mutate_nodes for create/wire/set/delete batches"
       - "Keep custom-page / bulk setup scripts under 1 MiB UTF-8"
     references:
-      - kind: doc
+      - kind: tool
         id: execute_python
+      - kind: tool
+        id: mutate_nodes
 
   - code: tdmcp.script.result_too_large
     layer: script
@@ -406,8 +475,10 @@ entries:
       - "Prefer inspect / mutate_nodes for structural reads"
       - "Keep result JSON under 1 MiB UTF-8 so the IPC frame cannot hard-drop"
     references:
-      - kind: doc
+      - kind: tool
         id: execute_python
+      - kind: tool
+        id: inspect
 
   - code: tdmcp.td.glsl_compile
     layer: structure
@@ -415,19 +486,31 @@ entries:
     mitigation:
       - "Pulse Reinit on the GLSL TOP/MAT"
       - "Re-inspect the node errors"
+      - "`resources/read` `tdmcp://docs/glsl`"
     references:
-      - kind: corpus
-        id: corpora/td-software
+      - kind: doc
+        id: glsl
+        uri: tdmcp://docs/glsl
+      - kind: doc
+        id: td-glsl-ground-truth
+        uri: tdmcp://docs/td-glsl-ground-truth
 
   - code: tdmcp.perception.black_frame
     layer: perception
     message: "Captured TOP frame is black — perception fail"
     mitigation:
       - "Re-inspect wiring and zone face"
-      - "Re-capture; perception-critic FAIL until fixed"
-      - "If the TOP should have content, ensure it is cooking — try op('…').cook(force=True) via execute_python"
+      - "Re-capture; look claim stays FAIL until fixed"
+      - "If the TOP should have content, cook it — op('…').cook(force=True) via execute_python"
+      - "`resources/read` `tdmcp://docs/look-grade`"
     references:
       - kind: doc
+        id: look-grade
+        uri: tdmcp://docs/look-grade
+      - kind: doc
+        id: play-state
+        uri: tdmcp://docs/play-state
+      - kind: tool
         id: capture
 
   - code: tdmcp.perception.uniform_frame
@@ -435,11 +518,14 @@ entries:
     message: "Captured TOP frame is a uniform solid color — perception fail"
     mitigation:
       - "Re-inspect wiring and zone face"
-      - "Re-capture; perception-critic FAIL until fixed"
+      - "Re-capture; look claim stays FAIL until fixed"
       - "SOP/MAT/DAT viewer capture reflects TD's default viewport framing; use a Render TOP chain for a true look claim"
-      - "If the TOP should have varied content, ensure it is cooking — try op('…').cook(force=True) via execute_python"
+      - "`resources/read` `tdmcp://docs/look-grade`"
     references:
       - kind: doc
+        id: look-grade
+        uri: tdmcp://docs/look-grade
+      - kind: tool
         id: capture
 
   - code: tdmcp.perception.no_path
@@ -447,11 +533,13 @@ entries:
     message: "No perception path (shared capture_viewer missing or bind failed)"
     mitigation:
       - "Ensure the tdmcp_rs bridge COMP is loaded and Connected"
-      - "Re-run ensure_ui / ensure_capture_viewer so ./capture_viewer exists"
+      - "Re-run ensure so ./capture_viewer exists"
       - "Then capture mode: preview (or auto)"
     references:
-      - kind: doc
+      - kind: tool
         id: capture
+      - kind: tool
+        id: fleet
 
   - code: tdmcp.perception.wrong_family
     layer: perception
@@ -459,8 +547,12 @@ entries:
     mitigation:
       - "Use mode chop_data on a CHOP, top on a TOP, preview (or auto) for any other family"
       - "Re-inspect the path family, then re-capture with the matching mode"
+      - "`resources/read` `tdmcp://docs/operator-families`"
     references:
       - kind: doc
+        id: operator-families
+        uri: tdmcp://docs/operator-families
+      - kind: tool
         id: capture
 
   - code: tdmcp.perception.empty_chop
@@ -470,8 +562,10 @@ entries:
       - "Wire or cook a non-empty CHOP before capture"
       - "Re-inspect numChans / numSamples, then re-capture mode: chop_data"
     references:
-      - kind: doc
+      - kind: tool
         id: capture
+      - kind: tool
+        id: inspect
 
   - code: tdmcp.perception.chop_truncated
     layer: perception
@@ -480,7 +574,7 @@ entries:
       - "Narrow the CHOP window or channel count in TD before re-capture"
       - "Caps are fixed: 32 channels, 256 samples/channel, 4096 scalars"
     references:
-      - kind: doc
+      - kind: tool
         id: capture
 
   - code: tdmcp.perception.converter_failed
@@ -491,5 +585,8 @@ entries:
       - "Confirm the tdmcp_rs bridge has ./capture_viewer (OP Viewer TOP)"
       - "Re-capture; shared viewer is persistent — no temp residue expected"
     references:
-      - kind: doc
+      - kind: tool
         id: capture
+      - kind: doc
+        id: look-grade
+        uri: tdmcp://docs/look-grade

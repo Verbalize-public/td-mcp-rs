@@ -8,6 +8,10 @@
 pub const BRIDGE_UNKNOWN_PID: &str = "tdmcp.bridge.unknown_pid";
 /// Bridge IPC link lost.
 pub const BRIDGE_LOST: &str = "tdmcp.bridge.lost";
+/// Queued or in-flight bridge work was cancelled.
+pub const BRIDGE_CANCELLED: &str = "tdmcp.bridge.cancelled";
+/// Bridge gave up waiting for TD main thread (paused / hung).
+pub const BRIDGE_MAIN_THREAD_TIMEOUT: &str = "tdmcp.bridge.main_thread_timeout";
 /// Exclusive request rejected — queue non-empty.
 pub const BRIDGE_QUEUE_BUSY: &str = "tdmcp.bridge.queue_busy";
 /// MCP session already has an in-flight bridged tool against this pid.
@@ -112,6 +116,8 @@ pub const PERCEPTION_CONVERTER_FAILED: &str = "tdmcp.perception.converter_failed
 pub const ALL: &[&str] = &[
     BRIDGE_UNKNOWN_PID,
     BRIDGE_LOST,
+    BRIDGE_CANCELLED,
+    BRIDGE_MAIN_THREAD_TIMEOUT,
     BRIDGE_QUEUE_BUSY,
     MCP_SESSION_BUSY,
     BRIDGE_TIMEOUT,

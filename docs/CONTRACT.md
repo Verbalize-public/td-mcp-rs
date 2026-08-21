@@ -505,21 +505,28 @@ On soft-fail the bridge returns additive `{ error, traceback, exception }` (stri
 Every tool failure carries a structured `diagnostics` block:
 
 - Severities: `error` | `lint` | `note` | `help`
-- `layer` (coarse): `fleet` | `structure` | `perception` | `mutate` | `script`
+- `layer` (coarse): `fleet` | `structure` | `perception` | `mutate` | `script` | `editor`
 - `span` (exact tool + step)
-- Stable `code` strings from `[diagnostics/catalog.yaml](../diagnostics/catalog.yaml)`
-- Mitigation + optional corpus / doc references
+- Stable `code` strings from [`diagnostics/catalog.yaml`](../diagnostics/catalog.yaml)
+- Mitigation steps (short imperatives; often include `` `resources/read` `tdmcp://docs/<id>` ``)
+- `references[]` kinds:
+  - `doc` — operate skill card; `id` matches `skills/MANIFEST.yaml`; `uri` is `tdmcp://docs/<id>` (call MCP `resources/read`)
+  - `api_help` — call tool `api_help` with `queries: [{kind: class, name: <query>}]` (`query` may be spliced at runtime)
+  - `tool` — named MCP tool hint (`fleet`, `inspect`, `mutate_nodes`, …); see mitigation for args
 - Optional `exception` (execute_python structured report) and `rawTraceback` (`detailed` only)
+- `exception.frames` / trimmed `exception.raw` include **only** user `<string>` frames — bridge `execute.py` / `exec` wrappers are stripped
 
-Code families in use today: `tdmcp.bridge.*`, `tdmcp.script.*`, `tdmcp.perception.*`, `tdmcp.op.*` (catalog also reserves mutate/batch codes for P1).
+Code families: `tdmcp.bridge.*`, `tdmcp.mcp.*`, `tdmcp.daemon.*`, `tdmcp.script.*`, `tdmcp.perception.*`, `tdmcp.op.*`, `tdmcp.par.*`, `tdmcp.flag.*`, `tdmcp.wire.*`, `tdmcp.mutate.*`, `tdmcp.batch.*`, `tdmcp.editor.*`, `tdmcp.api_help.*`. Reserved (catalogued, not emitted in v1): `tdmcp.bridge.version`, `tdmcp.op.outside_zone`, `tdmcp.td.glsl_compile`, `tdmcp.bridge.unknown_pid` (NotConnected maps to `lost` today).
 
 `tdmcp.bridge.timeout` = daemon wait ended (TD may still run — **timeout ≠ cancel**).
 `tdmcp.bridge.lost` = IPC died (cancel + resurrection stack).
+`tdmcp.bridge.cancelled` = queued/in-flight bridge work cancelled (preserved from bridge IPC, not remapped to `lost`).
 `tdmcp.bridge.main_thread_timeout` = bridge worker gave up waiting for
 `process_pending` (paused timeline / hung script) and unwedged the IPC loop;
 late main-thread results are dropped. Same-pid reconnect **aborts** the prior
 daemon session actor (cancel token) so dual actors cannot serve one pid when
 Python `disconnect()` join fails.
+`tdmcp.mcp.session_busy` / `tdmcp.bridge.queue_busy` → sequential bridged tools; see `tdmcp://docs/tooling-concurrency`.
 
 ---
 

@@ -20,11 +20,12 @@ def build_exception_report(
     """Build a small structured exception object for daemon mapping.
 
     Shape: ``{type, message, frames, syntax, raw}``.
+    Frames and ``raw`` include only user ``<string>`` frames (bridge
+    ``execute.py`` / ``exec`` wrappers are dropped).
     When ``format_mode == "debug"``, ``<string>`` frames may include capped
     ``locals`` (type + truncated repr).
     """
     tb = exc.__traceback__
-    raw = "".join(traceback.format_exception(type(exc), exc, tb))
     frames = _build_frames(tb, script, format_mode=format_mode)
     syntax = _syntax_block(exc)
     return {
@@ -32,8 +33,25 @@ def build_exception_report(
         "message": str(exc),
         "frames": frames,
         "syntax": syntax,
-        "raw": raw,
+        "raw": _format_user_raw(exc, frames),
     }
+
+
+def _format_user_raw(exc: BaseException, frames: list[dict[str, Any]]) -> str:
+    """Traceback text from user frames only (no bridge wrapper paths)."""
+    if not frames:
+        return f"{type(exc).__name__}: {exc}"
+    lines = ["Traceback (most recent call last):"]
+    for frame in frames:
+        filename = frame.get("filename") or "<string>"
+        lineno = frame.get("lineno") or 0
+        name = frame.get("name") or "<module>"
+        lines.append(f'  File "{filename}", line {lineno}, in {name}')
+        line = frame.get("line")
+        if line:
+            lines.append(f"    {line.strip()}")
+    lines.append(f"{type(exc).__name__}: {exc}")
+    return "\n".join(lines)
 
 
 def _build_frames(
@@ -50,8 +68,11 @@ def _build_frames(
     want_locals = format_mode == "debug"
     out: list[dict[str, Any]] = []
     for i, fs in enumerate(summaries):
+        # User script only — drop bridge execute.py / exec wrapper frames.
+        if fs.filename != "<string>":
+            continue
         line = fs.line
-        if fs.filename == "<string>" and fs.lineno and not line:
+        if fs.lineno and not line:
             idx = fs.lineno - 1
             if 0 <= idx < len(script_lines):
                 line = script_lines[idx]
@@ -61,7 +82,7 @@ def _build_frames(
             "name": fs.name,
             "line": line,
         }
-        if want_locals and fs.filename == "<string>" and i < len(walked):
+        if want_locals and i < len(walked):
             py_frame, _lineno = walked[i]
             frame["locals"] = _safe_frame_locals(py_frame)
         out.append(frame)

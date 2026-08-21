@@ -2,78 +2,105 @@
 
 from __future__ import annotations
 
+import unittest
+
 import tdmcp_bridge as bridge
 
 
-def test_nested_raise_frames_and_type() -> None:
-    script = (
-        "def a():\n"
-        "    return b()\n"
-        "def b():\n"
-        "    return c()\n"
-        "def c():\n"
-        "    raise RuntimeError('deep boom')\n"
-        "result = a()\n"
-    )
-    out = bridge.handle_execute_python(
-        {"script": script, "includeLogs": False, "formatMode": "normal"}
-    )
-    assert out["ok"] is False
-    assert out["error"] == "deep boom"
-    assert "RuntimeError" in (out.get("traceback") or "")
-    exc = out["exception"]
-    assert exc["type"] == "RuntimeError"
-    assert exc["message"] == "deep boom"
-    assert exc["raw"]
-    assert exc["syntax"] is None
-    names = [f["name"] for f in exc["frames"] if f["filename"] == "<string>"]
-    assert names == ["<module>", "a", "b", "c"]
-    assert all("locals" not in f for f in exc["frames"])
+class ExceptionReportTests(unittest.TestCase):
+    def test_nested_raise_frames_and_type(self) -> None:
+        script = (
+            "def a():\n"
+            "    return b()\n"
+            "def b():\n"
+            "    return c()\n"
+            "def c():\n"
+            "    raise RuntimeError('deep boom')\n"
+            "result = a()\n"
+        )
+        out = bridge.handle_execute_python(
+            {"script": script, "includeLogs": False, "formatMode": "normal"}
+        )
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["error"], "deep boom")
+        self.assertIn("RuntimeError", out.get("traceback") or "")
+        exc = out["exception"]
+        self.assertEqual(exc["type"], "RuntimeError")
+        self.assertEqual(exc["message"], "deep boom")
+        self.assertTrue(exc["raw"])
+        self.assertIsNone(exc["syntax"])
+        self.assertTrue(all(f["filename"] == "<string>" for f in exc["frames"]))
+        names = [f["name"] for f in exc["frames"]]
+        self.assertEqual(names, ["<module>", "a", "b", "c"])
+        self.assertTrue(all("locals" not in f for f in exc["frames"]))
+        self.assertNotIn("execute.py", exc["raw"])
+        self.assertNotIn("handle_execute_python", exc["raw"])
+        self.assertNotIn("execute.py", out.get("traceback") or "")
+
+    def test_syntax_error_block(self) -> None:
+        out = bridge.handle_execute_python(
+            {"script": "def broken(\n  pass", "includeLogs": False}
+        )
+        self.assertFalse(out["ok"])
+        exc = out["exception"]
+        self.assertEqual(exc["type"], "SyntaxError")
+        self.assertIsNotNone(exc["syntax"])
+        self.assertEqual(exc["syntax"]["lineno"], 1)
+        self.assertTrue(exc["syntax"]["msg"])
+
+    def test_debug_locals_only_on_string_frames(self) -> None:
+        script = "x = 42\nraise ValueError('with locals')\n"
+        normal = bridge.handle_execute_python(
+            {"script": script, "includeLogs": False, "formatMode": "normal"}
+        )
+        debug = bridge.handle_execute_python(
+            {"script": script, "includeLogs": False, "formatMode": "debug"}
+        )
+        self.assertFalse(normal["ok"])
+        self.assertFalse(debug["ok"])
+        self.assertTrue(
+            all("locals" not in f for f in normal["exception"]["frames"])
+        )
+        string_frames = [
+            f
+            for f in debug["exception"]["frames"]
+            if f["filename"] == "<string>"
+        ]
+        self.assertTrue(string_frames)
+        self.assertIn("locals", string_frames[-1])
+        locs = string_frames[-1]["locals"]
+        self.assertIn("x", locs)
+        self.assertEqual(locs["x"]["type"], "int")
+        self.assertIn("42", locs["x"]["repr"])
+
+    def test_string_frame_line_filled_from_script(self) -> None:
+        script = "a = 1\nraise RuntimeError('line check')\n"
+        out = bridge.handle_execute_python(
+            {"script": script, "includeLogs": False}
+        )
+        string_frames = [
+            f
+            for f in out["exception"]["frames"]
+            if f["filename"] == "<string>"
+        ]
+        self.assertTrue(string_frames)
+        last = string_frames[-1]
+        self.assertEqual(last["lineno"], 2)
+        self.assertIsNotNone(last["line"])
+        self.assertIn("RuntimeError", last["line"])
+
+    def test_wrapper_frames_stripped_from_report(self) -> None:
+        out = bridge.handle_execute_python(
+            {"script": "raise ValueError('trim me')", "includeLogs": False}
+        )
+        self.assertFalse(out["ok"])
+        exc = out["exception"]
+        self.assertTrue(all(f["filename"] == "<string>" for f in exc["frames"]))
+        for blob in (exc["raw"], out.get("traceback") or ""):
+            self.assertNotIn("execute.py", blob)
+            self.assertNotIn("handle_execute_python", blob)
+            self.assertNotIn("tdmcp_bridge", blob)
 
 
-def test_syntax_error_block() -> None:
-    out = bridge.handle_execute_python(
-        {"script": "def broken(\n  pass", "includeLogs": False}
-    )
-    assert out["ok"] is False
-    exc = out["exception"]
-    assert exc["type"] == "SyntaxError"
-    assert exc["syntax"] is not None
-    assert exc["syntax"]["lineno"] == 1
-    assert exc["syntax"]["msg"]
-
-
-def test_debug_locals_only_on_string_frames() -> None:
-    script = "x = 42\nraise ValueError('with locals')\n"
-    normal = bridge.handle_execute_python(
-        {"script": script, "includeLogs": False, "formatMode": "normal"}
-    )
-    debug = bridge.handle_execute_python(
-        {"script": script, "includeLogs": False, "formatMode": "debug"}
-    )
-    assert normal["ok"] is False and debug["ok"] is False
-    assert all("locals" not in f for f in normal["exception"]["frames"])
-    string_frames = [
-        f for f in debug["exception"]["frames"] if f["filename"] == "<string>"
-    ]
-    assert string_frames
-    assert "locals" in string_frames[-1]
-    locs = string_frames[-1]["locals"]
-    assert "x" in locs
-    assert locs["x"]["type"] == "int"
-    assert "42" in locs["x"]["repr"]
-
-
-def test_string_frame_line_filled_from_script() -> None:
-    script = "a = 1\nraise RuntimeError('line check')\n"
-    out = bridge.handle_execute_python(
-        {"script": script, "includeLogs": False}
-    )
-    string_frames = [
-        f for f in out["exception"]["frames"] if f["filename"] == "<string>"
-    ]
-    assert string_frames
-    last = string_frames[-1]
-    assert last["lineno"] == 2
-    assert last["line"] is not None
-    assert "RuntimeError" in last["line"]
+if __name__ == "__main__":
+    unittest.main()
