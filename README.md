@@ -237,7 +237,6 @@ td-mcp-rs/
 | [`docs/TESTING.md`](docs/TESTING.md) | Test strategy |
 | [`docs/E2E_CHECKLIST.md`](docs/E2E_CHECKLIST.md) | Live TouchDesigner verification |
 | [`docs/DEV_ENV.md`](docs/DEV_ENV.md) | Interactive dual-MCP dev harness |
-| [`docs/CURATED_REVIEW.md`](docs/CURATED_REVIEW.md) | Architecture / stability review |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | Crate boundaries and topology |
 | [`CONSTITUTION.md`](CONSTITUTION.md) | Rust engineering law (never-panic, lints) |
 | [`RISKS.md`](RISKS.md) | Accepted panic/unsafe exceptions |

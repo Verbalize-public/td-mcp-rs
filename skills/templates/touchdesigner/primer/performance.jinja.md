@@ -1,7 +1,5 @@
 # Primer: performance
 
-**Canonical:** {{ skill("primer/performance") }} 
-
 ## Agent habits
 
 1. Do not cook the whole project from Python “just to be sure”.
@@ -23,3 +21,7 @@ while the project is playing ({{ skill("play-state") }}).
 - {{ skill("look-grade") }}
 - {{ skill("primer/cook-and-families") }}
 - {{ skill("tooling-concurrency") }}
+
+---
+
+**Canonical:** {{ skill("primer/performance") }}

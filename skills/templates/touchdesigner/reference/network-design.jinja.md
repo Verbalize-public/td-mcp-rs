@@ -27,7 +27,7 @@ deliberately. Keep module DAT names short (`mod.` access reads better).
 ## Data-flow hygiene
 
 - Prefer parameter expressions and exports over scripts that push values (see
-  operator-families.md, "Moving values around").
+  {{ skill("operator-families") }}, "Moving values around").
 - **Component boundary API (split by kind):**
   - **Operator inputs/outputs** → `In` / `Out` operators (prefer In over custom OP-path
     parameters for nodes the COMP consumes).
@@ -85,7 +85,7 @@ deliberately. Keep module DAT names short (`mod.` access reads better).
   Ins/Outs, and key pars. Docs travel with the COMP.
 - **Cleanup as you go** — remove unused/deprecated nodes you introduced; do not delete
   unrelated user work. Errors and warnings on finished work are not acceptable
-  (probe `warnings()` on file/device nodes — mcp skill).
+  (probe `warnings()` on file/device nodes — {{ skill("python-api") }}).
 - **Component preview** — when a COMP has a main visual, set Operator Viewer
   (`par.opviewer`) to that primary Out/null and turn the Viewer flag on — not an empty
   or unrelated node. See {{ skill("component-checklist") }}.
@@ -123,17 +123,15 @@ Rules of thumb:
   and fail if any `par.expr` / path `par.val` still contains `/project1` (absolute
   project paths). Keep `./` / bare / `../` matched to child / sibling / parent.
 - Absolute paths remain OK in **agent-side** MCP scripts that address the live
-  session (`op('/project1/_agent_scratch')`, probes). Do not copy that habit into
+  session (`op('/project1/...')`, probes). Do not copy that habit into
   the networks those scripts create.
 
-## For this project (expe_baseline.toe)
+## Related
 
-- `/project1/mcp_webserver_base` is infrastructure — never wire into it.
-- Agent experiments live in `/project1/_agent_scratch` and are destroyed after use;
-  networks promoted into the real project follow the structure above (subsystem
-  container + terminal null + custom pars). The scratch container keeps a reserved
-  `select_watch` (Select TOP) → `out1` (Out TOP) chain as the human preview surface —
-  agents retarget the select, and never destroy those two (mcp skill, "Scratch preview").
+- {{ skill("component-checklist") }} — reusable COMP boundary audit
+- {{ skill("primer/editor-and-layout") }} — layout hygiene depth
+- {{ skill("operator-families") }} — moving values around
+- {{ skill("mutation-zones") }} — where to build
 
 
 ---

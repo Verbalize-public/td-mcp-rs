@@ -21,7 +21,6 @@ use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
 use tdmcp_daemon::admin::{build_admin_router, RestartArgs};
-use tdmcp_daemon::federation::{spawn_slave_loop, FederationRuntime};
 use tdmcp_daemon::autostart;
 use tdmcp_daemon::bridge::{run_ipc_accept, BridgeSessions};
 use tdmcp_daemon::config::{Config, ConfigOverrides};
@@ -29,6 +28,7 @@ use tdmcp_daemon::ensure::{
     daemon_lock_path, ensure_daemon, health_ok, refuse_if_daemon_owned, request_shutdown,
     running_version, wait_until_unhealthy, EnsureOptions,
 };
+use tdmcp_daemon::federation::{spawn_slave_loop, FederationRuntime};
 use tdmcp_daemon::idle::{idle_exit_timeout, run_idle_watcher};
 use tdmcp_daemon::install::{self, InstallOutcome};
 use tdmcp_daemon::middleware::{auth_and_loopback, AuthState};
@@ -608,7 +608,8 @@ async fn run_daemon(
         no_gui,
     };
 
-    let slave_app = admin_state.clone();    let auth_state = AuthState {
+    let slave_app = admin_state.clone();
+    let auth_state = AuthState {
         mode: cfg.auth_mode.clone(),
         psk: cfg.auth_psk.clone(),
     };
@@ -658,7 +659,6 @@ async fn run_daemon(
         run_ipc_accept(endpoint, bridge_dir, ipc_registry, ipc_sessions).await;
     });
 
-    
     let _slave_handle = if cfg.federation_role == "slave" {
         Some(spawn_slave_loop(
             federation_for_slave,
@@ -670,7 +670,7 @@ async fn run_daemon(
         None
     };
 
-let idle_handle = if cfg.keep_alive || cfg.federation_role == "slave" {
+    let idle_handle = if cfg.keep_alive || cfg.federation_role == "slave" {
         info!(role = %cfg.federation_role, keep_alive = cfg.keep_alive, "idle exit disabled");
         None
     } else if let Some(timeout) = idle_exit_timeout() {

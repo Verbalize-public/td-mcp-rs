@@ -63,6 +63,7 @@ fn pick_free_port() -> u16 {
         .port()
 }
 
+#[allow(clippy::too_many_arguments, reason = "test config fixture")]
 fn write_config(
     path: &std::path::Path,
     port: u16,
@@ -367,7 +368,10 @@ async fn slave_daemon_registers_with_master() {
             .await
             .expect("json");
         let list = slaves["slaves"].as_array().cloned().unwrap_or_default();
-        if list.iter().any(|s| s["daemonId"] == "dddddddd-dddd-dddd-dddd-dddddddddddd") {
+        if list
+            .iter()
+            .any(|s| s["daemonId"] == "dddddddd-dddd-dddd-dddd-dddddddddddd")
+        {
             break;
         }
         if Instant::now() >= deadline {

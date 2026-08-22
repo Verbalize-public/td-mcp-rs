@@ -3,8 +3,6 @@
 When TD looks "stuck" or captures look frozen, check transport **before**
 rewriting the network.
 
-**Canonical:** {{ skill("play-state") }} 
-
 ## Agent rules
 
 1. Project **play/pause** gates cooking: paused means most cooks (and CHOP
@@ -27,3 +25,7 @@ rewriting the network.
 - Look grading: {{ skill("look-grade") }}
 - Structural DoD: {{ skill("definition-of-done") }}
 - Cook model depth: {{ skill("primer/cook-and-families") }}
+
+---
+
+**Canonical:** {{ skill("play-state") }}

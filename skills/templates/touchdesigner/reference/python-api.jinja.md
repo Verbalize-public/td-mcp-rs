@@ -406,7 +406,7 @@ comp.par.Gain.destroy()                   # one par
 11. **Wiring** — use `n.inputs` / `n.outputs` (OPs). Connector has **no** `.op`; `inOP`/`outOP` often `None`; peer via `connector.connections[i].owner`
 12. **opType spelling** — camelCase guesses often fail (`hsvadjustTOP`, `geometryCOMP`); confirm with `api_help`
 
-## Deferred / deepen
+## Related
 
 | Topic | Where |
 |-------|----------------|

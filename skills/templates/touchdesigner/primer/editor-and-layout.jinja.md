@@ -1,7 +1,5 @@
 # Primer: editor and network layout
 
-**Canonical:** {{ skill("primer/editor-and-layout") }} 
-
 ## Shell (operate-relevant)
 
 - **Network Editor** — canvas for OPs, wires, flags, viewers.
@@ -29,3 +27,7 @@ Operate conventions: {{ skill("network-design") }}.
 - {{ skill("mutation-zones") }}
 - {{ skill("network-design") }}
 - Wiki: https://docs.derivative.ca/Network_Editor
+
+---
+
+**Canonical:** {{ skill("primer/editor-and-layout") }}

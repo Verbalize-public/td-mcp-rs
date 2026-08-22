@@ -1,7 +1,5 @@
 # Primer: GLSL and render chain
 
-**Canonical:** {{ skill("primer/glsl-and-render") }} 
-
 ## Where shaders live
 
 | Path | When |
@@ -30,3 +28,7 @@ chain over inventing node graphs from memory.
 - {{ skill("glsl") }}
 - {{ skill("pops") }} (geometry on POP path)
 - Wiki: https://docs.derivative.ca/ (GLSL TOP / Render TOP)
+
+---
+
+**Canonical:** {{ skill("primer/glsl-and-render") }}

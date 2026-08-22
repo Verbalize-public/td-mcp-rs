@@ -81,7 +81,7 @@ A GLSL TOP is a full-screen quad — image work only. Geometry/lighting shaders 
 **GLSL MAT** (vertex + pixel, optional geometry), with a different contract:
 `TDDeform(P)`, `TDWorldToProj(...)`, `TDInstanceID()`, `TDLighting*` helpers. Don't paste
 TOP-style shaders into a MAT or vice versa. (Vertex-shader-driven material ports go here;
-see shadertoy-conversion.md for image-style ports.)
+see {{ skill("shadertoy-conversion") }} for image-style ports.)
 
 ## Built-in helper library (highlights)
 
@@ -95,7 +95,14 @@ pasting generic noise/rotation boilerplate when porting.
 
 Under Vulkan, out-of-bounds or otherwise invalid GLSL can crash the whole TD process,
 not just fail the node. Treat compile-warning-free as mandatory before wiring a shader
-into anything, and keep experiments in the scratch container.
+into anything, and keep experiments inside your mutation zone
+({{ skill("mutation-zones") }}).
+
+## Related
+
+- {{ skill("glsl") }} — dialect workflow + DoD
+- {{ skill("shadertoy-conversion") }} — wrap-don't-rewrite port
+- {{ skill("definition-of-done") }} — structural verdicts
 
 
 ---

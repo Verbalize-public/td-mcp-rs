@@ -10,7 +10,7 @@ callbacks in ``tox_callbacks.py`` (``onStart`` / reconnect). While playing,
 that Execute DAT should keep ``Frame Start`` enabled and call
 ``tdmcp_bridge.process_pending()`` (larger batch). A ``td.run`` pump started
 by ``bootstrap_threaded`` also drains the queue while paused — see
-``tox_callbacks.py`` and ``docs/PAUSE_RESILIENT_BRIDGE.md``.
+``tox_callbacks.py`` (pause-resilient pump design).
 
 IMPORTANT: this script is exec'd as a Text DAT's contents, not run from a
 file on disk — ``__file__`` is not meaningful here. Bridge package directory

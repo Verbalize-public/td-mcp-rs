@@ -539,4 +539,55 @@ primer/cook-and-families:
         let results = engine.render_all(RenderMode::Mcp).unwrap();
         assert_eq!(results.len(), 4);
     }
+
+    // -- template lint (whole embedded pack) ---------------------------------
+
+    /// Cross-reference discipline for the shipped pack: no hardcoded `.md`
+    /// links, no vague "mcp skill" phrases, and every `skill()`/`skill_read()`
+    /// id must exist in the MANIFEST. Hardcoded links break MCP mode, where
+    /// cards are served as `tdmcp://docs/<id>` resources, not files.
+    #[test]
+    fn template_pack_cross_references_are_well_formed() {
+        let cat = Catalog::from_manifest_yaml(crate::MANIFEST_YAML).expect("manifest");
+
+        let mut templates = HashMap::new();
+        collect_templates(&crate::TEMPLATES, &mut templates);
+        assert!(
+            templates.len() >= cat.len(),
+            "embedded template tree smaller than catalog"
+        );
+
+        let mut problems: Vec<String> = Vec::new();
+        for (path, source) in &templates {
+            // Hardcoded markdown link to a .md file (renderer-produced links are
+            // injected at render time, so any `.md)` in source is authored).
+            if source.contains(".md)") {
+                problems.push(format!("{path}: hardcoded `.md)` link"));
+            }
+            // Vague pointer to "the mcp skill" instead of a skill() id.
+            if source.contains("mcp skill") {
+                problems.push(format!("{path}: vague \"mcp skill\" phrase"));
+            }
+            // Every referenced id must resolve.
+            for captures in ["skill(", "skill_read("] {
+                let mut rest = source.as_str();
+                while let Some(idx) = rest.find(captures) {
+                    let after = &rest[idx + captures.len()..];
+                    let Some(open) = after.find('"') else { break };
+                    let inner = &after[open + 1..];
+                    let Some(close) = inner.find('"') else { break };
+                    let id = &inner[..close];
+                    if cat.get(id).is_none() {
+                        problems.push(format!("{path}: unknown skill id {id:?}"));
+                    }
+                    rest = &inner[close..];
+                }
+            }
+        }
+        assert!(
+            problems.is_empty(),
+            "template cross-reference problems:\n{}",
+            problems.join("\n")
+        );
+    }
 }

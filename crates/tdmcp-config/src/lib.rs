@@ -691,9 +691,11 @@ show_tray = true
         save(&path, &cfg).expect("save");
         let again = load(&path).expect("reload");
         assert_eq!(again.federation.role, "master");
-        assert_eq!(again.federation.daemon_id, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+        assert_eq!(
+            again.federation.daemon_id,
+            "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+        );
         assert_eq!(again.federation.master_url, "http://127.0.0.1:9860");
         assert_eq!(again.federation.master_psk, "master-secret");
     }
-
 }

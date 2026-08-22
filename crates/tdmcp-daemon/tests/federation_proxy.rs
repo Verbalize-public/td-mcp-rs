@@ -73,6 +73,7 @@ fn pick_free_port() -> u16 {
         .port()
 }
 
+#[allow(clippy::too_many_arguments, reason = "test config fixture")]
 fn write_config(
     path: &std::path::Path,
     port: u16,
@@ -332,9 +333,10 @@ async fn wait_fleet_has_pid(master: &TestDaemon, pid: u32, slave_id: &str, budge
             .await
             .expect("json");
         let procs = fleet["processes"].as_array().cloned().unwrap_or_default();
-        if procs.iter().any(|p| {
-            p["pid"] == pid && p.get("daemonId").and_then(Value::as_str) == Some(slave_id)
-        }) {
+        if procs
+            .iter()
+            .any(|p| p["pid"] == pid && p.get("daemonId").and_then(Value::as_str) == Some(slave_id))
+        {
             return;
         }
         assert!(

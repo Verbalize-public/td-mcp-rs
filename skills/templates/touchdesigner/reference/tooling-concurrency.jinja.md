@@ -2,8 +2,6 @@
 
 Sequential bridged tools against one TD `pid` — HARD RULE for agents.
 
-**Canonical:** {{ skill("tooling-concurrency") }} 
-
 ## Bridged vs exempt
 
 | Kind | Tools | Rule |
@@ -29,3 +27,7 @@ Sequential bridged tools against one TD `pid` — HARD RULE for agents.
 
 - Operate umbrella: {{ skill("operate") }}
 - Play / pause stalls: {{ skill("play-state") }}
+
+---
+
+**Canonical:** {{ skill("tooling-concurrency") }}

@@ -119,9 +119,10 @@ impl McpSessionRegistry {
     /// Whether `(session_id, daemon_scope, pid)` currently holds a bridged-tool slot (tests).
     #[must_use]
     pub fn has_bridge_call(&self, session_id: &str, daemon_scope: &str, pid: u32) -> bool {
-        self.bridge_inflight.lock().ok().is_some_and(|g| {
-            g.contains(&(session_id.to_owned(), daemon_scope.to_owned(), pid))
-        })
+        self.bridge_inflight
+            .lock()
+            .ok()
+            .is_some_and(|g| g.contains(&(session_id.to_owned(), daemon_scope.to_owned(), pid)))
     }
 
     /// Set client identity after MCP `initialize` (or annotate).

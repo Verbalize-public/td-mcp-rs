@@ -20,7 +20,6 @@ Law: [`CONSTITUTION.md`](CONSTITUTION.md). User install/quickstart: [`README.md`
 | Testing strategy | [`docs/TESTING.md`](docs/TESTING.md) |
 | Config file / Settings | [`docs/CONFIG.md`](docs/CONFIG.md) |
 | Packaging | [`docs/DELIVERY.md`](docs/DELIVERY.md) |
-| Curated architecture / stability review | [`docs/CURATED_REVIEW.md`](docs/CURATED_REVIEW.md) |
 
 ## Agent ops (when driving live TD via this daemon)
 

@@ -6,6 +6,7 @@
 
 mod theme;
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -216,6 +217,10 @@ struct DashboardApp {
     slave_settings_script_timeout: u64,
     slave_settings_error: Option<String>,
     show_add_slave_psk: bool,
+    /// Pending scan result receiver (None when idle).
+    scan_rx: Option<std::sync::mpsc::Receiver<Vec<ScanHit>>>,
+    /// Slave self-view transient message (Go standalone outcome).
+    slave_self_message: Option<String>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -301,6 +306,8 @@ impl DashboardApp {
             slave_settings_script_timeout: 120,
             slave_settings_error: None,
             show_add_slave_psk: false,
+            scan_rx: None,
+            slave_self_message: None,
         })
     }
 
@@ -911,8 +918,13 @@ impl DashboardApp {
                     .font(font_mono())
                     .password(!self.show_psk),
             );
-            if ghost_button(ui, if self.show_psk { "hide" } else { "show" }, TEXT_DIM, TEXT)
-                .clicked()
+            if ghost_button(
+                ui,
+                if self.show_psk { "hide" } else { "show" },
+                TEXT_DIM,
+                TEXT,
+            )
+            .clicked()
             {
                 self.show_psk = !self.show_psk;
             }
@@ -929,30 +941,20 @@ impl DashboardApp {
 
         ui.add_space(4.0);
         section_header(ui, "FEDERATION");
-        settings_row(
-            ui,
-            "Role",
-            Self::field_help("federation.role"),
-            |ui| {
-                let current = self.draft.federation.role.clone();
-                egui::ComboBox::from_id_salt("federation_role")
-                    .selected_text(&current)
-                    .show_ui(ui, |ui| {
-                        for role in ["standalone", "master", "slave"] {
-                            if ui
-                                .selectable_label(current == role, role)
-                                .clicked()
-                                && current != role
-                            {
-                                self.draft.federation.role = role.to_owned();
-                                self.role_change_note = Some(format!(
-                                    "role → {role} (applies after save + restart)"
-                                ));
-                            }
+        settings_row(ui, "Role", Self::field_help("federation.role"), |ui| {
+            let current = self.draft.federation.role.clone();
+            egui::ComboBox::from_id_salt("federation_role")
+                .selected_text(&current)
+                .show_ui(ui, |ui| {
+                    for role in ["standalone", "master", "slave"] {
+                        if ui.selectable_label(current == role, role).clicked() && current != role {
+                            self.draft.federation.role = role.to_owned();
+                            self.role_change_note =
+                                Some(format!("role → {role} (applies after save + restart)"));
                         }
-                    });
-            },
-        );
+                    }
+                });
+        });
         if let Some(note) = &self.role_change_note {
             ui.horizontal(|ui| {
                 ui.add_space(12.0);
@@ -1179,7 +1181,11 @@ impl DashboardApp {
             return;
         }
         for (i, s) in sessions.iter().enumerate() {
-            let bg = if i % 2 == 0 { BG_ROW } else { BG_ROW_ALT };
+            let bg = if i.is_multiple_of(2) {
+                BG_ROW
+            } else {
+                BG_ROW_ALT
+            };
             let full = ui.available_width();
             let (rect, response) =
                 ui.allocate_exact_size(egui::vec2(full, 24.0), egui::Sense::hover());
@@ -1228,43 +1234,225 @@ impl DashboardApp {
         }
     }
 
-    fn draw_td_section(&self, ui: &mut egui::Ui) {
+    fn draw_td_section(&mut self, ui: &mut egui::Ui) {
         section_header(ui, "TOUCHDESIGNER");
-        let Ok(fleet) = serde_json::from_str::<FleetView>(&self.fleet_json) else {
-            ui.vertical_centered(|ui| {
-                ui.add_space(8.0);
+        let role = self
+            .status
+            .as_ref()
+            .map(|s| s.role.clone())
+            .unwrap_or_default();
+        if role == "master" {
+            self.draw_master_actions(ui);
+            self.draw_fleet_groups(ui);
+            self.draw_scan_results(ui);
+        } else {
+            self.draw_flat_fleet(ui);
+        }
+        if role == "slave" {
+            self.draw_slave_self_view(ui);
+        }
+    }
+
+    fn draw_master_actions(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            ui.add_space(12.0);
+            if ghost_button(ui, "+ Add slave", TEXT_DIM, ACCENT).clicked() {
+                self.fleet_panel = FleetPanel::AddSlave;
+            }
+            ui.add_space(4.0);
+            if self.scan_busy {
                 ui.label(
-                    egui::RichText::new("No TouchDesigner bridges")
+                    egui::RichText::new("scanning…")
                         .font(font_meta())
                         .color(TEXT_DIM),
                 );
-                ui.add_space(8.0);
+            } else if ghost_button(ui, "Scan", TEXT_DIM, ACCENT).clicked() {
+                self.start_scan();
+            }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.label(
+                    egui::RichText::new(format!("{} slave(s)", self.slave_count()))
+                        .font(font_meta())
+                        .color(TEXT_DIM),
+                );
             });
+        });
+        ui.add_space(2.0);
+    }
+
+    /// Master fleet: one collapsible group per daemon (local first, then slaves).
+    fn draw_fleet_groups(&mut self, ui: &mut egui::Ui) {
+        let Ok(fleet) = serde_json::from_str::<FleetView>(&self.fleet_json) else {
+            self.draw_empty_fleet(ui);
             return;
         };
         if fleet.processes.is_empty() {
-            ui.vertical_centered(|ui| {
-                ui.add_space(8.0);
-                ui.label(
-                    egui::RichText::new("No TouchDesigner bridges")
-                        .font(font_meta())
-                        .color(TEXT_DIM),
-                );
-                ui.add_space(8.0);
-            });
+            self.draw_empty_fleet(ui);
+            return;
+        }
+        let local_id = self
+            .status
+            .as_ref()
+            .map(|s| s.daemon_id.clone())
+            .unwrap_or_default();
+        let slaves = parse_slaves(&self.slaves_json);
+
+        let mut order: Vec<String> = Vec::new();
+        let mut groups: HashMap<String, Vec<&FleetProc>> = HashMap::new();
+        for p in &fleet.processes {
+            let key = p
+                .daemon_id
+                .clone()
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| local_id.clone());
+            if !groups.contains_key(&key) {
+                order.push(key.clone());
+            }
+            groups.entry(key).or_default().push(p);
+        }
+        // Local group first, then slaves in first-seen order.
+        order.sort_by_key(|k| k != &local_id);
+
+        let mut pending_settings: Option<SlaveSettingsTarget> = None;
+        for key in &order {
+            let Some(procs) = groups.get(key) else {
+                continue;
+            };
+            let is_local = key == &local_id;
+            let slave = slaves.iter().find(|s| &s.daemon_id == key);
+            let (led, reach) = if is_local {
+                (ACCENT, "local".to_owned())
+            } else if let Some(s) = slave {
+                match s.reachability.as_str() {
+                    "reachable" => (OK, "reachable".to_owned()),
+                    "disconnected" => (WARN, "disconnected".to_owned()),
+                    _ => (ERR, "unreachable".to_owned()),
+                }
+            } else {
+                (TEXT_FAINT, "unknown".to_owned())
+            };
+            let hostname = if is_local {
+                self.status
+                    .as_ref()
+                    .map(|s| s.hostname.clone())
+                    .unwrap_or_default()
+            } else {
+                slave.map(|s| s.hostname.clone()).unwrap_or_else(|| {
+                    procs
+                        .first()
+                        .and_then(|p| p.hostname.clone())
+                        .unwrap_or_default()
+                })
+            };
+            let tail = if key.is_empty() {
+                String::new()
+            } else {
+                id_tail(key)
+            };
+            let count = if is_local {
+                String::new()
+            } else {
+                format!(
+                    " · {} proc",
+                    slave.map(|s| s.process_count).unwrap_or(procs.len())
+                )
+            };
+            let label = if is_local {
+                format!("LOCAL · {hostname} · {tail}")
+            } else {
+                format!("SLAVE · {hostname} · {tail} · {reach}{count}")
+            };
+            let header = egui::RichText::new(format!("● {label}"))
+                .font(font_label())
+                .color(if is_local { TEXT } else { led });
+            egui::CollapsingHeader::new(header)
+                .id_salt(key.as_str())
+                .default_open(true)
+                .show(ui, |ui| {
+                    ui.add_space(2.0);
+                    if let Some(s) = slave {
+                        ui.horizontal(|ui| {
+                            ui.add_space(12.0);
+                            ui.label(
+                                egui::RichText::new(s.base_url.as_str())
+                                    .font(font_mono())
+                                    .color(TEXT_FAINT),
+                            );
+                            ui.add_space(4.0);
+                            ui.label(
+                                egui::RichText::new(format!("v{}", s.version))
+                                    .font(font_meta())
+                                    .color(TEXT_FAINT),
+                            );
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    if ghost_button(ui, "⚙", TEXT_DIM, ACCENT)
+                                        .on_hover_text("Slave settings via /admin/config")
+                                        .clicked()
+                                    {
+                                        pending_settings = Some(SlaveSettingsTarget {
+                                            daemon_id: s.daemon_id.clone(),
+                                            hostname: s.hostname.clone(),
+                                            base_url: s.base_url.clone(),
+                                            auth_token: s.auth_token.clone(),
+                                        });
+                                    }
+                                },
+                            );
+                        });
+                        ui.add_space(2.0);
+                    }
+                    for (i, p) in procs.iter().enumerate() {
+                        fleet_row(ui, p, i);
+                    }
+                });
+        }
+        if let Some(target) = pending_settings {
+            self.open_slave_settings(target);
+        }
+    }
+
+    /// Standalone / slave: local processes as one flat list.
+    fn draw_flat_fleet(&self, ui: &mut egui::Ui) {
+        let Ok(fleet) = serde_json::from_str::<FleetView>(&self.fleet_json) else {
+            self.draw_empty_fleet(ui);
+            return;
+        };
+        if fleet.processes.is_empty() {
+            self.draw_empty_fleet(ui);
             return;
         }
         for (i, p) in fleet.processes.iter().enumerate() {
-            let bridge = p.bridge.as_str().unwrap_or("?");
-            let led = if p.resurrected || !p.cancelled_tasks.is_empty() || bridge == "disconnected"
-            {
-                WARN
-            } else if bridge == "connected" {
-                OK
+            fleet_row(ui, p, i);
+        }
+    }
+
+    fn draw_empty_fleet(&self, ui: &mut egui::Ui) {
+        ui.vertical_centered(|ui| {
+            ui.add_space(8.0);
+            ui.label(
+                egui::RichText::new("No TouchDesigner bridges")
+                    .font(font_meta())
+                    .color(TEXT_DIM),
+            );
+            ui.add_space(8.0);
+        });
+    }
+
+    fn draw_scan_results(&mut self, ui: &mut egui::Ui) {
+        if self.scan_results.is_empty() {
+            return;
+        }
+        ui.add_space(4.0);
+        section_header(ui, &format!("SCAN · {} hit(s)", self.scan_results.len()));
+        let mut use_hit: Option<(String, u16)> = None;
+        for (i, hit) in self.scan_results.iter().enumerate() {
+            let bg = if i.is_multiple_of(2) {
+                BG_ROW
             } else {
-                TEXT_FAINT
+                BG_ROW_ALT
             };
-            let bg = if i % 2 == 0 { BG_ROW } else { BG_ROW_ALT };
             let full = ui.available_width();
             let (rect, response) =
                 ui.allocate_exact_size(egui::vec2(full, 24.0), egui::Sense::hover());
@@ -1281,50 +1469,529 @@ impl DashboardApp {
                     .max_rect(rect.shrink2(egui::vec2(12.0, 0.0)))
                     .layout(egui::Layout::left_to_right(egui::Align::Center)),
             );
+            let led = if hit.role == "slave" {
+                OK
+            } else if hit.role == "master" {
+                ACCENT
+            } else {
+                TEXT_FAINT
+            };
             status_led(&mut child, led);
             child.add_space(6.0);
             child.label(
-                egui::RichText::new(p.pid.to_string())
+                egui::RichText::new(&hit.host)
                     .font(font_mono())
                     .color(TEXT_FAINT),
             );
             child.add_space(8.0);
             child.label(
-                egui::RichText::new(p.title.as_deref().unwrap_or(""))
-                    .font(font_label())
-                    .color(TEXT),
+                egui::RichText::new(format!(
+                    "{} · {} · v{}",
+                    hit.role, hit.hostname, hit.version
+                ))
+                .font(font_label())
+                .color(TEXT),
             );
-            // Right: counts; middle remaining: bridge status right-aligned.
             child.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ghost_button(ui, "use", TEXT_DIM, ACCENT)
+                    .on_hover_text("Open add-slave with this host")
+                    .clicked()
+                {
+                    use_hit = Some((hit.host.clone(), hit.port));
+                }
+                ui.add_space(6.0);
                 ui.label(
-                    egui::RichText::new(p.cancelled_tasks.len().to_string())
+                    egui::RichText::new(id_tail(&hit.daemon_id))
                         .font(font_mono())
                         .color(TEXT_DIM),
                 );
-                ui.add_space(8.0);
-                ui.label(
-                    egui::RichText::new(
-                        p.tasks
-                            .as_ref()
-                            .map(|t| t.len().to_string())
-                            .unwrap_or_else(|| "-".into()),
-                    )
-                    .font(font_mono())
-                    .color(TEXT_DIM),
+            });
+        }
+        if let Some((host, port)) = use_hit {
+            self.add_slave_host = host;
+            self.add_slave_port = port;
+            self.fleet_panel = FleetPanel::AddSlave;
+        }
+    }
+
+    fn start_scan(&mut self) {
+        if self.scan_busy {
+            return;
+        }
+        let Some(ip) = local_ip() else {
+            self.error = Some("cannot determine local subnet for scan".to_owned());
+            return;
+        };
+        let Some(prefix) = ip_prefix(&ip) else {
+            self.error = Some(format!("unexpected local IP {ip}"));
+            return;
+        };
+        let port = self.add_slave_port;
+        let (tx, rx) = std::sync::mpsc::channel::<Vec<ScanHit>>();
+        let spawned = std::thread::Builder::new()
+            .name("tdmcp-scan".to_owned())
+            .spawn(move || {
+                let hits = scan_subnet(&prefix, port);
+                let _ = tx.send(hits);
+            });
+        if spawned.is_err() {
+            return;
+        }
+        self.scan_rx = Some(rx);
+        self.scan_busy = true;
+        self.scan_results.clear();
+    }
+
+    fn probe_slave(&mut self) {
+        let host = self.add_slave_host.trim().to_owned();
+        if host.is_empty() {
+            self.add_slave_message = Some("enter host".to_owned());
+            return;
+        }
+        let url = format!(
+            "http://{host}:{}/admin/federation/status",
+            self.add_slave_port
+        );
+        match http_get_blocking(&url, None) {
+            Ok(body) => match serde_json::from_str::<FederationProbe>(&body) {
+                Ok(probe) => {
+                    self.add_slave_probe = Some(probe);
+                    self.add_slave_message = None;
+                }
+                Err(_) => {
+                    self.add_slave_probe = None;
+                    self.add_slave_message =
+                        Some("probe reply is not a federation daemon".to_owned());
+                }
+            },
+            Err(e) => {
+                self.add_slave_probe = None;
+                self.add_slave_message = Some(format!("probe failed: {e}"));
+            }
+        }
+    }
+
+    /// Configure the probed daemon as a slave of this master via its `/admin/config`.
+    fn add_as_slave(&mut self) {
+        let host = self.add_slave_host.trim().to_owned();
+        if host.is_empty() {
+            self.add_slave_message = Some("enter host".to_owned());
+            return;
+        }
+        let (master_url, master_psk) = self.master_federation_values();
+        let body = serde_json::json!({
+            "federation": {
+                "role": "slave",
+                "masterUrl": master_url,
+                "masterPsk": master_psk,
+            }
+        });
+        let url = format!("http://{host}:{}/admin/config", self.add_slave_port);
+        let bearer = nonempty_opt(&self.add_slave_psk);
+        match http_post_blocking(&url, bearer.as_deref(), Some(&body)) {
+            Ok(v)
+                if v.get("ok")
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(false) =>
+            {
+                self.add_slave_message = Some("configured — restart the slave to apply".to_owned());
+            }
+            Ok(v) => {
+                self.add_slave_message = Some(
+                    v.get("error")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("config save rejected")
+                        .to_owned(),
                 );
-                ui.add_space(10.0);
-                // Flexible middle: status takes remaining width, aligned right.
-                let avail = ui.available_width();
-                let (status_rect, _) =
-                    ui.allocate_exact_size(egui::vec2(avail, 20.0), egui::Sense::hover());
-                ui.painter().text(
-                    egui::pos2(status_rect.right(), status_rect.center().y),
-                    egui::Align2::RIGHT_CENTER,
-                    bridge,
-                    font_meta(),
+            }
+            Err(e) => self.add_slave_message = Some(format!("config failed: {e}")),
+        }
+    }
+
+    /// URL + psk to advertise to a new slave (hostname + local port).
+    fn master_federation_values(&self) -> (String, String) {
+        let hostname = self
+            .status
+            .as_ref()
+            .map(|s| s.hostname.clone())
+            .filter(|h| !h.is_empty())
+            .unwrap_or_else(|| "localhost".to_owned());
+        (
+            format!("http://{hostname}:{}", port_from_base(&self.admin_base)),
+            self.draft.auth.psk.clone(),
+        )
+    }
+
+    fn slave_count(&self) -> usize {
+        parse_slaves(&self.slaves_json).len()
+    }
+
+    fn open_slave_settings(&mut self, target: SlaveSettingsTarget) {
+        self.slave_settings_target = Some(target);
+        self.slave_settings_error = None;
+        self.fleet_panel = FleetPanel::SlaveSettings;
+        self.load_slave_settings();
+    }
+
+    fn load_slave_settings(&mut self) {
+        let Some(target) = &self.slave_settings_target else {
+            return;
+        };
+        let bearer = nonempty_opt(&target.auth_token);
+        match http_get_blocking(
+            &format!("{}/admin/config", target.base_url),
+            bearer.as_deref(),
+        ) {
+            Ok(body) => {
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&body) {
+                    if let Some(b) = v.get("bridge") {
+                        if let Some(t) = b
+                            .get("call_timeout_secs")
+                            .or_else(|| b.get("callTimeoutSecs"))
+                            .and_then(serde_json::Value::as_u64)
+                        {
+                            self.slave_settings_call_timeout = t;
+                        }
+                        if let Some(t) = b
+                            .get("script_timeout_secs")
+                            .or_else(|| b.get("scriptTimeoutSecs"))
+                            .and_then(serde_json::Value::as_u64)
+                        {
+                            self.slave_settings_script_timeout = t;
+                        }
+                    }
+                    self.slave_settings_error = None;
+                } else {
+                    self.slave_settings_error = Some("config reply is not JSON".to_owned());
+                }
+            }
+            Err(e) => self.slave_settings_error = Some(format!("load failed: {e}")),
+        }
+    }
+
+    fn save_slave_settings(&mut self) {
+        let Some(target) = &self.slave_settings_target else {
+            return;
+        };
+        let body = serde_json::json!({
+            "bridge": {
+                "call_timeout_secs": self.slave_settings_call_timeout,
+                "script_timeout_secs": self.slave_settings_script_timeout,
+            }
+        });
+        let bearer = nonempty_opt(&target.auth_token);
+        match http_post_blocking(
+            &format!("{}/admin/config", target.base_url),
+            bearer.as_deref(),
+            Some(&body),
+        ) {
+            Ok(v)
+                if v.get("ok")
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(false) =>
+            {
+                let hostname = target.hostname.clone();
+                self.slave_settings_error = None;
+                self.fleet_panel = FleetPanel::None;
+                notify(
+                    "Slave settings",
+                    &format!("{hostname} saved — applies after slave restart"),
+                );
+            }
+            Ok(v) => {
+                self.slave_settings_error = Some(
+                    v.get("error")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("save rejected")
+                        .to_owned(),
+                );
+            }
+            Err(e) => self.slave_settings_error = Some(format!("save failed: {e}")),
+        }
+    }
+
+    fn draw_add_slave_panel(&mut self, ui: &mut egui::Ui) {
+        section_header(ui, "ADD SLAVE");
+        ui.horizontal(|ui| {
+            ui.add_space(12.0);
+            if ghost_button(ui, "← Back", TEXT_DIM, TEXT).clicked() {
+                self.fleet_panel = FleetPanel::None;
+            }
+        });
+        ui.add_space(4.0);
+        settings_row(ui, "Host", "IP or hostname of the slave daemon", |ui| {
+            ui.add_sized(
+                egui::vec2(ui.available_width().min(160.0), 20.0),
+                egui::TextEdit::singleline(&mut self.add_slave_host).font(font_mono()),
+            );
+        });
+        settings_row(ui, "Port", "slave daemon listen port", |ui| {
+            ui.add(
+                egui::DragValue::new(&mut self.add_slave_port)
+                    .range(1..=65535)
+                    .speed(1),
+            );
+        });
+        settings_row(
+            ui,
+            "Slave PSK",
+            "slave auth.psk (needed to write /admin/config)",
+            |ui| {
+                ui.add_sized(
+                    egui::vec2(ui.available_width().min(140.0), 20.0),
+                    egui::TextEdit::singleline(&mut self.add_slave_psk)
+                        .font(font_mono())
+                        .password(!self.show_add_slave_psk),
+                );
+                if ghost_button(
+                    ui,
+                    if self.show_add_slave_psk {
+                        "hide"
+                    } else {
+                        "show"
+                    },
                     TEXT_DIM,
+                    TEXT,
+                )
+                .clicked()
+                {
+                    self.show_add_slave_psk = !self.show_add_slave_psk;
+                }
+            },
+        );
+        ui.add_space(2.0);
+        if let Some(probe) = &self.add_slave_probe {
+            let led = if probe.role == "slave" {
+                OK
+            } else if probe.role == "master" {
+                ACCENT
+            } else {
+                TEXT_FAINT
+            };
+            ui.horizontal(|ui| {
+                ui.add_space(12.0);
+                status_led(ui, led);
+                ui.add_space(4.0);
+                ui.label(
+                    egui::RichText::new(format!(
+                        "{} · v{} · {} · {}",
+                        probe.role,
+                        probe.version,
+                        probe.hostname,
+                        id_tail(&probe.daemon_id)
+                    ))
+                    .font(font_meta())
+                    .color(TEXT),
                 );
             });
+            if probe.role == "master" {
+                ui.horizontal(|ui| {
+                    ui.add_space(12.0);
+                    ui.colored_label(WARN, "target is a master — cannot act as slave");
+                });
+            }
+        }
+        if let Some(msg) = &self.add_slave_message {
+            let color = if msg.starts_with("configured") {
+                OK
+            } else {
+                ERR
+            };
+            ui.horizontal(|ui| {
+                ui.add_space(12.0);
+                ui.colored_label(color, msg.clone());
+            });
+        }
+        ui.add_space(4.0);
+        ui.horizontal(|ui| {
+            ui.add_space(12.0);
+            if ghost_button(ui, "Probe", TEXT_DIM, ACCENT)
+                .on_hover_text("GET /admin/federation/status (unauth)")
+                .clicked()
+            {
+                self.probe_slave();
+            }
+            ui.add_space(4.0);
+            if filled_button(ui, "Add as slave")
+                .on_hover_text("Writes role=slave via the slave's /admin/config")
+                .clicked()
+            {
+                self.add_as_slave();
+            }
+        });
+    }
+
+    fn draw_slave_settings_panel(&mut self, ui: &mut egui::Ui) {
+        section_header(ui, "SLAVE SETTINGS");
+        ui.horizontal(|ui| {
+            ui.add_space(12.0);
+            if ghost_button(ui, "← Back", TEXT_DIM, TEXT).clicked() {
+                self.fleet_panel = FleetPanel::None;
+            }
+        });
+        let Some((hostname, daemon_id, base_url)) = self.slave_settings_target.as_ref().map(|t| {
+            (
+                t.hostname.clone(),
+                id_tail(&t.daemon_id),
+                t.base_url.clone(),
+            )
+        }) else {
+            return;
+        };
+        ui.add_space(2.0);
+        ui.horizontal(|ui| {
+            ui.add_space(12.0);
+            ui.label(
+                egui::RichText::new(format!("{hostname} · {daemon_id}"))
+                    .font(font_label())
+                    .color(TEXT),
+            );
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.label(
+                    egui::RichText::new(&base_url)
+                        .font(font_mono())
+                        .color(TEXT_FAINT),
+                );
+            });
+        });
+        ui.add_space(4.0);
+        if let Some(err) = &self.slave_settings_error {
+            ui.horizontal(|ui| {
+                ui.add_space(12.0);
+                ui.colored_label(ERR, err.clone());
+            });
+        }
+        ui.add_space(2.0);
+        settings_row(
+            ui,
+            "Call timeout (s)",
+            "bridge.call_timeout_secs on the slave",
+            |ui| {
+                ui.add(
+                    egui::DragValue::new(&mut self.slave_settings_call_timeout)
+                        .range(1..=600)
+                        .speed(1),
+                );
+            },
+        );
+        settings_row(
+            ui,
+            "Script timeout (s)",
+            "bridge.script_timeout_secs on the slave",
+            |ui| {
+                ui.add(
+                    egui::DragValue::new(&mut self.slave_settings_script_timeout)
+                        .range(1..=600)
+                        .speed(1),
+                );
+            },
+        );
+        ui.add_space(4.0);
+        ui.horizontal(|ui| {
+            ui.add_space(12.0);
+            ui.label(
+                egui::RichText::new("Changes apply after the slave restarts.")
+                    .font(font_meta())
+                    .color(TEXT_DIM),
+            );
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if filled_button(ui, "Save").clicked() {
+                    self.save_slave_settings();
+                }
+            });
+        });
+    }
+
+    /// Slave self-view: master link + Go standalone (saves role, restarts locally).
+    fn draw_slave_self_view(&mut self, ui: &mut egui::Ui) {
+        ui.add_space(4.0);
+        section_header(ui, "FEDERATION");
+        let master_url = self.draft.federation.master_url.clone();
+        let daemon_id = id_tail(&self.draft.federation.daemon_id);
+        settings_row(
+            ui,
+            "Master",
+            Self::field_help("federation.master_url"),
+            |ui| {
+                ui.label(
+                    egui::RichText::new(&master_url)
+                        .font(font_mono())
+                        .color(TEXT_DIM),
+                );
+            },
+        );
+        settings_row(
+            ui,
+            "Daemon ID",
+            Self::field_help("federation.daemon_id"),
+            |ui| {
+                ui.label(
+                    egui::RichText::new(daemon_id.clone())
+                        .font(font_mono())
+                        .color(TEXT_FAINT),
+                );
+            },
+        );
+        if let Some(msg) = &self.slave_self_message {
+            ui.horizontal(|ui| {
+                ui.add_space(12.0);
+                ui.colored_label(WARN, msg.clone());
+            });
+        }
+        ui.add_space(2.0);
+        ui.horizontal(|ui| {
+            ui.add_space(12.0);
+            if self.confirm_go_standalone {
+                ui.label(
+                    egui::RichText::new("Go standalone? the daemon restarts to apply.")
+                        .font(font_meta())
+                        .color(WARN),
+                );
+                ui.add_space(4.0);
+                if filled_button(ui, "Confirm").clicked() {
+                    self.go_standalone();
+                }
+                ui.add_space(4.0);
+                if ghost_button(ui, "Cancel", TEXT_DIM, TEXT).clicked() {
+                    self.confirm_go_standalone = false;
+                }
+            } else if ghost_button(ui, "Go standalone", TEXT_DIM, WARN)
+                .on_hover_text("role=standalone; saves config and restarts this daemon")
+                .clicked()
+            {
+                self.confirm_go_standalone = true;
+            }
+        });
+    }
+
+    fn go_standalone(&mut self) {
+        self.ensure_base();
+        let bearer = local_master_psk(&self.draft);
+        let body = serde_json::json!({ "federation": { "role": "standalone" } });
+        let url = format!("{}/admin/config", self.admin_base);
+        match http_post_blocking(&url, bearer.as_deref(), Some(&body)) {
+            Ok(v)
+                if v.get("ok")
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(false) =>
+            {
+                self.confirm_go_standalone = false;
+                self.slave_self_message = Some("role saved — restarting".to_owned());
+                self.restart_daemon();
+            }
+            Ok(v) => {
+                self.confirm_go_standalone = false;
+                self.slave_self_message = Some(
+                    v.get("error")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("config save rejected")
+                        .to_owned(),
+                );
+            }
+            Err(e) => {
+                self.confirm_go_standalone = false;
+                self.slave_self_message = Some(format!("config failed: {e}"));
+            }
         }
     }
 }
@@ -1359,6 +2026,12 @@ impl eframe::App for DashboardApp {
             .is_none_or(|t| t.elapsed() > Duration::from_secs(2));
         if due {
             self.poll();
+        }
+        let scan_hits = self.scan_rx.as_ref().and_then(|rx| rx.try_recv().ok());
+        if let Some(hits) = scan_hits {
+            self.scan_results = hits;
+            self.scan_busy = false;
+            self.scan_rx = None;
         }
         ctx.request_repaint_after(Duration::from_millis(250));
     }
@@ -1413,9 +2086,13 @@ impl eframe::App for DashboardApp {
                         }
                         egui::ScrollArea::vertical()
                             .max_height(WINDOW_MAX_HEIGHT - 80.0)
-                            .show(ui, |ui| {
-                                self.draw_mcp_section(ui);
-                                self.draw_td_section(ui);
+                            .show(ui, |ui| match self.fleet_panel {
+                                FleetPanel::AddSlave => self.draw_add_slave_panel(ui),
+                                FleetPanel::SlaveSettings => self.draw_slave_settings_panel(ui),
+                                FleetPanel::None => {
+                                    self.draw_mcp_section(ui);
+                                    self.draw_td_section(ui);
+                                }
                             });
                     }
                 }
@@ -1640,6 +2317,18 @@ struct StatusView {
     pid: u32,
     #[serde(default)]
     mcp_session_count: usize,
+    /// Federation role (`standalone` | `master` | `slave`).
+    #[serde(default)]
+    role: String,
+    /// Configured listen IP (`server.bind_address`).
+    #[serde(default)]
+    bind_address: String,
+    /// Local hostname.
+    #[serde(default)]
+    hostname: String,
+    /// Persistent daemon id.
+    #[serde(default)]
+    daemon_id: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1675,28 +2364,320 @@ struct FleetProc {
     cancelled_tasks: Vec<serde_json::Value>,
     #[serde(default)]
     resurrected: bool,
+    /// Owning daemon id (aggregated fleet; `None` before federation).
+    #[serde(default)]
+    daemon_id: Option<String>,
+    /// Owning hostname.
+    #[serde(default)]
+    hostname: Option<String>,
 }
 
-fn http_get_blocking(url: &str) -> Result<String, String> {
+fn http_get_blocking(url: &str, bearer: Option<&str>) -> Result<String, String> {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .map_err(|e| e.to_string())?;
     rt.block_on(async {
         let client = reqwest::Client::new();
-        let resp = client.get(url).send().await.map_err(|e| e.to_string())?;
+        let mut req = client.get(url);
+        if let Some(b) = bearer {
+            req = req.bearer_auth(b);
+        }
+        let resp = req.send().await.map_err(|e| e.to_string())?;
         resp.text().await.map_err(|e| e.to_string())
     })
 }
 
-fn http_post_blocking(url: &str) -> Result<(), String> {
+fn http_post_blocking(
+    url: &str,
+    bearer: Option<&str>,
+    body: Option<&serde_json::Value>,
+) -> Result<serde_json::Value, String> {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .map_err(|e| e.to_string())?;
     rt.block_on(async {
         let client = reqwest::Client::new();
-        client.post(url).send().await.map_err(|e| e.to_string())?;
-        Ok(())
+        let mut req = client.post(url);
+        if let Some(b) = bearer {
+            req = req.bearer_auth(b);
+        }
+        if let Some(v) = body {
+            req = req.json(v);
+        }
+        let resp = req.send().await.map_err(|e| e.to_string())?;
+        resp.json::<serde_json::Value>()
+            .await
+            .map_err(|e| e.to_string())
     })
+}
+
+/// Random PSK for `auth.psk` (32 hex chars) when the user switches to `psk`.
+#[must_use]
+fn generate_psk() -> String {
+    Uuid::new_v4().simple().to_string()
+}
+
+/// Local daemon's own psk to call its psk-gated admin routes, if `mode = psk`.
+#[must_use]
+fn local_master_psk(cfg: &ConfigFile) -> Option<String> {
+    if cfg.auth.mode == "psk" && !cfg.auth.psk.is_empty() {
+        Some(cfg.auth.psk.clone())
+    } else {
+        None
+    }
+}
+
+#[must_use]
+fn nonempty_opt(s: &str) -> Option<String> {
+    let t = s.trim();
+    if t.is_empty() {
+        None
+    } else {
+        Some(t.to_owned())
+    }
+}
+
+/// Port parsed from an `http://host:port` admin base URL.
+#[must_use]
+fn port_from_base(base: &str) -> u16 {
+    let rest = base
+        .trim_start_matches("http://")
+        .trim_start_matches("https://");
+    match rest.rsplit(':').next() {
+        Some(p) => p
+            .trim_end_matches('/')
+            .parse()
+            .unwrap_or(tdmcp_config::DEFAULT_PORT),
+        None => tdmcp_config::DEFAULT_PORT,
+    }
+}
+
+/// Best local (LAN) IPv4 via the UDP connect trick — no packets are sent.
+#[must_use]
+fn local_ip() -> Option<String> {
+    let sock = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
+    sock.connect("8.8.8.8:80").ok()?;
+    sock.local_addr().ok().map(|a| a.ip().to_string())
+}
+
+/// First three octets of an IPv4 (the `/24` prefix); `None` for non-IPv4.
+#[must_use]
+fn ip_prefix(ip: &str) -> Option<String> {
+    let mut parts = ip.split('.');
+    let a: u8 = parts.next()?.parse().ok()?;
+    let b: u8 = parts.next()?.parse().ok()?;
+    let c: u8 = parts.next()?.parse().ok()?;
+    Some(format!("{a}.{b}.{c}"))
+}
+
+/// Probe `prefix.1..254` on `port` via the unauth `/admin/federation/status` probe.
+#[must_use]
+fn scan_subnet(prefix: &str, port: u16) -> Vec<ScanHit> {
+    let Ok(rt) = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+    else {
+        return Vec::new();
+    };
+    rt.block_on(async move {
+        let Ok(client) = reqwest::Client::builder()
+            .timeout(Duration::from_millis(400))
+            .build()
+        else {
+            return Vec::new();
+        };
+        let mut set = tokio::task::JoinSet::new();
+        for i in 1..=254u8 {
+            let client = client.clone();
+            let prefix = prefix.to_owned();
+            set.spawn(async move {
+                let host = format!("{prefix}.{i}");
+                let url = format!("http://{host}:{port}/admin/federation/status");
+                let Ok(resp) = client.get(&url).send().await else {
+                    return None;
+                };
+                if !resp.status().is_success() {
+                    return None;
+                }
+                let Ok(v) = resp.json::<serde_json::Value>().await else {
+                    return None;
+                };
+                Some(ScanHit {
+                    host,
+                    port,
+                    role: v
+                        .get("role")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("?")
+                        .to_owned(),
+                    hostname: v
+                        .get("hostname")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or_default()
+                        .to_owned(),
+                    daemon_id: v
+                        .get("daemonId")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or_default()
+                        .to_owned(),
+                    version: v
+                        .get("version")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or_default()
+                        .to_owned(),
+                })
+            });
+        }
+        let mut results = Vec::new();
+        while let Some(joined) = set.join_next().await {
+            if let Ok(Some(hit)) = joined {
+                results.push(hit);
+            }
+        }
+        results.sort_by_key(|h| h.host.clone());
+        results
+    })
+}
+
+#[must_use]
+fn parse_slaves(json: &str) -> Vec<SlaveRow> {
+    serde_json::from_str::<SlavesView>(json)
+        .map(|v| v.slaves)
+        .unwrap_or_default()
+}
+
+/// One full-width fleet row (pid, title, counts, bridge status) shared by all views.
+fn fleet_row(ui: &mut egui::Ui, p: &FleetProc, index: usize) {
+    let bridge = p.bridge.as_str().unwrap_or("?");
+    let led = if p.resurrected || !p.cancelled_tasks.is_empty() || bridge == "disconnected" {
+        WARN
+    } else if bridge == "connected" {
+        OK
+    } else {
+        TEXT_FAINT
+    };
+    let bg = if index.is_multiple_of(2) {
+        BG_ROW
+    } else {
+        BG_ROW_ALT
+    };
+    let full = ui.available_width();
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(full, 24.0), egui::Sense::hover());
+    let fill = if response.hovered() { BG_HOVER } else { bg };
+    ui.painter().rect_filled(rect, 0.0, fill);
+    ui.painter().hline(
+        rect.x_range(),
+        rect.bottom(),
+        egui::Stroke::new(1.0, BORDER),
+    );
+
+    let mut child = ui.new_child(
+        egui::UiBuilder::new()
+            .max_rect(rect.shrink2(egui::vec2(12.0, 0.0)))
+            .layout(egui::Layout::left_to_right(egui::Align::Center)),
+    );
+    status_led(&mut child, led);
+    child.add_space(6.0);
+    child.label(
+        egui::RichText::new(p.pid.to_string())
+            .font(font_mono())
+            .color(TEXT_FAINT),
+    );
+    child.add_space(8.0);
+    child.label(
+        egui::RichText::new(p.title.as_deref().unwrap_or(""))
+            .font(font_label())
+            .color(TEXT),
+    );
+    child.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        ui.label(
+            egui::RichText::new(p.cancelled_tasks.len().to_string())
+                .font(font_mono())
+                .color(TEXT_DIM),
+        );
+        ui.add_space(8.0);
+        ui.label(
+            egui::RichText::new(
+                p.tasks
+                    .as_ref()
+                    .map(|t| t.len().to_string())
+                    .unwrap_or_else(|| "-".into()),
+            )
+            .font(font_mono())
+            .color(TEXT_DIM),
+        );
+        ui.add_space(10.0);
+        // Flexible middle: status takes remaining width, aligned right.
+        let avail = ui.available_width();
+        let (status_rect, _) =
+            ui.allocate_exact_size(egui::vec2(avail, 20.0), egui::Sense::hover());
+        ui.painter().text(
+            egui::pos2(status_rect.right(), status_rect.center().y),
+            egui::Align2::RIGHT_CENTER,
+            bridge,
+            font_meta(),
+            TEXT_DIM,
+        );
+    });
+}
+
+/// `/admin/federation/slaves` body.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SlavesView {
+    slaves: Vec<SlaveRow>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SlaveRow {
+    daemon_id: String,
+    #[serde(default)]
+    hostname: String,
+    #[serde(default)]
+    version: String,
+    #[serde(default)]
+    base_url: String,
+    #[serde(default)]
+    auth_token: String,
+    #[serde(default)]
+    reachability: String,
+    #[serde(default)]
+    process_count: usize,
+}
+
+/// Minimal `/admin/federation/status` probe (unauth LAN scan oracle).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FederationProbe {
+    #[serde(default)]
+    role: String,
+    #[serde(default)]
+    version: String,
+    #[serde(default)]
+    hostname: String,
+    #[serde(default)]
+    daemon_id: String,
+}
+
+/// One scan hit (a reachable federation daemon on the scanned subnet).
+#[derive(Debug, Clone)]
+struct ScanHit {
+    host: String,
+    port: u16,
+    role: String,
+    hostname: String,
+    daemon_id: String,
+    version: String,
+}
+
+/// Slave identity for the settings panel (auth token from the registry).
+#[derive(Debug, Clone)]
+struct SlaveSettingsTarget {
+    daemon_id: String,
+    hostname: String,
+    base_url: String,
+    auth_token: String,
 }

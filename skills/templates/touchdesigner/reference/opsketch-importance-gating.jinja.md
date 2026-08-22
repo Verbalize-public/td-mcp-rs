@@ -46,11 +46,16 @@ level1   levelTOP
 blur1    blurTOP        <- level1  {size:12.0}
 ```
 
-## DoD tie-in
+## Definition of Done
 
 An OpSketch that shows `{}` on every node, or shows `{}` on zero nodes in a network that
 clearly has custom work in it, has failed the gate — re-check against this rule before
 returning it.
+
+## Related
+
+- {{ skill("opsketch-notation") }} — grammar
+- {{ skill("opsketch-examples") }} — worked transcriptions
 
 
 ---

@@ -100,14 +100,14 @@ higher depth.
 | Reporting a network to the director / user | Yes — return shape |
 | 1–3 trivial nodes ("what feeds `out1`?") | No — one line |
 
-## Reference cluster
+## Related
 
 | File | Topic |
 |------|-------|
 | {{ skill("opsketch-importance-gating") }} | Gating rule + trivial types |
 | {{ skill("opsketch-examples") }} | Worked transcriptions |
 
-## DoD
+## Definition of Done
 
 - [ ] Non-trivial network (>3 nodes, COMP hub, multi-family, branched data-flow) uses OpSketch
 - [ ] Every shown param passes the importance gate

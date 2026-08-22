@@ -3,8 +3,6 @@
 Operating-agent contract for visual and time-sliced claims. Structural verdicts:
 {{ skill("definition-of-done") }}.
 
-**Canonical:** {{ skill("look-grade") }} 
-
 ## Ownership
 
 The agent that owns the user task grades look / FPS after `capture`. Do not
@@ -46,3 +44,7 @@ state first ({{ skill("play-state") }}) before FAIL/PASS on motion or FPS.
 - {{ skill("definition-of-done") }}
 - {{ skill("play-state") }}
 - {{ skill("tooling-concurrency") }}
+
+---
+
+**Canonical:** {{ skill("look-grade") }}

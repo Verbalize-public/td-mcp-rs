@@ -219,11 +219,7 @@ async fn bind_all_loopback_shutdown_ok() {
 
     let client = reqwest::Client::new();
     let status_url = format!("{}/admin/status", daemon.base_url());
-    let status_resp = client
-        .get(&status_url)
-        .send()
-        .await
-        .expect("admin status");
+    let status_resp = client.get(&status_url).send().await.expect("admin status");
     assert_eq!(status_resp.status(), reqwest::StatusCode::OK);
     let status_body: Value = status_resp.json().await.expect("status json");
     assert_eq!(status_body["bindAddress"], "0.0.0.0");
@@ -238,7 +234,6 @@ async fn bind_all_loopback_shutdown_ok() {
     let body: Value = resp.json().await.expect("shutdown json");
     assert_eq!(body["ok"], true);
 }
-
 
 #[tokio::test]
 async fn admin_config_requires_psk_when_enabled() {

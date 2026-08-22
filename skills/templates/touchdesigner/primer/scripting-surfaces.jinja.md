@@ -1,7 +1,5 @@
 # Primer: scripting surfaces
 
-**Canonical:** {{ skill("primer/scripting-surfaces") }} 
-
 ## Where Python runs
 
 | Surface | Role |
@@ -28,3 +26,7 @@ TD Python is **main-thread only**. Hand work back with
 - {{ skill("custom-parameters") }}
 - {{ skill("tooling-concurrency") }}
 - Wiki: https://docs.derivative.ca/Python
+
+---
+
+**Canonical:** {{ skill("primer/scripting-surfaces") }}

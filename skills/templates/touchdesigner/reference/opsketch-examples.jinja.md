@@ -134,6 +134,11 @@ Routing: use this for opType / Python member discovery. For `.par` names on a li
 
 On `tdmcp.op.unknown_type`, diagnostics may include `{ "kind": "api_help", "query": "hsvAdjustTOP" }` (bad name) and/or a similar_type suggestion — retry `api_help` with the suggested exact class name, or `classes` + `prefix`. On `tdmcp.par.unknown`, the `api_help` query is the node's **opType** (class card only); still re-`inspect` with params for the parameter list.
 
+## Related
+
+- {{ skill("opsketch-notation") }} — grammar
+- {{ skill("opsketch-importance-gating") }} — what `{}` shows
+
 
 ---
 

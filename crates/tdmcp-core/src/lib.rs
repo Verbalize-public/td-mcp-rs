@@ -14,8 +14,8 @@ mod task_queue;
 
 pub use bridge_method::BridgeMethod;
 pub use federation::{
-    AggregatedFleetProcess, DaemonId, DaemonIdConflict, PidResolve,
-    RemoteFleetProcess, SlaveEntry, SlaveReachability, SlaveRegistry,
+    AggregatedFleetProcess, DaemonId, DaemonIdConflict, PidResolve, RemoteFleetProcess, SlaveEntry,
+    SlaveReachability, SlaveRegistry,
 };
 pub use fingerprint::ProcessFingerprint;
 pub use ids::{OpPath, Pid};

@@ -679,8 +679,10 @@ pub async fn dispatch_tool(
                 fleet_summary(&reg, &params, &ipc_depths)
             };
             if let Some(fed) = federation {
-                Ok(serde_json::to_value(federated_fleet_summary(fed, local).await)
-                    .map_err(|e| ToolCallError::InvalidArgs(e.to_string()))?)
+                Ok(
+                    serde_json::to_value(federated_fleet_summary(fed, local).await)
+                        .map_err(|e| ToolCallError::InvalidArgs(e.to_string()))?,
+                )
             } else {
                 Ok(serde_json::to_value(local)
                     .map_err(|e| ToolCallError::InvalidArgs(e.to_string()))?)
@@ -704,8 +706,13 @@ pub async fn dispatch_tool(
             {
                 return Ok(v);
             }
-            let _slot =
-                begin_session_slot(session, catalog, "execute_python", DAEMON_SCOPE_LOCAL, params.pid)?;
+            let _slot = begin_session_slot(
+                session,
+                catalog,
+                "execute_python",
+                DAEMON_SCOPE_LOCAL,
+                params.pid,
+            )?;
             let method = BridgeMethod::ExecutePython;
             let outcome = enqueue_and_call(
                 registry,
@@ -849,8 +856,13 @@ pub async fn dispatch_tool(
             {
                 return Ok(v);
             }
-            let _slot =
-                begin_session_slot(session, catalog, "mutate_nodes", DAEMON_SCOPE_LOCAL, params.pid)?;
+            let _slot = begin_session_slot(
+                session,
+                catalog,
+                "mutate_nodes",
+                DAEMON_SCOPE_LOCAL,
+                params.pid,
+            )?;
             let method = BridgeMethod::MutateNodes;
             let steps = serde_json::to_value(&params.steps)
                 .map_err(|e| ToolCallError::InvalidArgs(e.to_string()))?;
@@ -1006,6 +1018,7 @@ async fn federated_fleet_summary(fed: &FederationCtx, local: FleetResponse) -> F
 /// Resolve whether a bridged call should run locally or be proxied to a slave.
 ///
 /// [`ControlFlow::Continue`] → run locally. [`ControlFlow::Break`] → proxied result.
+#[allow(clippy::too_many_arguments, reason = "proxy dispatch wiring")]
 async fn maybe_proxy_bridged(
     federation: Option<&FederationCtx>,
     registry: &Arc<Mutex<PidRegistry>>,
@@ -1053,10 +1066,7 @@ async fn maybe_proxy_bridged(
                 ));
             }
             (true, PidResolve::Ambiguous(mut hits)) => {
-                hits.insert(
-                    0,
-                    (fed.local_daemon_id.clone(), fed.local_hostname.clone()),
-                );
+                hits.insert(0, (fed.local_daemon_id.clone(), fed.local_hostname.clone()));
                 return Err(ambiguous_pid(catalog, tool_name, pid, &hits));
             }
             (false, PidResolve::Ambiguous(hits)) => {
@@ -1095,10 +1105,7 @@ async fn maybe_proxy_bridged(
         obj.remove("daemonId");
     }
 
-    let url = format!(
-        "{}/mcp/tools/call",
-        base_url.trim_end_matches('/')
-    );
+    let url = format!("{}/mcp/tools/call", base_url.trim_end_matches('/'));
     let body = serde_json::json!({
         "name": tool_name,
         "arguments": args,

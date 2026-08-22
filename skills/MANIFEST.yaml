@@ -4,153 +4,211 @@
 # id            → MCP resource URI becomes tdmcp://docs/<id>
 # template_path → relative to skills/templates/, with .jinja.md extension
 # output_path   → rendered output filename (drops .jinja stem)
+#
+# description is the retrieval surface (MCP resources/list). Write WHAT + WHEN,
+# in the verbs an agent would type — not a noun phrase.
 
 operate:
   template_path: touchdesigner/SKILL.jinja.md
   output_path: touchdesigner/SKILL.md
   title: TouchDesigner operate
-  description: "Umbrella skill: tool routing, hard rules, resource index"
+  description: >-
+    Operate a live TouchDesigner project through td-mcp-rs. Read before
+    inspecting, creating, wiring, or mutating nodes/networks/components/
+    parameters, planning a build, writing Python, or porting GLSL.
 
 opsketch-notation:
   template_path: touchdesigner/reference/opsketch-notation.jinja.md
   output_path: touchdesigner/reference/opsketch-notation.md
-  title: OpSketch notation
-  description: Primary network sketch grammar
+  title: OpSketch grammar
+  description: >-
+    Sketch TouchDesigner networks before building or mutating them. Use when
+    planning, describing, or reporting any network of more than 3 nodes.
 
 opsketch-importance-gating:
   template_path: touchdesigner/reference/opsketch-importance-gating.jinja.md
   output_path: touchdesigner/reference/opsketch-importance-gating.md
   title: OpSketch importance gating
-  description: Which parameters to surface in OpSketch
+  description: >-
+    Decide which parameters to surface in an OpSketch. Use when sketching a
+    network or judging whether a parameter belongs in a node's {} block.
 
 opsketch-examples:
   template_path: touchdesigner/reference/opsketch-examples.jinja.md
   output_path: touchdesigner/reference/opsketch-examples.md
   title: OpSketch examples
-  description: Worked OpSketch transcriptions
+  description: >-
+    Worked OpSketch transcriptions. Use when unsure how to sketch a live
+    inspect result, a wire summary, a custom COMP, or an api_help card.
 
 python-api:
   template_path: touchdesigner/reference/python-api.jinja.md
   output_path: touchdesigner/reference/python-api.md
-  title: TD Python API cheatsheet
-  description: Mandatory before execute_python / expressions
+  title: TD Python API
+  description: >-
+    TD Python API cheatsheet, sandbox-safe for execute_python. Read before any
+    execute_python call or authored expression/script.
 
 custom-parameters:
   template_path: touchdesigner/reference/custom-parameters.jinja.md
   output_path: touchdesigner/reference/custom-parameters.md
   title: Custom parameters
-  description: Custom par naming and create/update API
+  description: >-
+    Create, read, and update COMP custom parameters. Use when adding pages/pars,
+    menus, toggles, pulses, About fields, or enableExpr bindings.
 
 mutation-zones:
   template_path: touchdesigner/reference/mutation-zones.jinja.md
   output_path: touchdesigner/reference/mutation-zones.md
   title: Mutation zones
-  description: Where agents may mutate
+  description: >-
+    Choose where to build and mutate. Use before creating or changing nodes:
+    self-created named COMP, user-authorized subtree, or editor hint confirmed
+    with inspect.
 
 network-design:
   template_path: touchdesigner/reference/network-design.jinja.md
   output_path: touchdesigner/reference/network-design.md
-  title: Network design
-  description: Naming, relative refs, layout hygiene
+  title: Network design conventions
+  description: >-
+    Network design conventions: structure, naming, data-flow hygiene, layout,
+    relative references. Use when building or reorganizing a network or a
+    reusable COMP.
 
 component-checklist:
   template_path: touchdesigner/reference/component-checklist.jinja.md
   output_path: touchdesigner/reference/component-checklist.md
-  title: Component checklist
-  description: In/Out, About page, reuse audit
+  title: Custom component checklist
+  description: >-
+    Audit a reusable COMP: In/Out boundary, About page, custom pars, relative
+    refs, performance, preview. Use before shipping or cloning a COMP.
 
 operator-families:
   template_path: touchdesigner/reference/operator-families.jinja.md
   output_path: touchdesigner/reference/operator-families.md
   title: Operator families
-  description: Family meaning and cook-model depth
+  description: >-
+    Operator family semantics and the pull-based cook model. Use when choosing
+    which family to reach for, converting between families, or explaining cook
+    behavior.
 
 pops:
   template_path: touchdesigner/reference/pops.jinja.md
   output_path: touchdesigner/reference/pops.md
-  title: POP family
-  description: POP deep-dive
+  title: POPs deep dive
+  description: >-
+    POP family deep dive: data model, attributes, workhorse POPs, interchange,
+    gaps vs SOPs. Use when building or debugging GPU point/particle geometry.
 
 glsl:
   template_path: touchdesigner/reference/glsl.jinja.md
   output_path: touchdesigner/reference/glsl.md
-  title: TD GLSL dialect
-  description: GLSL TOP/MAT dialect and workflow
+  title: TouchDesigner GLSL
+  description: >-
+    TD GLSL dialect and port workflow. Use when authoring or converting GLSL for
+    a GLSL TOP/MAT, feeding uniforms, or debugging compile/look failures.
 
 shadertoy-conversion:
   template_path: touchdesigner/reference/shadertoy-conversion.jinja.md
   output_path: touchdesigner/reference/shadertoy-conversion.md
   title: Shadertoy conversion
-  description: Wrap-don't-rewrite Shadertoy → TD
+  description: >-
+    Wrap-don't-rewrite Shadertoy → TouchDesigner procedure. Use when porting a
+    Shadertoy shader into a GLSL TOP.
 
 td-glsl-ground-truth:
   template_path: touchdesigner/reference/td-glsl-ground-truth.jinja.md
   output_path: touchdesigner/reference/td-glsl-ground-truth.md
   title: TD GLSL ground truth
-  description: Uniform and resolution traps
+  description: >-
+    TD GLSL ground truth: sampler arrays, the TDTexInfo res trap, uniforms,
+    compute, GLSL MAT vs TOP. Use when a shader misbehaves or to avoid Vulkan
+    crashes.
 
 definition-of-done:
   template_path: touchdesigner/reference/definition-of-done.jinja.md
   output_path: touchdesigner/reference/definition-of-done.md
   title: Definition of Done
-  description: Structural PASS/FAIL/BLOCKED/SKIP
+  description: >-
+    Structural Definition of Done: PASS/FAIL/BLOCKED/SKIP verdicts, doubt rules,
+    final grid pass, structural checklist. Use before claiming a TD task done.
 
 look-grade:
   template_path: touchdesigner/reference/look-grade.jinja.md
   output_path: touchdesigner/reference/look-grade.md
   title: Look / FPS grade
-  description: Capture and look claim grading
+  description: >-
+    Grade look / FPS claims from captures. Use when a visual or motion claim
+    needs PASS/FAIL backed by capture evidence.
 
 tooling-concurrency:
   template_path: touchdesigner/reference/tooling-concurrency.jinja.md
   output_path: touchdesigner/reference/tooling-concurrency.md
   title: Tooling concurrency
-  description: Sequential bridged tools / session_busy
+  description: >-
+    Sequential bridged tools, session_busy/queue_busy handling, daemon gates.
+    Use when calling bridged tools or after a busy error.
 
 play-state:
   template_path: touchdesigner/reference/play-state.jinja.md
   output_path: touchdesigner/reference/play-state.md
   title: Play state
-  description: Paused timeline and stale capture
+  description: >-
+    Timeline play/pause stalls cooking and captures. Use when TD looks stuck,
+    captures look frozen, or FPS/motion claims need evidence.
 
 primer/cook-and-families:
   template_path: touchdesigner/primer/cook-and-families.jinja.md
   output_path: touchdesigner/primer/cook-and-families.md
   title: "Primer: cook and families"
-  description: Pull cook model and seven families
+  description: >-
+    Condensed cook model and seven families for quick orientation. Use before
+    deeper family or cook-model questions.
 
 primer/editor-and-layout:
   template_path: touchdesigner/primer/editor-and-layout.jinja.md
   output_path: touchdesigner/primer/editor-and-layout.md
   title: "Primer: editor and layout"
-  description: Network editor and layout hygiene
+  description: >-
+    Network editor, panes, and layout hygiene. Use when placing or reorganizing
+    nodes.
 
 primer/parameters-and-channels:
   template_path: touchdesigner/primer/parameters-and-channels.jinja.md
   output_path: touchdesigner/primer/parameters-and-channels.md
   title: "Primer: parameters and channels"
-  description: Parameter modes and driving values
+  description: >-
+    Four parameter modes, reading with .eval(), driving motion/look. Use before
+    parameter-mode decisions.
 
 primer/scripting-surfaces:
   template_path: touchdesigner/primer/scripting-surfaces.jinja.md
   output_path: touchdesigner/primer/scripting-surfaces.md
   title: "Primer: scripting surfaces"
-  description: Textport, Execute DATs, extensions vs MCP
+  description: >-
+    Where Python runs: textport, DAT scripts, extensions, expressions, and the
+    execute_python sandbox. Use before writing Python.
 
 primer/tox-toe-components:
   template_path: touchdesigner/primer/tox-toe-components.jinja.md
   output_path: touchdesigner/primer/tox-toe-components.md
   title: "Primer: tox / toe / components"
-  description: Project files and reusable COMPs
+  description: >-
+    Project files (.toe / .tox) and the reusable-COMP checklist summary. Use
+    when packaging or cloning components.
 
 primer/glsl-and-render:
   template_path: touchdesigner/primer/glsl-and-render.jinja.md
   output_path: touchdesigner/primer/glsl-and-render.md
   title: "Primer: GLSL and render"
-  description: GLSL TOP/MAT and Render TOP chain
+  description: >-
+    Where shaders live (GLSL TOP / MAT, multi-buffer) and the 3D-to-pixels
+    chain. Use before GLSL or render work.
 
 primer/performance:
   template_path: touchdesigner/primer/performance.jinja.md
   output_path: touchdesigner/primer/performance.md
   title: "Primer: performance"
-  description: Cook cost and FPS evidence habits
+  description: >-
+    Cook cost and FPS evidence habits. Use when diagnosing performance or
+    claiming FPS.

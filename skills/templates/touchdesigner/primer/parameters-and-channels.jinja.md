@@ -1,7 +1,5 @@
 # Primer: parameters and channels
 
-**Canonical:** {{ skill("primer/parameters-and-channels") }} 
-
 ## Four parameter modes
 
 | Mode | Use when |
@@ -25,3 +23,7 @@ and wire data through In/Out ops ({{ skill("component-checklist") }}).
 - {{ skill("python-api") }}
 - {{ skill("custom-parameters") }}
 - Wiki: https://docs.derivative.ca/Parameter_Mode
+
+---
+
+**Canonical:** {{ skill("primer/parameters-and-channels") }}

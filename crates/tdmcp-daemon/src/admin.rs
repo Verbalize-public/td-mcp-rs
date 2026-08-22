@@ -9,16 +9,16 @@ use std::time::Duration;
 use axum::extract::State;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use serde::{Deserialize, Serialize};
 use chrono::Utc;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
 use tdmcp_mcp::{fleet_summary, AppState, FleetInclude, FleetParams};
 
-use crate::federation::{tag_local_processes, FederationRuntime};
 use crate::ensure::{configure_detached_spawn_with_log, daemon_lock_path};
+use crate::federation::{tag_local_processes, FederationRuntime};
 
 /// Arguments needed to respawn the daemon after `/admin/restart`.
 #[derive(Debug, Clone)]

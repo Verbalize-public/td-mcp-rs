@@ -277,7 +277,8 @@ fn call_exec(
             "execute_python",
             json!({"pid": pid, "script": script, "exclusive": exclusive}),
             None,
-        None)
+            None,
+        )
         .await
     })
 }
@@ -301,7 +302,8 @@ fn call_exec_timed(
                 "execute_python",
                 json!({"pid": pid, "script": script, "exclusive": exclusive}),
                 None,
-            None),
+                None,
+            ),
         )
         .await
     })
@@ -341,15 +343,24 @@ async fn easy_parallel_second_rejects_while_held() {
             "execute_python",
             json!({"pid": 1001, "script": "second"}),
             None,
-        None)
+            None,
+        )
         .await
         .expect_err("second call must fail while first is held");
         assert!(is_queue_busy(&err), "expected queue_busy, got {err:?}");
 
         // fleet stays available (exempt from enqueue) while bridge is busy.
-        let fleet_ok = dispatch_tool(&registry, &catalog, &sessions, "fleet", json!({}), None, None)
-            .await
-            .expect("fleet must remain available");
+        let fleet_ok = dispatch_tool(
+            &registry,
+            &catalog,
+            &sessions,
+            "fleet",
+            json!({}),
+            None,
+            None,
+        )
+        .await
+        .expect("fleet must remain available");
         assert!(
             fleet_ok.get("processes").is_some(),
             "fleet shape: {fleet_ok}"
@@ -392,7 +403,8 @@ async fn easy_exclusive_rejects_while_shared_held() {
             "execute_python",
             json!({"pid": 1002, "script": "excl", "exclusive": true}),
             None,
-        None)
+            None,
+        )
         .await
         .expect_err("exclusive must fail");
         assert!(is_queue_busy(&err), "expected queue_busy, got {err:?}");
@@ -527,7 +539,8 @@ async fn med_exclusive_storm_while_held() {
                 "execute_python",
                 json!({"pid": 2002, "script": format!("excl{i}")}),
                 None,
-            None)
+                None,
+            )
             .await
             .expect_err("parallel while held must fail");
             exclusive_errs.push(err);
@@ -549,7 +562,8 @@ async fn med_exclusive_storm_while_held() {
             "execute_python",
             json!({"pid": 2002, "script": "s1"}),
             None,
-        None)
+            None,
+        )
         .await
         .expect("s1");
         let s2 = dispatch_tool(
@@ -559,7 +573,8 @@ async fn med_exclusive_storm_while_held() {
             "execute_python",
             json!({"pid": 2002, "script": "s2"}),
             None,
-        None)
+            None,
+        )
         .await
         .expect("s2");
         assert_eq!(s1["result"], "s1");
@@ -626,7 +641,8 @@ async fn med_pid_loss_isolates_peer() {
             "execute_python",
             json!({"pid": 2004, "script": "b-excl", "exclusive": true}),
             None,
-        None)
+            None,
+        )
         .await
         .expect("B exclusive must succeed while A is down");
         assert_eq!(b_excl["ok"], true);
@@ -670,7 +686,8 @@ async fn hard_parallel_burst_rejects_while_held_then_drain() {
                 "execute_python",
                 json!({"pid": 3001, "script": marker_script(i)}),
                 None,
-            None)
+                None,
+            )
             .await
             .expect_err("burst while held must queue_busy");
             assert!(is_queue_busy(&err), "i={i}: {err:?}");
@@ -691,7 +708,8 @@ async fn hard_parallel_burst_rejects_while_held_then_drain() {
             "execute_python",
             json!({"pid": 3001, "script": "after"}),
             None,
-        None)
+            None,
+        )
         .await
         .expect("post-drain call");
         assert_eq!(v["result"], "after");
@@ -728,7 +746,8 @@ async fn hard_held_disconnect_then_recover() {
                 "execute_python",
                 json!({"pid": 3002, "script": marker_script(i)}),
                 None,
-            None)
+                None,
+            )
             .await
             .expect_err("must queue_busy");
             assert!(is_queue_busy(&err), "{err:?}");
@@ -759,7 +778,8 @@ async fn hard_held_disconnect_then_recover() {
             "execute_python",
             json!({"pid": 3002, "script": "recovered"}),
             None,
-        None)
+            None,
+        )
         .await
         .expect("post re-handshake call");
         assert_eq!(v["ok"], true);
@@ -804,7 +824,8 @@ async fn hard_supersede_while_inflight_held() {
             "execute_python",
             json!({"pid": 3003, "script": "new"}),
             None,
-        None)
+            None,
+        )
         .await
         .expect("new session serves");
         assert_eq!(v["ok"], true);
@@ -848,7 +869,8 @@ async fn x_held_then_supersede() {
                 "execute_python",
                 json!({"pid": 4001, "script": marker_script(i)}),
                 None,
-            None)
+                None,
+            )
             .await
             .expect_err("must queue_busy while held");
             assert!(is_queue_busy(&err), "{err:?}");
@@ -869,7 +891,8 @@ async fn x_held_then_supersede() {
             "execute_python",
             json!({"pid": 4001, "script": "after"}),
             None,
-        None)
+            None,
+        )
         .await
         .expect("new session");
         assert_eq!(v["ok"], true);
@@ -910,7 +933,8 @@ async fn x_asymmetric_busy_a_sequential_b() {
                 "execute_python",
                 json!({"pid": 4002, "script": format!("a{i}")}),
                 None,
-            None)
+                None,
+            )
             .await
             .expect_err("A must queue_busy");
             assert!(is_queue_busy(&err), "{err:?}");
@@ -925,7 +949,8 @@ async fn x_asymmetric_busy_a_sequential_b() {
                 "execute_python",
                 json!({"pid": 4003, "script": marker_script(i)}),
                 None,
-            None)
+                None,
+            )
             .await
             .unwrap_or_else(|e| panic!("B caller {i}: {e:?}"));
             assert_eq!(v["result"], marker_script(i), "B marker {i}");

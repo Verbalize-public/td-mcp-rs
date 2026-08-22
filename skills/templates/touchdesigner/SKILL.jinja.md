@@ -128,19 +128,18 @@ work back safely. See also {{ skill("play-state") }} and
 
 ## Python / scripting quick intro
 
-**Gate:** {{ skill("python-api") }} before any `execute_python` or authored
-expression. Orientation only here: `me`, `op()`/`ops()`, `parent(n)`, `run()`,
-always `.eval()` parameters. `execute_python` sandbox injects `td` / `op` /
-`result` / closed aliases — not `me` / `parent` / bare opTypes. Prefer
-`editor_context` for pane/selection. Network roster: use `inspect`.
+**Gate:** {{ skill_read("python-api") }} before any `execute_python` or authored
+expression — it documents the sandbox scope (`td` / `op` / `result` / closed
+aliases; no `me` / `parent` / bare opTypes), `.eval()` discipline, and the
+create/wire pattern. Prefer `editor_context` for pane/selection; `inspect` for
+network rosters.
 
 ## GLSL awareness (quick)
 
 Frag-only → GLSL TOP; vert+frag → GLSL MAT; multi-buffer → one TOP per buffer +
-Feedback. Feed every uniform explicitly (unfed = silent black FAIL). Watch
-`TDTexInfo.res` (`.res.xy` vs `.res.zw`). Depth: {{ skill("glsl") }},
-{{ skill("td-glsl-ground-truth") }}, {{ skill("shadertoy-conversion") }},
-{{ skill("primer/glsl-and-render") }}.
+Feedback. Everything else — bridge wrapper, uniforms, res traps, port
+procedure — lives in {{ skill("glsl") }}, {{ skill("td-glsl-ground-truth") }},
+{{ skill("shadertoy-conversion") }}, and {{ skill("primer/glsl-and-render") }}.
 
 ## Definition of Done
 

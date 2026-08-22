@@ -66,12 +66,22 @@ void main()
 Wire an Info DAT to the GLSL TOP (`info.par.op = glsl`) — compile errors with line
 numbers appear there and in `glsl.errors()`/`warnings()`. Iterate: paste → read errors →
 fix → re-read compile output → only then `capture` if look is still
-unresolved (store-first). The committed harness
-[../scripts/build_glsl_top.py](../scripts/build_glsl_top.py) does this in one
-`execute_python` call.
+unresolved (store-first). The whole loop fits in one `execute_python` call:
+create the GLSL TOP, set its DAT text, read `errors()`/`warnings()`/`compileResult`,
+fix, and re-read until clean.
 
 Line numbers in errors are offset by your bridge preamble; count from the top of the DAT,
 not the original Shadertoy source.
+
+## Definition of Done
+
+- [ ] Compile clean — zero errors **and** warnings via live `inspect` (unfed
+      uniform = warning = not done)
+- [ ] Every `iChannel` maps to a wired `sTD2DInputs[n]` / `sTDCubeInputs[n]`
+      matching the source channel list
+- [ ] Look claim graded via {{ skill("look-grade") }} — non-black `capture`;
+      black + clean compile = FAIL
+- [ ] Same compile error after 3 distinct fixes → stop and ask
 
 ## Other source dialects (same bridge idea)
 
@@ -83,12 +93,19 @@ not the original Shadertoy source.
   inputs; `RENDERSIZE` → `uTDOutputInfo.res.zw`, `TIME` → `iTime`, `isf_FragNormCoord`
   → `vUV.st`.
 - **Vertex+fragment pairs (materials):** these are GLSL MAT territory, not a GLSL TOP —
-  positions go through `TDDeform()`/`TDWorldToProj()`; see td-glsl-ground-truth.md.
+  positions go through `TDDeform()`/`TDWorldToProj()`; see {{ skill("td-glsl-ground-truth") }}.
+
+## Related
+
+- {{ skill("glsl") }} — dialect workflow
+- {{ skill("td-glsl-ground-truth") }} — sampler/res traps, GLSL MAT vs TOP
+- {{ skill("primer/glsl-and-render") }} — TOP vs MAT vs render chain
+- {{ skill("look-grade") }} — capture-based look claims
 
 ## Worked example (verified live)
 
 "Creation by Silexars" (Shadertoy `XsXXDn`: `iTime` + `iResolution`, no channels)
-converted with the bridge above and rendered animating in `expe_baseline.toe`
+converted with the bridge above and rendered animating on a live GLSL TOP
 (two captures at different `absTime` → different frames). What was actually hit:
 
 - After the bridge compiled, the harness reported `COMPILE FAIL` with

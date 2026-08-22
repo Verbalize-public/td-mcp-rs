@@ -23,7 +23,7 @@ Live host: {{ skill("operate") }} (tools are self-describing).
 
 Promote with relative exprs — see {{ skill("network-design") }}.
 
-## DoD
+## Definition of Done
 
 1. Compile clean (zero errors and warnings) via live `inspect`
 2. Look claim → {{ skill("look-grade") }} (non-black capture)
@@ -33,7 +33,16 @@ Black + clean compile = FAIL (unfed uniform / missing input / Extend ≠ Repeat)
 
 ## Safety
 
-Invalid GLSL can hard-crash Vulkan TD — keep experiments in `/project1/_agent_scratch`. Same compile error after 3 distinct fixes → stop and ask.
+Invalid GLSL can hard-crash Vulkan TD — keep experiments inside your mutation zone
+({{ skill("mutation-zones") }}), never on production nodes. Same compile error after 3
+distinct fixes → stop and ask.
+
+## Related
+
+- {{ skill("td-glsl-ground-truth") }} — sampler arrays, res trap, compute
+- {{ skill("shadertoy-conversion") }} — port procedure
+- {{ skill("primer/glsl-and-render") }} — TOP vs MAT vs render chain
+- {{ skill("definition-of-done") }} — structural verdicts
 
 
 ---

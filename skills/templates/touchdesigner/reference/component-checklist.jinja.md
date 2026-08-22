@@ -117,8 +117,7 @@ document a hard instance budget on a Text/Annotate inside the COMP.
   `par.top` / `par.topfill` for panel chrome.
 - Base COMP on current builds may lack `nodeview` — `opviewer` + Viewer flag is enough.
 - Defaults must look intentional with nothing wired to optional Ins.
-- Agent scratch still uses `_agent_scratch/select_watch` → `out1`; that is separate from
-  the COMP's own viewer. Perception: `capture` + {{ skill("look-grade") }}.
+- Perception: `capture` + {{ skill("look-grade") }}.
 
 ## In-COMP documentation
 
@@ -134,7 +133,7 @@ Minimum to ship inside the component (not only in chat):
 - Delete unused nodes as you deprecate steps; do not leave dead branches "for later."
 - Do not delete unrelated user work.
 - Errors and warnings are not acceptable on the finished COMP (probe `warnings()` on
-  file/device nodes — mcp skill gotcha).
+  file/device nodes — {{ skill("python-api") }} gotcha).
 - After logic works: **layout pass** — align, separate stages, readable left→right flow.
   Do not leave test-layout spaghetti in a shipped COMP.
 
@@ -147,6 +146,13 @@ Stop and simplify if you notice:
 - Script DATs that set parameters every frame
 - Duplicate nulls with no naming/contract role
 - A second parallel "v2" chain left disabled beside the real one
+
+## Related
+
+- {{ skill("custom-parameters") }} — control API (live-verified snippets)
+- {{ skill("network-design") }} — relative refs and layout
+- {{ skill("definition-of-done") }} — structural verdicts
+- {{ skill("look-grade") }} — capture-based look claims
 
 
 ---

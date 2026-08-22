@@ -3,8 +3,6 @@
 Observable runtime evidence only — never PASS from code, parameter values, or
 docs alone. Look / FPS claims use {{ skill("look-grade") }}.
 
-**Canonical:** {{ skill("definition-of-done") }} 
-
 ## Verdicts
 
 | Verdict | Meaning |
@@ -67,5 +65,13 @@ glance, with zero overlapping operators. Depth:
       against {{ skill("look-grade") }}
 - [ ] Stop after 3 failed probes with no new evidence
 
-Depth: OpSketch language {{ skill("opsketch-notation") }}; wiring notes in
-{{ skill("python-api") }}.
+## Related
+
+- OpSketch language: {{ skill("opsketch-notation") }}
+- Wiring notes: {{ skill("python-api") }}
+- Look / FPS grading: {{ skill("look-grade") }}
+- Layout conventions: {{ skill("network-design") }}
+
+---
+
+**Canonical:** {{ skill("definition-of-done") }}

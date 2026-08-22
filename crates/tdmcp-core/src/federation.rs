@@ -115,7 +115,9 @@ pub struct SlaveEntry {
 
 /// Registration rejected because `daemon_id` is already bound to another URL.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
-#[error("daemon_id {daemon_id} already registered at {existing_base_url} (got {attempted_base_url})")]
+#[error(
+    "daemon_id {daemon_id} already registered at {existing_base_url} (got {attempted_base_url})"
+)]
 pub struct DaemonIdConflict {
     /// Conflicting id.
     pub daemon_id: DaemonId,
@@ -312,7 +314,12 @@ impl SlaveRegistry {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, reason = "unit tests")]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    reason = "unit tests"
+)]
 mod tests {
     use super::*;
     use chrono::TimeZone;
@@ -368,10 +375,7 @@ mod tests {
             }],
             now,
         ));
-        assert_eq!(
-            reg.resolve_pid(42),
-            PidResolve::Unique(DaemonId::new("a"))
-        );
+        assert_eq!(reg.resolve_pid(42), PidResolve::Unique(DaemonId::new("a")));
         assert_eq!(reg.resolve_pid(99), PidResolve::Local);
     }
 
@@ -419,20 +423,21 @@ mod tests {
             reg.slaves()[0].reachability,
             SlaveReachability::Disconnected
         );
-        assert_eq!(reg.slaves()[0].fleet_processes[0].bridge, BridgeStatus::Disconnected);
+        assert_eq!(
+            reg.slaves()[0].fleet_processes[0].bridge,
+            BridgeStatus::Disconnected
+        );
 
         let t10 = t0 + chrono::Duration::seconds(10);
         reg.tick_stale(t10);
-        assert_eq!(
-            reg.slaves()[0].reachability,
-            SlaveReachability::Unreachable
-        );
+        assert_eq!(reg.slaves()[0].reachability, SlaveReachability::Unreachable);
     }
 
     #[test]
     fn aggregate_tags_local_and_remote() {
         let mut reg = SlaveRegistry::new();
-        reg.register(entry("slave-1", "http://127.0.0.1:2")).unwrap();
+        reg.register(entry("slave-1", "http://127.0.0.1:2"))
+            .unwrap();
         let now = Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap();
         reg.update_fleet(
             &DaemonId::new("slave-1"),

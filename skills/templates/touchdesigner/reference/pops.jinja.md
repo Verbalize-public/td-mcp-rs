@@ -78,6 +78,12 @@ Proximity, Neighbor. Custom compute: GLSL POP / GLSL Advanced POP / Copy GLSL PO
 No Mesh primitive (rows/cols grids — POP "dimensions" covers most uses), no surface
 booleans, no NURBS. Keep SOPs for those; convert at the boundary.
 
+## Related
+
+- {{ skill("operator-families") }} — family choice and conversions
+- {{ skill("primer/glsl-and-render") }} — 3D-to-pixels chain
+- {{ skill("python-api") }} — POP/SOP geometry surface
+
 
 ---
 

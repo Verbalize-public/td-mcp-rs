@@ -26,6 +26,13 @@ container and promote later.
 - **ALWAYS** sketch in OpSketch before mutating.
   ({{ skill("opsketch-notation") }}).
 
+## Related
+
+- {{ skill("opsketch-notation") }} — sketch before mutating
+- {{ skill("network-design") }} — naming and layout conventions
+- {{ skill("component-checklist") }} — reusable COMP packaging
+- {{ skill("custom-parameters") }} — control API
+
 
 ---
 

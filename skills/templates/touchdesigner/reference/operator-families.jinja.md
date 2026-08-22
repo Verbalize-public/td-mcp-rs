@@ -56,6 +56,13 @@ Custom parameters on COMPs (Component Editor) are the **control** API of a compo
 (scalars, menus, colors, pulses). In/Out boundary rule: main body "Hard rules" +
 {{ skill("component-checklist") }}.
 
+## Related
+
+- {{ skill("primer/cook-and-families") }} — condensed orientation
+- {{ skill("pops") }} — POP family deep dive
+- {{ skill("python-api") }} — create/wire patterns
+- {{ skill("network-design") }} — conventions for built networks
+
 
 ---
 

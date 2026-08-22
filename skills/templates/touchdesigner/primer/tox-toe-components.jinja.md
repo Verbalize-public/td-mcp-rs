@@ -1,7 +1,5 @@
 # Primer: projects, tox, and components
 
-**Canonical:** {{ skill("primer/tox-toe-components") }} 
-
 ## Files
 
 | Artifact | Role |
@@ -27,3 +25,7 @@ Full checklist: {{ skill("component-checklist") }}.
 - {{ skill("component-checklist") }}
 - {{ skill("network-design") }}
 - Wiki: https://docs.derivative.ca/ (search Tox / Component)
+
+---
+
+**Canonical:** {{ skill("primer/tox-toe-components") }}
