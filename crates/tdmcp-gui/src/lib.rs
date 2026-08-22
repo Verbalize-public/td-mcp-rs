@@ -885,10 +885,13 @@ impl DashboardApp {
         ui.add_space(4.0);
         ui.horizontal(|ui| {
             ui.add_space(12.0);
-            ui.label(
-                egui::RichText::new(self.config_path.display().to_string())
-                    .font(font_mono())
-                    .color(TEXT_FAINT),
+            ui.add(
+                egui::Label::new(
+                    egui::RichText::new(self.config_path.display().to_string())
+                        .font(font_mono())
+                        .color(TEXT_FAINT),
+                )
+                .truncate(),
             );
         });
         ui.add_space(4.0);
@@ -986,6 +989,7 @@ impl DashboardApp {
             let current = self.draft.federation.role.clone();
             egui::ComboBox::from_id_salt("federation_role")
                 .selected_text(&current)
+                .width(ui.available_width().min(160.0))
                 .show_ui(ui, |ui| {
                     for role in ["standalone", "master", "slave"] {
                         if ui.selectable_label(current == role, role).clicked() && current != role {
@@ -1012,10 +1016,13 @@ impl DashboardApp {
                 "Daemon ID",
                 Self::field_help("federation.daemon_id"),
                 |ui| {
-                    ui.label(
-                        egui::RichText::new(&self.draft.federation.daemon_id)
-                            .font(font_mono())
-                            .color(TEXT_FAINT),
+                    ui.add(
+                        egui::Label::new(
+                            egui::RichText::new(&self.draft.federation.daemon_id)
+                                .font(font_mono())
+                                .color(TEXT_FAINT),
+                        )
+                        .truncate(),
                     );
                 },
             );
@@ -2141,7 +2148,10 @@ impl eframe::App for DashboardApp {
 /// controls never touch the window edge, wrap under the label, or clip on
 /// any platform. The help tooltip rides the whole row when one is given.
 fn settings_row(ui: &mut egui::Ui, label: &str, help: &str, add: impl FnOnce(&mut egui::Ui)) {
-    let full = ui.available_width();
+    // The window is a fixed width; bound the row to it so a reported
+    // available_width larger than the actually-painted viewport (seen on some
+    // macOS DPI paths) can never push controls past the window's right edge.
+    let full = ui.available_width().min(WINDOW_WIDTH);
     let (rect, response) =
         ui.allocate_exact_size(egui::vec2(full, SETTINGS_ROW_H), egui::Sense::hover());
     if response.hovered() {
@@ -2150,7 +2160,7 @@ fn settings_row(ui: &mut egui::Ui, label: &str, help: &str, add: impl FnOnce(&mu
 
     let inner = egui::Rect::from_min_size(
         egui::pos2(rect.left() + SIDE_MARGIN, rect.top()),
-        egui::vec2(full - SIDE_MARGIN * 2.0, SETTINGS_ROW_H),
+        egui::vec2((full - SIDE_MARGIN * 2.0).max(0.0), SETTINGS_ROW_H),
     );
     let mut child = ui.new_child(
         egui::UiBuilder::new()
@@ -2172,8 +2182,10 @@ fn settings_row(ui: &mut egui::Ui, label: &str, help: &str, add: impl FnOnce(&mu
         },
     );
 
-    // Control column — fills the rest, right-aligned.
-    let control_w = child.available_width().max(0.0);
+    // Control column — fills the exact remaining inner width, right-aligned.
+    // Computed from the row bounds rather than `available_width()` so a
+    // platform width quirk can never make the column wider than the row.
+    let control_w = (inner.width() - label_w).max(0.0);
     child.allocate_ui_with_layout(
         egui::vec2(control_w, SETTINGS_ROW_H),
         egui::Layout::right_to_left(egui::Align::Center),
