@@ -70,7 +70,6 @@ tokio-util = "0.7"
 tower = "0.5"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
-tracing-appender = "0.2"
 tray-icon = "0.24"
 winit = "0.30"
 tempfile = "3"

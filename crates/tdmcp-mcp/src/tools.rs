@@ -1073,10 +1073,10 @@ async fn maybe_proxy_bridged(
                 return Err(ambiguous_pid(catalog, tool_name, pid, &hits));
             }
             (false, PidResolve::Unique(remote_id)) => Some(remote_id.into_inner()),
-            (true, PidResolve::Local | PidResolve::NotFound) => {
+            (true, PidResolve::Local) => {
                 return Ok(ControlFlow::Continue(()));
             }
-            (false, PidResolve::Local | PidResolve::NotFound) => {
+            (false, PidResolve::Local) => {
                 // Fall through to local unknown_pid path.
                 return Ok(ControlFlow::Continue(()));
             }

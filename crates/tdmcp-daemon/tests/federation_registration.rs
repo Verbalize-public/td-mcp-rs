@@ -391,3 +391,4 @@ async fn slave_daemon_registers_with_master() {
         .expect("config");
     assert_eq!(cfg.status(), reqwest::StatusCode::OK);
 }
+

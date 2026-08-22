@@ -151,3 +151,4 @@ async fn empty_daemon_exits_after_idle_timeout() {
     // Clean exit — don't force-kill in Drop.
     let _ = harness.child.take();
 }
+

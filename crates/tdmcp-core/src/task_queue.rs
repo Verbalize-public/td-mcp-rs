@@ -21,8 +21,6 @@ pub enum TaskResult {
     Success,
     /// Failed (domain / bridge / script).
     Failed,
-    /// Cancelled (e.g. bridge_lost).
-    Cancelled,
 }
 
 /// Visible task descriptor for `fleet`.

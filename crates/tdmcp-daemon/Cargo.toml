@@ -30,7 +30,7 @@ tokio = { workspace = true }
 tower = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-tracing-appender = { workspace = true }
+
 tdmcp-config = { workspace = true }
 tdmcp-core = { workspace = true }
 tdmcp-diagnostics = { workspace = true }
@@ -38,7 +38,7 @@ tdmcp-ipc = { workspace = true }
 tdmcp-mcp = { workspace = true }
 tdmcp-gui = { path = "../tdmcp-gui", optional = true }
 tokio-util = { workspace = true }
-uuid = { workspace = true }
+
 reqwest = { workspace = true }
 
 [dev-dependencies]

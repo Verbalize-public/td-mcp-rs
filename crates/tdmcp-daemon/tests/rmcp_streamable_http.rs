@@ -35,7 +35,6 @@ fn registry_with_pid() -> PidRegistry {
             ..Default::default()
         },
         Some("1".into()),
-        chrono::Utc::now(),
     );
     registry
 }
@@ -278,3 +277,5 @@ async fn unknown_tool_is_a_protocol_error() {
 
     ct.cancel();
 }
+
+

@@ -7,5 +7,6 @@ __pycache__/
 *.pyc
 .pytest_cache/
 _pack_bootstrap_tox/
+.ua/
 fixtures/dev/session/**
 !fixtures/dev/session/.gitkeep

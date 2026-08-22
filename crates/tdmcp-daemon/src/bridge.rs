@@ -685,7 +685,6 @@ pub async fn run_ipc_accept(
                                 ..Default::default()
                             },
                             Some(handshake.protocol_version.clone()),
-                            chrono::Utc::now(),
                         );
                     }
                     sessions.spawn(pid, stream).await;

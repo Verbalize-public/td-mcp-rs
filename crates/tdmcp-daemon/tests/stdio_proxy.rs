@@ -38,7 +38,6 @@ fn registry_with_pid() -> PidRegistry {
             ..Default::default()
         },
         Some("1".into()),
-        chrono::Utc::now(),
     );
     registry
 }
@@ -586,3 +585,5 @@ async fn stdio_proxy_call_timeout_heals_and_returns_budget_error() {
     let _ = proxy_task.await;
     ct.cancel();
 }
+
+

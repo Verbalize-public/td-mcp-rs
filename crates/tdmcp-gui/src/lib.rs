@@ -49,6 +49,17 @@ const TRAY_TOGGLE_DEBOUNCE: Duration = Duration::from_millis(250);
 /// Focus-loss hide within this window counts as the close half of a tray toggle.
 const FOCUS_LOSS_CLOSE_GRACE: Duration = Duration::from_millis(400);
 
+/// Top chrome strip height (px).
+const HEADER_H: f32 = 34.0;
+/// Settings action strip height (px).
+const SETTINGS_TOOLBAR_H: f32 = 30.0;
+/// Settings row height (px).
+const SETTINGS_ROW_H: f32 = 26.0;
+/// Symmetric side inset for content (px).
+const SIDE_MARGIN: f32 = 12.0;
+/// Width reserved for the header's right-anchored actions (px).
+const HEADER_ACTIONS_W: f32 = 132.0;
+
 /// Run the tray dashboard on the calling thread (must be the process main thread).
 ///
 /// Polls `admin_base` (e.g. `http://127.0.0.1:9860`) for status/fleet/sessions.
@@ -488,9 +499,13 @@ impl DashboardApp {
         let icon_w = f64::from(rect.size.width) / scale;
         let icon_h = f64::from(rect.size.height) / scale;
 
-        // Estimate popup size; height is content-driven but we place with a typical height.
-        let popup_w = f64::from(WINDOW_WIDTH);
-        let popup_h = 360.0_f64;
+        // Use the window's real size (logical points) so the popup is placed with
+        // its true footprint and can never walk off the monitor via a stale height.
+        let (popup_w, popup_h) = ctx
+            .input(|i| i.viewport().outer_rect)
+            .map(|r| (f64::from(r.width()), f64::from(r.height())))
+            .filter(|(w, h)| *w > 0.0 && *h > 0.0)
+            .unwrap_or((f64::from(WINDOW_WIDTH), 360.0));
 
         // Current monitor bounds in logical points. `monitor_size` is the size of
         // the monitor the window is on (the window was hidden near the tray last,
@@ -768,66 +783,92 @@ impl DashboardApp {
         }
     }
 
+    /// Top chrome: LED + identity (title · version) left, Stop/Restart/.tox/gear right.
+    /// The identity block is width-capped and clipped so a long title can never
+    /// slide under the right-anchored actions; pid/bind live on the version tooltip.
     fn draw_header(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
-            status_led(ui, ACCENT);
-            ui.add_space(2.0);
-            let title = match self.status.as_ref().map(|s| s.role.as_str()) {
-                Some("master") => "td-mcp-rs (master)",
-                Some("slave") => "td-mcp-rs (slave)",
-                _ => "td-mcp-rs",
+        let full = ui.available_width();
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(full, HEADER_H), egui::Sense::hover());
+        ui.painter().rect_filled(rect, 0.0, BG_PANEL);
+        ui.painter().hline(
+            rect.x_range(),
+            rect.bottom(),
+            egui::Stroke::new(1.0, BORDER),
+        );
+
+        let mut child = ui.new_child(
+            egui::UiBuilder::new()
+                .max_rect(rect.shrink2(egui::vec2(SIDE_MARGIN, 0.0)))
+                .layout(egui::Layout::left_to_right(egui::Align::Center)),
+        );
+        status_led(&mut child, ACCENT);
+        child.add_space(6.0);
+
+        let title = match self.status.as_ref().map(|s| s.role.as_str()) {
+            Some("master") => "td-mcp-rs · master",
+            Some("slave") => "td-mcp-rs · slave",
+            _ => "td-mcp-rs",
+        };
+        let version = self
+            .status
+            .as_ref()
+            .map(|s| s.version.clone())
+            .unwrap_or_default();
+        let meta_tip = self.status.as_ref().map(|st| {
+            let bind = st.bind_address.as_str();
+            let bind = if bind.is_empty() {
+                String::new()
+            } else if cfgfile::is_loopback_bind(bind) {
+                format!(" · {bind} (loopback)")
+            } else {
+                format!(" · {bind} (remote)")
             };
-            ui.label(egui::RichText::new(title).font(font_title()).color(TEXT));
-            if let Some(st) = &self.status {
-                ui.label(
-                    egui::RichText::new(format!("· v{}", st.version))
-                        .font(font_meta())
-                        .color(TEXT_DIM),
-                );
-                ui.label(
-                    egui::RichText::new(format!("· pid {}", st.pid))
-                        .font(font_mono())
-                        .color(TEXT_FAINT),
-                );
-                let bind = st.bind_address.as_str();
-                if !bind.is_empty() {
-                    let bind_label = if cfgfile::is_loopback_bind(bind) {
-                        "loopback"
-                    } else {
-                        "remote"
-                    };
-                    ui.label(
-                        egui::RichText::new(format!("· {bind_label}"))
+            format!("pid {}{bind}", st.pid)
+        });
+        let id_w = (child.available_width() - HEADER_ACTIONS_W).max(64.0);
+        child.allocate_ui_with_layout(
+            egui::vec2(id_w, HEADER_H),
+            egui::Layout::left_to_right(egui::Align::Center),
+            |ui| {
+                ui.set_clip_rect(ui.max_rect());
+                ui.label(egui::RichText::new(title).font(font_title()).color(TEXT));
+                if !version.is_empty() {
+                    ui.add_space(4.0);
+                    let meta = ui.label(
+                        egui::RichText::new(format!("v{version}"))
                             .font(font_meta())
-                            .color(TEXT_FAINT),
+                            .color(TEXT_DIM),
                     );
+                    if let Some(tip) = &meta_tip {
+                        let _ = meta.on_hover_text(tip.clone());
+                    }
                 }
+            },
+        );
+
+        // Right-anchored ghost actions: Stop · Restart · .tox · gear (RTL).
+        child.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let stop = ghost_button(ui, "■", TEXT_DIM, ERR).on_hover_text("Stop daemon");
+            if stop.clicked() {
+                self.shutdown_daemon();
             }
-            // Right-anchored ghost actions: Stop · Restart · .tox · gear (RTL).
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let stop = ghost_button(ui, "■", TEXT_DIM, ERR).on_hover_text("Stop daemon");
-                if stop.clicked() {
-                    self.shutdown_daemon();
-                }
-                ui.add_space(2.0);
-                let restart =
-                    ghost_button(ui, "↻", TEXT_DIM, ACCENT).on_hover_text("Restart daemon");
-                if restart.clicked() {
-                    self.restart_daemon();
-                }
-                ui.add_space(4.0);
-                let tox_path = self.data_dir.join("bootstrap.tox");
-                let tip = format!("Reveal {}", tox_path.display());
-                let tox = ghost_button(ui, ".tox", TEXT_DIM, ACCENT).on_hover_text(tip);
-                if tox.clicked() {
-                    self.reveal_tox();
-                }
-                ui.add_space(4.0);
-                let gear = ghost_button(ui, "⚙", TEXT_DIM, ACCENT).on_hover_text("Settings");
-                if gear.clicked() {
-                    self.open_settings();
-                }
-            });
+            ui.add_space(2.0);
+            let restart = ghost_button(ui, "↻", TEXT_DIM, ACCENT).on_hover_text("Restart daemon");
+            if restart.clicked() {
+                self.restart_daemon();
+            }
+            ui.add_space(4.0);
+            let tox_path = self.data_dir.join("bootstrap.tox");
+            let tip = format!("Reveal {}", tox_path.display());
+            let tox = ghost_button(ui, ".tox", TEXT_DIM, ACCENT).on_hover_text(tip);
+            if tox.clicked() {
+                self.reveal_tox();
+            }
+            ui.add_space(4.0);
+            let gear = ghost_button(ui, "⚙", TEXT_DIM, ACCENT).on_hover_text("Settings");
+            if gear.clicked() {
+                self.open_settings();
+            }
         });
     }
 
@@ -876,7 +917,7 @@ impl DashboardApp {
             );
         });
 
-        ui.add_space(4.0);
+        ui.add_space(6.0);
         section_header(ui, "REMOTE ACCESS");
         settings_row(
             ui,
@@ -939,7 +980,7 @@ impl DashboardApp {
             });
         }
 
-        ui.add_space(4.0);
+        ui.add_space(6.0);
         section_header(ui, "FEDERATION");
         settings_row(ui, "Role", Self::field_help("federation.role"), |ui| {
             let current = self.draft.federation.role.clone();
@@ -1017,7 +1058,7 @@ impl DashboardApp {
             );
         }
 
-        ui.add_space(4.0);
+        ui.add_space(6.0);
         section_header(ui, "DAEMON");
         settings_row(
             ui,
@@ -1050,7 +1091,7 @@ impl DashboardApp {
             },
         );
 
-        ui.add_space(4.0);
+        ui.add_space(6.0);
         section_header(ui, "BRIDGE");
         settings_row(
             ui,
@@ -1113,7 +1154,7 @@ impl DashboardApp {
             },
         );
 
-        ui.add_space(4.0);
+        ui.add_space(6.0);
         section_header(ui, "ADVANCED");
         settings_row(
             ui,
@@ -1146,20 +1187,34 @@ impl DashboardApp {
         }
     }
 
-    fn draw_settings_footer(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
-            if ghost_button(ui, "← Back", TEXT_DIM, TEXT).clicked() {
-                self.discard_settings();
+    /// Settings action strip at the top of the view: Back · Reset left, Save right.
+    fn draw_settings_toolbar(&mut self, ui: &mut egui::Ui) {
+        let full = ui.available_width();
+        let (rect, _) =
+            ui.allocate_exact_size(egui::vec2(full, SETTINGS_TOOLBAR_H), egui::Sense::hover());
+        ui.painter().rect_filled(rect, 0.0, BG_PANEL);
+        ui.painter().hline(
+            rect.x_range(),
+            rect.bottom(),
+            egui::Stroke::new(1.0, BORDER),
+        );
+
+        let mut child = ui.new_child(
+            egui::UiBuilder::new()
+                .max_rect(rect.shrink2(egui::vec2(SIDE_MARGIN, 0.0)))
+                .layout(egui::Layout::left_to_right(egui::Align::Center)),
+        );
+        if ghost_button(&mut child, "← Back", TEXT_DIM, TEXT).clicked() {
+            self.discard_settings();
+        }
+        child.add_space(8.0);
+        if ghost_button(&mut child, "↺ Reset", TEXT_DIM, WARN).clicked() {
+            self.reset_settings();
+        }
+        child.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if filled_button(ui, "Save").clicked() {
+                self.save_settings();
             }
-            ui.add_space(8.0);
-            if ghost_button(ui, "↺ Reset", TEXT_DIM, WARN).clicked() {
-                self.reset_settings();
-            }
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if filled_button(ui, "Save").clicked() {
-                    self.save_settings();
-                }
-            });
         });
     }
 
@@ -1444,7 +1499,7 @@ impl DashboardApp {
         if self.scan_results.is_empty() {
             return;
         }
-        ui.add_space(4.0);
+        ui.add_space(6.0);
         section_header(ui, &format!("SCAN · {} hit(s)", self.scan_results.len()));
         let mut use_hit: Option<(String, u16)> = None;
         for (i, hit) in self.scan_results.iter().enumerate() {
@@ -1904,7 +1959,7 @@ impl DashboardApp {
 
     /// Slave self-view: master link + Go standalone (saves role, restarts locally).
     fn draw_slave_self_view(&mut self, ui: &mut egui::Ui) {
-        ui.add_space(4.0);
+        ui.add_space(6.0);
         section_header(ui, "FEDERATION");
         let master_url = self.draft.federation.master_url.clone();
         let daemon_id = id_tail(&self.draft.federation.daemon_id);
@@ -2045,34 +2100,13 @@ impl eframe::App for DashboardApp {
                     .inner_margin(0.0),
             )
             .show(ui, |ui| {
-                ui.add_space(8.0);
-                ui.horizontal(|ui| {
-                    ui.add_space(12.0);
-                    ui.allocate_ui_with_layout(
-                        egui::vec2(ui.available_width() - 12.0, 24.0),
-                        egui::Layout::left_to_right(egui::Align::Center),
-                        |ui| {
-                            self.draw_header(ui);
-                        },
-                    );
-                });
-                ui.add_space(8.0);
+                self.draw_header(ui);
                 match self.view {
                     View::Settings => {
-                        // Pinned footer: the panel reserves the bottom strip and
-                        // the ScrollArea takes only the space above it.
-                        egui::Panel::bottom("settings-footer")
-                            .exact_size(30.0)
-                            .frame(
-                                egui::Frame::NONE
-                                    .fill(BG_PANEL)
-                                    .inner_margin(egui::Margin::symmetric(12, 4)),
-                            )
-                            .show(ui, |ui| {
-                                self.draw_settings_footer(ui);
-                            });
+                        self.draw_settings_toolbar(ui);
                         egui::ScrollArea::vertical()
-                            .max_height(WINDOW_MAX_HEIGHT - 78.0)
+                            .auto_shrink(false)
+                            .max_height(WINDOW_MAX_HEIGHT - 96.0)
                             .show(ui, |ui| {
                                 self.draw_settings(ui);
                             });
@@ -2080,12 +2114,13 @@ impl eframe::App for DashboardApp {
                     View::Fleet => {
                         if let Some(err) = &self.error {
                             ui.horizontal(|ui| {
-                                ui.add_space(12.0);
+                                ui.add_space(SIDE_MARGIN);
                                 ui.colored_label(ERR, err);
                             });
                         }
                         egui::ScrollArea::vertical()
-                            .max_height(WINDOW_MAX_HEIGHT - 80.0)
+                            .auto_shrink(false)
+                            .max_height(WINDOW_MAX_HEIGHT - 60.0)
                             .show(ui, |ui| match self.fleet_panel {
                                 FleetPanel::AddSlave => self.draw_add_slave_panel(ui),
                                 FleetPanel::SlaveSettings => self.draw_slave_settings_panel(ui),
@@ -2096,23 +2131,55 @@ impl eframe::App for DashboardApp {
                             });
                     }
                 }
-                ui.add_space(8.0);
+                ui.add_space(6.0);
             });
     }
 }
 
-/// One settings row: label left, control right-aligned, full row width.
-/// The help tooltip rides the whole row when one is given.
+/// One settings row: label left (measured width), control right-aligned.
+/// Fixed height, symmetric side margins and an explicit control column, so
+/// controls never touch the window edge, wrap under the label, or clip on
+/// any platform. The help tooltip rides the whole row when one is given.
 fn settings_row(ui: &mut egui::Ui, label: &str, help: &str, add: impl FnOnce(&mut egui::Ui)) {
-    let response = ui
-        .horizontal(|ui| {
-            ui.add_space(12.0);
+    let full = ui.available_width();
+    let (rect, response) =
+        ui.allocate_exact_size(egui::vec2(full, SETTINGS_ROW_H), egui::Sense::hover());
+    if response.hovered() {
+        ui.painter().rect_filled(rect, 0.0, BG_HOVER);
+    }
+
+    let inner = egui::Rect::from_min_size(
+        egui::pos2(rect.left() + SIDE_MARGIN, rect.top()),
+        egui::vec2(full - SIDE_MARGIN * 2.0, SETTINGS_ROW_H),
+    );
+    let mut child = ui.new_child(
+        egui::UiBuilder::new()
+            .max_rect(inner)
+            .layout(egui::Layout::left_to_right(egui::Align::Center)),
+    );
+
+    // Label column — exactly as wide as the text (+ gap), so short labels
+    // leave more room for the control and long ones never wrap or overlap.
+    let label_g = child
+        .painter()
+        .layout_no_wrap(label.to_owned(), font_label(), TEXT);
+    let label_w = (label_g.size().x + 8.0).max(96.0);
+    child.allocate_ui_with_layout(
+        egui::vec2(label_w, SETTINGS_ROW_H),
+        egui::Layout::left_to_right(egui::Align::Center),
+        |ui| {
             ui.label(egui::RichText::new(label).font(font_label()).color(TEXT));
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                add(ui);
-            });
-        })
-        .response;
+        },
+    );
+
+    // Control column — fills the rest, right-aligned.
+    let control_w = child.available_width().max(0.0);
+    child.allocate_ui_with_layout(
+        egui::vec2(control_w, SETTINGS_ROW_H),
+        egui::Layout::right_to_left(egui::Align::Center),
+        |ui| add(ui),
+    );
+
     if !help.is_empty() {
         response.on_hover_text(help);
     }

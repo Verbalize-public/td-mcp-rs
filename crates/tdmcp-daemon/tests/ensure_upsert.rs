@@ -444,3 +444,4 @@ async fn stale_daemon_lock_reclaimed_on_start() {
 
     harness.stop_graceful().await;
 }
+

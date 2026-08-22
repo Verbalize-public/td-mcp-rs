@@ -88,7 +88,7 @@ async fn setup_pid(pid: u32) -> (Arc<Mutex<PidRegistry>>, BridgeSessions, FakeTd
     let ipc_stream = server_task.await.expect("join server");
     {
         let mut reg = registry.lock().await;
-        reg.handshake(pid, attrs(), Some("1".into()), chrono::Utc::now());
+        reg.handshake(pid, attrs(), Some("1".into()), );
     }
     sessions.spawn(pid, ipc_stream).await;
     (registry, sessions, peer)
@@ -122,7 +122,7 @@ async fn setup_two_pids(
             let ipc_stream = server_task.await.expect("join server");
             {
                 let mut reg = registry.lock().await;
-                reg.handshake(pid, attrs(), Some("1".into()), chrono::Utc::now());
+                reg.handshake(pid, attrs(), Some("1".into()), );
             }
             sessions.spawn(pid, ipc_stream).await;
             peer
@@ -150,7 +150,7 @@ async fn rehandshake_and_spawn(
     let ipc_stream = server_task.await.expect("join server");
     {
         let mut reg = registry.lock().await;
-        reg.handshake(pid, attrs(), Some("1".into()), chrono::Utc::now());
+        reg.handshake(pid, attrs(), Some("1".into()), );
     }
     sessions.spawn(pid, ipc_stream).await;
     peer
@@ -975,3 +975,5 @@ async fn x_asymmetric_busy_a_sequential_b() {
     })
     .await;
 }
+
+

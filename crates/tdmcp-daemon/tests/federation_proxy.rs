@@ -510,3 +510,4 @@ async fn slave_unreachable_after_kill() {
 
     let _ = master;
 }
+

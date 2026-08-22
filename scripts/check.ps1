@@ -15,8 +15,8 @@ Write-Host "== cargo test =="
 cargo test --workspace
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-Write-Host "== bridge python tests =="
-python -m unittest discover -s bridge/tests -p "test_*.py" -v
+Write-Host "== bridge python tests (pytest) =="
+python -m pytest bridge/tests -v
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Write-Host "OK: check green"

@@ -94,7 +94,6 @@ impl PidRegistry {
         pid: u32,
         process: ProcessAttrs,
         protocol_version: Option<String>,
-        now: DateTime<Utc>,
     ) {
         match self.entries.get_mut(&pid) {
             Some(entry) => {
@@ -114,7 +113,6 @@ impl PidRegistry {
                     if was_disconnected {
                         entry.resurrection.on_resurrect();
                     }
-                    let _ = now;
                 }
             }
             None => {
@@ -269,8 +267,7 @@ mod tests {
     #[test]
     fn exclusive_fails_while_busy_via_registry() {
         let mut r = PidRegistry::new();
-        let now = Utc::now();
-        r.handshake(34, attrs("proj"), Some("1".into()), now);
+        r.handshake(34, attrs("proj"), Some("1".into()));
         r.enqueue(34, "SharedA", TaskMode::Shared).unwrap();
         let err = r
             .enqueue(34, "ExclusiveB", TaskMode::Exclusive)
@@ -281,8 +278,7 @@ mod tests {
     #[test]
     fn cancel_queue_keep_connected_clears_without_disconnect() {
         let mut r = PidRegistry::new();
-        let now = Utc::now();
-        r.handshake(34, attrs("proj"), Some("1".into()), now);
+        r.handshake(34, attrs("proj"), Some("1".into()));
         r.enqueue(34, "PythonEval", TaskMode::Shared).unwrap();
         r.start_next(34).unwrap();
         let cancelled = r.cancel_queue_keep_connected(34);
@@ -297,9 +293,9 @@ mod tests {
     #[test]
     fn pid_reuse_mismatch_clears_state_only() {
         let mut r = PidRegistry::new();
-        let now = Utc::now();
-        r.handshake(34, attrs("old"), Some("1".into()), now);
+        r.handshake(34, attrs("old"), Some("1".into()));
         r.enqueue(34, "SharedA", TaskMode::Shared).unwrap();
+        let now = Utc::now();
         r.on_bridge_lost(34, now);
         assert_eq!(r.get(34).unwrap().resurrection.cancelled_tasks.len(), 1);
 
@@ -307,7 +303,7 @@ mod tests {
         let mut fresh = attrs("new");
         fresh.fingerprint.title = Some("new".into());
         fresh.fingerprint.start_time = Some("t1".into());
-        r.handshake(34, fresh, Some("1".into()), now);
+        r.handshake(34, fresh, Some("1".into()));
 
         let e = r.get(34).unwrap();
         assert_eq!(e.bridge, BridgeStatus::Connected);
@@ -319,12 +315,12 @@ mod tests {
     #[test]
     fn resurrection_then_success_clears_stack() {
         let mut r = PidRegistry::new();
-        let now = Utc::now();
-        r.handshake(34, attrs("proj"), Some("1".into()), now);
+        r.handshake(34, attrs("proj"), Some("1".into()));
         r.enqueue(34, "PythonEval", TaskMode::Exclusive).unwrap();
         r.start_next(34).unwrap();
+        let now = Utc::now();
         r.on_bridge_lost(34, now);
-        r.handshake(34, attrs("proj"), Some("1".into()), now);
+        r.handshake(34, attrs("proj"), Some("1".into()));
         assert!(r.get(34).unwrap().resurrection.resurrected);
         assert!(!r.get(34).unwrap().resurrection.cancelled_tasks.is_empty());
 
@@ -338,13 +334,13 @@ mod tests {
     #[test]
     fn handshake_evicts_other_disconnected() {
         let mut r = PidRegistry::new();
+        r.handshake(10, attrs("a"), Some("1".into()));
+        r.handshake(20, attrs("b"), Some("1".into()));
         let now = Utc::now();
-        r.handshake(10, attrs("a"), Some("1".into()), now);
-        r.handshake(20, attrs("b"), Some("1".into()), now);
         r.on_bridge_lost(10, now);
         assert_eq!(r.get(10).unwrap().bridge, BridgeStatus::Disconnected);
 
-        r.handshake(20, attrs("b"), Some("1".into()), now);
+        r.handshake(20, attrs("b"), Some("1".into()));
         assert!(r.get(10).is_none());
         assert_eq!(r.get(20).unwrap().bridge, BridgeStatus::Connected);
     }
@@ -352,10 +348,10 @@ mod tests {
     #[test]
     fn same_pid_handshake_resurrects_not_evicts() {
         let mut r = PidRegistry::new();
+        r.handshake(10, attrs("a"), Some("1".into()));
         let now = Utc::now();
-        r.handshake(10, attrs("a"), Some("1".into()), now);
         r.on_bridge_lost(10, now);
-        r.handshake(10, attrs("a"), Some("1".into()), now);
+        r.handshake(10, attrs("a"), Some("1".into()));
         let e = r.get(10).unwrap();
         assert_eq!(e.bridge, BridgeStatus::Connected);
         assert!(e.resurrection.resurrected);
@@ -364,13 +360,15 @@ mod tests {
     #[test]
     fn evict_if_disconnected_noops_when_connected() {
         let mut r = PidRegistry::new();
-        let now = Utc::now();
-        r.handshake(10, attrs("a"), Some("1".into()), now);
+        r.handshake(10, attrs("a"), Some("1".into()));
         assert!(!r.evict_if_disconnected(10));
         assert!(r.get(10).is_some());
 
+        let now = Utc::now();
         r.on_bridge_lost(10, now);
         assert!(r.evict_if_disconnected(10));
         assert!(r.get(10).is_none());
     }
 }
+
+

@@ -255,3 +255,4 @@ async fn admin_config_requires_psk_when_enabled() {
     let body: Value = ok.json().await.expect("config json");
     assert!(body.get("server").is_some() || body.get("federation").is_some());
 }
+

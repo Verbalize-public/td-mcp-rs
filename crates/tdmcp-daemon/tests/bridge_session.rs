@@ -63,7 +63,7 @@ async fn setup_with_ttl(
 
     {
         let mut reg = registry.lock().await;
-        reg.handshake(pid, attrs(), Some("1".into()), chrono::Utc::now());
+        reg.handshake(pid, attrs(), Some("1".into()));
     }
     sessions.spawn(pid, ipc_stream).await;
     (registry, sessions, peer)
@@ -108,7 +108,7 @@ async fn rehandshake_and_spawn(
     let ipc_stream = server_task.await.expect("join server");
     {
         let mut reg = registry.lock().await;
-        reg.handshake(pid, attrs(), Some("1".into()), chrono::Utc::now());
+        reg.handshake(pid, attrs(), Some("1".into()));
     }
     sessions.spawn(pid, ipc_stream).await;
     peer
@@ -696,7 +696,7 @@ async fn setup_with_heartbeat_and_timeouts(
 
     {
         let mut reg = registry.lock().await;
-        reg.handshake(pid, attrs(), Some("1".into()), chrono::Utc::now());
+        reg.handshake(pid, attrs(), Some("1".into()));
     }
     sessions.spawn(pid, ipc_stream).await;
     (registry, sessions, peer)
@@ -962,3 +962,4 @@ async fn call_timeout_does_not_idle_dead_session() {
 
     let _ = driver.await;
 }
+

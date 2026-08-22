@@ -136,8 +136,6 @@ pub enum PidResolve {
     Ambiguous(Vec<(DaemonId, String)>),
     /// Treated as local (Fb: simplistic — not found on any slave).
     Local,
-    /// Not found anywhere (Fb: unused when Local covers local-only).
-    NotFound,
 }
 
 /// One process row in an aggregated master fleet.

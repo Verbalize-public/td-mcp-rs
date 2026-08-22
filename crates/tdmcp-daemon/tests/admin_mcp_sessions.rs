@@ -147,3 +147,4 @@ async fn mcp_sessions_list_and_annotate() {
     drop(handler);
     assert_eq!(state.mcp_session_count(), 0);
 }
+

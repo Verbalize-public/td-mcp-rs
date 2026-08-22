@@ -131,7 +131,6 @@ pub fn fleet_summary(
 #[allow(clippy::unwrap_used, clippy::expect_used, reason = "unit tests")]
 mod tests {
     use super::*;
-    use chrono::Utc;
     use tdmcp_core::{ProcessAttrs, ProcessFingerprint, TaskMode};
 
     fn connected_registry(pid: u32) -> PidRegistry {
@@ -148,7 +147,6 @@ mod tests {
                 ..Default::default()
             },
             Some("1".into()),
-            Utc::now(),
         );
         reg
     }
