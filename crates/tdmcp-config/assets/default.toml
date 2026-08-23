@@ -53,6 +53,23 @@ always_on = false
 # Default true. CLI --no-gui / TDMCP_NO_GUI=1 still forces headless.
 show_tray = true
 
+[logging]
+# Log directory. Default: <data dir>/logs (JSONL, rotated daily).
+# dir = "C:/path/to/tdmcp-rs-data/logs"
+
+# EnvFilter for the log files. Unset: RUST_LOG if set, else
+# "info,tdmcp_daemon=debug". Example: "debug,hyper=warn".
+# filter = "info,tdmcp_daemon=debug"
+
+# Separate EnvFilter for the console (stderr). Unset: the historical defaults.
+# console_level = "warn"
+
+# Daily rotated files kept on disk (default 14).
+max_files = 14
+
+# Files older than this many days are deleted at startup and daily (default 30).
+retention_days = 30
+
 [bridge]
 # Seconds to wait for ping / inspect / capture responses (default: 45).
 call_timeout_secs = 45

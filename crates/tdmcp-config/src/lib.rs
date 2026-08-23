@@ -37,6 +37,8 @@ pub struct ConfigFile {
     pub federation: FederationSection,
     /// Daemon lifecycle settings.
     pub daemon: DaemonSection,
+    /// Log sink / rotation / retention settings.
+    pub logging: LoggingSection,
     /// Bridge IPC call / heartbeat budgets.
     pub bridge: BridgeSection,
     /// Optional path overrides.
@@ -124,6 +126,34 @@ impl Default for DaemonSection {
             keep_alive: true,
             always_on: false,
             show_tray: true,
+        }
+    }
+}
+
+/// `[logging]` table — rotating JSONL sink and retention.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LoggingSection {
+    /// Override log directory; unset → `{data_dir}/logs`.
+    pub dir: Option<PathBuf>,
+    /// EnvFilter string for the file layer; unset → `RUST_LOG` → built-in default.
+    pub filter: Option<String>,
+    /// Separate EnvFilter for the stderr console; unset → current defaults.
+    pub console_level: Option<String>,
+    /// Daily rotated files kept.
+    pub max_files: u32,
+    /// Files older than this many days are swept at startup and every 24 h.
+    pub retention_days: u32,
+}
+
+impl Default for LoggingSection {
+    fn default() -> Self {
+        Self {
+            dir: None,
+            filter: None,
+            console_level: None,
+            max_files: 14,
+            retention_days: 30,
         }
     }
 }
@@ -380,6 +410,7 @@ pub fn save(path: &Path, cfg: &ConfigFile) -> Result<()> {
     ensure_table(&mut doc, "auth");
     ensure_table(&mut doc, "federation");
     ensure_table(&mut doc, "daemon");
+    ensure_table(&mut doc, "logging");
     ensure_table(&mut doc, "bridge");
     ensure_table(&mut doc, "advanced");
 
@@ -400,6 +431,21 @@ pub fn save(path: &Path, cfg: &ConfigFile) -> Result<()> {
     doc["bridge"]["heartbeat_interval_secs"] = value(cfg.bridge.heartbeat_interval_secs as i64);
     doc["bridge"]["pong_timeout_secs"] = value(cfg.bridge.pong_timeout_secs as i64);
     doc["bridge"]["idle_dead_secs"] = value(cfg.bridge.idle_dead_secs as i64);
+
+    doc["logging"]["max_files"] = value(cfg.logging.max_files as i64);
+    doc["logging"]["retention_days"] = value(cfg.logging.retention_days as i64);
+    let dir_str = cfg
+        .logging
+        .dir
+        .as_deref()
+        .map(|p| p.to_string_lossy().into_owned());
+    set_optional_str(&mut doc["logging"], "dir", dir_str.as_deref());
+    set_optional_str(&mut doc["logging"], "filter", cfg.logging.filter.as_deref());
+    set_optional_str(
+        &mut doc["logging"],
+        "console_level",
+        cfg.logging.console_level.as_deref(),
+    );
 
     set_optional_path(
         &mut doc["advanced"],
@@ -439,6 +485,20 @@ fn set_optional_path(table_item: &mut Item, key: &str, path: Option<&PathBuf>) {
     match path {
         Some(p) => {
             table.insert(key, value(p.to_string_lossy().as_ref()));
+        }
+        None => {
+            table.remove(key);
+        }
+    }
+}
+
+fn set_optional_str(table_item: &mut Item, key: &str, val: Option<&str>) {
+    let Some(table) = table_item.as_table_mut() else {
+        return;
+    };
+    match val {
+        Some(v) => {
+            table.insert(key, value(v));
         }
         None => {
             table.remove(key);
@@ -698,5 +758,78 @@ show_tray = true
         );
         assert_eq!(again.federation.master_url, "http://127.0.0.1:9860");
         assert_eq!(again.federation.master_psk, "master-secret");
+    }
+
+    #[test]
+    fn default_toml_has_no_optional_logging_overrides() {
+        let cfg: ConfigFile = toml_edit::de::from_str(DEFAULT_TOML).expect("parse default");
+        assert_eq!(cfg.logging.dir, None);
+        assert_eq!(cfg.logging.filter, None);
+        assert_eq!(cfg.logging.console_level, None);
+        assert_eq!(cfg.logging.max_files, 14);
+        assert_eq!(cfg.logging.retention_days, 30);
+    }
+
+    #[test]
+    fn missing_logging_section_uses_defaults() {
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join("config.toml");
+        fs::write(
+            &path,
+            r#"
+[server]
+port = 9860
+"#,
+        )
+        .expect("write");
+        let cfg = load(&path).expect("load");
+        assert_eq!(cfg.logging, LoggingSection::default());
+    }
+
+    #[test]
+    fn save_round_trips_logging() {
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join("config.toml");
+        ensure_default(&path, true).expect("seed");
+        let mut cfg = load(&path).expect("load");
+        cfg.logging.dir = Some(dir.path().join("custom-logs"));
+        cfg.logging.filter = Some("debug,hyper=warn".to_owned());
+        cfg.logging.console_level = Some("warn".to_owned());
+        cfg.logging.max_files = 7;
+        cfg.logging.retention_days = 5;
+        save(&path, &cfg).expect("save");
+        let again = load(&path).expect("reload");
+        assert_eq!(
+            again.logging.dir,
+            Some(dir.path().join("custom-logs"))
+        );
+        assert_eq!(again.logging.filter.as_deref(), Some("debug,hyper=warn"));
+        assert_eq!(again.logging.console_level.as_deref(), Some("warn"));
+        assert_eq!(again.logging.max_files, 7);
+        assert_eq!(again.logging.retention_days, 5);
+
+        // Clearing the optionals removes the keys instead of writing empties.
+        let mut cleared = again;
+        cleared.logging.dir = None;
+        cleared.logging.filter = None;
+        cleared.logging.console_level = None;
+        save(&path, &cleared).expect("save2");
+        let text = fs::read_to_string(&path).expect("read");
+        // Keys must be gone; template comments mentioning them may stay.
+        for key in ["dir", "filter", "console_level"] {
+            assert!(
+                !text
+                    .lines()
+                    .any(|l| l.trim_start().starts_with(&format!("{key} ="))),
+                "{key} line must be removed"
+            );
+        }
+        let final_cfg = load(&path).expect("reload2");
+        assert_eq!(final_cfg.logging.dir, None);
+        assert_eq!(final_cfg.logging.filter, None);
+        assert_eq!(final_cfg.logging.console_level, None);
+        // Scalars persist across the clear.
+        assert_eq!(final_cfg.logging.max_files, 7);
+        assert_eq!(final_cfg.logging.retention_days, 5);
     }
 }

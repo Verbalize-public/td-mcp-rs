@@ -69,7 +69,9 @@ tokio = { version = "1.53", features = ["rt-multi-thread", "macros", "net", "syn
 tokio-util = "0.7"
 tower = "0.5"
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+# "registry": workspace pins features (defaults off) and layered subscribers need it.
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "registry"] }
+tracing-appender = "0.2"
 tray-icon = "0.24"
 winit = "0.30"
 tempfile = "3"
