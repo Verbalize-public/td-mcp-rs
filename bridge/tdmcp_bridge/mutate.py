@@ -5,6 +5,7 @@ from typing import Any
 
 from .constants import _FLAG_NAMES
 from .paths import _absolutize_path, _get_par, _parent_and_name, resolve_op
+from .shader_lint import lint_dat_consumers
 from .suggest import _is_op_type_name, _suggest_names, _suggest_op_types
 
 def _par_names(node: Any) -> list[str]:
@@ -246,6 +247,43 @@ def _apply_expressions(
     return None
 
 
+def _apply_text(node: Any, text: str) -> dict[str, Any] | None:
+    """Write a DAT body via ``node.text``. Returns an error step dict, or None."""
+    family = getattr(node, "family", None)
+    is_dat = family == "DAT" or bool(getattr(node, "isDAT", False))
+    if not is_dat:
+        return {
+            "ok": False,
+            "code": "tdmcp.mutate.not_dat",
+            "path": getattr(node, "path", None),
+            "message": (
+                f"text write requires a DAT target "
+                f"(family={family or 'unknown'}, opType={getattr(node, 'opType', None)})"
+            ),
+        }
+    try:
+        node.text = text
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "ok": False,
+            "code": "tdmcp.mutate.step_failed",
+            "path": getattr(node, "path", None),
+            "message": str(exc),
+            "field": "text",
+        }
+    return None
+
+
+def _attach_shader_lint(
+    out: dict[str, Any], ctx: "MutateContext", dat_path: str, context_path: str | None
+) -> None:
+    """Best-effort ``shaderDiagnostics`` after a DAT text write. Never fails the step."""
+    result = lint_dat_consumers(ctx, dat_path, scope_root=context_path or "/project1")
+    consumers = result.get("consumers") or []
+    if consumers:
+        out["shaderDiagnostics"] = consumers
+
+
 def _apply_pulse(node: Any, pulse: list[str]) -> dict[str, Any] | None:
     """Pulse named parameters."""
     for name in pulse:
@@ -313,6 +351,10 @@ class MutateContext:
         """Value assigned to ``par.mode`` before setting ``.expr``."""
         return "EXPRESSION"
 
+    def find_children(self, root: Any, type_name: str) -> list[Any]:
+        """Children of ``root`` with opType == type_name (shader consumer scan)."""
+        raise NotImplementedError
+
 
 class _TdMutateContext(MutateContext):
     """Live TD resolution via ``tdmcp_resolve`` / ``getattr(td, …)``."""
@@ -348,6 +390,18 @@ class _TdMutateContext(MutateContext):
             if expr is not None:
                 return expr
         return "EXPRESSION"
+
+    def find_children(self, root: Any, type_name: str) -> list[Any]:
+        import td  # type: ignore
+
+        op_cls = getattr(td, type_name, None)
+        find_fn = getattr(root, "findChildren", None)
+        if op_cls is None or not callable(find_fn):
+            return []
+        try:
+            return list(find_fn(type=op_cls))
+        except Exception:  # noqa: BLE001 — scan quirks (e.g. from root) degrade
+            return []
 
 
 def apply_step(
@@ -443,11 +497,21 @@ def _step_create(
     else:
         # Missing path → assume requested; never emit a false rename lint.
         created_path = full
+    text = step.get("text")
+    if text is not None:
+        err = _apply_text(created, str(text))
+        if err is not None:
+            err["path"] = created_path
+            _rollback_create(created)
+            return err
     values = step.get("values")
     if values:
         err = _apply_values(created, values)
         if err is not None:
             err["path"] = created_path
+            if text is not None:
+                # Text landed before this failure — capture its lint while the node still exists.
+                _attach_shader_lint(err, ctx, created_path, context_path)
             _rollback_create(created)
             return err
     flags = step.get("flags")
@@ -455,10 +519,16 @@ def _step_create(
         err = _apply_flags(created, flags)
         if err is not None:
             err["path"] = created_path
+            if text is not None:
+                _attach_shader_lint(err, ctx, created_path, context_path)
             _rollback_create(created)
             return err
     out: dict[str, Any] = {"ok": True, "path": created_path}
+    if text is not None:
+        _attach_shader_lint(out, ctx, created_path, context_path)
     if detail_level == "detailed":
+        if text is not None:
+            out["textLength"] = len(str(text))
         if values:
             out["values"] = values
         if flags:
@@ -501,6 +571,11 @@ def _step_set(
             "path": full,
         }
     node_path = getattr(node, "path", None) or full
+    text = step.get("text")
+    if text is not None:
+        err = _apply_text(node, str(text))
+        if err is not None:
+            return err
     values = step.get("values")
     expressions = step.get("expressions")
     pulse = step.get("pulse")
@@ -508,21 +583,33 @@ def _step_set(
     if values:
         err = _apply_values(node, values)
         if err is not None:
+            if text is not None:
+                _attach_shader_lint(err, ctx, node_path, context_path)
             return err
     if expressions:
         err = _apply_expressions(node, expressions, ctx.expression_mode())
         if err is not None:
+            if text is not None:
+                _attach_shader_lint(err, ctx, node_path, context_path)
             return err
     if pulse:
         err = _apply_pulse(node, list(pulse))
         if err is not None:
+            if text is not None:
+                _attach_shader_lint(err, ctx, node_path, context_path)
             return err
     if flags:
         err = _apply_flags(node, flags)
         if err is not None:
+            if text is not None:
+                _attach_shader_lint(err, ctx, node_path, context_path)
             return err
     out: dict[str, Any] = {"ok": True, "path": node_path}
+    if text is not None:
+        _attach_shader_lint(out, ctx, node_path, context_path)
     if detail_level == "detailed":
+        if text is not None:
+            out["textLength"] = len(str(text))
         if values:
             out["values"] = values
         if expressions:
@@ -802,12 +889,26 @@ def run_mutate_steps(
                     pass
         else:
             failed_at = i
-    return {
+    out = {
         "ok": failed_at is None,
         "applied": applied,
         "failedAt": failed_at,
         "steps": results,
     }
+    shader_notes = 0
+    shader_errors = 0
+    for result in results:
+        for diag in result.get("shaderDiagnostics") or []:
+            severity = diag.get("severity")
+            if severity == "note":
+                shader_notes += 1
+            elif severity == "error":
+                shader_errors += 1
+    if shader_notes:
+        out["shaderNotes"] = shader_notes
+    if shader_errors:
+        out["shaderErrors"] = shader_errors
+    return out
 
 
 def handle_mutate(params: dict[str, Any]) -> dict[str, Any]:

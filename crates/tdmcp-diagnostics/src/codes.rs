@@ -90,10 +90,21 @@ pub const PAR_ENABLE_EXPR_FAILED: &str = "tdmcp.par.enable_expr_failed";
 pub const OP_SIMILAR_TYPE: &str = "tdmcp.op.similar_type";
 /// Mutate step failed with a TD-side exception (catch-all).
 pub const MUTATE_STEP_FAILED: &str = "tdmcp.mutate.step_failed";
+/// Text write (`create`/`set` `text`) targeted a non-DAT operator.
+pub const MUTATE_NOT_DAT: &str = "tdmcp.mutate.not_dat";
 /// Connector index out of range for connect/disconnect.
 pub const WIRE_BAD_INDEX: &str = "tdmcp.wire.bad_index";
 /// Connector connect/disconnect raised a TD-side error.
 pub const WIRE_CONNECT_FAILED: &str = "tdmcp.wire.connect_failed";
+
+/// Shader lint: consumer compiled successfully (soft note).
+pub const SHADER_COMPILED: &str = "tdmcp.shader.compiled";
+/// Shader lint: consumer compile failed; item `lines[]` carries verbatim ERROR: lines.
+pub const SHADER_COMPILE_FAILED: &str = "tdmcp.shader.compile_failed";
+/// Shader lint: consumer exposes no compile-status surface (e.g. glslPOP).
+pub const SHADER_UNSUPPORTED_CONSUMER: &str = "tdmcp.shader.unsupported_consumer";
+/// Shader lint consumer scan/diagnostics capped (soft; payload `truncation` block).
+pub const SHADER_CONSUMERS_TRUNCATED: &str = "tdmcp.shader.consumers_truncated";
 
 /// Python script execution failed.
 pub const SCRIPT_EXECUTION_FAILED: &str = "tdmcp.script.execution_failed";
@@ -163,8 +174,13 @@ pub const ALL: &[&str] = &[
     PAR_ENABLE_EXPR_FAILED,
     OP_SIMILAR_TYPE,
     MUTATE_STEP_FAILED,
+    MUTATE_NOT_DAT,
     WIRE_BAD_INDEX,
     WIRE_CONNECT_FAILED,
+    SHADER_COMPILED,
+    SHADER_COMPILE_FAILED,
+    SHADER_UNSUPPORTED_CONSUMER,
+    SHADER_CONSUMERS_TRUNCATED,
     SCRIPT_EXECUTION_FAILED,
     SCRIPT_NONE_OP,
     SCRIPT_TOO_LARGE,

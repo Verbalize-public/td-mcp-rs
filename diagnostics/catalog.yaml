@@ -439,6 +439,19 @@ entries:
       - kind: tool
         id: mutate_nodes
 
+  - code: tdmcp.mutate.not_dat
+    layer: mutate
+    message: "Text write targeted a non-DAT operator"
+    mitigation:
+      - "Inspect the target: only DAT-family ops accept `text` (textDAT, tableDAT, …)"
+      - "Write shader bodies to the stage DAT referenced by the GLSL op's stage par"
+      - "Fix the failedAt step only; later steps are skipped, not replayed"
+    references:
+      - kind: tool
+        id: mutate_nodes
+      - kind: tool
+        id: inspect
+
   - code: tdmcp.wire.bad_index
     layer: mutate
     message: "Connector index out of range for connect/disconnect"
@@ -466,6 +479,51 @@ entries:
         uri: tdmcp://docs/network-design
       - kind: tool
         id: mutate_nodes
+
+  - code: tdmcp.shader.compiled
+    layer: mutate
+    message: "Shader consumer compiled successfully (note)"
+    mitigation:
+      - "Informational only — no action needed; never flips tool ok"
+      - "Reading compileResult forces a synchronous recompile of the consumer"
+    references:
+      - kind: tool
+        id: mutate_nodes
+      - kind: tool
+        id: inspect
+
+  - code: tdmcp.shader.compile_failed
+    layer: mutate
+    message: "Shader consumer compile failed"
+    mitigation:
+      - "Read item lines[] — verbatim ERROR: lines carry the DAT path + line number"
+      - "Fix the stage DAT body (line numbers include any preamble you wrote)"
+      - "Re-write via mutate_nodes text and re-check shaderDiagnostics"
+    references:
+      - kind: tool
+        id: mutate_nodes
+      - kind: tool
+        id: inspect
+
+  - code: tdmcp.shader.unsupported_consumer
+    layer: mutate
+    message: "Consumer exposes no compile-status surface"
+    mitigation:
+      - "glslPOP has no verified compileResult in this TD build — status unknown"
+      - "Check OP.errors() / an Info DAT for that consumer instead"
+    references:
+      - kind: tool
+        id: inspect
+
+  - code: tdmcp.shader.consumers_truncated
+    layer: mutate
+    message: "Shader consumer scan or diagnostics capped"
+    mitigation:
+      - "Narrow contextPath to the relevant subtree and retry"
+      - "Inspect specific GLSL nodes directly for full detail"
+    references:
+      - kind: tool
+        id: inspect
 
   - code: tdmcp.script.execution_failed
     layer: script

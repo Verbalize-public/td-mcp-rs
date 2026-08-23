@@ -14,6 +14,14 @@ from .constants import (
     _ENABLE_EXPR_MITIGATION,
 )
 from .paths import resolve_op
+from .mutate import _TdMutateContext
+from .shader_lint import (
+    _GLSL_OP_TYPES,
+    _GLSL_STAGE_PARS,
+    _eval_par,
+    classify_compile_result,
+    lint_dat_consumers,
+)
 
 def _child_name(child: Any) -> str:
     """Best-effort operator name; fall back to last path segment."""
@@ -170,31 +178,8 @@ def _inspect_param_entry(p: Any) -> dict[str, Any]:
     return entry
 
 
-# GLSL opTypes that expose shader DAT refs (live TD class names).
-_GLSL_OP_TYPES = frozenset({"glslTOP", "glslmultiTOP", "glslMAT", "glslPOP"})
-
-# Par name → stage role per GLSL family (live TD par names).
-_GLSL_STAGE_PARS: dict[str, tuple[tuple[str, str], ...]] = {
-    "glslTOP": (
-        ("pixeldat", "pixel"),
-        ("vertexdat", "vertex"),
-        ("computedat", "compute"),
-        ("predat", "pre"),
-    ),
-    "glslmultiTOP": (
-        ("pixeldat", "pixel"),
-        ("vertexdat", "vertex"),
-        ("computedat", "compute"),
-        ("predat", "pre"),
-    ),
-    "glslMAT": (
-        ("pdat", "pixel"),
-        ("vdat", "vertex"),
-        ("gdat", "geometry"),
-        ("predat", "pre"),
-    ),
-    "glslPOP": (("computedat", "compute"),),
-}
+# GLSL opTypes / stage-par maps / _eval_par are imported from shader_lint
+# (single source of truth) and remain accessible as inspect-module names.
 
 
 def _text_bytes(text: str) -> int:
@@ -213,20 +198,6 @@ def _dat_content(n: Any) -> dict[str, Any]:
         "bytes": _text_bytes(text),
         "text": text,
     }
-
-
-def _eval_par(n: Any, par_name: str) -> Any:
-    """Best-effort ``n.par.<name>.eval()``; None when missing/fails."""
-    par_owner = getattr(n, "par", None)
-    if par_owner is None:
-        return None
-    par = getattr(par_owner, par_name, None)
-    if par is None:
-        return None
-    try:
-        return par.eval()
-    except Exception:  # noqa: BLE001
-        return None
 
 
 def _shader_stage_from_ref(role: str, ref: Any) -> dict[str, Any] | None:
@@ -276,20 +247,54 @@ def _shader_content(n: Any) -> dict[str, Any]:
         stage = _shader_stage_from_ref(role, ref)
         if stage is not None:
             stages.append(stage)
-    return {
+    out: dict[str, Any] = {
         "kind": "shader",
         "compileResult": compile_result,
         "stages": stages,
     }
+    # Same classifier as mutate lint; omitted for unsupported surfaces (glslPOP).
+    verdict = classify_compile_result(op_type, compile_raw)
+    if verdict["code"] != "tdmcp.shader.unsupported_consumer":
+        out["compileState"] = "error" if verdict["severity"] == "error" else "compiled"
+    return out
 
 
-def _attach_content(n: Any, out: dict[str, Any]) -> None:
-    """Attach ``content`` when node is DAT or known GLSL op; omit otherwise."""
+def _attach_dat_consumers(
+    content: dict[str, Any], n: Any, lint_ctx: Any, scope_root: str | None
+) -> None:
+    """Add consumers[] (+ truncation keys) to a DAT content object. Never raises."""
+    try:
+        result = lint_dat_consumers(lint_ctx, str(getattr(n, "path", "")), scope_root)
+    except Exception:  # noqa: BLE001 — enrichment must never fail inspect
+        return
+    if not result:
+        return
+    content["consumers"] = result.get("consumers") or []
+    for key in ("consumersTruncated", "truncation"):
+        if key in result:
+            content[key] = result[key]
+
+
+def _attach_content(
+    n: Any,
+    out: dict[str, Any],
+    *,
+    lint_ctx: Any = None,
+    scope_root: str | None = None,
+) -> None:
+    """Attach ``content`` when node is DAT or known GLSL op; omit otherwise.
+
+    When ``lint_ctx`` is supplied, DAT content additionally carries the shared
+    shader-consumer diagnostics (docs/SHADER_LINT.md §3/§5).
+    """
     try:
         family = getattr(n, "family", None)
         is_dat = family == "DAT" or bool(getattr(n, "isDAT", False))
         if is_dat:
-            out["content"] = _dat_content(n)
+            content = _dat_content(n)
+            if lint_ctx is not None:
+                _attach_dat_consumers(content, n, lint_ctx, scope_root)
+            out["content"] = content
             return
         op_type = getattr(n, "opType", None)
         if op_type in _GLSL_OP_TYPES:
@@ -307,6 +312,8 @@ def build_inspect_node(
     want_errors: bool = False,
     want_warnings: bool = False,
     want_content: bool = False,
+    lint_ctx: Any = None,
+    scope_root: str | None = None,
 ) -> dict[str, Any]:
     """Shape one inspect node payload (pure enough for unit tests without TD)."""
     children: list[dict[str, Any]] = []
@@ -376,7 +383,7 @@ def build_inspect_node(
                 out["parmExprIssues"] = issues
                 out["diagnostics"] = _enable_expr_diagnostics(issues)
     if want_content:
-        _attach_content(n, out)
+        _attach_content(n, out, lint_ctx=lint_ctx, scope_root=scope_root)
     return out
 
 
@@ -386,6 +393,10 @@ def handle_inspect(params: dict[str, Any]) -> dict[str, Any]:
     Requires live TD. Each path is shaped independently; a bad path does not
     fail the whole batch (partial success). Soft-caps at ``INSPECT_PATHS_LIMIT``
     with ``tdmcp.op.paths_truncated``. Cooking is left to TD / the caller.
+
+    With ``content``: DAT nodes carry ``consumers[]`` shader diagnostics and
+    GLSL nodes a classified ``compileState``. Reading ``compileResult`` forces
+    a synchronous recompile of that consumer (docs/SHADER_LINT.md §3).
     """
     import td  # type: ignore  # noqa: F401 — ensure TD runtime is importable
 
@@ -441,6 +452,8 @@ def handle_inspect(params: dict[str, Any]) -> dict[str, Any]:
                 want_errors=want_errors,
                 want_warnings=want_warnings,
                 want_content=want_content,
+                lint_ctx=(_TdMutateContext(context_path) if want_content else None),
+                scope_root=context_path or "/project1",
             )
             shaped["ok"] = True
             nodes_out.append(shaped)
@@ -470,7 +483,4 @@ def handle_inspect(params: dict[str, Any]) -> dict[str, Any]:
             ],
         }
     return out
-
-
-# --- mutate_nodes (pure apply_step seam + live handle_mutate wrapper) --------
 

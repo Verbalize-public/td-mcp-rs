@@ -19,8 +19,8 @@ Also available as {{ skill("operate") }}.
 | List TD processes, pick a `pid` | `fleet` |
 | Where is the user looking / selection | `editor_context` (hint only) |
 | Structure / params / errors / network | `inspect` (**default** — `paths[]` required) |
-| DAT text/table bodies / GLSL sources | `inspect` with `include: ["content"]` (opt-in; follows GLSL DAT refs) |
-| Create / set / delete / wire | `mutate_nodes` |
+| DAT text/table bodies / GLSL sources | `inspect` with `include: ["content"]` (opt-in; follows GLSL DAT refs; reports shader compile status) |
+| Create / set / delete / wire / **write DAT text** | `mutate_nodes` (`text` on create/set auto-lints consuming shaders in the return) |
 | Arbitrary Python (not network walks) | `execute_python` — see hard rules |
 | Perception / look claims | `capture` |
 | TD Python / opType cards | `api_help` |
@@ -86,7 +86,8 @@ Depth: {{ skill("opsketch-notation") }} (+ gating, examples).
 `inspect` is the primary tool for network analysis. Do **not** use
 `execute_python` as the main network inspector. For DAT `.text` bodies and
 GLSL shader sources, prefer `inspect` with `include: ["content"]` (follows
-shader DAT refs + `compileResult`) over hand-rolled Python reads. After any
+shader DAT refs + `compileResult`; DAT content also reports shader
+`consumers[]` compile status) over hand-rolled Python reads. After any
 mutation pass, a **final `inspect` on the touched network parent** is mandatory
 before claiming done.
 

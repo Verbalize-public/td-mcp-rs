@@ -63,12 +63,12 @@ void main()
 
 ## Error-reading loop
 
-Wire an Info DAT to the GLSL TOP (`info.par.op = glsl`) — compile errors with line
-numbers appear there and in `glsl.errors()`/`warnings()`. Iterate: paste → read errors →
-fix → re-read compile output → only then `capture` if look is still
-unresolved (store-first). The whole loop fits in one `execute_python` call:
-create the GLSL TOP, set its DAT text, read `errors()`/`warnings()`/`compileResult`,
-fix, and re-read until clean.
+Prefer the bridge loop: `mutate_nodes` create the GLSL TOP + write the stage DAT via
+`text` — the step return's `shaderDiagnostics[]` carries compile status (error lines
+with DAT path + line number, or a compiled note) without extra calls. Iterate: write →
+read diagnostics → fix → re-write until clean. For warnings and deeper reads wire an
+Info DAT (`info.par.op = glsl`) or `inspect` content; then `capture` if look is still
+unresolved (store-first).
 
 Line numbers in errors are offset by your bridge preamble; count from the top of the DAT,
 not the original Shadertoy source.

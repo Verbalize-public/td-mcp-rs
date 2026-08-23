@@ -57,6 +57,13 @@
               "$ref": "#/$defs/OpPath",
               "description": "Desired node path (absolute or relative to contextPath)."
             },
+            "text": {
+              "description": "DAT body write (applied before `values`; target must be a DAT, else hard error `tdmcp.mutate.not_dat`). Attaches shader-consumer diagnostics (`shaderDiagnostics`) on success.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "values": {
               "additionalProperties": true,
               "description": "Plain parameter values (`.par.*` only — direct OP attributes like `display`/`viewer` go in `flags`, not here).",
@@ -75,7 +82,7 @@
         },
         {
           "additionalProperties": false,
-          "description": "Set values / expressions / pulse / flags on an existing node.",
+          "description": "Set text / values / expressions / pulse / flags on an existing node.",
           "properties": {
             "expressions": {
               "additionalProperties": true,
@@ -108,6 +115,13 @@
               },
               "type": [
                 "array",
+                "null"
+              ]
+            },
+            "text": {
+              "description": "DAT body write (applied before `values`; target must be a DAT, else hard error `tdmcp.mutate.not_dat`). Attaches shader-consumer diagnostics (`shaderDiagnostics`) on success.",
+              "type": [
+                "string",
                 "null"
               ]
             },

@@ -891,5 +891,119 @@ class InspectContentTest(unittest.TestCase):
         self.assertEqual(out["content"]["stages"][0]["path"], "/project1/mat_pixel")
 
 
+# --- shader lint in content (docs/SHADER_LINT.md §5) -------------------------
+
+_FAILURE_RESULT = (
+    "Pixel Shader Compile Results:\n\n"
+    "ERROR: /project1/code:5: '' : syntax error, unexpected RIGHT_BRACE\n"
+    "ERROR: 1 compilation errors.  No code generated.\n"
+)
+
+
+class _LintTdStub:
+    """Fake TD world for lint discovery: resolve + find_children registry."""
+
+    def __init__(self) -> None:
+        self.root = SimpleNamespace(path="/project1")
+        self.by_type: dict[str, list[Any]] = {}
+        self.resolve_raises: Exception | None = None
+
+    def register(self, type_name: str, *ops: Any) -> None:
+        self.by_type.setdefault(type_name, []).extend(ops)
+
+    def resolve(self, path: str) -> Any | None:
+        if self.resolve_raises is not None:
+            raise self.resolve_raises
+        return self.root if path == "/project1" else None
+
+    def find_children(self, root: Any, type_name: str) -> list[Any]:
+        return list(self.by_type.get(type_name, []))
+
+
+def _lint_glsl(
+    path: str,
+    dat: Any,
+    compile_result: str = "",
+    *,
+    op_type: str = "glslTOP",
+    stage_par: str = "pixeldat",
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        path=path,
+        opType=op_type,
+        compileResult=compile_result,
+        par=SimpleNamespace(**{stage_par: _FakeShaderPar(dat)}),
+    )
+
+
+class InspectShaderLintContentTest(unittest.TestCase):
+    def test_dat_content_gains_consumers(self) -> None:
+        dat = _fake_dat(path="/project1/code", text="body")
+        td_stub = _LintTdStub()
+        td_stub.register(
+            "glslTOP", _lint_glsl("/project1/g", dat, _FAILURE_RESULT)
+        )
+        out = tdmcp_bridge.build_inspect_node(
+            dat, want_nodes=False, want_content=True, lint_ctx=td_stub,
+            scope_root="/project1",
+        )
+        consumers = out["content"]["consumers"]
+        self.assertEqual(len(consumers), 1)
+        self.assertEqual(consumers[0]["consumer"], "/project1/g")
+        self.assertEqual(consumers[0]["severity"], "error")
+        self.assertEqual(consumers[0]["role"], "pixel")
+
+    def test_dat_content_truncation_passes_through(self) -> None:
+        dat = _fake_dat(path="/project1/code")
+        td_stub = _LintTdStub()
+        td_stub.register(
+            "glslTOP",
+            *[_lint_glsl(f"/project1/g{i}", dat) for i in range(20)],
+        )
+        out = tdmcp_bridge.build_inspect_node(
+            dat, want_nodes=False, want_content=True, lint_ctx=td_stub,
+            scope_root="/project1",
+        )
+        content = out["content"]
+        self.assertEqual(len(content["consumers"]), 16)
+        self.assertTrue(content["consumersTruncated"])
+        self.assertEqual(
+            content["truncation"]["code"], "tdmcp.shader.consumers_truncated"
+        )
+
+    def test_dat_content_lint_failure_omits_consumers(self) -> None:
+        dat = _fake_dat(path="/project1/code")
+        td_stub = _LintTdStub()
+        td_stub.resolve_raises = RuntimeError("scan boom")
+        out = tdmcp_bridge.build_inspect_node(
+            dat, want_nodes=False, want_content=True, lint_ctx=td_stub,
+            scope_root="/project1",
+        )
+        self.assertNotIn("consumers", out["content"])
+
+    def test_no_lint_ctx_keeps_legacy_shape(self) -> None:
+        dat = _fake_dat(path="/project1/code", text="x")
+        out = tdmcp_bridge.build_inspect_node(dat, want_nodes=False, want_content=True)
+        self.assertNotIn("consumers", out["content"])
+
+    def test_glsl_compile_state_compiled(self) -> None:
+        node = _fake_node([], path="/project1/g", family="TOP", op_type="glslTOP",
+                          compile_result="Compiled Successfully\n")
+        out = tdmcp_bridge.build_inspect_node(node, want_nodes=False, want_content=True)
+        self.assertEqual(out["content"]["compileState"], "compiled")
+
+    def test_glsl_compile_state_error(self) -> None:
+        node = _fake_node([], path="/project1/g", family="TOP", op_type="glslTOP",
+                          compile_result=_FAILURE_RESULT)
+        out = tdmcp_bridge.build_inspect_node(node, want_nodes=False, want_content=True)
+        self.assertEqual(out["content"]["compileState"], "error")
+
+    def test_glsl_pop_omits_compile_state(self) -> None:
+        node = _fake_node([], path="/project1/p", family="POP", op_type="glslPOP",
+                          compile_result="")
+        out = tdmcp_bridge.build_inspect_node(node, want_nodes=False, want_content=True)
+        self.assertNotIn("compileState", out["content"])
+
+
 if __name__ == "__main__":
     unittest.main()

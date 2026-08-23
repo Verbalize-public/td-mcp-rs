@@ -17,8 +17,8 @@ Live host: {{ skill("operate") }} (tools are self-describing).
 |------|--------|
 | 1 | Classify: frag → GLSL TOP; vert+frag → GLSL MAT; multi-buffer → one TOP/buffer + Feedback |
 | 2 | Apply bridge: TD preamble + `main()` calling `mainImage`; strip `#version` / `texture2D` |
-| 3 | Author via `mutate_nodes` / `execute_python` under the mutation zone; verify with `inspect` |
-| 4 | FAIL → fix DAT from compile log (line nums offset by preamble); re-run |
+| 3 | Author via `mutate_nodes` (`text` on the stage DAT) under the mutation zone; the return carries `shaderDiagnostics` — compile errors surface immediately |
+| 4 | FAIL → fix from `shaderDiagnostics[].lines` (line nums offset by preamble); re-run. Verify with `inspect` content (`compileState`) |
 | 5 | Feed uniforms on Vectors 1 (`vec0name` / `vec0value*`); unfed uniform = warning = FAIL |
 
 Promote with relative exprs — see {{ skill("network-design") }}.

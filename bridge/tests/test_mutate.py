@@ -967,5 +967,196 @@ class MutateSummarizeTest(unittest.TestCase):
         self.assertIn("2", s)
 
 
+# --- text writes + shader lint (docs/SHADER_LINT.md §4) ----------------------
+
+_SUCCESS_RESULT = (
+    "Vertex Shader Compile Results:\n\nCompiled Successfully\n\n"
+    "=============\nPixel Shader Compile Results:\n\nCompiled Successfully\n"
+)
+_FAILURE_RESULT = (
+    "Vertex Shader Compile Results:\n\n"
+    "ERROR: /project1/probe/shader:5: '' : syntax error, unexpected RIGHT_BRACE\n"
+    "ERROR: 1 compilation errors.  No code generated.\n"
+)
+
+
+def _mut_dat(path: str, text: str = "") -> SimpleNamespace:
+    return SimpleNamespace(
+        path=path,
+        family="DAT",
+        isDAT=True,
+        isText=True,
+        isTable=False,
+        opType="textDAT",
+        text=text,
+    )
+
+
+class _StagePar:
+    def __init__(self, target: Any) -> None:
+        self._target = target
+
+    def eval(self) -> Any:
+        return self._target
+
+
+class _GlslConsumer(SimpleNamespace):
+    """GLSL op whose stage par evaluates to a DAT (consumer-scan match)."""
+
+
+def _glsl_consumer(
+    path: str,
+    op_type: str,
+    dat: Any,
+    compile_result: Any,
+    stage_par: str = "pixeldat",
+) -> _GlslConsumer:
+    return _GlslConsumer(
+        path=path,
+        opType=op_type,
+        compileResult=compile_result,
+        par=SimpleNamespace(**{stage_par: _StagePar(dat)}),
+    )
+
+
+class LintCapableCtx(FakeCtx):
+    def __init__(self) -> None:
+        super().__init__()
+        self._by_type: dict[str, list[Any]] = {}
+
+    def register(self, type_name: str, *ops: Any) -> None:
+        self._by_type.setdefault(type_name, []).extend(ops)
+
+    def find_children(self, root: Any, type_name: str) -> list[Any]:
+        return list(self._by_type.get(type_name, []))
+
+
+class MutateTextWriteTest(unittest.TestCase):
+    def test_set_text_on_dat_writes_and_attaches_error_lint(self) -> None:
+        ctx = LintCapableCtx()
+        dat = ctx.track(_mut_dat("/project1/probe/shader"))
+        glsl = _glsl_consumer("/project1/fx/glsl1", "glslTOP", dat, _FAILURE_RESULT)
+        ctx.register("glslTOP", glsl)
+        out = tdmcp_bridge.run_mutate_steps(
+            ctx, [{"op": "set", "path": "/project1/probe/shader", "text": "void m(){}"}]
+        )
+        self.assertTrue(out["ok"])
+        step = out["steps"][0]
+        self.assertTrue(step["ok"])
+        self.assertEqual(dat.text, "void m(){}")
+        diags = step["shaderDiagnostics"]
+        self.assertEqual(len(diags), 1)
+        self.assertEqual(diags[0]["severity"], "error")
+        self.assertEqual(diags[0]["code"], "tdmcp.shader.compile_failed")
+        self.assertEqual(diags[0]["consumer"], glsl.path)
+        self.assertEqual(diags[0]["role"], "pixel")
+        self.assertEqual(out["shaderErrors"], 1)
+
+    def test_set_text_note_lint_and_summary_count(self) -> None:
+        ctx = LintCapableCtx()
+        dat = ctx.track(_mut_dat("/project1/probe/shader"))
+        ctx.register(
+            "glslTOP",
+            _glsl_consumer("/project1/fx/glsl1", "glslTOP", dat, _SUCCESS_RESULT),
+        )
+        out = tdmcp_bridge.run_mutate_steps(
+            ctx, [{"op": "set", "path": "/project1/probe/shader", "text": "x"}]
+        )
+        self.assertEqual(out["steps"][0]["shaderDiagnostics"][0]["code"],
+                         "tdmcp.shader.compiled")
+        self.assertEqual(out["shaderNotes"], 1)
+        self.assertNotIn("shaderErrors", out)
+
+    def test_set_text_on_non_dat_hard_error_skips_rest(self) -> None:
+        ctx = FakeCtx()
+        top = ctx.track(FakeNode("/project1/nz"))  # no family/isDAT → not a DAT
+        out = tdmcp_bridge.run_mutate_steps(
+            ctx,
+            [
+                {"op": "set", "path": "/project1/nz", "text": "x"},
+                {"op": "delete", "path": "/project1/nz"},
+            ],
+        )
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["failedAt"], 0)
+        self.assertEqual(out["steps"][0]["code"], "tdmcp.mutate.not_dat")
+        self.assertTrue(out["steps"][1].get("skipped"))
+        self.assertIsNone(getattr(top, "text", None))
+
+    def test_create_with_text_writes_body(self) -> None:
+        ctx = LintCapableCtx()
+        parent = ctx.track(FakeNode("/project1/probe"))
+        ctx.op_types["textDAT"] = type("textDAT", (), {})
+        dat = _mut_dat("/project1/probe/shader")
+        parent.create = lambda op_cls, name: dat
+        out = tdmcp_bridge.run_mutate_steps(
+            ctx,
+            [{
+                "op": "create",
+                "path": "/project1/probe/shader",
+                "opType": "textDAT",
+                "text": "void main() {}",
+            }],
+        )
+        self.assertTrue(out["ok"])
+        self.assertEqual(dat.text, "void main() {}")
+
+    def test_create_non_dat_text_rolls_back(self) -> None:
+        ctx = LintCapableCtx()
+        parent = ctx.track(FakeNode("/project1/probe"))
+        created = FakeNode("/project1/probe/nz")  # plain OP → not a DAT
+        parent.create = lambda op_cls, name: created
+        out = tdmcp_bridge.run_mutate_steps(
+            ctx,
+            [{
+                "op": "create",
+                "path": "/project1/probe/nz",
+                "opType": "noiseTOP",
+                "text": "x",
+            }],
+        )
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["steps"][0]["code"], "tdmcp.mutate.not_dat")
+        self.assertTrue(created._destroyed, "rollback must destroy the node")
+
+    def test_text_applies_before_values(self) -> None:
+        ctx = LintCapableCtx()
+        dat = ctx.track(_mut_dat("/project1/probe/shader"))
+        glsl = _glsl_consumer("/project1/fx/glsl1", "glslTOP", dat, _FAILURE_RESULT)
+        ctx.register("glslTOP", glsl)
+        out = tdmcp_bridge.run_mutate_steps(
+            ctx,
+            [{
+                "op": "set",
+                "path": "/project1/probe/shader",
+                "text": "body",
+                "values": {"bogusPar": 1},
+            }],
+        )
+        # text lands first; the unknown-par error still fails the step.
+        self.assertEqual(dat.text, "body")
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["steps"][0]["code"], "tdmcp.par.unknown")
+        # lint still rides the failure envelope because the text write landed.
+        diags = out["steps"][0]["shaderDiagnostics"]
+        self.assertEqual(len(diags), 1)
+        self.assertEqual(diags[0]["code"], "tdmcp.shader.compile_failed")
+        self.assertEqual(diags[0]["consumer"], glsl.path)
+        self.assertEqual(out["shaderErrors"], 1)
+
+    def test_detailed_echoes_length_not_body(self) -> None:
+        ctx = LintCapableCtx()
+        ctx.track(_mut_dat("/project1/probe/shader"))
+        body = "void main() {}"
+        out = tdmcp_bridge.run_mutate_steps(
+            ctx,
+            [{"op": "set", "path": "/project1/probe/shader", "text": body}],
+            detail_level="detailed",
+        )
+        step = out["steps"][0]
+        self.assertEqual(step["textLength"], len(body))
+        self.assertNotIn("text", step)
+
+
 if __name__ == "__main__":
     unittest.main()

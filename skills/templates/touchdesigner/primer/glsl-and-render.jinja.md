@@ -14,8 +14,10 @@ port procedure: {{ skill("glsl") }}, {{ skill("shadertoy-conversion") }},
 {{ skill("td-glsl-ground-truth") }}.
 
 To **read** live shader source from a GLSL TOP/MAT/POP, prefer `inspect` with
-`include: ["content"]` (follows DAT refs + `compileResult`) over
-`execute_python`.
+`include: ["content"]` (follows DAT refs + `compileResult`, classifies
+`compileState`; DAT content lists shader `consumers[]`) over
+`execute_python`. To **write** shader text, use `mutate_nodes` `text` — the
+return lints consuming shaders (`shaderDiagnostics[]`) automatically.
 
 ## 3D to pixels (summary)
 

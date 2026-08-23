@@ -95,8 +95,9 @@ pasting generic noise/rotation boilerplate when porting.
 
 Under Vulkan, out-of-bounds or otherwise invalid GLSL can crash the whole TD process,
 not just fail the node. Treat compile-warning-free as mandatory before wiring a shader
-into anything, and keep experiments inside your mutation zone
-({{ skill("mutation-zones") }}).
+into anything: write the stage DAT via `mutate_nodes` `text` (the return's
+`shaderDiagnostics[]` flags compile errors immediately), and keep experiments inside
+your mutation zone ({{ skill("mutation-zones") }}).
 
 ## Related
 

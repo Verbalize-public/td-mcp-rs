@@ -520,6 +520,7 @@ fn mutate_failure_from_steps(value: &Value) -> MutateStepFailure {
                     codes::FLAG_UNKNOWN => codes::FLAG_UNKNOWN,
                     codes::BATCH_SKIPPED_DEPENDENT => codes::BATCH_SKIPPED_DEPENDENT,
                     codes::MUTATE_STEP_FAILED => codes::MUTATE_STEP_FAILED,
+                    codes::MUTATE_NOT_DAT => codes::MUTATE_NOT_DAT,
                     codes::WIRE_BAD_INDEX => codes::WIRE_BAD_INDEX,
                     codes::WIRE_CONNECT_FAILED => codes::WIRE_CONNECT_FAILED,
                     _ => codes::MUTATE_STEP_FAILED,
