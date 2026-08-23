@@ -20,7 +20,7 @@ crate boundaries and process topology.
    TD process(es)  ←── bootstrap .tox → handshake → FS load bridge/
 
  Optional P3: slave daemons register + fleet-push to a master; master proxies
- tools with optional daemonId (see docs/P3_FEDERATION_PLAN.md).
+ tools with optional daemonId (see docs/CONFIG.md § Federation auth & admin surface).
 ```
 
 ## Crate graph
@@ -56,7 +56,7 @@ timeouts, teardown) plus process wiring (axum, admin, GUI spawn).
 | --- | --- | --- |
 | MCP Streamable HTTP | `{bind_address}:9860/mcp/rpc` | Agent tools; JSON fallback `/mcp/tools/*`. Optional Bearer PSK when `[auth] mode=psk`. |
 | Admin HTTP | `{bind_address}:9860/admin/*` | GUI + status; loopback-only for shutdown/restart/sessions; auth-gated remote for `/admin/federation/*` + `/admin/config`. |
-| Federation | master↔slave HTTP | Register, fleet-push, tool proxy (`daemonId`). See [`docs/P3_FEDERATION_PLAN.md`](docs/P3_FEDERATION_PLAN.md). |
+| Federation | master↔slave HTTP | Register, fleet-push, tool proxy (`daemonId`). See [`docs/CONFIG.md`](docs/CONFIG.md) § Federation auth & admin surface. |
 | Bridge IPC | `\\.\pipe\tdmcp-rs` or `{dataDir}/bridge.sock` | TD peer |
 
 ## Identity and queues

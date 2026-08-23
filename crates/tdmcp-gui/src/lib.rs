@@ -6,7 +6,7 @@
 
 mod theme;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -42,6 +42,15 @@ enum FleetPanel {
     None,
     AddSlave,
     SlaveSettings,
+}
+
+/// Which UI triggered the shared subnet scan — keeps the master's "find a
+/// slave" scan and a joiner's "find a master" scan from showing each other's
+/// stale results, without duplicating the scan state/thread/mpsc plumbing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ScanPurpose {
+    AddSlave,
+    JoinMaster,
 }
 
 /// Coalesce tray left-clicks so burst/double events cannot flip twice.
@@ -232,6 +241,20 @@ struct DashboardApp {
     scan_rx: Option<std::sync::mpsc::Receiver<Vec<ScanHit>>>,
     /// Slave self-view transient message (Go standalone outcome).
     slave_self_message: Option<String>,
+    /// Which flow the current `scan_results` belong to.
+    scan_purpose: ScanPurpose,
+    /// Awaiting confirm for turning off network sharing while federated.
+    confirm_turn_off_sharing: bool,
+    /// One-shot: focus the Master PSK field next time it draws.
+    focus_master_psk: bool,
+    /// A saved setting needs a daemon restart to take effect.
+    needs_restart: bool,
+    /// Config snapshot as of the last `open_settings()`, for restart-needed diffing.
+    settings_loaded_snapshot: ConfigFile,
+    /// Slave daemon ids seen on the last `/admin/federation/slaves` poll.
+    known_slave_ids: HashSet<String>,
+    /// Suppresses a join-toast burst for slaves already connected at GUI start.
+    slaves_seen_once: bool,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -260,6 +283,7 @@ impl DashboardApp {
         let draft = cfgfile::load(&config_path).unwrap_or_default();
         let (data_dir_edit, bridge_dir_edit, catalog_path_edit, daemon_bin_edit) =
             path_edits_from(&draft);
+        let settings_loaded_snapshot = draft.clone();
 
         Ok(Self {
             admin_base,
@@ -319,6 +343,13 @@ impl DashboardApp {
             show_add_slave_psk: false,
             scan_rx: None,
             slave_self_message: None,
+            scan_purpose: ScanPurpose::AddSlave,
+            confirm_turn_off_sharing: false,
+            focus_master_psk: false,
+            needs_restart: false,
+            settings_loaded_snapshot,
+            known_slave_ids: HashSet::new(),
+            slaves_seen_once: false,
         })
     }
 
@@ -377,7 +408,28 @@ impl DashboardApp {
         self.bridge_dir_edit = b;
         self.catalog_path_edit = c;
         self.daemon_bin_edit = bin;
+        self.settings_loaded_snapshot = self.draft.clone();
+        self.confirm_turn_off_sharing = false;
         self.view = View::Settings;
+    }
+
+    /// Flip bind/auth together so "share on network" is one decision, not three.
+    /// Turning sharing off also drops federation role back to standalone — leaving
+    /// `role=master`/`slave` on a loopback-only bind would silently produce a dead
+    /// federation link with no error surfaced anywhere.
+    fn set_sharing(&mut self, on: bool) {
+        if on {
+            self.draft.server.bind_address = "0.0.0.0".to_owned();
+            self.draft.auth.mode = "psk".to_owned();
+            if self.draft.auth.psk.trim().is_empty() {
+                self.draft.auth.psk = generate_psk();
+            }
+        } else {
+            self.draft.server.bind_address = "127.0.0.1".to_owned();
+            self.draft.auth.mode = "none".to_owned();
+            self.draft.federation.role = "standalone".to_owned();
+        }
+        self.confirm_turn_off_sharing = false;
     }
 
     fn apply_path_edits(&mut self) {
@@ -393,10 +445,14 @@ impl DashboardApp {
             self.settings_error = Some(e.to_string());
             return;
         }
+        let restart_needed =
+            restart_required_fields_changed(&self.settings_loaded_snapshot, &self.draft);
         match cfgfile::save(&self.config_path, &self.draft) {
             Ok(()) => {
                 self.settings_error = None;
                 self.role_change_note = None;
+                self.needs_restart = self.needs_restart || restart_needed;
+                self.settings_loaded_snapshot = self.draft.clone();
                 self.view = View::Fleet;
             }
             Err(e) => self.settings_error = Some(format!("save failed: {e}")),
@@ -584,13 +640,27 @@ impl DashboardApp {
                 &format!("{}/admin/federation/slaves", self.admin_base),
                 bearer.as_deref(),
             ) {
-                Ok(body) => self.slaves_json = body,
+                Ok(body) => {
+                    self.slaves_json = body;
+                    let slaves = parse_slaves(&self.slaves_json);
+                    if self.slaves_seen_once {
+                        for s in &slaves {
+                            if !self.known_slave_ids.contains(&s.daemon_id) {
+                                notify("Slave joined", &s.hostname);
+                            }
+                        }
+                    }
+                    self.known_slave_ids = slaves.iter().map(|s| s.daemon_id.clone()).collect();
+                    self.slaves_seen_once = true;
+                }
                 Err(_) => {
                     // Keep last snapshot; auth may be unset on old daemons.
                 }
             }
         } else {
             self.slaves_json.clear();
+            self.known_slave_ids.clear();
+            self.slaves_seen_once = false;
         }
 
         if status_ok {
@@ -898,9 +968,11 @@ impl DashboardApp {
         ui.horizontal(|ui| {
             ui.add_space(12.0);
             ui.label(
-                egui::RichText::new("Changes apply after the next restart.")
-                    .font(font_meta())
-                    .color(TEXT_DIM),
+                egui::RichText::new(
+                    "Some changes need a restart — you'll get a one-click prompt after saving.",
+                )
+                .font(font_meta())
+                .color(TEXT_DIM),
             );
         });
         if let Some(err) = &self.settings_error {
@@ -921,40 +993,59 @@ impl DashboardApp {
         });
 
         ui.add_space(6.0);
-        section_header(ui, "REMOTE ACCESS");
+        section_header(ui, "NETWORK");
+        let sharing = !cfgfile::is_loopback_bind(&self.draft.server.bind_address);
         settings_row(
             ui,
-            "Bind address",
-            Self::field_help("server.bind_address"),
+            "Share on my network",
+            "Make this daemon reachable on your local network — required for federation.",
             |ui| {
-                ui.add_sized(
-                    egui::vec2(ui.available_width().min(180.0), 20.0),
-                    egui::TextEdit::singleline(&mut self.draft.server.bind_address)
-                        .font(font_mono()),
-                );
+                let mut sharing_now = sharing;
+                if ui
+                    .add(egui::Checkbox::without_text(&mut sharing_now))
+                    .changed()
+                {
+                    if sharing_now {
+                        self.set_sharing(true);
+                    } else if self.draft.federation.role != "standalone" {
+                        self.confirm_turn_off_sharing = true;
+                    } else {
+                        self.set_sharing(false);
+                    }
+                }
             },
         );
-        settings_row(ui, "Auth mode", Self::field_help("auth.mode"), |ui| {
-            let mut mode_psk = self.draft.auth.mode == "psk";
-            if ui
-                .selectable_label(!mode_psk, "none")
-                .on_hover_text("No Bearer required")
-                .clicked()
-            {
-                self.draft.auth.mode = "none".to_owned();
-                mode_psk = false;
-            }
-            if ui
-                .selectable_label(mode_psk, "psk")
-                .on_hover_text("Require Authorization: Bearer")
-                .clicked()
-            {
-                self.draft.auth.mode = "psk".to_owned();
-                if self.draft.auth.psk.trim().is_empty() {
-                    self.draft.auth.psk = generate_psk();
-                }
-            }
+        ui.horizontal(|ui| {
+            ui.add_space(12.0);
+            ui.label(
+                egui::RichText::new(if sharing {
+                    format!(
+                        "{}:{} · PSK required",
+                        self.draft.server.bind_address, self.draft.server.port
+                    )
+                } else {
+                    "Only this machine (127.0.0.1)".to_owned()
+                })
+                .font(font_meta())
+                .color(TEXT_DIM),
+            );
         });
+        if self.confirm_turn_off_sharing {
+            ui.horizontal(|ui| {
+                ui.add_space(12.0);
+                ui.colored_label(WARN, "This will disconnect federation on this machine.");
+            });
+            ui.horizontal(|ui| {
+                ui.add_space(12.0);
+                if filled_button(ui, "Turn off anyway").clicked() {
+                    self.set_sharing(false);
+                }
+                ui.add_space(4.0);
+                if ghost_button(ui, "Cancel", TEXT_DIM, TEXT).clicked() {
+                    self.confirm_turn_off_sharing = false;
+                }
+            });
+        }
         settings_row(ui, "Auth PSK", Self::field_help("auth.psk"), |ui| {
             let resp = ui.add_sized(
                 egui::vec2(ui.available_width().min(160.0), 20.0),
@@ -972,8 +1063,52 @@ impl DashboardApp {
             {
                 self.show_psk = !self.show_psk;
             }
+            if ghost_button(ui, "copy", TEXT_DIM, ACCENT)
+                .on_hover_text("Copy to clipboard — paste into another machine's Master PSK")
+                .clicked()
+            {
+                ui.ctx().copy_text(self.draft.auth.psk.clone());
+            }
             let _ = resp;
         });
+        egui::CollapsingHeader::new("Advanced (manual bind & auth)")
+            .id_salt("network_advanced")
+            .default_open(false)
+            .show(ui, |ui| {
+                settings_row(
+                    ui,
+                    "Bind address",
+                    Self::field_help("server.bind_address"),
+                    |ui| {
+                        ui.add_sized(
+                            egui::vec2(ui.available_width().min(180.0), 20.0),
+                            egui::TextEdit::singleline(&mut self.draft.server.bind_address)
+                                .font(font_mono()),
+                        );
+                    },
+                );
+                settings_row(ui, "Auth mode", Self::field_help("auth.mode"), |ui| {
+                    let mut mode_psk = self.draft.auth.mode == "psk";
+                    if ui
+                        .selectable_label(!mode_psk, "none")
+                        .on_hover_text("No Bearer required")
+                        .clicked()
+                    {
+                        self.draft.auth.mode = "none".to_owned();
+                        mode_psk = false;
+                    }
+                    if ui
+                        .selectable_label(mode_psk, "psk")
+                        .on_hover_text("Require Authorization: Bearer")
+                        .clicked()
+                    {
+                        self.draft.auth.mode = "psk".to_owned();
+                        if self.draft.auth.psk.trim().is_empty() {
+                            self.draft.auth.psk = generate_psk();
+                        }
+                    }
+                });
+            });
         if !cfgfile::is_loopback_bind(&self.draft.server.bind_address)
             && self.draft.auth.mode != "psk"
         {
@@ -985,21 +1120,37 @@ impl DashboardApp {
 
         ui.add_space(6.0);
         section_header(ui, "FEDERATION");
-        settings_row(ui, "Role", Self::field_help("federation.role"), |ui| {
+        settings_row(ui, "Federation", Self::field_help("federation.role"), |ui| {
             let current = self.draft.federation.role.clone();
-            egui::ComboBox::from_id_salt("federation_role")
-                .selected_text(&current)
-                .width(ui.available_width().min(160.0))
-                .show_ui(ui, |ui| {
-                    for role in ["standalone", "master", "slave"] {
-                        if ui.selectable_label(current == role, role).clicked() && current != role {
-                            self.draft.federation.role = role.to_owned();
-                            self.role_change_note =
-                                Some(format!("role → {role} (applies after save + restart)"));
-                        }
-                    }
-                });
+            if ui.selectable_label(current == "standalone", "Solo").clicked() && current != "standalone" {
+                self.draft.federation.role = "standalone".to_owned();
+                self.role_change_note = Some("role → standalone (restart to apply)".to_owned());
+            }
+            ui.add_enabled_ui(sharing, |ui| {
+                if ui.selectable_label(current == "master", "Master").clicked() && current != "master" {
+                    self.draft.federation.role = "master".to_owned();
+                    self.role_change_note = Some("role → master (restart to apply)".to_owned());
+                }
+                if ui
+                    .selectable_label(current == "slave", "Join a master")
+                    .clicked()
+                    && current != "slave"
+                {
+                    self.draft.federation.role = "slave".to_owned();
+                    self.role_change_note = Some("role → slave (restart to apply)".to_owned());
+                }
+            });
         });
+        if !sharing {
+            ui.horizontal(|ui| {
+                ui.add_space(12.0);
+                ui.label(
+                    egui::RichText::new("Turn on sharing above to become a master or join one.")
+                        .font(font_meta())
+                        .color(TEXT_DIM),
+                );
+            });
+        }
         if let Some(note) = &self.role_change_note {
             ui.horizontal(|ui| {
                 ui.add_space(12.0);
@@ -1027,7 +1178,38 @@ impl DashboardApp {
                 },
             );
         }
+        if self.draft.federation.role == "master" {
+            let (this_url, _) = self.master_federation_values();
+            settings_row(
+                ui,
+                "This machine's URL",
+                "Share with a machine that wants to join as a slave.",
+                |ui| {
+                    ui.label(
+                        egui::RichText::new(&this_url)
+                            .font(font_mono())
+                            .color(TEXT_DIM),
+                    );
+                    if ghost_button(ui, "copy", TEXT_DIM, ACCENT).clicked() {
+                        ui.ctx().copy_text(this_url.clone());
+                    }
+                },
+            );
+        }
         if self.draft.federation.role == "slave" {
+            ui.horizontal(|ui| {
+                ui.add_space(12.0);
+                if self.scan_busy && self.scan_purpose == ScanPurpose::JoinMaster {
+                    ui.label(
+                        egui::RichText::new("scanning…")
+                            .font(font_meta())
+                            .color(TEXT_DIM),
+                    );
+                } else if ghost_button(ui, "Scan for masters", TEXT_DIM, ACCENT).clicked() {
+                    self.start_scan(tdmcp_config::DEFAULT_PORT, ScanPurpose::JoinMaster);
+                }
+            });
+            self.draw_scan_results(ui, ScanPurpose::JoinMaster);
             settings_row(
                 ui,
                 "Master URL",
@@ -1045,12 +1227,16 @@ impl DashboardApp {
                 "Master PSK",
                 Self::field_help("federation.master_psk"),
                 |ui| {
-                    ui.add_sized(
+                    let resp = ui.add_sized(
                         egui::vec2(ui.available_width().min(140.0), 20.0),
                         egui::TextEdit::singleline(&mut self.draft.federation.master_psk)
                             .font(font_mono())
                             .password(!self.show_master_psk),
                     );
+                    if self.focus_master_psk {
+                        resp.request_focus();
+                        self.focus_master_psk = false;
+                    }
                     if ghost_button(
                         ui,
                         if self.show_master_psk { "hide" } else { "show" },
@@ -1063,6 +1249,16 @@ impl DashboardApp {
                     }
                 },
             );
+            ui.horizontal(|ui| {
+                ui.add_space(12.0);
+                ui.label(
+                    egui::RichText::new(
+                        "Get the PSK from the master's Settings → Federation (copy button next to its Auth PSK).",
+                    )
+                    .font(font_meta())
+                    .color(TEXT_DIM),
+                );
+            });
         }
 
         ui.add_space(6.0);
@@ -1225,6 +1421,53 @@ impl DashboardApp {
         });
     }
 
+    /// One-click prompt after a restart-requiring settings save, replacing the
+    /// old silent "applies after next restart" text. Stays a manual click —
+    /// restarting drops live TouchDesigner bridge sessions.
+    fn draw_restart_bar(&mut self, ui: &mut egui::Ui) {
+        let full = ui.available_width();
+        let (rect, _) =
+            ui.allocate_exact_size(egui::vec2(full, SETTINGS_TOOLBAR_H), egui::Sense::hover());
+        ui.painter().rect_filled(rect, 0.0, BG_PANEL);
+        ui.painter()
+            .hline(rect.x_range(), rect.bottom(), egui::Stroke::new(1.0, WARN));
+
+        let mut child = ui.new_child(
+            egui::UiBuilder::new()
+                .max_rect(rect.shrink2(egui::vec2(SIDE_MARGIN, 0.0)))
+                .layout(egui::Layout::left_to_right(egui::Align::Center)),
+        );
+        child.colored_label(WARN, "Settings changed");
+        child.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if filled_button(ui, "Restart to apply").clicked() {
+                self.restart_daemon();
+                self.needs_restart = false;
+            }
+            ui.add_space(4.0);
+            if ghost_button(ui, "Dismiss", TEXT_DIM, TEXT).clicked() {
+                self.needs_restart = false;
+            }
+        });
+    }
+
+    /// Fleet-view nudge toward federation for a not-yet-shared daemon — today
+    /// nothing on the main screen hints the feature exists until Settings is opened.
+    fn draw_share_banner(&mut self, ui: &mut egui::Ui) {
+        let Some(status) = &self.status else { return };
+        let role_ok = status.role.is_empty() || status.role == "standalone";
+        if !role_ok || !cfgfile::is_loopback_bind(&status.bind_address) {
+            return;
+        }
+        ui.horizontal(|ui| {
+            ui.add_space(SIDE_MARGIN);
+            if ghost_button(ui, "Share this daemon on your network →", TEXT_DIM, ACCENT).clicked()
+            {
+                self.open_settings();
+            }
+        });
+        ui.add_space(2.0);
+    }
+
     fn draw_mcp_section(&self, ui: &mut egui::Ui) {
         section_header(ui, "MCP CLIENTS");
         let sessions = serde_json::from_str::<SessionsView>(&self.sessions_json)
@@ -1306,7 +1549,7 @@ impl DashboardApp {
         if role == "master" {
             self.draw_master_actions(ui);
             self.draw_fleet_groups(ui);
-            self.draw_scan_results(ui);
+            self.draw_scan_results(ui, ScanPurpose::AddSlave);
         } else {
             self.draw_flat_fleet(ui);
         }
@@ -1322,14 +1565,14 @@ impl DashboardApp {
                 self.fleet_panel = FleetPanel::AddSlave;
             }
             ui.add_space(4.0);
-            if self.scan_busy {
+            if self.scan_busy && self.scan_purpose == ScanPurpose::AddSlave {
                 ui.label(
                     egui::RichText::new("scanning…")
                         .font(font_meta())
                         .color(TEXT_DIM),
                 );
             } else if ghost_button(ui, "Scan", TEXT_DIM, ACCENT).clicked() {
-                self.start_scan();
+                self.start_scan(self.add_slave_port, ScanPurpose::AddSlave);
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.label(
@@ -1502,14 +1745,25 @@ impl DashboardApp {
         });
     }
 
-    fn draw_scan_results(&mut self, ui: &mut egui::Ui) {
-        if self.scan_results.is_empty() {
+    /// Renders `self.scan_results` only when they belong to `purpose` — the
+    /// master's "find a slave" scan and a joiner's "find a master" scan share one
+    /// result set (see [`ScanPurpose`]) but must never bleed into each other's UI.
+    fn draw_scan_results(&mut self, ui: &mut egui::Ui, purpose: ScanPurpose) {
+        if self.scan_purpose != purpose || self.scan_results.is_empty() {
+            return;
+        }
+        let hits: Vec<&ScanHit> = self
+            .scan_results
+            .iter()
+            .filter(|h| purpose != ScanPurpose::JoinMaster || h.role == "master")
+            .collect();
+        if hits.is_empty() {
             return;
         }
         ui.add_space(6.0);
-        section_header(ui, &format!("SCAN · {} hit(s)", self.scan_results.len()));
+        section_header(ui, &format!("SCAN · {} hit(s)", hits.len()));
         let mut use_hit: Option<(String, u16)> = None;
-        for (i, hit) in self.scan_results.iter().enumerate() {
+        for (i, hit) in hits.iter().enumerate() {
             let bg = if i.is_multiple_of(2) {
                 BG_ROW
             } else {
@@ -1555,8 +1809,12 @@ impl DashboardApp {
                 .color(TEXT),
             );
             child.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let hover = match purpose {
+                    ScanPurpose::AddSlave => "Open add-slave with this host",
+                    ScanPurpose::JoinMaster => "Use this master's URL",
+                };
                 if ghost_button(ui, "use", TEXT_DIM, ACCENT)
-                    .on_hover_text("Open add-slave with this host")
+                    .on_hover_text(hover)
                     .clicked()
                 {
                     use_hit = Some((hit.host.clone(), hit.port));
@@ -1570,14 +1828,22 @@ impl DashboardApp {
             });
         }
         if let Some((host, port)) = use_hit {
-            self.add_slave_host = host;
-            self.add_slave_port = port;
-            self.fleet_panel = FleetPanel::AddSlave;
+            match purpose {
+                ScanPurpose::AddSlave => {
+                    self.add_slave_host = host;
+                    self.add_slave_port = port;
+                    self.fleet_panel = FleetPanel::AddSlave;
+                }
+                ScanPurpose::JoinMaster => {
+                    self.draft.federation.master_url = format!("http://{host}:{port}");
+                    self.focus_master_psk = true;
+                }
+            }
         }
     }
 
-    fn start_scan(&mut self) {
-        if self.scan_busy {
+    fn start_scan(&mut self, port: u16, purpose: ScanPurpose) {
+        if self.scan_busy && self.scan_purpose == purpose {
             return;
         }
         let Some(ip) = local_ip() else {
@@ -1588,7 +1854,7 @@ impl DashboardApp {
             self.error = Some(format!("unexpected local IP {ip}"));
             return;
         };
-        let port = self.add_slave_port;
+        self.scan_purpose = purpose;
         let (tx, rx) = std::sync::mpsc::channel::<Vec<ScanHit>>();
         let spawned = std::thread::Builder::new()
             .name("tdmcp-scan".to_owned())
@@ -2108,6 +2374,9 @@ impl eframe::App for DashboardApp {
             )
             .show(ui, |ui| {
                 self.draw_header(ui);
+                if self.view == View::Fleet && self.needs_restart {
+                    self.draw_restart_bar(ui);
+                }
                 match self.view {
                     View::Settings => {
                         self.draw_settings_toolbar(ui);
@@ -2125,6 +2394,7 @@ impl eframe::App for DashboardApp {
                                 ui.colored_label(ERR, err);
                             });
                         }
+                        self.draw_share_banner(ui);
                         egui::ScrollArea::vertical()
                             .auto_shrink(false)
                             .max_height(WINDOW_MAX_HEIGHT - 60.0)
@@ -2490,6 +2760,18 @@ fn http_post_blocking(
             .await
             .map_err(|e| e.to_string())
     })
+}
+
+/// True when a field that only takes effect after a daemon restart changed.
+#[must_use]
+fn restart_required_fields_changed(a: &ConfigFile, b: &ConfigFile) -> bool {
+    a.server.bind_address != b.server.bind_address
+        || a.server.port != b.server.port
+        || a.auth.mode != b.auth.mode
+        || a.auth.psk != b.auth.psk
+        || a.federation.role != b.federation.role
+        || a.federation.master_url != b.federation.master_url
+        || a.federation.master_psk != b.federation.master_psk
 }
 
 /// Random PSK for `auth.psk` (32 hex chars) when the user switches to `psk`.

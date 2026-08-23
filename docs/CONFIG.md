@@ -83,7 +83,34 @@ link (fresh session) and returns `tdmcp.daemon.unreachable` with `budgetMs`.
 | `master_url` | `""` | Slave only: master base URL (e.g. `http://192.168.1.100:9860`). |
 | `master_psk` | `""` | Slave only: PSK to present to the master (master’s `auth.psk`). |
 
-`role = "slave"` disables idle auto-exit (same effect as `keep_alive`). Design SoT: [`P3_FEDERATION_PLAN.md`](P3_FEDERATION_PLAN.md).
+`role = "slave"` disables idle auto-exit (same effect as `keep_alive`).
+
+### Federation auth & admin surface
+
+**Auth matrix**
+
+| Hop | Bearer |
+| --- | --- |
+| Slave → master register / fleet-push | Master's `auth.psk` (slave config field `master_psk`) |
+| Client → any daemon `/mcp/rpc` | That daemon's `auth.psk` (skip if `mode=none`) |
+| Master → slave tool proxy | Slave's `auth.psk` as register body `authToken` (empty if slave `mode=none`); stored in `SlaveRegistry` |
+| Master → slave `/admin/config` | Same stored `authToken` |
+
+`master_psk` meaning: PSK to present to the master (the master's `auth.psk`).
+
+**Middleware allowlist**
+
+| Path | Remote (`0.0.0.0`) | Auth |
+| --- | --- | --- |
+| `/mcp/rpc`, `/mcp/health`, `/mcp/tools/*` | Allowed | Bearer if `auth.mode=psk` |
+| `/admin/federation/*` (except status probe) | Allowed | Bearer if psk |
+| `/admin/config` GET/POST | Allowed | Bearer if psk |
+| `/admin/federation/status` | Allowed | **Unauth minimal probe** `{ok,version,role,hostname,daemonId,port}` |
+| `/admin/status` | Loopback only (or auth) | Not the LAN scan oracle |
+| `/admin/shutdown`, `/admin/restart`, `/admin/mcp-sessions*` | **Loopback only** | N/A remote |
+
+`daemon_id` conflict: re-registering the same `daemonId` from the same advertised
+base URL overwrites; from a different host/port it is rejected with a diagnostic.
 
 ### `[daemon]`
 
