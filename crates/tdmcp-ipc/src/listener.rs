@@ -208,12 +208,11 @@ impl IpcListener {
         #[cfg(windows)]
         {
             use std::sync::atomic::Ordering;
-            use tokio::net::windows::named_pipe::ServerOptions;
             let BridgeEndpoint::NamedPipe(ref name) = self.endpoint;
             let first = self.first.load(Ordering::SeqCst);
-            let server = ServerOptions::new()
-                .first_pipe_instance(first)
-                .create(name)?;
+            // Custom descriptor so non-elevated bridges can attach to an
+            // elevated daemon (see `winsec` module docs).
+            let server = crate::winsec::create_server(name, first)?;
             // Only spend the first-instance claim after create succeeds.
             self.first.store(false, Ordering::SeqCst);
             server.connect().await?;

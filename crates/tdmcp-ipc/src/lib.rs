@@ -5,6 +5,8 @@
 mod framing;
 mod handshake;
 mod listener;
+#[cfg(windows)]
+mod winsec;
 
 pub use framing::{encode, try_decode, FrameError, Message};
 pub use handshake::{HandshakeOffer, HandshakeRequest, HandshakeResponse};

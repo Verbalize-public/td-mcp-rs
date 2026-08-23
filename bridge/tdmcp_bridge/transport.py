@@ -201,6 +201,11 @@ def _dial_named_pipe(name: str):
     OPEN_EXISTING = 3
     INVALID = ctypes.c_void_p(-1).value
 
+    # Handles are 64-bit; ctypes' default restype (c_int) truncates
+    # INVALID_HANDLE_VALUE to -1, so a failed open would masquerade as a
+    # valid handle and blow up later as a misleading "WriteFile failed".
+    kernel32.CreateFileW.restype = ctypes.c_void_p
+
     handle = kernel32.CreateFileW(
         name,
         GENERIC_READ | GENERIC_WRITE,
@@ -211,7 +216,8 @@ def _dial_named_pipe(name: str):
         None,
     )
     if handle in (INVALID, None):
-        raise OSError(f"could not open named pipe {name}")
+        err = kernel32.GetLastError()
+        raise OSError(f"could not open named pipe {name} (WinError {err})")
     return _NamedPipeStream(handle)
 
 
@@ -321,7 +327,8 @@ class _NamedPipeStream:
                 None,
             )
             if not ok:
-                raise OSError("WriteFile failed")
+                err = self._kernel32.GetLastError()
+                raise OSError(f"WriteFile failed (WinError {err})")
             if written.value == 0:
                 raise OSError("WriteFile wrote 0 bytes")
             total += written.value

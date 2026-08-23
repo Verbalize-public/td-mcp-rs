@@ -14,5 +14,10 @@ thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 
+[target.'cfg(windows)'.dependencies]
+# Must match tokio's windows-sys major so SECURITY_ATTRIBUTES is the same
+# type consumed by create_with_security_attributes_raw.
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization"] }
+
 [lints]
 workspace = true

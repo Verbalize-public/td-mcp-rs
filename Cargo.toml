@@ -76,7 +76,10 @@ tempfile = "3"
 uuid = { version = "1", features = ["v4", "serde"] }
 
 [workspace.lints.rust]
-unsafe_code = "forbid"
+# deny (not forbid): exactly one quarantined unsafe module exists —
+# tdmcp-ipc::winsec (Windows pipe security descriptor FFI). Constitution
+# amendment 2026-08-23; RISKS.md R8.
+unsafe_code = "deny"
 unused_must_use = "deny"
 
 [workspace.lints.clippy]

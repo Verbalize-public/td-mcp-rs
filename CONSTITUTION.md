@@ -25,8 +25,12 @@ Enforcement: root `Cargo.toml` `[workspace.lints]` inherited by every crate via
 
 ## Safety and style
 
-- `unsafe_code` is **forbid** at workspace level. No carve-outs without a
-  constitution amendment + `RISKS.md` entry.
+- `unsafe_code` is **deny** at workspace level. Exactly one quarantined
+  carve-out exists: `crates/tdmcp-ipc/src/winsec.rs` (Windows pipe security
+  descriptor FFI; must expose safe functions only). Any further carve-out
+  needs a new amendment + `RISKS.md` entry in the same change.
+  (Amended 2026-08-23 from `forbid`: Win32 `CreateNamedPipe` security
+  descriptors have no safe wrapper in std/tokio.)
 - No `unwrap` / `expect` / `panic!` / `todo!` / `unimplemented!` in library
   code on release paths (exceptions only via `RISKS.md`).
 - Prefer `?` and typed errors: **`thiserror` in libs**; **`anyhow` only in
@@ -101,3 +105,4 @@ Precedence: **CLI args > env vars > RC file > built-in defaults**.
 | Date | Note |
 | --- | --- |
 | 2026-07-29 | Gate 0 constitution established (scoped from td-rs law) |
+| 2026-08-23 | Unsafe quarantine: `tdmcp-ipc::winsec` (RISKS R8); workspace `unsafe_code` forbid→deny |
