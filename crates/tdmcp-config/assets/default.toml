@@ -13,12 +13,13 @@
 # HTTP listen port for MCP + admin (default: 9860).
 port = 9860
 
-# Listen IP. Default 127.0.0.1 (loopback only). Use 0.0.0.0 for remote;
-# non-loopback requires [auth] mode = "psk" with a non-empty psk.
+# Listen IP. Default 127.0.0.1 (loopback only). Use 0.0.0.0 for LAN/remote
+# reachability (e.g. federation). PSK below is optional, not required.
 bind_address = "127.0.0.1"
 
 [auth]
-# Incoming request auth: "none" (default) or "psk" (Bearer token required).
+# Incoming request auth: "none" (default, no token needed) or "psk" (require
+# a Bearer token) — independent of bind_address, opt in if you want it.
 mode = "none"
 
 # Shared secret for Authorization: Bearer <psk> when mode = "psk".

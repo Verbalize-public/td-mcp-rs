@@ -192,12 +192,12 @@ pub const FIELD_DESCS: &[FieldDesc] = &[
     FieldDesc {
         key: "server.bind_address",
         label: "Bind address",
-        help: "Listen IP (default 127.0.0.1). Use 0.0.0.0 for remote; requires auth.mode=psk.",
+        help: "Listen IP (default 127.0.0.1). Use 0.0.0.0 for LAN/remote reachability.",
     },
     FieldDesc {
         key: "auth.mode",
         label: "Auth mode",
-        help: "Incoming auth: none (local default) or psk (Bearer token required).",
+        help: "Incoming auth: none (default, no token needed) or psk (require a Bearer token).",
     },
     FieldDesc {
         key: "auth.psk",
@@ -337,23 +337,12 @@ pub fn is_loopback_bind(bind_address: &str) -> bool {
     matches!(bind_address.trim(), "127.0.0.1" | "::1")
 }
 
-/// Reject non-loopback bind without `auth.mode = "psk"` and a non-empty PSK.
+/// PSK is optional even on a non-loopback bind (local-network federation is
+/// meant to work with zero setup); this only catches the internally-broken
+/// combination of explicitly choosing `auth.mode = "psk"` with no secret set.
 pub fn validate_remote_auth(file: &ConfigFile) -> Result<()> {
-    if is_loopback_bind(&file.server.bind_address) {
-        return Ok(());
-    }
-    if file.auth.mode != "psk" {
-        anyhow::bail!(
-            "non-loopback bind_address {:?} requires auth.mode = \"psk\" (got {:?})",
-            file.server.bind_address,
-            file.auth.mode
-        );
-    }
-    if file.auth.psk.trim().is_empty() {
-        anyhow::bail!(
-            "non-loopback bind_address {:?} requires a non-empty auth.psk",
-            file.server.bind_address
-        );
+    if file.auth.mode == "psk" && file.auth.psk.trim().is_empty() {
+        anyhow::bail!("auth.mode = \"psk\" requires a non-empty auth.psk");
     }
     Ok(())
 }
@@ -620,14 +609,26 @@ show_tray = true
     }
 
     #[test]
-    fn validate_remote_auth_rejects_non_loopback_without_psk() {
+    fn validate_remote_auth_allows_non_loopback_without_psk() {
+        // PSK is optional even on a LAN/remote bind — no forced friction.
         let mut cfg = ConfigFile::default();
         cfg.server.bind_address = "0.0.0.0".to_owned();
-        assert!(validate_remote_auth(&cfg).is_err());
+        assert!(validate_remote_auth(&cfg).is_ok());
         cfg.auth.mode = "psk".to_owned();
-        assert!(validate_remote_auth(&cfg).is_err());
         cfg.auth.psk = "tok".to_owned();
         assert!(validate_remote_auth(&cfg).is_ok());
+    }
+
+    #[test]
+    fn validate_remote_auth_rejects_psk_mode_without_psk() {
+        // Explicitly choosing psk mode with an empty secret is just broken,
+        // regardless of bind_address.
+        let mut cfg = ConfigFile::default();
+        cfg.auth.mode = "psk".to_owned();
+        assert!(validate_remote_auth(&cfg).is_err());
+        let mut remote = cfg.clone();
+        remote.server.bind_address = "0.0.0.0".to_owned();
+        assert!(validate_remote_auth(&remote).is_err());
     }
 
     #[test]

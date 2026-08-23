@@ -413,20 +413,14 @@ impl DashboardApp {
         self.view = View::Settings;
     }
 
-    /// Flip bind/auth together so "share on network" is one decision, not three.
-    /// Turning sharing off also drops federation role back to standalone — leaving
+    /// Toggle LAN reachability. Auth is a separate, optional choice (see the
+    /// Auth PSK row) — sharing does not require or imply a PSK. Turning sharing
+    /// off also drops federation role back to standalone — leaving
     /// `role=master`/`slave` on a loopback-only bind would silently produce a dead
     /// federation link with no error surfaced anywhere.
     fn set_sharing(&mut self, on: bool) {
-        if on {
-            self.draft.server.bind_address = "0.0.0.0".to_owned();
-            self.draft.auth.mode = "psk".to_owned();
-            if self.draft.auth.psk.trim().is_empty() {
-                self.draft.auth.psk = generate_psk();
-            }
-        } else {
-            self.draft.server.bind_address = "127.0.0.1".to_owned();
-            self.draft.auth.mode = "none".to_owned();
+        self.draft.server.bind_address = if on { "0.0.0.0" } else { "127.0.0.1" }.to_owned();
+        if !on {
             self.draft.federation.role = "standalone".to_owned();
         }
         self.confirm_turn_off_sharing = false;
@@ -998,7 +992,7 @@ impl DashboardApp {
         settings_row(
             ui,
             "Share on my network",
-            "Make this daemon reachable on your local network — required for federation.",
+            "Make this daemon reachable on your local network — required for federation. Auth (below) is a separate, optional choice.",
             |ui| {
                 let mut sharing_now = sharing;
                 if ui
@@ -1020,7 +1014,7 @@ impl DashboardApp {
             ui.label(
                 egui::RichText::new(if sharing {
                     format!(
-                        "{}:{} · PSK required",
+                        "{}:{} on your network",
                         self.draft.server.bind_address, self.draft.server.port
                     )
                 } else {
@@ -1046,31 +1040,43 @@ impl DashboardApp {
                 }
             });
         }
-        settings_row(ui, "Auth PSK", Self::field_help("auth.psk"), |ui| {
-            let resp = ui.add_sized(
-                egui::vec2(ui.available_width().min(160.0), 20.0),
-                egui::TextEdit::singleline(&mut self.draft.auth.psk)
-                    .font(font_mono())
-                    .password(!self.show_psk),
-            );
-            if ghost_button(
-                ui,
-                if self.show_psk { "hide" } else { "show" },
-                TEXT_DIM,
-                TEXT,
-            )
-            .clicked()
-            {
-                self.show_psk = !self.show_psk;
-            }
-            if ghost_button(ui, "copy", TEXT_DIM, ACCENT)
-                .on_hover_text("Copy to clipboard — paste into another machine's Master PSK")
+        settings_row(
+            ui,
+            "Auth PSK (optional)",
+            "Leave blank to allow anyone on your network to connect. Set a PSK to require it.",
+            |ui| {
+                let resp = ui.add_sized(
+                    egui::vec2(ui.available_width().min(160.0), 20.0),
+                    egui::TextEdit::singleline(&mut self.draft.auth.psk)
+                        .font(font_mono())
+                        .password(!self.show_psk),
+                );
+                if resp.changed() {
+                    self.draft.auth.mode = if self.draft.auth.psk.trim().is_empty() {
+                        "none"
+                    } else {
+                        "psk"
+                    }
+                    .to_owned();
+                }
+                if ghost_button(
+                    ui,
+                    if self.show_psk { "hide" } else { "show" },
+                    TEXT_DIM,
+                    TEXT,
+                )
                 .clicked()
-            {
-                ui.ctx().copy_text(self.draft.auth.psk.clone());
-            }
-            let _ = resp;
-        });
+                {
+                    self.show_psk = !self.show_psk;
+                }
+                if ghost_button(ui, "copy", TEXT_DIM, ACCENT)
+                    .on_hover_text("Copy to clipboard — paste into another machine's Master PSK")
+                    .clicked()
+                {
+                    ui.ctx().copy_text(self.draft.auth.psk.clone());
+                }
+            },
+        );
         egui::CollapsingHeader::new("Advanced (manual bind & auth)")
             .id_salt("network_advanced")
             .default_open(false)
@@ -1109,14 +1115,6 @@ impl DashboardApp {
                     }
                 });
             });
-        if !cfgfile::is_loopback_bind(&self.draft.server.bind_address)
-            && self.draft.auth.mode != "psk"
-        {
-            ui.horizontal(|ui| {
-                ui.add_space(12.0);
-                ui.colored_label(ERR, "non-loopback bind requires auth.mode = psk");
-            });
-        }
 
         ui.add_space(6.0);
         section_header(ui, "FEDERATION");
@@ -1224,7 +1222,7 @@ impl DashboardApp {
             );
             settings_row(
                 ui,
-                "Master PSK",
+                "Master PSK (optional)",
                 Self::field_help("federation.master_psk"),
                 |ui| {
                     let resp = ui.add_sized(
@@ -1253,7 +1251,7 @@ impl DashboardApp {
                 ui.add_space(12.0);
                 ui.label(
                     egui::RichText::new(
-                        "Get the PSK from the master's Settings → Federation (copy button next to its Auth PSK).",
+                        "Only needed if the master requires a PSK — leave blank otherwise. Get it from the master's Settings → Federation (copy button next to its Auth PSK).",
                     )
                     .font(font_meta())
                     .color(TEXT_DIM),
