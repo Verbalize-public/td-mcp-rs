@@ -1,10 +1,15 @@
 //! Reconnect-only link from the stdio MCP proxy to the HTTP daemon.
 //!
-//! Never spawns / upserts a daemon — that remains the job of
-//! `tdmcp-daemon ensure` / `mcp` cold start. When the HTTP session dies
-//! (restart, crash, idle-exit), this module probes health and re-handshakes
-//! against whatever is already listening.
+//! Reconnect (re-handshake against whatever is already listening) is always
+//! attempted first and never spawns anything. When the caller supplies a
+//! [`RespawnFn`] (`tdmcp-daemon mcp`'s cold-start `ensure_daemon` closure,
+//! injected from `main.rs` since this crate cannot depend on
+//! `tdmcp-daemon`), sustained downtime past `config.stale` additionally
+//! triggers a real respawn attempt through that same hook — reusing the
+//! daemon's own lock/spawn machinery instead of inventing a second one here.
 
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -49,6 +54,15 @@ const HEALTH_TIMEOUT: Duration = Duration::from_millis(800);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 /// Bound for waiters blocked on an in-flight heal (single-flight gate).
 const HEAL_GATE_WAIT: Duration = Duration::from_secs(5);
+/// Minimum gap between automatic respawn attempts — `ensure_daemon` already
+/// has its own internal lock/timeout, this just keeps the watcher from
+/// hammering it every backoff tick while still down.
+const RESPAWN_COOLDOWN: Duration = Duration::from_secs(10);
+
+/// Fire-and-forget closure that attempts to spawn/ensure a fresh daemon.
+/// Injected from `main.rs` (wraps `ensure_daemon`) since `tdmcp-mcp` cannot
+/// depend on `tdmcp-daemon` without a crate cycle.
+pub type RespawnFn = Arc<dyn Fn() -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
 
 /// Env-configurable proxy timing (reconnect + per-call ceilings).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -212,14 +226,30 @@ pub struct DaemonLink {
     ide_client: Mutex<Option<(String, String)>>,
     shutdown: CancellationToken,
     http: reqwest::Client,
+    respawn: Option<RespawnFn>,
+    last_respawn_attempt: Mutex<Option<Instant>>,
 }
 
 impl DaemonLink {
     /// Connect once, start the keep-warm watcher, return the link.
+    /// Reconnect-only — no respawn escalation on sustained downtime.
+    #[allow(dead_code, reason = "kept as the reconnect-only entry point for callers/tests without a respawn hook")]
     pub async fn connect(
         daemon_url: &str,
         admin_base: String,
         config: ReconnectConfig,
+    ) -> Result<Arc<Self>, String> {
+        Self::connect_with_respawn(daemon_url, admin_base, config, None).await
+    }
+
+    /// Like [`Self::connect`], but escalates to `respawn` (fire-and-forget)
+    /// once downtime exceeds `config.stale`, in addition to the normal
+    /// reconnect-only healing.
+    pub async fn connect_with_respawn(
+        daemon_url: &str,
+        admin_base: String,
+        config: ReconnectConfig,
+        respawn: Option<RespawnFn>,
     ) -> Result<Arc<Self>, String> {
         let service = connect_http(daemon_url).await?;
         let peer = Arc::new(service.peer().clone());
@@ -244,9 +274,17 @@ impl DaemonLink {
             ide_client: Mutex::new(None),
             shutdown: CancellationToken::new(),
             http,
+            respawn,
+            last_respawn_attempt: Mutex::new(None),
         });
         link.clone().spawn_watcher();
         Ok(link)
+    }
+
+    /// Whether this link was given a respawn hook (shapes user-facing messages).
+    #[must_use]
+    pub fn can_respawn(&self) -> bool {
+        self.respawn.is_some()
     }
 
     /// Remember the IDE clientInfo so we can re-annotate after reconnect.
@@ -457,10 +495,44 @@ impl DaemonLink {
                     backoff = self.config.probe_interval;
                 } else {
                     backoff = (backoff.saturating_mul(2)).min(self.config.probe_max);
+                    self.maybe_trigger_respawn();
                 }
             }
             debug!("daemon_link: watcher stopped");
         });
+    }
+
+    /// Fire the respawn hook (if configured) once downtime crosses
+    /// `config.stale`, at most once per [`RESPAWN_COOLDOWN`]. Fire-and-forget:
+    /// `ensure_daemon` owns its own lock/timeout, and the next watcher
+    /// `heal()` picks up the freshly spawned daemon exactly like any other
+    /// restart — this only supplements reconnect, never replaces it.
+    fn maybe_trigger_respawn(&self) {
+        let Some(respawn) = self.respawn.clone() else {
+            return;
+        };
+        let Some(downtime) = self.downtime() else {
+            return;
+        };
+        if downtime < self.config.stale {
+            return;
+        }
+        {
+            let Ok(mut guard) = self.last_respawn_attempt.lock() else {
+                return;
+            };
+            if let Some(last) = *guard {
+                if last.elapsed() < RESPAWN_COOLDOWN {
+                    return;
+                }
+            }
+            *guard = Some(Instant::now());
+        }
+        info!(
+            downtime_ms = downtime.as_millis(),
+            "daemon_link: sustained downtime — triggering automatic daemon respawn"
+        );
+        tokio::spawn(async move { (respawn)().await });
     }
 
     fn debounced(&self) -> bool {
@@ -595,8 +667,17 @@ pub fn unreachable_tier(outcome: &HealOutcome, config: &ReconnectConfig) -> Unre
 }
 
 /// Build `ErrorData` for a daemon-unreachable failure.
+///
+/// `respawn_available` reflects whether this link was given a [`RespawnFn`]
+/// (see [`DaemonLink::can_respawn`]) — when true, the `Stale` tier message
+/// tells the agent a restart was already requested automatically instead of
+/// instructing them to run one by hand.
 #[must_use]
-pub fn unreachable_error(outcome: HealOutcome, config: &ReconnectConfig) -> ErrorData {
+pub fn unreachable_error(
+    outcome: HealOutcome,
+    config: &ReconnectConfig,
+    respawn_available: bool,
+) -> ErrorData {
     let downtime = outcome.downtime.unwrap_or(Duration::ZERO);
     let downtime_ms = downtime.as_millis() as u64;
     let tier = unreachable_tier(&outcome, config);
@@ -622,6 +703,16 @@ pub fn unreachable_error(outcome: HealOutcome, config: &ReconnectConfig) -> Erro
 					 it may still be starting; wait and retry."
 				),
 				"wait and retry",
+			)
+		}
+		UnreachableTier::Stale if respawn_available => {
+			let secs = downtime.as_secs().max(1);
+			(
+				format!(
+					"daemon has been unreachable for {secs}s — the proxy has automatically requested a \
+					 daemon restart; retry in a few seconds."
+				),
+				"retry in a few seconds — a restart was requested automatically",
 			)
 		}
 		UnreachableTier::Stale => {
@@ -817,6 +908,7 @@ mod tests {
                 downtime: Some(Duration::from_millis(400)),
             },
             &cfg,
+            false,
         );
         assert_eq!(err.code, ErrorCode::INTERNAL_ERROR);
         let data = err.data.expect("data");
@@ -826,6 +918,20 @@ mod tests {
         );
         assert_eq!(data.get("healed").and_then(|h| h.as_bool()), Some(false));
         assert!(err.message.contains("mid-restart") || err.message.contains("retry"));
+    }
+
+    #[test]
+    fn stale_tier_message_reflects_respawn_availability() {
+        let cfg = ReconnectConfig::default();
+        let outcome = HealOutcome {
+            healed: false,
+            downtime: Some(cfg.stale + Duration::from_secs(1)),
+        };
+        let without = unreachable_error(outcome, &cfg, false);
+        let with = unreachable_error(outcome, &cfg, true);
+        assert!(without.message.contains("run `tdmcp-daemon ensure`"));
+        assert!(!with.message.contains("run `tdmcp-daemon ensure`"));
+        assert!(with.message.contains("automatically requested"));
     }
 
     #[test]

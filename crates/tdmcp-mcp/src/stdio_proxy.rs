@@ -33,7 +33,7 @@ use tracing::{debug, info, warn};
 
 use crate::daemon_link::{
     call_timeout_error, is_transport_error, unreachable_error, DaemonLink, HealOutcome,
-    ReconnectConfig,
+    ReconnectConfig, RespawnFn,
 };
 use crate::resources::{server_capabilities, ResourceProvider, STDIO_SERVER_INSTRUCTIONS};
 use crate::schema::input_schema_for;
@@ -69,7 +69,14 @@ impl StdioProxyError {
 ///
 /// Blocks until the stdio client disconnects.
 pub async fn run(daemon_url: &str) -> Result<(), StdioProxyError> {
-    run_with_transport(daemon_url, rmcp::transport::stdio()).await
+    run_with_transport(daemon_url, rmcp::transport::stdio(), None).await
+}
+
+/// Like [`run`], but escalates to `respawn` (typically `ensure_daemon`,
+/// injected from `main.rs`) when the daemon stays unreachable past the
+/// reconnect config's `stale` threshold, instead of only reconnecting.
+pub async fn run_with_respawn(daemon_url: &str, respawn: RespawnFn) -> Result<(), StdioProxyError> {
+    run_with_transport(daemon_url, rmcp::transport::stdio(), Some(respawn)).await
 }
 
 /// Like [`run`], but with an arbitrary AsyncRead+AsyncWrite pair (tests).
@@ -78,7 +85,7 @@ where
     R: AsyncRead + Send + Unpin + 'static,
     W: AsyncWrite + Send + Unpin + 'static,
 {
-    run_with_transport(daemon_url, (read, write)).await
+    run_with_transport(daemon_url, (read, write), None).await
 }
 
 /// Like [`run_with_rw`], with an explicit reconnect config (tests).
@@ -92,21 +99,26 @@ where
     R: AsyncRead + Send + Unpin + 'static,
     W: AsyncWrite + Send + Unpin + 'static,
 {
-    run_with_transport_config(daemon_url, (read, write), config).await
+    run_with_transport_config(daemon_url, (read, write), config, None).await
 }
 
-async fn run_with_transport<T, E, A>(daemon_url: &str, transport: T) -> Result<(), StdioProxyError>
+async fn run_with_transport<T, E, A>(
+    daemon_url: &str,
+    transport: T,
+    respawn: Option<RespawnFn>,
+) -> Result<(), StdioProxyError>
 where
     T: rmcp::transport::IntoTransport<RoleServer, E, A> + Send + 'static,
     E: std::error::Error + Send + Sync + 'static,
 {
-    run_with_transport_config(daemon_url, transport, ReconnectConfig::from_env()).await
+    run_with_transport_config(daemon_url, transport, ReconnectConfig::from_env(), respawn).await
 }
 
 async fn run_with_transport_config<T, E, A>(
     daemon_url: &str,
     transport: T,
     config: ReconnectConfig,
+    respawn: Option<RespawnFn>,
 ) -> Result<(), StdioProxyError>
 where
     T: rmcp::transport::IntoTransport<RoleServer, E, A> + Send + 'static,
@@ -127,6 +139,7 @@ where
         link: Arc::new(OnceCell::new()),
         pending_ide: Arc::new(Mutex::new(None)),
         resource_provider,
+        respawn: respawn.clone(),
     };
 
     // Prefetch HTTP link without blocking Cursor initialize / tools/list.
@@ -136,8 +149,9 @@ where
         let admin = admin_base.clone();
         let cfg = config.clone();
         let pending = Arc::clone(&proxy.pending_ide);
+        let respawn = respawn.clone();
         tokio::spawn(async move {
-            match DaemonLink::connect(&url, admin, cfg).await {
+            match DaemonLink::connect_with_respawn(&url, admin, cfg, respawn).await {
                 Ok(link) => {
                     apply_pending_ide(&link, &pending);
                     let _ = prefetch.set(link);
@@ -186,6 +200,7 @@ struct StdioProxy {
     link: Arc<OnceCell<Arc<DaemonLink>>>,
     pending_ide: Arc<Mutex<Option<(String, String)>>>,
     resource_provider: Arc<ResourceProvider>,
+    respawn: Option<RespawnFn>,
 }
 
 impl ServerHandler for StdioProxy {
@@ -299,10 +314,11 @@ impl StdioProxy {
         if let Some(link) = self.link.get() {
             return Ok(Arc::clone(link));
         }
-        match DaemonLink::connect(
+        match DaemonLink::connect_with_respawn(
             &self.daemon_url,
             self.admin_base.clone(),
             self.config.clone(),
+            self.respawn.clone(),
         )
         .await
         {
@@ -321,6 +337,7 @@ impl StdioProxy {
                         downtime: None,
                     },
                     &self.config,
+                    self.respawn.is_some(),
                 ))
             }
         }
@@ -351,7 +368,7 @@ impl StdioProxy {
             Ok(Err(e)) if is_transport_error(&e) => {
                 warn!(error = %e, "stdio_proxy: transport error — attempting heal");
                 let outcome = link.heal(gen).await;
-                Err(unreachable_error(outcome, link.config()))
+                Err(unreachable_error(outcome, link.config(), link.can_respawn()))
             }
             Ok(Err(e)) => {
                 warn!(error = %e, "stdio_proxy: call forward failed");

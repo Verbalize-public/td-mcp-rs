@@ -121,7 +121,7 @@ pub struct DaemonSection {
 impl Default for DaemonSection {
     fn default() -> Self {
         Self {
-            keep_alive: false,
+            keep_alive: true,
             always_on: false,
             show_tray: true,
         }
@@ -500,14 +500,14 @@ mod tests {
         ensure_default(&path, true).expect("write");
         let mut text = fs::read_to_string(&path).expect("read");
         text = text.replace("port = 9860", "port = 1234");
-        text = text.replace("keep_alive = false", "keep_alive = true");
+        text = text.replace("keep_alive = true", "keep_alive = false");
         text = text.replace("always_on = false", "always_on = true");
         text = text.replace("call_timeout_secs = 45", "call_timeout_secs = 60");
         text = text.replace("script_timeout_secs = 120", "script_timeout_secs = 180");
         fs::write(&path, text).expect("rewrite");
         let cfg = load(&path).expect("load");
         assert_eq!(cfg.server.port, 1234);
-        assert!(cfg.daemon.keep_alive);
+        assert!(!cfg.daemon.keep_alive);
         assert!(cfg.daemon.always_on);
         assert!(cfg.daemon.show_tray);
         assert_eq!(cfg.bridge.call_timeout_secs, 60);
@@ -567,7 +567,7 @@ show_tray = true
         assert_eq!(cfg.server.port, 9860);
         assert_eq!(cfg.server.bind_address, "127.0.0.1");
         assert_eq!(cfg.auth, AuthSection::default());
-        assert!(!cfg.daemon.keep_alive);
+        assert!(cfg.daemon.keep_alive);
         assert!(!cfg.daemon.always_on);
         assert!(cfg.daemon.show_tray);
         assert_eq!(cfg.bridge, BridgeSection::default());

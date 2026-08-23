@@ -116,8 +116,8 @@ You should see your project appear in the `fleet` view with a connected status.
 - When your editor starts it (`tdmcp-daemon mcp`), the app makes sure the
   background service is up, then connects on port `9860`. The service keeps
   running in your system tray even if the editor closes.
-- By default it shuts itself down after ~30s with no active connections; set
-  `keep_alive = true` in `config.toml` (or tray Settings) to disable that.
+- By default it stays resident (`keep_alive = true`); set `keep_alive = false`
+  in `config.toml` (or tray Settings) to auto-exit after ~30s idle instead.
 - The tray icon shows a compact dashboard on left-click; **Stop** (right-click
   or `tdmcp-daemon stop`) ends the process — closing the window only hides it.
 - Headless: `tdmcp-daemon start --port 9860 --no-gui` or `TDMCP_NO_GUI=1`.

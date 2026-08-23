@@ -101,6 +101,10 @@ pub async fn ensure_daemon(opts: EnsureOptions) -> Result<EnsureResult> {
     let deadline = Instant::now() + opts.timeout;
     let mut spawned = false;
     let exe = resolve_exe(opts.exe.as_ref())?;
+    // Held from the moment we spawn until health succeeds (or we time out) so
+    // no other waiter — including a later iteration of *this* loop — can win
+    // the lock and spawn a second daemon while the first is still starting.
+    let mut held_lock: Option<LockGuard> = None;
 
     while Instant::now() < deadline {
         if health_ok(opts.port).await {
@@ -109,6 +113,13 @@ pub async fn ensure_daemon(opts: EnsureOptions) -> Result<EnsureResult> {
                 already_running: !spawned,
                 spawned,
             });
+        }
+
+        if spawned {
+            // Already spawned this call; keep holding the lock and just wait
+            // for the child to come up instead of re-acquiring and spawning again.
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            continue;
         }
 
         match try_acquire_lock(&opts.data_dir) {
@@ -132,7 +143,7 @@ pub async fn ensure_daemon(opts: EnsureOptions) -> Result<EnsureResult> {
                     opts.config_path.as_deref(),
                 )?;
                 spawned = true;
-                drop(guard);
+                held_lock = Some(guard);
             }
             Ok(None) => {
                 // Another ensure holds the lock — wait.
@@ -145,6 +156,7 @@ pub async fn ensure_daemon(opts: EnsureOptions) -> Result<EnsureResult> {
 
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
+    drop(held_lock);
 
     if health_ok(opts.port).await {
         return Ok(EnsureResult {

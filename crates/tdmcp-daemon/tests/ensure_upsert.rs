@@ -220,24 +220,31 @@ async fn concurrent_ensure_one_healthy_daemon() {
     let port = free_port();
     let opts = ensure_opts(port, dir.path());
 
-    let a = tokio::spawn(ensure_daemon(opts.clone()));
-    let b = tokio::spawn(ensure_daemon(opts.clone()));
-
-    let ra = a.await.expect("join a").expect("ensure a");
-    let rb = b.await.expect("join b").expect("ensure b");
+    // Five concurrent callers reproduces the reported "tens of daemons"
+    // shape better than two: it exercises both cross-call locking (a waiter
+    // sees the lock busy) and same-call re-entry (a caller must not spawn a
+    // second time while its own first spawn is still starting up).
+    const CALLERS: usize = 5;
+    let handles: Vec<_> = (0..CALLERS)
+        .map(|_| tokio::spawn(ensure_daemon(opts.clone())))
+        .collect();
+    let mut results = Vec::with_capacity(CALLERS);
+    for h in handles {
+        results.push(h.await.expect("join ensure").expect("ensure"));
+    }
 
     assert!(
         health_ok(port).await,
         "daemon should be healthy after concurrent ensure"
     );
     assert!(
-        ra.spawned || rb.spawned || ra.already_running || rb.already_running,
-        "at least one ensure should observe a running daemon: {ra:?} {rb:?}"
+        results.iter().any(|r| r.spawned || r.already_running),
+        "at least one ensure should observe a running daemon: {results:?}"
     );
-    let spawn_count = u8::from(ra.spawned) + u8::from(rb.spawned);
+    let spawn_count: u8 = results.iter().map(|r| u8::from(r.spawned)).sum();
     assert!(
         spawn_count <= 1,
-        "expected at most one spawn, got {spawn_count}: {ra:?} {rb:?}"
+        "expected at most one spawn, got {spawn_count}: {results:?}"
     );
 
     let lock = dir.path().join("daemon.lock");
@@ -443,5 +450,48 @@ async fn stale_daemon_lock_reclaimed_on_start() {
     assert!(pid_alive(owner));
 
     harness.stop_graceful().await;
+}
+
+/// Double-clicking the installed binary means zero CLI args — clap must
+/// default to `start` rather than requiring an explicit subcommand, and
+/// `Start` must resolve port/data_dir/etc. entirely from env/config.
+#[tokio::test(flavor = "current_thread")]
+async fn zero_args_defaults_to_start() {
+    let _guard = binary_test_lock();
+    let dir = tempdir().expect("tempdir");
+    let port = free_port();
+    let config_path = dir.path().join("test-config.toml");
+    tdmcp_config::ensure_default(&config_path, true).expect("seed config");
+
+    let mut child = Command::new(daemon_bin())
+        // No subcommand, no flags — only env, exactly like a double-click launch.
+        .env("TDMCP_PORT", port.to_string())
+        .env("TDMCP_DATA_DIR", dir.path())
+        .env("TDMCP_NO_GUI", "true")
+        .env("TDMCP_IDLE_EXIT_SECS", "0")
+        .env("TDMCP_IPC_PIPE", ipc_pipe_for(port))
+        .env(tdmcp_config::CONFIG_PATH_ENV, &config_path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn with zero args");
+
+    wait_healthy(port, Duration::from_secs(15)).await;
+
+    let _ = Command::new(daemon_bin())
+        .args(["stop", "--port", &port.to_string()])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while std::time::Instant::now() < deadline {
+        if !health_ok(port).await {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    let _ = child.kill();
+    let _ = child.wait();
 }
 

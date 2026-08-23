@@ -43,8 +43,10 @@ const JOIN_DEADLINE: Duration = Duration::from_secs(3);
 #[derive(Debug, Parser)]
 #[command(name = "tdmcp-daemon", version, about = "td-mcp-rs control plane")]
 struct Cli {
+    /// Defaults to `start` with no flags (e.g. double-clicking the binary),
+    /// so zero-argument invocation just works.
     #[command(subcommand)]
-    command: Commands,
+    command: Option<Commands>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -142,8 +144,27 @@ enum SkillsCmd {
 }
 
 fn main() -> Result<()> {
-    let cli = Cli::parse();
-    match cli.command {
+    // Zero-argument invocation (double-clicking the binary) must behave like
+    // `tdmcp-daemon start` with no flags — including picking up
+    // TDMCP_PORT/TDMCP_DATA_DIR/etc. from the environment. That only happens
+    // through real clap parsing (the `env = "..."` attrs are resolved during
+    // parsing itself), so inject `start` and let clap parse it rather than
+    // hand-building a `Commands::Start` default that would silently skip env
+    // resolution.
+    let args: Vec<std::ffi::OsString> = std::env::args_os().collect();
+    let cli = if args.len() <= 1 {
+        Cli::parse_from(args.into_iter().chain(std::iter::once("start".into())))
+    } else {
+        Cli::parse()
+    };
+    let command = cli.command.unwrap_or(Commands::Start {
+        port: None,
+        data_dir: None,
+        bridge_dir: None,
+        catalog: None,
+        no_gui: false,
+    });
+    match command {
         Commands::Start {
             port,
             data_dir,
@@ -272,14 +293,28 @@ fn main() -> Result<()> {
                 };
                 // Cold start may race a dying daemon between ensure and the first
                 // HTTP handshake — retry ensure+connect a few times (upsert is
-                // legitimate here). Mid-session reconnect is reconnect-only.
+                // legitimate here). Mid-session, the proxy reconnects on its own;
+                // once downtime crosses the reconnect config's `stale` threshold
+                // it also escalates through this same closure to a real
+                // `ensure_daemon` respawn (fixed in `ensure.rs` to spawn at most
+                // once per call), so a daemon killed mid-session comes back
+                // without the IDE needing to restart its MCP client.
+                let respawn_opts = opts.clone();
+                let respawn: tdmcp_mcp::RespawnFn = std::sync::Arc::new(move || {
+                    let opts = respawn_opts.clone();
+                    Box::pin(async move {
+                        if let Err(e) = ensure_daemon(opts).await {
+                            warn!(error = %e, "mcp: automatic respawn attempt failed");
+                        }
+                    })
+                });
                 const MAX_CONNECT_ATTEMPTS: u32 = 3;
                 let mut last_err = None;
                 for attempt in 1..=MAX_CONNECT_ATTEMPTS {
                     let result = ensure_daemon(opts.clone()).await?;
                     let daemon_url = format!("{}/mcp/rpc", result.base_url);
                     // Stdio MCP: do not print to stdout (JSON-RPC). Logs go via tracing/stderr.
-                    match tdmcp_mcp::run_stdio_proxy(&daemon_url).await {
+                    match tdmcp_mcp::run_stdio_proxy_with_respawn(&daemon_url, respawn.clone()).await {
                         Ok(()) => return Ok(()),
                         Err(e) if e.is_connect() && attempt < MAX_CONNECT_ATTEMPTS => {
                             warn!(
@@ -416,6 +451,66 @@ async fn restart_running_daemon(
     }
 }
 
+/// The two known-cause preflight failures a headful `run_daemon` can hit
+/// before it ever gets to serve — classified so the GUI thread can show a
+/// specific toast instead of a generic error, and so it knows to close
+/// itself rather than linger as a backing-less tray process (see
+/// `start_daemon`'s background-thread closure below).
+#[derive(Debug)]
+enum StartupFailure {
+    /// Lost the single-instance race — another live, healthy daemon owns the port.
+    AlreadyRunning(String),
+    /// The port could not be bound (likely held by an unrelated process).
+    BindFailed(String),
+    /// Anything else (config, catalog, IPC setup, ...).
+    Other(String),
+}
+
+impl std::fmt::Display for StartupFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            StartupFailure::AlreadyRunning(m) | StartupFailure::BindFailed(m) | StartupFailure::Other(m) => {
+                write!(f, "{m}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for StartupFailure {}
+
+/// Refuse-if-owned + bind, done as the very first fallible step of
+/// `run_daemon` (before catalog/federation/resource-provider setup) so a
+/// lost singleton race or a bind conflict is detected immediately rather
+/// than after several hundred ms of unrelated startup work.
+async fn preflight_bind(cfg: &Config) -> Result<tokio::net::TcpListener, StartupFailure> {
+    refuse_if_daemon_owned(&cfg.data_dir, cfg.port)
+        .await
+        .map_err(|e| StartupFailure::AlreadyRunning(e.to_string()))?;
+    let bind_ip: IpAddr = cfg.bind_address.parse().map_err(|e| {
+        StartupFailure::Other(format!("parse bind_address {:?}: {e}", cfg.bind_address))
+    })?;
+    let addr = SocketAddr::from((bind_ip, cfg.port));
+    bind_with_retry(addr)
+        .await
+        .map_err(|e| StartupFailure::BindFailed(e.to_string()))
+}
+
+/// Map a `run_daemon` error to a toast (title, body), classifying the two
+/// known preflight failure kinds and falling back to the raw message for
+/// anything else.
+fn classify_startup_failure(e: &anyhow::Error) -> (&'static str, String) {
+    match e.downcast_ref::<StartupFailure>() {
+        Some(StartupFailure::AlreadyRunning(msg)) => {
+            ("td-mcp-rs", format!("already running — {msg}"))
+        }
+        Some(StartupFailure::BindFailed(msg)) => (
+            "td-mcp-rs",
+            format!("could not bind — another process may be using this port ({msg})"),
+        ),
+        _ => ("td-mcp-rs", format!("failed to start: {e}")),
+    }
+}
+
 fn start_daemon(cfg: Config) -> Result<()> {
     let shutdown = CancellationToken::new();
     let quit = Arc::new(AtomicBool::new(false));
@@ -441,7 +536,16 @@ fn start_daemon(cfg: Config) -> Result<()> {
                         }
                     };
                     // no_gui=false: restart must respawn with the tray again.
-                    rt.block_on(run_daemon(daemon_cfg, false, shutdown_bg, quit_bg))
+                    let result = rt.block_on(run_daemon(daemon_cfg, false, shutdown_bg, quit_bg.clone()));
+                    if let Err(e) = &result {
+                        // The daemon never came up — nothing is backing the
+                        // tray. Tell the user why and close the window
+                        // instead of leaving an invisible zombie process.
+                        let (title, body) = classify_startup_failure(e);
+                        tdmcp_gui::toast(title, &body);
+                        quit_bg.store(true, Ordering::SeqCst);
+                    }
+                    result
                 })
                 .context("spawn daemon background thread")?;
 
@@ -527,7 +631,12 @@ async fn run_daemon(
         .unwrap_or_else(|| PathBuf::from("tdmcp-daemon"));
     autostart::reconcile_best_effort(cfg.always_on, &exe);
 
-    refuse_if_daemon_owned(&cfg.data_dir, cfg.port).await?;
+    // First fallible step: know immediately whether we lost the singleton
+    // race or the port is unavailable, before spending time on catalog load,
+    // federation setup, etc. `StartupFailure` lets the GUI-mode caller
+    // classify this and close itself with a specific message instead of
+    // lingering as a backing-less tray process.
+    let listener = preflight_bind(&cfg).await?;
 
     let catalog = match Catalog::load_path(&cfg.catalog_path) {
         Ok(c) => {
@@ -589,10 +698,21 @@ async fn run_daemon(
     // Pin config to match integration tests / idle-exit assumptions: no SSE
     // keepalive (session held by client activity + lease registry), and wire
     // the daemon shutdown token so graceful drain cancels the transport.
+    //
+    // rmcp's own session-worker keep_alive defaults to 300s — an IDE killed
+    // without a clean disconnect would otherwise leave a lease alive for up
+    // to 5 minutes, blocking the daemon's own ~30s idle-exit watcher
+    // (idle.rs's busy check counts live MCP sessions) the whole time. Shrink
+    // it to 60s so a genuinely-dropped connection is reaped promptly; this is
+    // independent of `keep_alive` (daemon.toml), which gates whether the
+    // daemon exits when idle at all, not whether a dead transport-level
+    // session gets swept.
+    let mut session_manager = LocalSessionManager::default();
+    session_manager.session_config.keep_alive = Some(Duration::from_secs(60));
     let streamable_http: StreamableHttpService<McpHandler, LocalSessionManager> =
         StreamableHttpService::new(
             move || Ok(McpHandler::new(mcp_handler_state.clone())),
-            Default::default(),
+            session_manager.into(),
             StreamableHttpServerConfig::default()
                 .with_sse_keep_alive(None)
                 .with_cancellation_token(shutdown.child_token()),
@@ -626,12 +746,13 @@ async fn run_daemon(
         .nest_service("/mcp/rpc", streamable_http)
         .layer(from_fn_with_state(auth_state, auth_and_loopback));
 
+    // Already bound in `preflight_bind` above; only recompute `addr` here for
+    // the log line below.
     let bind_ip: IpAddr = cfg
         .bind_address
         .parse()
         .with_context(|| format!("parse bind_address {:?}", cfg.bind_address))?;
     let addr = SocketAddr::from((bind_ip, cfg.port));
-    let listener = bind_with_retry(addr).await?;
     // Diagnostic wrapper: log every accepted TCP connection when
     // TDMCP_TRACE_ACCEPT=1 (used to locate multi-client accept stalls).
     let listener = axum::serve::ListenerExt::tap_io(listener, |io| {
@@ -779,5 +900,25 @@ async fn bind_with_retry(addr: SocketAddr) -> Result<tokio::net::TcpListener> {
     match last_err {
         Some(e) => Err(e).with_context(|| format!("bind {addr} (retried ~5s)")),
         None => bail!("bind {addr} failed with no error"),
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::expect_used, reason = "test assertions may panic")]
+mod cli_tests {
+    use super::*;
+
+    /// Double-clicking the binary (zero args) must not error — it should
+    /// parse to no subcommand, which `main()` defaults to `Commands::Start`.
+    #[test]
+    fn zero_args_parses_to_no_subcommand() {
+        let cli = Cli::try_parse_from(["tdmcp-daemon"]).expect("zero-arg parse");
+        assert!(cli.command.is_none());
+    }
+
+    #[test]
+    fn explicit_start_still_parses() {
+        let cli = Cli::try_parse_from(["tdmcp-daemon", "start", "--no-gui"]).expect("start parse");
+        assert!(matches!(cli.command, Some(Commands::Start { no_gui: true, .. })));
     }
 }

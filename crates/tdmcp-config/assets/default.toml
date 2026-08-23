@@ -40,8 +40,9 @@ master_psk = ""
 
 [daemon]
 # When true, the daemon never auto-exits after idle (no MCP sessions and no TD bridges).
-# Default false: idle exit after ~30s (override timeout with TDMCP_IDLE_EXIT_SECS).
-keep_alive = false
+# Default true: the daemon stays resident once started. Set false to restore
+# idle-exit after ~30s (override the timeout with TDMCP_IDLE_EXIT_SECS).
+keep_alive = true
 
 # When true, register the daemon to start at user login (OS autostart).
 # Default false. Applied once at daemon start.

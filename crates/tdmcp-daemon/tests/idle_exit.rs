@@ -49,6 +49,14 @@ impl IdleHarness {
         let pipe = format!(r"\\.\pipe\tdmcp-rs-idle-test-{port}");
         let config_path = data_dir.join("test-config.toml");
         tdmcp_config::ensure_default(&config_path, true).expect("seed config");
+        // keep_alive now defaults to true (daemon stays resident) — this test
+        // exercises idle-exit specifically, so force it off regardless of the
+        // shipped default. TDMCP_IDLE_EXIT_SECS below only sets the timeout;
+        // the keep_alive gate in main.rs is checked first and would otherwise
+        // disable idle-exit entirely.
+        let text = std::fs::read_to_string(&config_path).expect("read seeded config");
+        std::fs::write(&config_path, text.replace("keep_alive = true", "keep_alive = false"))
+            .expect("force keep_alive = false");
         let child = Command::new(daemon_bin())
             .args([
                 "start",

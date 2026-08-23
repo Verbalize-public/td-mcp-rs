@@ -41,7 +41,8 @@ The template is `crates/tdmcp-config/assets/default.toml`, embedded via
 `keep_alive` and `always_on` are **config/GUI only** (no CLI flags).
 
 `TDMCP_IDLE_EXIT_SECS` remains a test/escape hatch for the idle timeout length
-(`0` disables idle exit even when `keep_alive = false`).
+(`0` disables idle exit even when `keep_alive = false`; irrelevant when
+`keep_alive = true` since idle exit is already disabled).
 
 ### Stdio proxy per-call ceilings (env only)
 
@@ -88,7 +89,7 @@ link (fresh session) and returns `tdmcp.daemon.unreachable` with `budgetMs`.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `keep_alive` | `false` | When `true`, never auto-exit after idle (no MCP sessions and no TD bridges). When `false`, idle exit uses ~30s (or `TDMCP_IDLE_EXIT_SECS`). |
+| `keep_alive` | `true` | When `true`, never auto-exit after idle (no MCP sessions and no TD bridges). When `false`, idle exit uses ~30s (or `TDMCP_IDLE_EXIT_SECS`). |
 | `always_on` | `false` | When `true`, register OS login autostart for `tdmcp-daemon start`. Reconciled once at daemon start. |
 | `show_tray` | `true` | When `false`, run headless (gui builds). CLI `--no-gui` still forces headless. |
 
@@ -157,7 +158,7 @@ applied until the next start.
 port = 9860
 
 [daemon]
-keep_alive = false
+keep_alive = true
 always_on = false
 show_tray = true
 
