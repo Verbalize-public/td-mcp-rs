@@ -34,6 +34,7 @@ use theme::{
 enum View {
     Fleet,
     Settings,
+    Logs,
 }
 
 /// Overlay panels on the Fleet view (add-slave / slave settings).
@@ -67,7 +68,11 @@ const SETTINGS_ROW_H: f32 = 26.0;
 /// Symmetric side inset for content (px).
 const SIDE_MARGIN: f32 = 12.0;
 /// Width reserved for the header's right-anchored actions (px).
-const HEADER_ACTIONS_W: f32 = 132.0;
+const HEADER_ACTIONS_W: f32 = 158.0;
+/// Rendered log rows kept client-side (evict oldest; matches the daemon ring cap).
+const LOGS_RENDER_CAP: usize = 2048;
+/// Records requested per `/admin/logs` fetch while the Logs view is active.
+const LOGS_FETCH_LIMIT: u32 = 512;
 
 /// Run the tray dashboard on the calling thread (must be the process main thread).
 ///
@@ -255,6 +260,97 @@ struct DashboardApp {
     known_slave_ids: HashSet<String>,
     /// Suppresses a join-toast burst for slaves already connected at GUI start.
     slaves_seen_once: bool,
+    /// Tray Logs view (T4.2).
+    logs_view: LogsViewState,
+}
+
+/// One record as returned by `/admin/logs` (camelCase over the wire).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LogRecordView {
+    seq: u64,
+    ts: String,
+    level: String,
+    src: String,
+    pid: u32,
+    target: String,
+    msg: String,
+    #[serde(default)]
+    code: Option<String>,
+    #[serde(default)]
+    kvs: std::collections::BTreeMap<String, String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct LogsResponse {
+    records: Vec<LogRecordView>,
+    next: u64,
+}
+
+/// Dot color per record level (ERR/WRN colored, everything else plain text).
+fn level_color(level: &str) -> egui::Color32 {
+    match level {
+        "error" => ERR,
+        "warn" => WARN,
+        _ => TEXT_FAINT,
+    }
+}
+
+fn level_letter(level: &str) -> &'static str {
+    match level {
+        "trace" => "T",
+        "debug" => "D",
+        "info" => "I",
+        "warn" => "W",
+        "error" => "E",
+        _ => "?",
+    }
+}
+
+/// Clip to `max_chars`, char-boundary safe (targets/messages may be UTF-8).
+fn clip_line(s: &str, max_chars: usize) -> String {
+    if s.chars().count() <= max_chars {
+        return s.to_owned();
+    }
+    s.chars().take(max_chars).collect()
+}
+
+/// Tray Logs view state (T4.2). Polling only runs while this view is the
+/// active one, the window is visible, and `paused` is false.
+struct LogsViewState {
+    buf: std::collections::VecDeque<LogRecordView>,
+    /// Cursor for the next `/admin/logs?after=` fetch.
+    next: u64,
+    /// Auto-scroll to the newest row (only when already at the bottom).
+    follow: bool,
+    paused: bool,
+    /// `None` = ALL; cycles ALL -> WARN -> ERROR -> ALL via the filter chips.
+    min_level: Option<&'static str>,
+    /// Empty = ALL sources; otherwise only these `src` values are kept.
+    srcs: HashSet<&'static str>,
+    /// `seq` of the expanded row, if any.
+    expanded: Option<u64>,
+    fetch_error: Option<String>,
+    /// Resolved `/admin/logs/path` directory (fetched lazily, once).
+    dir: Option<String>,
+    last_fetch: Option<Instant>,
+}
+
+impl Default for LogsViewState {
+    fn default() -> Self {
+        Self {
+            buf: std::collections::VecDeque::new(),
+            next: 0,
+            follow: true,
+            paused: false,
+            min_level: None,
+            srcs: HashSet::new(),
+            expanded: None,
+            fetch_error: None,
+            dir: None,
+            last_fetch: None,
+        }
+    }
 }
 
 #[derive(Debug, Default, Clone)]
@@ -350,6 +446,7 @@ impl DashboardApp {
             settings_loaded_snapshot,
             known_slave_ids: HashSet::new(),
             slaves_seen_once: false,
+            logs_view: LogsViewState::default(),
         })
     }
 
@@ -411,6 +508,90 @@ impl DashboardApp {
         self.settings_loaded_snapshot = self.draft.clone();
         self.confirm_turn_off_sharing = false;
         self.view = View::Settings;
+    }
+
+    fn open_logs(&mut self) {
+        self.view = View::Logs;
+        if self.logs_view.dir.is_none() {
+            self.ensure_base();
+            let bearer = local_master_psk(&self.draft);
+            if let Ok(body) = http_get_blocking(
+                &format!("{}/admin/logs/path", self.admin_base),
+                bearer.as_deref(),
+            ) {
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&body) {
+                    self.logs_view.dir = v["dir"].as_str().map(str::to_owned);
+                }
+            }
+        }
+    }
+
+    fn reveal_logs_dir(&self) {
+        let Some(dir) = self.logs_view.dir.as_ref() else {
+            return;
+        };
+        let path = PathBuf::from(dir);
+        if let Err(e) = reveal_in_file_manager(&path, &path) {
+            warn!(error = %e, "reveal logs dir failed");
+        }
+    }
+
+    /// Fetch the next page of `/admin/logs` when due (Logs view active,
+    /// window visible, not paused) — piggybacks the existing repaint tick,
+    /// same throttle style as `poll()`.
+    fn fetch_logs_if_due(&mut self) {
+        if self.view != View::Logs || !self.visible || self.logs_view.paused {
+            return;
+        }
+        let due = self
+            .logs_view
+            .last_fetch
+            .is_none_or(|t| t.elapsed() > Duration::from_millis(250));
+        if !due {
+            return;
+        }
+        self.logs_view.last_fetch = Some(Instant::now());
+        self.ensure_base();
+        let mut url = format!(
+            "{}/admin/logs?after={}&limit={LOGS_FETCH_LIMIT}",
+            self.admin_base, self.logs_view.next
+        );
+        if let Some(level) = self.logs_view.min_level {
+            url.push_str("&level=");
+            url.push_str(level);
+        }
+        if !self.logs_view.srcs.is_empty() {
+            url.push_str("&src=");
+            url.push_str(&self.logs_view.srcs.iter().copied().collect::<Vec<_>>().join(","));
+        }
+        let bearer = local_master_psk(&self.draft);
+        match http_get_blocking(&url, bearer.as_deref()) {
+            Ok(body) => match serde_json::from_str::<LogsResponse>(&body) {
+                Ok(page) => {
+                    self.logs_view.fetch_error = None;
+                    self.logs_view.next = page.next;
+                    for r in page.records {
+                        self.logs_view.buf.push_back(r);
+                        if self.logs_view.buf.len() > LOGS_RENDER_CAP {
+                            self.logs_view.buf.pop_front();
+                        }
+                    }
+                }
+                Err(e) => self.logs_view.fetch_error = Some(e.to_string()),
+            },
+            Err(e) => self.logs_view.fetch_error = Some(e),
+        }
+    }
+
+    /// Changing filters resets the client buffer + cursor to 0 so the next
+    /// fetch re-derives the tail from whatever the ring still holds, under
+    /// the new filter — matches the plan's "changing filters resets cursor
+    /// and refetches the tail" contract.
+    fn reset_logs_filter_state(&mut self) {
+        self.logs_view.buf.clear();
+        self.logs_view.next = 0;
+        self.logs_view.expanded = None;
+        self.logs_view.last_fetch = None;
     }
 
     /// Toggle LAN reachability. Auth is a separate, optional choice (see the
@@ -933,6 +1114,17 @@ impl DashboardApp {
             if gear.clicked() {
                 self.open_settings();
             }
+            ui.add_space(2.0);
+            let logs_active = self.view == View::Logs;
+            let logs_color = if logs_active { ACCENT } else { TEXT_DIM };
+            let logs = ghost_button(ui, "≡", logs_color, ACCENT).on_hover_text("Logs");
+            if logs.clicked() {
+                if logs_active {
+                    self.view = View::Fleet;
+                } else {
+                    self.open_logs();
+                }
+            }
         });
     }
 
@@ -1444,6 +1636,191 @@ impl DashboardApp {
             ui.add_space(4.0);
             if ghost_button(ui, "Dismiss", TEXT_DIM, TEXT).clicked() {
                 self.needs_restart = false;
+            }
+        });
+    }
+
+    /// `f` follow, `space` pause, `esc` back to Fleet (T4.2 keyboard contract).
+    fn handle_logs_shortcuts(&mut self, ui: &egui::Ui) {
+        ui.input(|i| {
+            if i.key_pressed(egui::Key::F) {
+                self.logs_view.follow = !self.logs_view.follow;
+            }
+            if i.key_pressed(egui::Key::Space) {
+                self.logs_view.paused = !self.logs_view.paused;
+            }
+            if i.key_pressed(egui::Key::Escape) {
+                self.view = View::Fleet;
+            }
+        });
+    }
+
+    fn draw_logs_toolbar(&mut self, ui: &mut egui::Ui) {
+        section_header(ui, "LOGS");
+        let full = ui.available_width();
+        let (rect, _) =
+            ui.allocate_exact_size(egui::vec2(full, 22.0), egui::Sense::hover());
+        let mut child = ui.new_child(
+            egui::UiBuilder::new()
+                .max_rect(rect.shrink2(egui::vec2(SIDE_MARGIN, 0.0)))
+                .layout(egui::Layout::left_to_right(egui::Align::Center)),
+        );
+        for (label, level) in [("ALL", None), ("ERR", Some("error")), ("WRN", Some("warn"))] {
+            let active = self.logs_view.min_level == level;
+            let color = if active { ACCENT } else { TEXT_DIM };
+            if ghost_button(&mut child, label, color, ACCENT).clicked() && !active {
+                self.logs_view.min_level = level;
+                self.reset_logs_filter_state();
+            }
+        }
+        child.add_space(6.0);
+        for src in ["daemon", "bridge", "proxy"] {
+            let active = self.logs_view.srcs.contains(src);
+            let color = if active { ACCENT } else { TEXT_DIM };
+            let label = src.to_ascii_uppercase();
+            if ghost_button(&mut child, &label, color, ACCENT).clicked() {
+                if active {
+                    self.logs_view.srcs.remove(src);
+                } else {
+                    self.logs_view.srcs.insert(src);
+                }
+                self.reset_logs_filter_state();
+            }
+        }
+        child.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if ghost_button(ui, "Open folder", TEXT_DIM, ACCENT).clicked() {
+                self.reveal_logs_dir();
+            }
+        });
+    }
+
+    fn draw_logs(&mut self, ui: &mut egui::Ui) {
+        if let Some(err) = &self.logs_view.fetch_error {
+            ui.horizontal(|ui| {
+                ui.add_space(SIDE_MARGIN);
+                ui.colored_label(TEXT_DIM, format!("daemon unreachable — retrying ({err})"));
+            });
+        }
+
+        let list_h = WINDOW_MAX_HEIGHT
+            - 60.0
+            - if self.logs_view.expanded.is_some() { 90.0 } else { 0.0 };
+        egui::ScrollArea::vertical()
+            .id_salt("logs_scroll")
+            .auto_shrink(false)
+            .max_height(list_h.max(80.0))
+            .stick_to_bottom(self.logs_view.follow)
+            .show(ui, |ui| {
+                if self.logs_view.buf.is_empty() {
+                    ui.vertical_centered(|ui| {
+                        ui.add_space(16.0);
+                        ui.label(
+                            egui::RichText::new("( no logs )").font(font_meta()).color(TEXT_FAINT),
+                        );
+                    });
+                    return;
+                }
+                let expanded = self.logs_view.expanded;
+                let mut clicked_seq = None;
+                for (i, r) in self.logs_view.buf.iter().enumerate() {
+                    let bg = if i.is_multiple_of(2) { BG_ROW } else { BG_ROW_ALT };
+                    let dot = level_color(&r.level);
+                    let time = r.ts.get(11..19).unwrap_or(&r.ts);
+                    let letter = level_letter(&r.level);
+                    let line = format!(
+                        "{time} {letter} {} {}",
+                        r.target,
+                        r.msg.replace('\n', " ")
+                    );
+                    let full = ui.available_width();
+                    let (rect, response) = ui.allocate_exact_size(
+                        egui::vec2(full, 16.0),
+                        egui::Sense::click(),
+                    );
+                    let row_bg = if Some(r.seq) == expanded { BG_HOVER } else { bg };
+                    ui.painter().rect_filled(rect, 0.0, row_bg);
+                    ui.painter().circle_filled(
+                        egui::pos2(rect.left() + 8.0, rect.center().y),
+                        2.5,
+                        dot,
+                    );
+                    ui.painter().text(
+                        egui::pos2(rect.left() + 16.0, rect.center().y),
+                        egui::Align2::LEFT_CENTER,
+                        clip_line(&line, 68),
+                        font_mono(),
+                        TEXT,
+                    );
+                    if response.clicked() {
+                        clicked_seq = Some(r.seq);
+                    }
+                }
+                if let Some(seq) = clicked_seq {
+                    self.logs_view.expanded =
+                        if self.logs_view.expanded == Some(seq) { None } else { Some(seq) };
+                }
+            });
+
+        if let Some(seq) = self.logs_view.expanded {
+            if let Some(r) = self.logs_view.buf.iter().find(|r| r.seq == seq) {
+                let kvs = if r.kvs.is_empty() {
+                    "{}".to_owned()
+                } else {
+                    r.kvs
+                        .iter()
+                        .map(|(k, v)| format!("{k}={v}"))
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                };
+                let detail = format!(
+                    "target {}\ncode {} · kvs {kvs}",
+                    r.target,
+                    r.code.as_deref().unwrap_or("null")
+                );
+                ui.horizontal(|ui| {
+                    ui.add_space(SIDE_MARGIN);
+                    ui.add(
+                        egui::Label::new(
+                            egui::RichText::new(detail.clone()).font(font_mono()).color(TEXT_DIM),
+                        )
+                        .wrap(),
+                    );
+                });
+                if ui.input(|i| i.key_pressed(egui::Key::C) && i.modifiers.command) {
+                    ui.ctx().copy_text(format!(
+                        "{} {} {} pid={} {} {detail}",
+                        r.ts, r.level, r.src, r.pid, r.msg
+                    ));
+                }
+            }
+        }
+
+        // Footer bar.
+        let full = ui.available_width();
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(full, 24.0), egui::Sense::hover());
+        ui.painter().rect_filled(rect, 0.0, BG_PANEL);
+        ui.painter()
+            .hline(rect.x_range(), rect.top(), egui::Stroke::new(1.0, BORDER));
+        let mut child = ui.new_child(
+            egui::UiBuilder::new()
+                .max_rect(rect.shrink2(egui::vec2(SIDE_MARGIN, 0.0)))
+                .layout(egui::Layout::left_to_right(egui::Align::Center)),
+        );
+        let pause_label = if self.logs_view.paused { "▶ Resume" } else { "⏸ Pause" };
+        if ghost_button(&mut child, pause_label, TEXT_DIM, ACCENT).clicked() {
+            self.logs_view.paused = !self.logs_view.paused;
+        }
+        child.add_space(6.0);
+        child.label(
+            egui::RichText::new(format!("{} shown", self.logs_view.buf.len()))
+                .font(font_meta())
+                .color(TEXT_DIM),
+        );
+        child.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let follow_label = if self.logs_view.follow { "● FOLLOW" } else { "○ FOLLOW" };
+            let color = if self.logs_view.follow { ACCENT } else { TEXT_DIM };
+            if ghost_button(ui, follow_label, color, ACCENT).clicked() {
+                self.logs_view.follow = !self.logs_view.follow;
             }
         });
     }
@@ -2353,6 +2730,7 @@ impl eframe::App for DashboardApp {
         if due {
             self.poll();
         }
+        self.fetch_logs_if_due();
         let scan_hits = self.scan_rx.as_ref().and_then(|rx| rx.try_recv().ok());
         if let Some(hits) = scan_hits {
             self.scan_results = hits;
@@ -2384,6 +2762,11 @@ impl eframe::App for DashboardApp {
                             .show(ui, |ui| {
                                 self.draw_settings(ui);
                             });
+                    }
+                    View::Logs => {
+                        self.handle_logs_shortcuts(ui);
+                        self.draw_logs_toolbar(ui);
+                        self.draw_logs(ui);
                     }
                     View::Fleet => {
                         if let Some(err) = &self.error {
@@ -3039,4 +3422,77 @@ struct SlaveSettingsTarget {
     hostname: String,
     base_url: String,
     auth_token: String,
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, reason = "unit tests")]
+mod tests {
+    use super::*;
+
+    /// Pins the `/admin/logs` contract (T4.1's `admin.rs` response shape,
+    /// `crate::logrecord::Record` in `tdmcp-daemon`) against `LogRecordView`
+    /// / `LogsResponse` — no codegen shares the type, so a drift on either
+    /// side must fail here (T4.3).
+    #[test]
+    fn logs_response_round_trips_the_daemon_fixture() {
+        let fixture = r#"{
+            "records": [
+                {
+                    "seq": 41,
+                    "ts": "2026-01-01T12:00:00.123Z",
+                    "level": "warn",
+                    "src": "bridge",
+                    "pid": 12345,
+                    "target": "bridge::tox_callbacks",
+                    "msg": "heartbeat pong timeout",
+                    "code": "tdmcp.bridge.pong_timeout",
+                    "kvs": {"ms": "42"}
+                },
+                {
+                    "seq": 42,
+                    "ts": "2026-01-01T12:00:01.000Z",
+                    "level": "info",
+                    "src": "daemon",
+                    "pid": 999,
+                    "target": "tdmcp_daemon",
+                    "msg": "no code, no kvs"
+                }
+            ],
+            "next": 42
+        }"#;
+        let parsed: LogsResponse = serde_json::from_str(fixture).expect("parse fixture");
+        assert_eq!(parsed.next, 42);
+        assert_eq!(parsed.records.len(), 2);
+
+        let first = &parsed.records[0];
+        assert_eq!(first.seq, 41);
+        assert_eq!(first.level, "warn");
+        assert_eq!(first.src, "bridge");
+        assert_eq!(first.pid, 12345);
+        assert_eq!(first.target, "bridge::tox_callbacks");
+        assert_eq!(first.code.as_deref(), Some("tdmcp.bridge.pong_timeout"));
+        assert_eq!(first.kvs.get("ms").map(String::as_str), Some("42"));
+
+        let second = &parsed.records[1];
+        assert_eq!(second.code, None, "code omitted on the wire when absent");
+        assert!(second.kvs.is_empty(), "kvs omitted on the wire when empty");
+    }
+
+    #[test]
+    fn level_color_and_letter_cover_all_wire_levels() {
+        for level in ["trace", "debug", "info", "warn", "error"] {
+            let _ = level_color(level);
+            assert_ne!(level_letter(level), "?", "missing mapping for {level}");
+        }
+        assert_eq!(level_letter("not-a-level"), "?");
+    }
+
+    #[test]
+    fn clip_line_is_char_boundary_safe() {
+        let s = "héllo wörld"; // multi-byte chars
+        let clipped = clip_line(s, 3);
+        assert_eq!(clipped.chars().count(), 3);
+        assert_eq!(clipped, "hél");
+        assert_eq!(clip_line("short", 100), "short");
+    }
 }
