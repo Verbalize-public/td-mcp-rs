@@ -13,6 +13,7 @@ silent auto-reconnect that hides loss from the daemon.
 from __future__ import annotations
 
 import time
+from collections import OrderedDict
 
 # Seconds between bootstrap attempts while disconnected / daemon down.
 _RECONNECT_BACKOFF_S = 2.0
@@ -33,8 +34,10 @@ _FACE_H = 560
 _PANEL_WIDTH = 74
 _FONT_SIZE = 10
 _TEXT_PAD = 4
-# Face LOGS section — tail of ./debug Text DAT.
-_LOG_PANEL_LINES = 14
+# Face LOGS section — tail of ./debug Text DAT. T3.1 probe V5 (max lines
+# fitting _FACE_W×_FACE_H=560×560 @ _FONT_SIZE=10) was visually confirmed
+# live against a real face render — see docs/OBSERVABILITY_PLAN.md.
+_LOG_PANEL_LINES = 22
 _shortcut_warn_done = False
 
 # Phase → Constant TOP RGB (status_bg)
@@ -568,6 +571,8 @@ def onStart() -> None:
 	ensure_ui(comp)
 	if not _reconnect_watchdog_scheduled:
 		_reconnect_watchdog()
+	if not _td_errors_poll_scheduled:
+		_schedule_td_errors_poll()
 	want = _par_bool(comp, "Connect", True)
 	auto = _par_bool(comp, "Autoconnect", True)
 	_prev_connect = want
@@ -724,22 +729,9 @@ def _reconnect_watchdog() -> None:
 			# delayRef=TDResources: delays must advance while the root
 			# timeline is paused (plain delayMilliSeconds is rooted at /).
 			kwargs = {"delayMilliSeconds": 2000}
-			try:
-				# Prefer bare op shortcut (Execute DAT namespace); fall back to td.op.
-				ref = None
-				try:
-					ref = op.TDResources  # type: ignore[name-defined]  # noqa: F821
-				except Exception:  # noqa: BLE001
-					ref = getattr(td.op, "TDResources", None)
-				if ref is not None:
-					kwargs["delayRef"] = ref
-				else:
-					print(
-						"tdmcp-rs: reconnect watchdog: TDResources missing; "
-						"delay will not advance while paused"
-					)
-			except Exception:  # noqa: BLE001
-				pass
+			ref = _td_delay_ref()
+			if ref is not None:
+				kwargs["delayRef"] = ref
 			td.run(
 				f"op('{path}').module._reconnect_watchdog()",
 				**kwargs,
@@ -750,3 +742,117 @@ def _reconnect_watchdog() -> None:
 			_reconnect_watchdog_scheduled = True
 	else:
 		_reconnect_watchdog_scheduled = False
+
+
+# ── T3.3: td.errors polling ──────────────────────────────────────────
+#
+# Spec assumed a `td.errors` global iterable; T3.1 probe V4 found no such
+# attribute on TD 2025.32460 — `op(...).errors(recurse=True)` is the real
+# API, and it returns one multi-line **string** ("<path>:  Error: <text>
+# (<path>)" per line), not structured data. Polled at the daemon's default
+# bridge heartbeat cadence (5s) — not the 50ms pump — since a full-project
+# recursive error scan measured ~47ms on a small project live (T3.1 V4);
+# every-frame would be wasteful, every 5s is unnoticeable staleness for a
+# glanceable panel.
+
+_TD_ERRORS_POLL_MS = 5000
+_TD_ERRORS_SEEN_MAX = 500
+_td_errors_seen: "OrderedDict[tuple[str, str], None]" = OrderedDict()
+_td_errors_poll_scheduled = False
+
+
+def _parse_td_errors_blob(blob: str) -> list[tuple[str, str]]:
+	"""Split `OP.errors(recurse=True)`'s text blob into (op_path, text)
+	pairs - one per non-empty line, `path` empty when a line doesn't start
+	with `/` (defensive: unexpected TD output shape should not crash the
+	poll, just pass the raw line through unkeyed)."""
+	pairs: list[tuple[str, str]] = []
+	for line in (blob or "").splitlines():
+		line = line.strip()
+		if not line:
+			continue
+		if line.startswith("/") and ":" in line:
+			path, _, text = line.partition(":")
+			pairs.append((path, text.strip()))
+		else:
+			pairs.append(("", line))
+	return pairs
+
+
+def _poll_td_errors() -> None:
+	"""One poll pass: dedupe against `_td_errors_seen` (LRU, size-capped),
+	route new ones to the local face + central uplink via `append_local`.
+	Always reschedules itself in a `finally` - one bad poll must not kill
+	the whole error-mirroring feature for the rest of the session."""
+	try:
+		import td  # noqa: F811
+
+		blob = td.root.errors(recurse=True)
+		mod = _bridge_mod()
+		append_local = getattr(mod, "append_local", None) if mod is not None else None
+		for path, text in _parse_td_errors_blob(blob):
+			key = (path, text)
+			if key in _td_errors_seen:
+				_td_errors_seen.move_to_end(key)
+				continue
+			_td_errors_seen[key] = None
+			if len(_td_errors_seen) > _TD_ERRORS_SEEN_MAX:
+				_td_errors_seen.popitem(last=False)
+			if callable(append_local):
+				label = f"{path}: {text}" if path else text
+				try:
+					append_local(label, level="error", target="td_errors")
+				except Exception:  # noqa: BLE001
+					pass
+	except Exception:  # noqa: BLE001 - a bad poll must not break the schedule
+		pass
+	finally:
+		_schedule_td_errors_poll()
+
+
+def _schedule_td_errors_poll() -> None:
+	"""Self-reschedule like `_reconnect_watchdog` - same pause-safe
+	`delayRef=TDResources` pattern, same "keep polling while Connect is on"
+	gate. Runs independently of `_reconnect_watchdog`'s own 2s chain (two
+	separate `td.run` schedules, different cadences, different jobs)."""
+	global _td_errors_poll_scheduled
+	comp = _comp()
+	want = _par_bool(comp, "Connect", True)
+	if not want:
+		_td_errors_poll_scheduled = False
+		return
+	try:
+		import td  # noqa: F811
+
+		path = me.path  # type: ignore[name-defined]  # noqa: F821
+		kwargs = {"delayMilliSeconds": _TD_ERRORS_POLL_MS}
+		ref = _td_delay_ref()
+		if ref is not None:
+			kwargs["delayRef"] = ref
+		td.run(f"op('{path}').module._poll_td_errors()", **kwargs)
+	except Exception:  # noqa: BLE001
+		_td_errors_poll_scheduled = False
+	else:
+		_td_errors_poll_scheduled = True
+
+
+def _td_delay_ref():
+	"""Independent time COMP so `td.run` delays advance while paused -
+	shared by `_reconnect_watchdog` and `_poll_td_errors`'s schedulers
+	(Derivative docs require delayRef=op.TDResources)."""
+	try:
+		import td  # noqa: F811
+
+		ref = None
+		try:
+			ref = op.TDResources  # type: ignore[name-defined]  # noqa: F821
+		except Exception:  # noqa: BLE001
+			ref = getattr(td.op, "TDResources", None)
+		if ref is None:
+			print(
+				"tdmcp-rs: td.run delay: TDResources missing; "
+				"delay will not advance while paused"
+			)
+		return ref
+	except Exception:  # noqa: BLE001
+		return None

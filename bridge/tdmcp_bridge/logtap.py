@@ -30,6 +30,11 @@ _buffer: list[dict[str, Any]] = []
 _dropped = 0
 _last_flush = 0.0
 _on_flush: Callable[[list[dict[str, Any]]], None] | None = None
+# M3: fires synchronously on every captured record (uplink-buffered or not,
+# via append_local) — the face LOGS mirror hooks in here. Kept optional and
+# TD-agnostic: this module never imports `td`; the TD-aware caller (M3 wires
+# it in tdmcp_bridge/__init__.py) decides what "local" means.
+_on_local: Callable[[dict[str, Any]], None] | None = None
 _orig_stdout: Any = None
 _orig_stderr: Any = None
 _suppress_depth = 0
@@ -82,11 +87,18 @@ class Tee(io.TextIOBase):
 
 def _append(msg: str, level: str, target: str) -> None:
     global _dropped
+    record = {"level": level, "target": target, "msg": msg}
     with _lock:
         if len(_buffer) >= _LOG_QUEUE_MAX:
             _buffer.pop(0)
             _dropped += 1
-        _buffer.append({"level": level, "target": target, "msg": msg})
+        _buffer.append(record)
+    on_local = _on_local
+    if on_local is not None:
+        try:
+            on_local(record)
+        except Exception:  # noqa: BLE001 — a local-mirror failure must not break capture
+            pass
 
 
 def append_local(msg: str, level: str = "info", target: str = "bridge") -> None:
@@ -123,19 +135,28 @@ def _unwrap_stale_tee(stream: Any) -> Any:
     return stream
 
 
-def install(on_flush: Callable[[list[dict[str, Any]]], None]) -> bool:
+def install(
+    on_flush: Callable[[list[dict[str, Any]]], None],
+    on_local: Callable[[dict[str, Any]], None] | None = None,
+) -> bool:
     """Replace ``sys.stdout`` / ``sys.stderr`` with fresh :class:`Tee`
     instances, unwrapping any stale tee from an earlier reload generation
     first (see :func:`_unwrap_stale_tee`) — always safe to call again, never
     nests, and always rebinds to *this* generation's buffer/flush state.
     """
-    global _orig_stdout, _orig_stderr, _on_flush
+    global _orig_stdout, _orig_stderr, _on_flush, _on_local
     _on_flush = on_flush
+    _on_local = on_local
     _orig_stdout = _unwrap_stale_tee(sys.stdout)
     sys.stdout = Tee(_orig_stdout, "info", "bridge::stdout")
     _orig_stderr = _unwrap_stale_tee(sys.stderr)
     sys.stderr = Tee(_orig_stderr, "error", "bridge::stderr")
     return True
+
+
+def is_installed() -> bool:
+    """Whether :func:`install` has run (a flush target is bound)."""
+    return _on_flush is not None
 
 
 @contextlib.contextmanager
@@ -184,7 +205,7 @@ def maybe_flush(force: bool = False) -> None:
 
 def _reset_for_tests() -> None:
     """Clear all module state — test harness only."""
-    global _dropped, _last_flush, _on_flush, _orig_stdout, _orig_stderr
+    global _dropped, _last_flush, _on_flush, _on_local, _orig_stdout, _orig_stderr
     global _suppress_depth
     with _lock:
         _buffer.clear()
@@ -195,6 +216,7 @@ def _reset_for_tests() -> None:
         # here nondeterministic against real wall-clock timing.
         _last_flush = time.monotonic()
     _on_flush = None
+    _on_local = None
     _orig_stdout = None
     _orig_stderr = None
     _suppress_depth = 0

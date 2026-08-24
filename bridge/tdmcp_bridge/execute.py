@@ -1,11 +1,13 @@
 """execute_python handler + stdout/stderr tee helpers."""
 from __future__ import annotations
 
+import contextlib
 import io
 import json
 import sys
 from typing import Any
 
+from . import logtap as _logtap
 from . import state as _state
 from .constants import (
     RESULT_MAX_BYTES,
@@ -191,56 +193,82 @@ def handle_execute_python(params: dict[str, Any]) -> dict[str, Any]:
             installed = True
         _state.set_capture_depth(_state.get_capture_depth() + 1)
 
-    try:
+    # M3 T3.2: while this call owns the stdout/stderr swap (installed=True),
+    # the global uplink tee sits *below* _TeeStream as `previous` — without
+    # suppressing it, every individual write during the script would also
+    # get captured (and centrally uplinked) one line at a time, on top of
+    # the single combined record this function uplinks itself once the
+    # whole block is known (see the `finally` below). A nested call
+    # (installed=False, capture_depth already > 0) does not re-suppress —
+    # the outer call's suppress is still active.
+    suppress_cm = _logtap.suppress() if installed else contextlib.nullcontext()
+    with suppress_cm:
         try:
-            exec(script, local_vars, local_vars)  # noqa: S102 — intentional TD script surface
-            result_value = local_vars.get("result")
-            result_bytes = _json_utf8_size(result_value)
-            if result_bytes > RESULT_MAX_BYTES:
-                out: dict[str, Any] = {
-                    "ok": False,
-                    "error": (
-                        f"result JSON exceeds {RESULT_MAX_BYTES} bytes "
-                        f"(got {result_bytes}); return a smaller result"
-                    ),
-                    "code": "tdmcp.script.result_too_large",
-                    "message": (
-                        f"result JSON exceeds {RESULT_MAX_BYTES} bytes "
-                        f"(got {result_bytes}); return a smaller result"
-                    ),
-                }
-            else:
+            try:
+                exec(script, local_vars, local_vars)  # noqa: S102 — intentional TD script surface
+                result_value = local_vars.get("result")
+                result_bytes = _json_utf8_size(result_value)
+                if result_bytes > RESULT_MAX_BYTES:
+                    out: dict[str, Any] = {
+                        "ok": False,
+                        "error": (
+                            f"result JSON exceeds {RESULT_MAX_BYTES} bytes "
+                            f"(got {result_bytes}); return a smaller result"
+                        ),
+                        "code": "tdmcp.script.result_too_large",
+                        "message": (
+                            f"result JSON exceeds {RESULT_MAX_BYTES} bytes "
+                            f"(got {result_bytes}); return a smaller result"
+                        ),
+                    }
+                else:
+                    out = {
+                        "result": result_value,
+                        "ok": True,
+                    }
+            except Exception as exc:  # noqa: BLE001 — surface to diagnostics
+                report = build_exception_report(
+                    exc, script, format_mode=format_mode
+                )
+                # Prefer trimmed user-only traceback (no execute.py wrapper frames).
                 out = {
-                    "result": result_value,
-                    "ok": True,
+                    "ok": False,
+                    "error": str(exc),
+                    "traceback": report.get("raw") or "",
+                    "exception": report,
                 }
-        except Exception as exc:  # noqa: BLE001 — surface to diagnostics
-            report = build_exception_report(
-                exc, script, format_mode=format_mode
-            )
-            # Prefer trimmed user-only traceback (no execute.py wrapper frames).
-            out = {
-                "ok": False,
-                "error": str(exc),
-                "traceback": report.get("raw") or "",
-                "exception": report,
-            }
-    finally:
-        if include_logs:
-            logs = ""
-            if installed and buf is not None:
-                try:
-                    logs = _truncate_logs(buf.getvalue())
-                except Exception:  # noqa: BLE001
-                    logs = ""
-                sys.stdout = prev_out
-                sys.stderr = prev_err
-                try:
-                    _append_debug_dat(logs)
-                except Exception:  # noqa: BLE001
-                    pass
-            _state.set_capture_depth(max(0, _state.get_capture_depth() - 1))
-            out["logs"] = logs
+        finally:
+            if include_logs:
+                logs = ""
+                if installed and buf is not None:
+                    try:
+                        logs = _truncate_logs(buf.getvalue())
+                    except Exception:  # noqa: BLE001
+                        logs = ""
+                    sys.stdout = prev_out
+                    sys.stderr = prev_err
+                    if logs:
+                        # Single DAT writer, single uplink path: when the tap
+                        # is installed, route the whole block through it once
+                        # (reaches the face debug DAT via its on_local hook
+                        # *and* the central sink as one record) instead of
+                        # writing the DAT directly. Tap-less hosts (tests,
+                        # manual/non-bootstrap use) keep the legacy direct
+                        # write — nothing else would ever populate the DAT.
+                        if _logtap.is_installed():
+                            try:
+                                _logtap.append_local(
+                                    logs, level="info", target="execute_python"
+                                )
+                            except Exception:  # noqa: BLE001
+                                pass
+                        else:
+                            try:
+                                _append_debug_dat(logs)
+                            except Exception:  # noqa: BLE001
+                                pass
+                _state.set_capture_depth(max(0, _state.get_capture_depth() - 1))
+                out["logs"] = logs
 
     return out
 

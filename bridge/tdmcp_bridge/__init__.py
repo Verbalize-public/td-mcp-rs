@@ -277,6 +277,26 @@ def _bridge_log_sender(records: list[dict[str, Any]]) -> None:
     pkg.enqueue_event({"type": "event", "name": "log", "payload": {"records": records}})
 
 
+_LEVEL_LETTERS = {"trace": "T", "debug": "D", "info": "I", "warn": "W", "error": "E"}
+
+
+def _debug_dat_mirror(record: dict[str, Any]) -> None:
+    """``logtap`` on_local hook (M3): live-mirror every captured line into
+    the face's ``./debug`` ring buffer — not just execute_python's own
+    output. T3.1 probe V1 confirmed prints from unrelated DATs/nodes are
+    captured by the global tee too, so they belong in the glanceable panel
+    the same as anything else. Fires synchronously, once per record, from
+    whatever thread captured it (main thread for TD script execution)."""
+    pkg = sys.modules[__name__]
+    ts = time.strftime("%H:%M:%S")
+    letter = _LEVEL_LETTERS.get(str(record.get("level", "info")), "I")
+    msg = str(record.get("msg", ""))
+    try:
+        pkg._append_debug_dat(f"{ts} {letter} {msg}\n")
+    except Exception:  # noqa: BLE001 — a face-mirror failure must not break capture
+        pass
+
+
 _active_stream: Any = None
 _active_thread: threading.Thread | None = None
 
@@ -347,7 +367,7 @@ def bootstrap_threaded(bridge_dir: str | None = None) -> dict[str, Any]:
     pkg.start_pump()
     # Log uplink (M2): reinstall-safe, so this also re-asserts the tee if a
     # prior connection's reload left `sys.stdout` pointing at a stale tee.
-    pkg.install(pkg._bridge_log_sender)
+    pkg.install(pkg._bridge_log_sender, on_local=pkg._debug_dat_mirror)
     return resp
 
 
