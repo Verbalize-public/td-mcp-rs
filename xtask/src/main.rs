@@ -689,6 +689,17 @@ fn fnv1a(chunks: &[&[u8]]) -> u64 {
     hash
 }
 
+/// EOL-normalize before hashing so a stamp taken on a CRLF Windows checkout
+/// matches the LF bytes unix CI embeds — mirrors install.rs' `normalize_eol`.
+fn normalize_eol(bytes: &[u8]) -> Vec<u8> {
+    let text = String::from_utf8_lossy(bytes);
+    if text.contains('\r') {
+        text.replace("\r\n", "\n").into_bytes()
+    } else {
+        bytes.to_vec()
+    }
+}
+
 fn stamp_tox() -> Result<()> {
     let workspace = workspace_root()?;
     let bootstrap_py = workspace.join("bridge/bootstrap.py");
@@ -699,7 +710,9 @@ fn stamp_tox() -> Result<()> {
         fs::read(&bootstrap_py).with_context(|| format!("read {}", bootstrap_py.display()))?;
     let callbacks =
         fs::read(&callbacks_py).with_context(|| format!("read {}", callbacks_py.display()))?;
-    let hash = fnv1a(&[&bootstrap, &callbacks]);
+    // EOL-normalized so a stamp taken on a CRLF Windows checkout matches the
+    // LF bytes unix CI embeds — mirrors install.rs' normalize_eol exactly.
+    let hash = fnv1a(&[&normalize_eol(&bootstrap), &normalize_eol(&callbacks)]);
 
     fs::write(&hash_path, format!("{hash:016x}\n"))
         .with_context(|| format!("write {}", hash_path.display()))?;

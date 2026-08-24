@@ -350,7 +350,7 @@ mod tests {
             .get_file("tox_callbacks.py")
             .expect("tox_callbacks.py embedded in BRIDGE")
             .contents();
-        let hash = fnv1a(&[bootstrap, callbacks]);
+        let hash = fnv1a(&[&normalize_eol(bootstrap), &normalize_eol(callbacks)]);
         let stored = TOX_SOURCE_HASH.trim();
         assert_eq!(
             format!("{hash:016x}"),
@@ -360,6 +360,18 @@ mod tests {
              live-TD packing script in scripts/pack_bootstrap_tox.md, save over \
              embedded/bootstrap.tox, then run `cargo run -p xtask -- stamp-tox`."
         );
+    }
+
+    /// EOL-normalize before hashing so a stamp taken on a CRLF Windows
+    /// checkout matches the LF bytes unix CI embeds — mirrors xtask's
+    /// `normalize_eol` exactly.
+    fn normalize_eol(bytes: &[u8]) -> Vec<u8> {
+        let text = String::from_utf8_lossy(bytes);
+        if text.contains('\r') {
+            text.replace("\r\n", "\n").into_bytes()
+        } else {
+            bytes.to_vec()
+        }
     }
 
     /// Same algorithm as `xtask`'s `fnv1a` — deliberately duplicated rather

@@ -62,6 +62,9 @@ jobs:
         with:
           toolchain: "1.92"
       - uses: Swatinem/rust-cache@v2
+      # tray-icon -> libappindicator -> gtk-sys needs the C stack on linux.
+      - name: GUI system deps
+        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev
       - run: cargo check --workspace --all-targets
 
   security-audit:
