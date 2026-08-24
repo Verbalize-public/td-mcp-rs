@@ -1,0 +1,79 @@
+name: CI
+
+# Windows gate runs on every push to any branch so feature branches (e.g.
+# feat/packaging-pipeline) validate before merge. macOS runs daily + manual +
+# main-pushes only: hosted macOS minutes bill ~10x Linux and per-branch mac
+# jobs would exhaust the free quota. The tag-driven release pipeline always
+# builds macOS fresh, which is the hard gate that matters.
+
+on:
+  push:
+  workflow_dispatch:
+  schedule:
+    # Daily: macOS health + supply-chain audit.
+    - cron: "0 4 * * *"
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-gate:
+    if: github.event_name != 'schedule'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Format
+        run: cargo fmt --all -- --check
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Tests
+        run: cargo test --workspace
+      - name: Bridge python tests
+        run: |
+          pip install pytest
+          python -m pytest bridge/tests -v
+
+  macos-health:
+    if: github.event_name != 'push' || github.ref == 'refs/heads/main'
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Tests
+        run: cargo test --workspace
+      - name: Bridge python tests
+        run: |
+          python3 -m pip install pytest
+          python3 -m pytest bridge/tests -v
+
+  msrv:
+    # MSRV is a promise to users; stable builds don't prove it.
+    if: github.event_name != 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.88"
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --workspace --all-targets
+
+  security-audit:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny,cargo-audit
+      - name: cargo deny
+        run: cargo deny check
+      - name: cargo audit
+        run: cargo audit
