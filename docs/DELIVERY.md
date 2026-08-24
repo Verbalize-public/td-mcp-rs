@@ -65,21 +65,71 @@ extract them into the data dir on first use (no separate asset bundle required
 for dev builds). Skills also surface as MCP resources (`tdmcp://docs/*`); see
 [`../skills/README.md`](../skills/README.md).
 
-## Packaging
+## Packaging & Release
 
-`cargo run -p xtask -- dist` first runs [`scripts/kill-daemons`](../scripts/kill-daemons.ps1)
-(soft `/admin/shutdown`, then force-kills only workspace `target/release` /
-`target/dist` images) so leftover Cursor `mcp` shims do not lock the exe.
-It then rebuilds `tdmcp-daemon` with `--features gui` and copies it into
-`target/dist/` (bridge, catalog, bootstrap `.tox`, and `skills/` are embedded in the
-binary). This avoids shipping a stale headless binary from a prior
-`--no-default-features` build.
+Two delivery paths coexist by design:
 
-After a build, run `target/release/tdmcp-daemon install` to copy the binary into
-the stable install location (`{data_dir}/bin/`) and record its path in
-`config.toml`. That install copy is the one Cursor should point at; it can be
-locked by running processes while `target/release/` stays writable for the next
-`cargo build`.
+| Path | Audience | Binary lands at |
+| --- | --- | --- |
+| Installer — `tdmcp-rs-*-x64-setup.exe` / `.dmg` | End users | `%LOCALAPPDATA%\Programs\tdmcp-rs\` · `/Applications/tdmcp.app` |
+| Dev flow — `tdmcp-daemon install` | Development | `{data_dir}/bin/` |
 
-If the MCP daemon is running from the installed location, stop it before
-re-running `install` so the installed binary can be overwritten.
+Both keep working because `ensure`, MCP-client upsert, and OS autostart bind to
+the **running exe's own path**; config/data dirs are shared and untouched by
+uninstalls.
+
+### Release pipeline (tag-driven, zero manual build steps)
+
+1. **Cut**: `cargo run -p xtask -- release patch|min|major [--dry-run]` — bumps
+   `[workspace.package] version`, regenerates `Cargo.lock`, prepends a grouped
+   CHANGELOG section built from conventional commits since the last `v*` tag,
+   commits `chore(release): vX.Y.Z`, creates annotated tag `vX.Y.Z`. It never
+   pushes; `--dry-run` prints everything harmlessly.
+2. **Ship**: push the branch + tag. `.github/workflows/release.yml` then:
+   asserts tag == workspace version → builds all targets via
+   `cargo run -p xtask -- package --target …` (the exact command a dev laptop
+   runs) → smoke-tests each archive → attaches platform artifacts.
+3. **Artifacts**: `tdmcp-rs-{version}-{target}.zip|.tar.gz` +
+   `SHA256SUMS.txt` + `tdmcp-rs-{version}-x64-setup.exe` (Inno Setup 6,
+   per-user) + `tdmcp-rs-{version}-{aarch64|x86_64}.dmg` (`.app`
+   `LSUIElement` bundle inside a UDZO DMG).
+
+### CI layout
+
+| Workflow | Trigger | What |
+| --- | --- | --- |
+| `ci.yml` | every push (any branch) | Windows gate: fmt/clippy/tests/pytest |
+| `ci.yml` | daily cron + dispatch + main pushes | macOS clippy/tests/pytest (minutes ≈10× Linux — kept off per-branch pushes) |
+| `ci.yml` | dispatch | MSRV 1.88 check |
+| `ci.yml` | daily cron | `cargo deny check` + `cargo audit` |
+| `release.yml` | tag `v*` | full pipeline above |
+
+Artifact attestations are public-repo-only on this plan; the step is gated on
+`github.repository_visibility == 'public'` and self-enables if the repo goes
+public.
+
+### Signing status (v1: unsigned, wiring ready)
+
+Windows SmartScreen shows *"More info → Run anyway"*; macOS blocks downloaded,
+ad-hoc-signed apps until the user allows them (System Settings ▸ Privacy &
+Security, or `xattr -cr <app>` in Terminal). Wire-in points when certs arrive:
+`signtool` on the setup exe (Windows job), `APPLE_DEVELOPER_ID_IDENTITY` /
+`APPLE_NOTARY_PROFILE` secrets consumed by `make_app.sh` — both steps already
+exist behind conditionals.
+
+### Local commands
+
+```text
+cargo run -p xtask -- package [--target <triple>] [--out dir]   # named archive(s) + SHA256SUMS
+cargo run -p xtask -- release minor --dry-run                   # rehearse a cut
+ISCC.exe /DVersion=vX.Y.Z packaging/windows/installer.iss       # local installer (needs Inno Setup)
+packaging/macos/make_app.sh <bin> <version> <triple> <out-dir>  # .app + dmg (macOS only)
+```
+
+### Dev install flow (unchanged)
+
+`cargo run -p xtask -- dist` still produces the plain exe tree in
+`target/dist/` (kill-daemons first so Cursor `mcp` shims don't lock it;
+always rebuilds with `--features gui`). `target/release/tdmcp-daemon install`
+copies into `{data_dir}/bin/` with rename-aside swap; stop the daemon before
+re-running `install` when it runs from that installed location.

@@ -56,6 +56,13 @@ Your TouchDesigner project (via the tdmcp_rs .tox you drop in)
 
 ## 🚀 Quick Start
 
+> **Easiest install:** grab an installer from the
+> [Releases page](https://github.com/Verbalize-public/td-mcp-rs/releases) —
+> `tdmcp-rs-*-x64-setup.exe` on Windows or the `.dmg` for your Mac. No Rust
+> needed; skip to step 3. *Unsigned builds:* Windows may show SmartScreen
+> (*More info → Run anyway*); macOS: right-click → **Open** the first time, or
+> allow it under System Settings ▸ Privacy & Security.
+
 **You need:** [Rust](https://rustup.rs) (free, install once) and TouchDesigner.
 
 ### 1. Build the app
