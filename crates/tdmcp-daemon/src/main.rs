@@ -812,7 +812,7 @@ async fn run_daemon(
             shutdown.clone(),
             Arc::clone(&quit),
             federation.clone(),
-            log_sink.ring().clone(),
+            log_sink.clone(),
             cfg.logging_dir.clone(),
         ))
         .nest_service("/mcp/rpc", streamable_http)

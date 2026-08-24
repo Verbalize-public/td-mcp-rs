@@ -11,7 +11,7 @@ use serde_json::{json, Value};
 use tdmcp_core::{DaemonId, PidRegistry, SlaveRegistry};
 use tdmcp_daemon::admin::{build_admin_router, RestartArgs};
 use tdmcp_daemon::federation::FederationRuntime;
-use tdmcp_daemon::LogRing;
+use tdmcp_daemon::{LogRing, LogSink};
 use tdmcp_diagnostics::Catalog;
 use tdmcp_mcp::testing::{test_resource_provider, FakeBridgeRpc};
 use tdmcp_mcp::{AppState, McpHandler};
@@ -47,11 +47,26 @@ fn test_federation() -> FederationRuntime {
     }
 }
 
-fn admin_router(state: AppState) -> axum::Router {
-    admin_router_with_logs(state, Arc::new(LogRing::new(64)))
+/// A [`LogSink`] backed by a leaked temp-dir file appender — fine for a
+/// short-lived test process, and lets tests push straight into the returned
+/// ring while `admin_router_with_logs` serves reads from the same ring
+/// through the sink.
+fn test_log_sink() -> (LogSink, Arc<LogRing>) {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let appender = tracing_appender::rolling::never(dir.path(), "test.log");
+    let (writer, guard) = tracing_appender::non_blocking(appender);
+    std::mem::forget(guard);
+    std::mem::forget(dir);
+    let ring = Arc::new(LogRing::new(2048));
+    (LogSink::new(ring.clone(), writer), ring)
 }
 
-fn admin_router_with_logs(state: AppState, logs: Arc<LogRing>) -> axum::Router {
+fn admin_router(state: AppState) -> axum::Router {
+    let (sink, _ring) = test_log_sink();
+    admin_router_with_logs(state, sink)
+}
+
+fn admin_router_with_logs(state: AppState, logs: LogSink) -> axum::Router {
     build_admin_router(
         state,
         restart_args(),
@@ -198,7 +213,7 @@ async fn get_json(app: &axum::Router, uri: &str) -> (axum::http::StatusCode, Val
 
 #[tokio::test]
 async fn admin_logs_cursor_resume_loses_nothing() {
-    let ring = Arc::new(LogRing::new(64));
+    let (sink, ring) = test_log_sink();
     for i in 0..5 {
         ring.push(rec(
             &format!("line {i}"),
@@ -206,7 +221,7 @@ async fn admin_logs_cursor_resume_loses_nothing() {
             tdmcp_daemon::Src::Daemon,
         ));
     }
-    let app = admin_router_with_logs(test_state(), ring.clone());
+    let app = admin_router_with_logs(test_state(), sink);
 
     let (status, first) = get_json(&app, "/admin/logs?after=0&limit=3").await;
     assert_eq!(status, 200);
@@ -226,7 +241,7 @@ async fn admin_logs_cursor_resume_loses_nothing() {
 
 #[tokio::test]
 async fn admin_logs_limit_is_clamped_server_side() {
-    let ring = Arc::new(LogRing::new(1024));
+    let (sink, ring) = test_log_sink();
     for i in 0..600 {
         ring.push(rec(
             &format!("m{i}"),
@@ -234,7 +249,7 @@ async fn admin_logs_limit_is_clamped_server_side() {
             tdmcp_daemon::Src::Daemon,
         ));
     }
-    let app = admin_router_with_logs(test_state(), ring);
+    let app = admin_router_with_logs(test_state(), sink);
     let (status, body) = get_json(&app, "/admin/logs?limit=10000").await;
     assert_eq!(status, 200);
     assert_eq!(body["records"].as_array().expect("records").len(), 512);
@@ -242,11 +257,11 @@ async fn admin_logs_limit_is_clamped_server_side() {
 
 #[tokio::test]
 async fn admin_logs_filters_by_level_and_src() {
-    let ring = Arc::new(LogRing::new(64));
+    let (sink, ring) = test_log_sink();
     ring.push(rec("info-daemon", tdmcp_daemon::Level::Info, tdmcp_daemon::Src::Daemon));
     ring.push(rec("warn-bridge", tdmcp_daemon::Level::Warn, tdmcp_daemon::Src::Bridge));
     ring.push(rec("error-mcp", tdmcp_daemon::Level::Error, tdmcp_daemon::Src::Mcp));
-    let app = admin_router_with_logs(test_state(), ring);
+    let app = admin_router_with_logs(test_state(), sink);
 
     let (_, warn_up) = get_json(&app, "/admin/logs?level=warn").await;
     let records = warn_up["records"].as_array().expect("records");
@@ -263,7 +278,8 @@ async fn admin_logs_filters_by_level_and_src() {
 
 #[tokio::test]
 async fn admin_logs_bad_level_and_src_are_400() {
-    let app = admin_router_with_logs(test_state(), Arc::new(LogRing::new(8)));
+    let (sink, _ring) = test_log_sink();
+    let app = admin_router_with_logs(test_state(), sink);
 
     let (status, body) = get_json(&app, "/admin/logs?level=catastrophic").await;
     assert_eq!(status, 400);
@@ -275,9 +291,73 @@ async fn admin_logs_bad_level_and_src_are_400() {
 
 #[tokio::test]
 async fn admin_logs_path_returns_configured_dir() {
-    let app = admin_router_with_logs(test_state(), Arc::new(LogRing::new(8)));
+    let (sink, _ring) = test_log_sink();
+    let app = admin_router_with_logs(test_state(), sink);
     let (status, body) = get_json(&app, "/admin/logs/path").await;
     assert_eq!(status, 200);
     assert!(body["dir"].as_str().expect("dir").contains("tdmcp-test-logs"));
+}
+
+async fn post_json(app: &axum::Router, uri: &str, body: Value) -> (axum::http::StatusCode, Value) {
+    let response = app
+        .clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .method("POST")
+                .uri(uri)
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = response.status();
+    let resp_body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    (status, serde_json::from_slice(&resp_body).unwrap())
+}
+
+/// M5: acceptance shape — a proxy POST to `/admin/logs/ingest` lands
+/// `src:"proxy"` records centrally, pid 0 with the proxy pid carried in
+/// `kvs.proxyPid` (never trusting the payload's own claimed identity).
+#[tokio::test]
+async fn admin_logs_ingest_stamps_proxy_src_and_pid_zero() {
+    let (sink, ring) = test_log_sink();
+    let app = admin_router_with_logs(test_state(), sink);
+
+    let (status, body) = post_json(
+        &app,
+        "/admin/logs/ingest",
+        json!({
+            "pid": 4242,
+            "lines": [
+                {"level": "error", "target": "stdio_proxy", "msg": "heal failed",
+                 "pid": 999999, "src": "daemon"}
+            ]
+        }),
+    )
+    .await;
+    assert_eq!(status, 200);
+    assert_eq!(body["ok"], true);
+    assert_eq!(body["ingested"], 1);
+
+    let (recs, _) = ring.snapshot_after(0, 8, None, &[]);
+    assert_eq!(recs.len(), 1);
+    assert_eq!(recs[0].pid, 0, "record pid must never be the proxy's own claim");
+    assert_eq!(recs[0].src, tdmcp_daemon::Src::Proxy);
+    assert_eq!(recs[0].kvs.get("proxyPid").map(String::as_str), Some("4242"));
+    assert_eq!(recs[0].msg, "heal failed");
+}
+
+#[tokio::test]
+async fn admin_logs_ingest_ignores_payload_without_lines() {
+    let (sink, ring) = test_log_sink();
+    let app = admin_router_with_logs(test_state(), sink);
+
+    let (status, body) = post_json(&app, "/admin/logs/ingest", json!({"pid": 1})).await;
+    assert_eq!(status, 200);
+    assert_eq!(body["ingested"], 0);
+    assert!(ring.snapshot_after(0, 8, None, &[]).0.is_empty());
 }
 

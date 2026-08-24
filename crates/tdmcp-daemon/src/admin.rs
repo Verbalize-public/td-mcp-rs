@@ -22,7 +22,7 @@ use tdmcp_mcp::{fleet_summary, AppState, FleetInclude, FleetParams};
 use crate::ensure::{configure_detached_spawn, daemon_lock_path};
 use crate::federation::{tag_local_processes, FederationRuntime};
 use crate::logrecord::{Level, Src};
-use crate::logring::LogRing;
+use crate::logring::{ingest_proxy_logs, LogSink};
 
 /// Arguments needed to respawn the daemon after `/admin/restart`.
 #[derive(Debug, Clone)]
@@ -51,7 +51,7 @@ struct AdminState {
     shutdown: CancellationToken,
     quit: Arc<AtomicBool>,
     federation: FederationRuntime,
-    logs: Arc<LogRing>,
+    logs: LogSink,
     logs_dir: PathBuf,
 }
 
@@ -63,7 +63,7 @@ pub fn build_admin_router(
     shutdown: CancellationToken,
     quit: Arc<AtomicBool>,
     federation: FederationRuntime,
-    logs: Arc<LogRing>,
+    logs: LogSink,
     logs_dir: PathBuf,
 ) -> Router {
     let state = AdminState {
@@ -84,6 +84,7 @@ pub fn build_admin_router(
         .route("/admin/restart", post(restart_daemon))
         .route("/admin/logs", get(admin_logs))
         .route("/admin/logs/path", get(admin_logs_path))
+        .route("/admin/logs/ingest", post(admin_logs_ingest))
         .with_state(state)
         .merge(crate::federation::federation_router(federation))
 }
@@ -340,7 +341,7 @@ async fn admin_logs(State(state): State<AdminState>, Query(q): Query<LogsQuery>)
             out
         }
     };
-    let (records, next) = state.logs.snapshot_after(q.after, limit, min_level, &srcs);
+    let (records, next) = state.logs.ring().snapshot_after(q.after, limit, min_level, &srcs);
     Json(json!({ "records": records, "next": next })).into_response()
 }
 
@@ -348,4 +349,15 @@ async fn admin_logs(State(state): State<AdminState>, Query(q): Query<LogsQuery>)
 /// folder" action).
 async fn admin_logs_path(State(state): State<AdminState>) -> Json<Value> {
     Json(json!({ "dir": state.logs_dir.display().to_string() }))
+}
+
+/// `POST /admin/logs/ingest` — M5 stdio-proxy uplink.
+/// Body: `{"pid": <proxy pid>, "lines": [{level,target,msg,kvs?,code?,ts?}, ...]}`.
+/// The proxy pid is a display hint (loopback peer, not an identity) — every
+/// ingested record's own `pid` field is 0; the proxy pid lands in
+/// `kvs.proxyPid` (see `ingest_proxy_logs`).
+async fn admin_logs_ingest(State(state): State<AdminState>, Json(body): Json<Value>) -> Response {
+    let proxy_pid = body.get("pid").and_then(Value::as_u64).unwrap_or(0) as u32;
+    let ingested = ingest_proxy_logs(proxy_pid, &body, &state.logs);
+    Json(json!({ "ok": true, "ingested": ingested })).into_response()
 }

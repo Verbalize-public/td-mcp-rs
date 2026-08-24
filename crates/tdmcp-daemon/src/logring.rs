@@ -188,32 +188,88 @@ pub async fn run_sweep_loop(
     }
 }
 
-/// Cap on one record's `msg` (bytes) — a runaway bridge print must not blow
-/// the ring or the file up.
-const MAX_BRIDGE_MSG_BYTES: usize = 64 * 1024;
-/// Cap on records ingested from one `log` event batch.
-const MAX_BRIDGE_BATCH: usize = 256;
+/// Cap on one record's `msg` (bytes) — a runaway external print must not
+/// blow the ring or the file up.
+const MAX_EXTERNAL_MSG_BYTES: usize = 64 * 1024;
+/// Cap on records ingested from one external batch (bridge event or proxy POST).
+const MAX_EXTERNAL_BATCH: usize = 256;
 
 /// Ingest one bridge `Message::Event{name:"log"}` payload
 /// (`{"records":[{level,target,msg,kvs?,code?,ts?}, ...]}`). `pid` comes from
 /// the handshake identity, never trusted from the payload. Malformed entries
 /// are skipped, not fatal. Returns the number of records ingested.
 pub fn ingest_bridge_logs(pid: u32, payload: &serde_json::Value, sink: &LogSink) -> usize {
-    let Some(records) = payload.get("records").and_then(|v| v.as_array()) else {
+    let Some(entries) = payload.get("records").and_then(|v| v.as_array()) else {
         return 0;
     };
+    ingest_entries(entries, sink, |fields| Record {
+        seq: 0, // assigned by the ring on push
+        ts: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+        level: fields.level,
+        src: Src::Bridge,
+        pid,
+        target: fields.target,
+        msg: fields.msg,
+        code: fields.code,
+        kvs: fields.kvs,
+    })
+}
+
+/// Ingest one stdio-proxy `POST /admin/logs/ingest` body
+/// (`{"lines":[{level,target,msg,kvs?,code?,ts?}, ...]}`, M5). The proxy's
+/// own pid is a display hint only (loopback peer, not an identity) — it
+/// lands in `kvs.proxyPid`, never in the record's `pid` field, which is
+/// always 0 (no daemon-side process owns "proxy" records).
+pub fn ingest_proxy_logs(proxy_pid: u32, payload: &serde_json::Value, sink: &LogSink) -> usize {
+    let Some(entries) = payload.get("lines").and_then(|v| v.as_array()) else {
+        return 0;
+    };
+    ingest_entries(entries, sink, |mut fields| {
+        fields
+            .kvs
+            .insert("proxyPid".to_owned(), proxy_pid.to_string());
+        Record {
+            seq: 0,
+            ts: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+            level: fields.level,
+            src: Src::Proxy,
+            pid: 0,
+            target: fields.target,
+            msg: fields.msg,
+            code: fields.code,
+            kvs: fields.kvs,
+        }
+    })
+}
+
+fn ingest_entries(
+    entries: &[serde_json::Value],
+    sink: &LogSink,
+    to_record: impl Fn(ExternalFields) -> Record,
+) -> usize {
     let mut ingested = 0;
-    for entry in records.iter().take(MAX_BRIDGE_BATCH) {
-        let Some(record) = bridge_entry_to_record(pid, entry) else {
+    for entry in entries.iter().take(MAX_EXTERNAL_BATCH) {
+        let Some(fields) = parse_external_fields(entry) else {
             continue;
         };
-        sink.push(record);
+        sink.push(to_record(fields));
         ingested += 1;
     }
     ingested
 }
 
-fn bridge_entry_to_record(pid: u32, entry: &serde_json::Value) -> Option<Record> {
+/// Fields common to every externally-sourced record entry — everything
+/// except the identity-sensitive `pid`/`src`, which each caller stamps
+/// itself (never trusted from the payload).
+struct ExternalFields {
+    level: Level,
+    target: String,
+    msg: String,
+    code: Option<String>,
+    kvs: std::collections::BTreeMap<String, String>,
+}
+
+fn parse_external_fields(entry: &serde_json::Value) -> Option<ExternalFields> {
     let obj = entry.as_object()?;
     let level = obj
         .get("level")
@@ -226,7 +282,7 @@ fn bridge_entry_to_record(pid: u32, entry: &serde_json::Value) -> Option<Record>
         .unwrap_or("bridge")
         .to_owned();
     let mut msg = obj.get("msg").and_then(|v| v.as_str()).unwrap_or("").to_owned();
-    truncate_to_byte_cap(&mut msg, MAX_BRIDGE_MSG_BYTES);
+    truncate_to_byte_cap(&mut msg, MAX_EXTERNAL_MSG_BYTES);
     let code = obj.get("code").and_then(|v| v.as_str()).map(str::to_owned);
     let mut kvs: std::collections::BTreeMap<String, String> = obj
         .get("kvs")
@@ -240,12 +296,8 @@ fn bridge_entry_to_record(pid: u32, entry: &serde_json::Value) -> Option<Record>
     if let Some(ts) = obj.get("ts").and_then(|v| v.as_str()) {
         kvs.insert("sentTs".to_owned(), ts.to_owned());
     }
-    Some(Record {
-        seq: 0, // assigned by the ring on push
-        ts: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+    Some(ExternalFields {
         level,
-        src: Src::Bridge,
-        pid,
         target,
         msg,
         code,
@@ -441,7 +493,32 @@ mod tests {
         records.push(serde_json::json!("not an object"));
         let payload = serde_json::json!({"records": records});
         let n = ingest_bridge_logs(1, &payload, &sink);
-        assert_eq!(n, MAX_BRIDGE_BATCH);
+        assert_eq!(n, MAX_EXTERNAL_BATCH);
+    }
+
+    #[test]
+    fn ingest_proxy_logs_pid_zero_and_proxy_pid_in_kvs() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let (sink, _guard) = test_sink(dir.path());
+        let payload = serde_json::json!({"lines": [
+            {"level": "error", "target": "stdio_proxy", "msg": "heal failed",
+             "pid": 999999, "src": "daemon"}
+        ]});
+        let n = ingest_proxy_logs(4242, &payload, &sink);
+        assert_eq!(n, 1);
+        let (recs, _) = sink.ring().snapshot_after(0, 8, None, &[]);
+        let r = &recs[0];
+        assert_eq!(r.pid, 0, "proxy records never claim a daemon-owned pid");
+        assert_eq!(r.src, Src::Proxy);
+        assert_eq!(r.level, Level::Error);
+        assert_eq!(r.kvs.get("proxyPid").map(String::as_str), Some("4242"));
+    }
+
+    #[test]
+    fn ingest_proxy_logs_ignores_payload_without_lines() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let (sink, _guard) = test_sink(dir.path());
+        assert_eq!(ingest_proxy_logs(1, &serde_json::json!({"records": []}), &sink), 0);
     }
 
     #[test]
