@@ -206,6 +206,46 @@ def test_suppress_is_reentrant() -> None:
     assert msgs == ["now visible"]
 
 
+def test_on_local_fires_synchronously_per_record() -> None:
+    """M3: the face LOGS mirror needs every record live, not batched — unlike
+    on_flush (batched, 0.5s/32-line), on_local fires immediately per write."""
+    seen: list[dict] = []
+    logtap.install(lambda _records: None, on_local=seen.append)
+    print("one")
+    print("two")
+    assert [r["msg"] for r in seen] == ["one", "two"]
+
+
+def test_on_local_respects_suppress() -> None:
+    seen: list[dict] = []
+    logtap.install(lambda _records: None, on_local=seen.append)
+    with logtap.suppress():
+        print("suppressed")
+    print("visible")
+    assert [r["msg"] for r in seen] == ["visible"]
+
+
+def test_on_local_is_optional() -> None:
+    # install() without on_local must not raise on a print.
+    logtap.install(lambda _records: None)
+    print("no mirror configured")
+
+
+def test_on_local_failure_never_propagates(capsys: pytest.CaptureFixture) -> None:
+    def boom(_record: dict) -> None:
+        raise RuntimeError("mirror down")
+
+    logtap.install(lambda _records: None, on_local=boom)
+    print("still reaches stdout")  # must not raise
+    assert "still reaches stdout" in capsys.readouterr().out
+
+
+def test_is_installed_reflects_install_state() -> None:
+    assert logtap.is_installed() is False
+    logtap.install(lambda _records: None)
+    assert logtap.is_installed() is True
+
+
 def test_flush_failure_never_propagates() -> None:
     def boom(_records: list[dict]) -> None:
         raise RuntimeError("uplink down")

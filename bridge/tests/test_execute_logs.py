@@ -8,6 +8,8 @@ import sys
 import pytest
 
 import tdmcp_bridge as bridge
+from tdmcp_bridge import execute as _execute_mod
+from tdmcp_bridge import logtap
 
 
 @pytest.fixture(autouse=True)
@@ -15,6 +17,9 @@ def _reset_capture_state(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(bridge, "_capture_depth", 0)
     monkeypatch.setattr(bridge, "_bridge_host_path", None)
     monkeypatch.setattr(bridge, "_append_debug_dat", lambda _logs: None)
+    logtap._reset_for_tests()
+    yield
+    logtap._reset_for_tests()
 
 
 def test_truncate_logs_under_limit() -> None:
@@ -219,6 +224,57 @@ def test_execute_python_rejects_oversized_script() -> None:
     assert out["ok"] is False
     assert out["code"] == "tdmcp.script.too_large"
     assert "exceeds" in (out.get("error") or "")
+
+
+def test_tap_installed_routes_single_combined_record_not_per_line(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """M3 T3.2: with the uplink tap installed, a script printing multiple
+    lines must uplink as ONE record (the whole block via append_local) —
+    not one record per print, which double-counts every line the tool's own
+    `logs` field already returns."""
+    sink = io.StringIO()
+    old_out, old_err = sys.stdout, sys.stderr
+    dat_calls: list[str] = []
+    monkeypatch.setattr(_execute_mod, "_append_debug_dat", lambda logs: dat_calls.append(logs))
+    logtap.install(lambda _records: None)
+    # install() swapped sys.stdout to a fresh tee wrapping whatever was
+    # there — point that "whatever" at the test sink first.
+    logtap._orig_stdout = sink
+    sys.stdout = logtap.Tee(sink, "info", "bridge::stdout")
+    logtap._orig_stderr = sink
+    sys.stderr = logtap.Tee(sink, "error", "bridge::stderr")
+    try:
+        out = bridge.handle_execute_python(
+            {"script": "print('a')\nprint('b')\nprint('c')\nresult = 1", "includeLogs": True}
+        )
+        assert out["ok"] is True
+        assert "a" in out["logs"] and "b" in out["logs"] and "c" in out["logs"]
+        assert len(logtap._buffer) == 1, "must be one combined record, not one per print"
+        assert logtap._buffer[0]["target"] == "execute_python"
+        assert dat_calls == [], "must not also use the legacy direct-DAT path"
+    finally:
+        sys.stdout, sys.stderr = old_out, old_err
+
+
+def test_tap_not_installed_falls_back_to_legacy_dat_write(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sink = io.StringIO()
+    old_out, old_err = sys.stdout, sys.stderr
+    sys.stdout = sink
+    sys.stderr = sink
+    dat_calls: list[str] = []
+    monkeypatch.setattr(_execute_mod, "_append_debug_dat", lambda logs: dat_calls.append(logs))
+    assert not logtap.is_installed()
+    try:
+        out = bridge.handle_execute_python(
+            {"script": "print('legacy-path')\nresult = 1", "includeLogs": True}
+        )
+        assert out["ok"] is True
+        assert dat_calls and "legacy-path" in dat_calls[0]
+    finally:
+        sys.stdout, sys.stderr = old_out, old_err
 
 
 def test_execute_python_rejects_oversized_result() -> None:
