@@ -534,6 +534,17 @@ def serve_queued(
                 continue
             except EOFError:
                 break
+            except OSError as exc:
+                # The stream died (superseded by a newer connection, daemon
+                # restart, dead pipe/socket) — routine lifecycle, not a bug.
+                # This is expected on *every* reconnect: the daemon closes
+                # its end when a newer session supersedes this pid, and the
+                # next read/write here is what actually discovers that. A
+                # full traceback doesn't explain "why" (it's always this
+                # same call site) and just prints an alarming wall of text
+                # to the Textport on routine reconnects.
+                sys.stderr.write(f"tdmcp_bridge: serve_queued stopping (stream closed: {exc})\n")
+                break
             except Exception:  # noqa: BLE001 — never kill the daemon thread silently
                 # Decode / unexpected stream errors: close cleanly with a trace.
                 sys.stderr.write(
@@ -568,6 +579,13 @@ def serve_queued(
                         },
                     }
                 _write_frame(stream, resp)
+            except OSError as exc:
+                # Same routine "stream died mid-write" case as the read loop
+                # above — see that comment. This is the site that actually
+                # fires most often in practice: the daemon closes its end
+                # while we're mid-dispatch on a superseded connection.
+                sys.stderr.write(f"tdmcp_bridge: serve_queued stopping (stream closed: {exc})\n")
+                break
             except Exception:  # noqa: BLE001 — never kill the daemon thread silently
                 sys.stderr.write(
                     "tdmcp_bridge: serve_queued stopping after dispatch/write error\n"

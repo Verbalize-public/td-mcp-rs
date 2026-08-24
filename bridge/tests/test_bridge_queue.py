@@ -11,6 +11,8 @@ Run: `python -m unittest bridge/tests/test_bridge_queue.py` (no TD, no deps).
 
 from __future__ import annotations
 
+import contextlib
+import io
 import os
 import queue
 import socket
@@ -117,6 +119,49 @@ class QueuedServeTest(unittest.TestCase):
         resp = self._recv_response()
         self.assertEqual(resp["id"], 7)
         self.assertIn("unknown method", resp["error"]["message"])
+
+    def test_write_failure_on_superseded_connection_is_quiet_not_a_traceback(
+        self,
+    ) -> None:
+        """Root-cause fix (found live against a real TD session, mid-M3
+        debugging): a write failure here is the *routine* way this loop
+        discovers it has been superseded by a newer connection — the daemon
+        closes its end, and the next write is what surfaces that as an
+        OSError. It used to dump a full traceback to stderr (the Textport,
+        in real TD) on every single reconnect; it must now log one quiet
+        line and exit cleanly instead."""
+
+        class _WriteFailsStream:
+            def __init__(self, inner):
+                self._inner = inner
+
+            def read(self, *a, **kw):
+                return self._inner.read(*a, **kw)
+
+            def write(self, _data):
+                raise OSError(6, "WriteFile failed (WinError 6)")
+
+            def flush(self):
+                pass
+
+            def close(self):
+                self._inner.close()
+
+        failing_stream = _WriteFailsStream(self.bridge_stream)
+        stderr_capture = io.StringIO()
+
+        worker = threading.Thread(
+            target=tdmcp_bridge.serve_queued, args=(failing_stream,), daemon=True
+        )
+        with contextlib.redirect_stderr(stderr_capture):
+            worker.start()
+            self._send_request(1, "ping")
+            worker.join(timeout=2.0)
+
+        self.assertFalse(worker.is_alive(), "worker must exit, not hang, on write failure")
+        output = stderr_capture.getvalue()
+        self.assertIn("stream closed", output)
+        self.assertNotIn("Traceback (most recent call last)", output)
 
     def test_task_snapshot_empty_then_fields(self) -> None:
         self.assertEqual(tdmcp_bridge.task_snapshot(), [])
