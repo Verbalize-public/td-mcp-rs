@@ -29,11 +29,11 @@ M3/M4/M5 are independent once M2 lands. M6 last (audit over final code).
 
 | Milestone | Size | Owns | Status |
 | --- | --- | --- | --- |
-| M1 Sink | L | File sink, ring, retention, subscriber rewrite, CLI tail | **Shipped** |
-| M2 Uplink | M | Python logtap, IPC event arm, daemon ingest | **Shipped** |
-| M3 TD Mirror | M | Textport tee wiring into TD, face LOGS upgrade, `td.errors` | **Planned** — T3.1 live-verify gate not yet run |
-| M4 GUI+API | M | `/admin/logs*`, tray Logs view UX | **Shipped** — GUI not pixel-verified (no live TD/GUI env available at implementation time) |
-| M5 Proxy Ingest | S | stdio proxy forwarding | **Shipped** |
+| M1 Sink | L | File sink, ring, retention, subscriber rewrite, CLI tail | **Shipped** — verified live against a real TD session |
+| M2 Uplink | M | Python logtap, IPC event arm, daemon ingest | **Shipped** — verified live; a real reload-staleness bug found + fixed in the process (see T3.1 note) |
+| M3 TD Mirror | M | Textport tee wiring into TD, face LOGS upgrade, `td.errors` | **Planned** — T3.1 live-verify gate run 2026-08-24 (V1/V2/V4 answered, V3 partial, V5 deferred); T3.3 needs rewriting against `op(...).errors(recurse=True)`, not `td.errors` (doesn't exist on TD 2025.32460); implementation not started |
+| M4 GUI+API | M | `/admin/logs*`, tray Logs view UX | **Shipped** — admin API verified live; tray GUI still not pixel-verified |
+| M5 Proxy Ingest | S | stdio proxy forwarding | **Shipped** — verified live (real Claude Code sessions' stdio proxies show up with `src:"proxy"`) |
 | M6 Hygiene | M | Message audit, silent-crate baselines, docs | **Shipped** |
 
 ---
@@ -310,19 +310,34 @@ never trusted from payload), `src:"bridge"`, `code:null`.
 
 ### T3.1 Live-verify gate (before coding)
 
-Run in real TD via the `touchdesigner` skill operate path; record results in
-this file's appendix:
+**Run 2026-08-24** against a live TD 2025.32460 session (`NewProject222.toe`,
+pid 29660) reachable through the daemon's `/mcp/tools/call` JSON fallback —
+M2's uplink was exercised live in the same session first (see the M2 fix
+note below), so these probes ran with real bridge log records flowing.
 
-| Probe | Question |
-| --- | --- |
-| V1 | Does replacing `sys.stdout` capture `print` from an unrelated DAT/node? |
-| V2 | Does `debug("x")` route through `sys.stdout` (captured?) or straight to Textport? |
-| V3 | Does TD restore `sys.stdout` on save / reload / edit? When? |
-| V4 | `iter(td.errors)` cost at 5 s cadence on a mid-size project? |
-| V5 | Max face LOGS lines fitting `_FACE_W×_FACE_H=560×560` @ `_FONT_SIZE=10` (`tox_callbacks.py:30-37`) |
+| Probe | Question | Result |
+| --- | --- | --- |
+| V1 | Does replacing `sys.stdout` capture `print` from an unrelated DAT/node? | **Yes.** A `print()` inside a freshly-created, unrelated Text DAT's own `.run()` (not `execute_python`'s exec context) was captured by the global tee. |
+| V2 | Does `debug("x")` route through `sys.stdout` (captured?) or straight to Textport? | **Yes, captured** — but as **two separate writes**: the message, then a second write for the `(Debug - DAT:<path> fn:<fn> line:<n>)` suffix TD appends. M3's line-buffering (or acceptance of two records per `debug()` call) needs to account for this. |
+| V3 | Does TD restore `sys.stdout` on save / reload / edit? When? | **Partial.** A routine node create/set-par/delete cycle does **not** reset `sys.stdout` — the tee survives ordinary graph edits. Project **save** was not tested (would write the user's real `.toe`; needs explicit go-ahead, not exercised remotely). |
+| V4 | `iter(td.errors)` cost at 5 s cadence on a mid-size project? | **`td.errors` does not exist on this TD build** (`AttributeError: module 'td' has no attribute 'errors'` — the spec's assumed API is stale/wrong for 2025.32460). The working equivalent is `op("/").errors(recurse=True)`, measured at **~47 ms/call** (10-call average) — but on a small/near-empty project; cost likely scales with node count. T3.3 needs rewriting against `op(...).errors(recurse=True)`, not `td.errors`. |
+| V5 | Max face LOGS lines fitting `_FACE_W×_FACE_H=560×560` @ `_FONT_SIZE=10` (`tox_callbacks.py:30-37`) | **Not run** — needs visual inspection of a rendered face TOP; better tuned once T3.4 actually exists to render into rather than guessed against the old 14-line panel. |
 
-V2 outcome decides scope: uncapturable → documented limitation, lean harder on
-`td.errors`.
+V2 outcome: capturable, two writes per call — proceed with the tee approach,
+but expect debug() to emit a message record + a location-suffix record.
+
+**M2 bug found and fixed during this run** (before T3.1 could even measure
+anything meaningful): `logtap.install()`'s "skip if `sys.stdout` is already
+our tee" check let a **stale tee from an earlier reload generation** sit in
+`sys.stdout` forever — TD reloads `tdmcp_bridge` on every reconnect, and the
+already-installed tee's bound method referenced the *previous* generation's
+`_buffer`/`_on_flush`, so it looked installed but every write landed in an
+orphaned buffer nothing ever flushed. Fixed in `logtap.py` (`bridge/tdmcp_bridge/logtap.py`,
+commit `8db74c4`) — `install()` now always unwraps down to the true original
+and rebuilds a fresh tee. Confirmed live after a rebuild + `install --force`
++ reconnect: a bridge `print()` reached the central sink via `GET
+/admin/logs?src=bridge` with the correct pid, `src:"bridge"`, and target,
+within one flush cycle.
 
 ### T3.2 Stream ownership coordination with `execute_python`
 
