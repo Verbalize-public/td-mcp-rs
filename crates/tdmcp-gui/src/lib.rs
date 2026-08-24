@@ -32,14 +32,6 @@ use theme::{
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum View {
-    Fleet,
-    Settings,
-    Logs,
-}
-
-/// Overlay panels on the Fleet view (add-slave / slave settings).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FleetPanel {
     None,
     AddSlave,
@@ -62,8 +54,6 @@ const FOCUS_LOSS_CLOSE_GRACE: Duration = Duration::from_millis(400);
 
 /// Top chrome strip height (px).
 const HEADER_H: f32 = 34.0;
-/// Settings action strip height (px).
-const SETTINGS_TOOLBAR_H: f32 = 30.0;
 /// Settings row height (px).
 const SETTINGS_ROW_H: f32 = 26.0;
 /// Symmetric side inset for content (px).
@@ -184,7 +174,6 @@ struct DashboardApp {
     admin_base: String,
     data_dir: PathBuf,
     config_path: PathBuf,
-    view: View,
     draft: ConfigFile,
     settings_error: Option<String>,
     /// Text buffers for optional advanced paths (empty = unset).
@@ -346,6 +335,8 @@ struct LogsViewState {
     min_level: Option<&'static str>,
     /// Empty = ALL sources; otherwise only these `src` values are kept.
     srcs: HashSet<&'static str>,
+    /// Client-side substring filter over msg/target (dashboard search box).
+    text_filter: String,
     /// `seq` of the expanded row, if any.
     expanded: Option<u64>,
     fetch_error: Option<String>,
@@ -363,6 +354,7 @@ impl Default for LogsViewState {
             paused: false,
             min_level: None,
             srcs: HashSet::new(),
+            text_filter: String::new(),
             expanded: None,
             fetch_error: None,
             dir: None,
@@ -397,6 +389,16 @@ impl DashboardApp {
         let menu_dashboard = MenuItem::new("Open dashboard", true, None);
 
         let draft = cfgfile::load(&config_path).unwrap_or_default();
+        // Dev/test hook: TDMCP_OPEN_DASH=1|logs|fleet|settings opens the
+        // dashboard (optionally on a tab) instead of staying tray-only.
+        let dash_env = std::env::var("TDMCP_OPEN_DASH").unwrap_or_default();
+        let dash_tab = match dash_env.as_str() {
+            "logs" => dashboard::DashTab::Logs,
+            "fleet" => dashboard::DashTab::Fleet,
+            "settings" => dashboard::DashTab::Settings,
+            _ => dashboard::DashTab::default(),
+        };
+        let dash_open = !dash_env.is_empty() && dash_env != "0";
         let (data_dir_edit, bridge_dir_edit, catalog_path_edit, daemon_bin_edit) =
             path_edits_from(&draft);
         let settings_loaded_snapshot = draft.clone();
@@ -405,7 +407,6 @@ impl DashboardApp {
             admin_base,
             data_dir,
             config_path,
-            view: View::Fleet,
             draft,
             settings_error: None,
             data_dir_edit,
@@ -430,7 +431,7 @@ impl DashboardApp {
             attention: false,
             prev_snapshot: FleetSnapshot::default(),
             visible: false,
-            pending_initial_hide: true,
+            pending_initial_hide: !dash_open,
             pending_tray: true,
             startup_notified: false,
             startup_fail_notified: false,
@@ -468,8 +469,8 @@ impl DashboardApp {
             known_slave_ids: HashSet::new(),
             slaves_seen_once: false,
             logs_view: LogsViewState::default(),
-            dashboard_open: false,
-            dash_tab: dashboard::DashTab::default(),
+            dashboard_open: dash_open,
+            dash_tab,
             error_ring: Vec::new(),
             window_icon,
         })
@@ -536,23 +537,29 @@ impl DashboardApp {
         self.daemon_bin_edit = bin;
         self.settings_loaded_snapshot = self.draft.clone();
         self.confirm_turn_off_sharing = false;
-        self.view = View::Settings;
     }
 
-    fn open_logs(&mut self) {
-        self.view = View::Logs;
-        if self.logs_view.dir.is_none() {
-            self.ensure_base();
-            let bearer = local_master_psk(&self.draft);
-            if let Ok(body) = http_get_blocking(
-                &format!("{}/admin/logs/path", self.admin_base),
-                bearer.as_deref(),
-            ) {
-                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&body) {
-                    self.logs_view.dir = v["dir"].as_str().map(str::to_owned);
-                }
+    /// Lazily resolve the log directory once, from either surface.
+    fn ensure_logs_dir(&mut self) {
+        if self.logs_view.dir.is_some() {
+            return;
+        }
+        self.ensure_base();
+        let bearer = local_master_psk(&self.draft);
+        if let Ok(body) = http_get_blocking(
+            &format!("{}/admin/logs/path", self.admin_base),
+            bearer.as_deref(),
+        ) {
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&body) {
+                self.logs_view.dir = v["dir"].as_str().map(str::to_owned);
             }
         }
+    }
+
+    /// Logs streaming is wanted while the dashboard sits on its Logs tab —
+    /// even when the popup itself is hidden.
+    fn logs_surface_active(&self) -> bool {
+        self.dashboard_open && self.dash_tab == dashboard::DashTab::Logs
     }
 
     fn reveal_logs_dir(&self) {
@@ -565,11 +572,11 @@ impl DashboardApp {
         }
     }
 
-    /// Fetch the next page of `/admin/logs` when due (Logs view active,
-    /// window visible, not paused) — piggybacks the existing repaint tick,
-    /// same throttle style as `poll()`.
+    /// Fetch the next page of `/admin/logs` when due (either surface wants
+    /// logs, not paused) — piggybacks the existing repaint tick, same
+    /// throttle style as `poll()`.
     fn fetch_logs_if_due(&mut self) {
-        if self.view != View::Logs || !self.visible || self.logs_view.paused {
+        if !self.logs_surface_active() || self.logs_view.paused {
             return;
         }
         let due = self
@@ -665,7 +672,6 @@ impl DashboardApp {
                 self.role_change_note = None;
                 self.needs_restart = self.needs_restart || restart_needed;
                 self.settings_loaded_snapshot = self.draft.clone();
-                self.view = View::Fleet;
             }
             Err(e) => self.settings_error = Some(format!("save failed: {e}")),
         }
@@ -673,7 +679,6 @@ impl DashboardApp {
 
     fn discard_settings(&mut self) {
         self.settings_error = None;
-        self.view = View::Fleet;
     }
 
     fn reset_settings(&mut self) {
@@ -1066,10 +1071,7 @@ impl DashboardApp {
         if !self.visible {
             return;
         }
-        // Keep Settings / fleet panels open while editing.
-        if self.view == View::Settings || self.fleet_panel != FleetPanel::None {
-            return;
-        }
+        // Any focus loss hides the popup; editing happens in the dashboard.
         if self
             .ignore_focus_loss_until
             .is_some_and(|t| Instant::now() < t)
@@ -1168,17 +1170,16 @@ impl DashboardApp {
             let gear = ghost_button(ui, "⚙", TEXT_DIM, ACCENT).on_hover_text("Settings");
             if gear.clicked() {
                 self.open_settings();
+                self.dash_tab = dashboard::DashTab::Settings;
+                self.dashboard_open = true;
             }
             ui.add_space(2.0);
-            let logs_active = self.view == View::Logs;
-            let logs_color = if logs_active { ACCENT } else { TEXT_DIM };
+            let dash_logs = self.dashboard_open && self.dash_tab == dashboard::DashTab::Logs;
+            let logs_color = if dash_logs { ACCENT } else { TEXT_DIM };
             let logs = ghost_button(ui, "≡", logs_color, ACCENT).on_hover_text("Logs");
             if logs.clicked() {
-                if logs_active {
-                    self.view = View::Fleet;
-                } else {
-                    self.open_logs();
-                }
+                self.dash_tab = dashboard::DashTab::Logs;
+                self.dashboard_open = true;
             }
             ui.add_space(4.0);
             // Dashboard launcher (leftmost header action).
@@ -1199,730 +1200,6 @@ impl DashboardApp {
             .unwrap_or("")
     }
 
-    fn draw_settings(&mut self, ui: &mut egui::Ui) {
-        section_header(ui, "SETTINGS");
-        ui.add_space(4.0);
-        ui.horizontal(|ui| {
-            ui.add_space(12.0);
-            ui.add(
-                egui::Label::new(
-                    egui::RichText::new(self.config_path.display().to_string())
-                        .font(font_mono())
-                        .color(TEXT_FAINT),
-                )
-                .truncate(),
-            );
-        });
-        ui.add_space(4.0);
-        ui.horizontal(|ui| {
-            ui.add_space(12.0);
-            ui.label(
-                egui::RichText::new(
-                    "Some changes need a restart — you'll get a one-click prompt after saving.",
-                )
-                .font(font_meta())
-                .color(TEXT_DIM),
-            );
-        });
-        if let Some(err) = &self.settings_error {
-            ui.horizontal(|ui| {
-                ui.add_space(12.0);
-                ui.colored_label(ERR, err.clone());
-            });
-        }
-
-        ui.add_space(8.0);
-        section_header(ui, "SERVER");
-        settings_row(ui, "Port", Self::field_help("server.port"), |ui| {
-            ui.add(
-                egui::DragValue::new(&mut self.draft.server.port)
-                    .range(1..=65535)
-                    .speed(1),
-            );
-        });
-
-        ui.add_space(6.0);
-        section_header(ui, "NETWORK");
-        let sharing = !cfgfile::is_loopback_bind(&self.draft.server.bind_address);
-        settings_row(
-            ui,
-            "Share on my network",
-            "Make this daemon reachable on your local network — required for federation. Auth (below) is a separate, optional choice.",
-            |ui| {
-                let mut sharing_now = sharing;
-                if ui
-                    .add(egui::Checkbox::without_text(&mut sharing_now))
-                    .changed()
-                {
-                    if sharing_now {
-                        self.set_sharing(true);
-                    } else if self.draft.federation.role != "standalone" {
-                        self.confirm_turn_off_sharing = true;
-                    } else {
-                        self.set_sharing(false);
-                    }
-                }
-            },
-        );
-        ui.horizontal(|ui| {
-            ui.add_space(12.0);
-            ui.label(
-                egui::RichText::new(if sharing {
-                    format!(
-                        "{}:{} on your network",
-                        self.draft.server.bind_address, self.draft.server.port
-                    )
-                } else {
-                    "Only this machine (127.0.0.1)".to_owned()
-                })
-                .font(font_meta())
-                .color(TEXT_DIM),
-            );
-        });
-        if self.confirm_turn_off_sharing {
-            ui.horizontal(|ui| {
-                ui.add_space(12.0);
-                ui.colored_label(WARN, "This will disconnect federation on this machine.");
-            });
-            ui.horizontal(|ui| {
-                ui.add_space(12.0);
-                if filled_button(ui, "Turn off anyway").clicked() {
-                    self.set_sharing(false);
-                }
-                ui.add_space(4.0);
-                if ghost_button(ui, "Cancel", TEXT_DIM, TEXT).clicked() {
-                    self.confirm_turn_off_sharing = false;
-                }
-            });
-        }
-        settings_row(
-            ui,
-            "Auth PSK (optional)",
-            "Leave blank to allow anyone on your network to connect. Set a PSK to require it.",
-            |ui| {
-                let resp = ui.add_sized(
-                    egui::vec2(ui.available_width().min(160.0), 20.0),
-                    egui::TextEdit::singleline(&mut self.draft.auth.psk)
-                        .font(font_mono())
-                        .password(!self.show_psk),
-                );
-                if resp.changed() {
-                    self.draft.auth.mode = if self.draft.auth.psk.trim().is_empty() {
-                        "none"
-                    } else {
-                        "psk"
-                    }
-                    .to_owned();
-                }
-                if ghost_button(
-                    ui,
-                    if self.show_psk { "hide" } else { "show" },
-                    TEXT_DIM,
-                    TEXT,
-                )
-                .clicked()
-                {
-                    self.show_psk = !self.show_psk;
-                }
-                if ghost_button(ui, "copy", TEXT_DIM, ACCENT)
-                    .on_hover_text("Copy to clipboard — paste into another machine's Master PSK")
-                    .clicked()
-                {
-                    ui.ctx().copy_text(self.draft.auth.psk.clone());
-                }
-            },
-        );
-        egui::CollapsingHeader::new("Advanced (manual bind & auth)")
-            .id_salt("network_advanced")
-            .default_open(false)
-            .show(ui, |ui| {
-                settings_row(
-                    ui,
-                    "Bind address",
-                    Self::field_help("server.bind_address"),
-                    |ui| {
-                        ui.add_sized(
-                            egui::vec2(ui.available_width().min(180.0), 20.0),
-                            egui::TextEdit::singleline(&mut self.draft.server.bind_address)
-                                .font(font_mono()),
-                        );
-                    },
-                );
-                settings_row(ui, "Auth mode", Self::field_help("auth.mode"), |ui| {
-                    let mut mode_psk = self.draft.auth.mode == "psk";
-                    if ui
-                        .selectable_label(!mode_psk, "none")
-                        .on_hover_text("No Bearer required")
-                        .clicked()
-                    {
-                        self.draft.auth.mode = "none".to_owned();
-                        mode_psk = false;
-                    }
-                    if ui
-                        .selectable_label(mode_psk, "psk")
-                        .on_hover_text("Require Authorization: Bearer")
-                        .clicked()
-                    {
-                        self.draft.auth.mode = "psk".to_owned();
-                        if self.draft.auth.psk.trim().is_empty() {
-                            self.draft.auth.psk = generate_psk();
-                        }
-                    }
-                });
-            });
-
-        ui.add_space(6.0);
-        section_header(ui, "FEDERATION");
-        settings_row(
-            ui,
-            "Federation",
-            Self::field_help("federation.role"),
-            |ui| {
-                let current = self.draft.federation.role.clone();
-                if ui
-                    .selectable_label(current == "standalone", "Solo")
-                    .clicked()
-                    && current != "standalone"
-                {
-                    self.draft.federation.role = "standalone".to_owned();
-                    self.role_change_note = Some("role → standalone (restart to apply)".to_owned());
-                }
-                ui.add_enabled_ui(sharing, |ui| {
-                    if ui.selectable_label(current == "master", "Master").clicked()
-                        && current != "master"
-                    {
-                        self.draft.federation.role = "master".to_owned();
-                        self.role_change_note = Some("role → master (restart to apply)".to_owned());
-                    }
-                    if ui
-                        .selectable_label(current == "slave", "Join a master")
-                        .clicked()
-                        && current != "slave"
-                    {
-                        self.draft.federation.role = "slave".to_owned();
-                        self.role_change_note = Some("role → slave (restart to apply)".to_owned());
-                    }
-                });
-            },
-        );
-        if !sharing {
-            ui.horizontal(|ui| {
-                ui.add_space(12.0);
-                ui.label(
-                    egui::RichText::new("Turn on sharing above to become a master or join one.")
-                        .font(font_meta())
-                        .color(TEXT_DIM),
-                );
-            });
-        }
-        if let Some(note) = &self.role_change_note {
-            ui.horizontal(|ui| {
-                ui.add_space(12.0);
-                ui.label(
-                    egui::RichText::new(note.clone())
-                        .font(font_meta())
-                        .color(WARN),
-                );
-            });
-        }
-        if !self.draft.federation.daemon_id.is_empty() {
-            settings_row(
-                ui,
-                "Daemon ID",
-                Self::field_help("federation.daemon_id"),
-                |ui| {
-                    ui.add(
-                        egui::Label::new(
-                            egui::RichText::new(&self.draft.federation.daemon_id)
-                                .font(font_mono())
-                                .color(TEXT_FAINT),
-                        )
-                        .truncate(),
-                    );
-                },
-            );
-        }
-        if self.draft.federation.role == "master" {
-            let (this_url, _) = self.master_federation_values();
-            settings_row(
-                ui,
-                "This machine's URL",
-                "Share with a machine that wants to join as a slave.",
-                |ui| {
-                    ui.label(
-                        egui::RichText::new(&this_url)
-                            .font(font_mono())
-                            .color(TEXT_DIM),
-                    );
-                    if ghost_button(ui, "copy", TEXT_DIM, ACCENT).clicked() {
-                        ui.ctx().copy_text(this_url.clone());
-                    }
-                },
-            );
-        }
-        if self.draft.federation.role == "slave" {
-            ui.horizontal(|ui| {
-                ui.add_space(12.0);
-                if self.scan_busy && self.scan_purpose == ScanPurpose::JoinMaster {
-                    ui.label(
-                        egui::RichText::new("scanning…")
-                            .font(font_meta())
-                            .color(TEXT_DIM),
-                    );
-                } else if ghost_button(ui, "Scan for masters", TEXT_DIM, ACCENT).clicked() {
-                    self.start_scan(tdmcp_config::DEFAULT_PORT, ScanPurpose::JoinMaster);
-                }
-            });
-            self.draw_scan_results(ui, ScanPurpose::JoinMaster);
-            settings_row(
-                ui,
-                "Master URL",
-                Self::field_help("federation.master_url"),
-                |ui| {
-                    ui.add_sized(
-                        egui::vec2(ui.available_width().min(200.0), 20.0),
-                        egui::TextEdit::singleline(&mut self.draft.federation.master_url)
-                            .font(font_mono()),
-                    );
-                },
-            );
-            settings_row(
-                ui,
-                "Master PSK (optional)",
-                Self::field_help("federation.master_psk"),
-                |ui| {
-                    let resp = ui.add_sized(
-                        egui::vec2(ui.available_width().min(140.0), 20.0),
-                        egui::TextEdit::singleline(&mut self.draft.federation.master_psk)
-                            .font(font_mono())
-                            .password(!self.show_master_psk),
-                    );
-                    if self.focus_master_psk {
-                        resp.request_focus();
-                        self.focus_master_psk = false;
-                    }
-                    if ghost_button(
-                        ui,
-                        if self.show_master_psk { "hide" } else { "show" },
-                        TEXT_DIM,
-                        TEXT,
-                    )
-                    .clicked()
-                    {
-                        self.show_master_psk = !self.show_master_psk;
-                    }
-                },
-            );
-            ui.horizontal(|ui| {
-                ui.add_space(12.0);
-                ui.label(
-                    egui::RichText::new(
-                        "Only needed if the master requires a PSK — leave blank otherwise. Get it from the master's Settings → Federation (copy button next to its Auth PSK).",
-                    )
-                    .font(font_meta())
-                    .color(TEXT_DIM),
-                );
-            });
-        }
-
-        ui.add_space(6.0);
-        section_header(ui, "DAEMON");
-        settings_row(
-            ui,
-            "Keep alive",
-            Self::field_help("daemon.keep_alive"),
-            |ui| {
-                ui.add(egui::Checkbox::without_text(
-                    &mut self.draft.daemon.keep_alive,
-                ));
-            },
-        );
-        settings_row(
-            ui,
-            "Always on",
-            Self::field_help("daemon.always_on"),
-            |ui| {
-                ui.add(egui::Checkbox::without_text(
-                    &mut self.draft.daemon.always_on,
-                ));
-            },
-        );
-        settings_row(
-            ui,
-            "Show tray",
-            Self::field_help("daemon.show_tray"),
-            |ui| {
-                ui.add(egui::Checkbox::without_text(
-                    &mut self.draft.daemon.show_tray,
-                ));
-            },
-        );
-
-        ui.add_space(6.0);
-        section_header(ui, "BRIDGE");
-        settings_row(
-            ui,
-            "Call timeout (s)",
-            Self::field_help("bridge.call_timeout_secs"),
-            |ui| {
-                ui.add(
-                    egui::DragValue::new(&mut self.draft.bridge.call_timeout_secs)
-                        .range(1..=600)
-                        .speed(1),
-                );
-            },
-        );
-        settings_row(
-            ui,
-            "Script timeout (s)",
-            Self::field_help("bridge.script_timeout_secs"),
-            |ui| {
-                ui.add(
-                    egui::DragValue::new(&mut self.draft.bridge.script_timeout_secs)
-                        .range(1..=600)
-                        .speed(1),
-                );
-            },
-        );
-        settings_row(
-            ui,
-            "Heartbeat interval (s)",
-            Self::field_help("bridge.heartbeat_interval_secs"),
-            |ui| {
-                ui.add(
-                    egui::DragValue::new(&mut self.draft.bridge.heartbeat_interval_secs)
-                        .range(1..=120)
-                        .speed(1),
-                );
-            },
-        );
-        settings_row(
-            ui,
-            "Pong timeout (s)",
-            Self::field_help("bridge.pong_timeout_secs"),
-            |ui| {
-                ui.add(
-                    egui::DragValue::new(&mut self.draft.bridge.pong_timeout_secs)
-                        .range(1..=120)
-                        .speed(1),
-                );
-            },
-        );
-        settings_row(
-            ui,
-            "Idle dead (s)",
-            Self::field_help("bridge.idle_dead_secs"),
-            |ui| {
-                ui.add(
-                    egui::DragValue::new(&mut self.draft.bridge.idle_dead_secs)
-                        .range(1..=300)
-                        .speed(1),
-                );
-            },
-        );
-
-        ui.add_space(6.0);
-        section_header(ui, "ADVANCED");
-        settings_row(
-            ui,
-            "Data dir",
-            Self::field_help("advanced.data_dir"),
-            |ui| {
-                path_edit(ui, &mut self.data_dir_edit, false);
-            },
-        );
-        settings_row(
-            ui,
-            "Bridge dir",
-            Self::field_help("advanced.bridge_dir"),
-            |ui| {
-                path_edit(ui, &mut self.bridge_dir_edit, false);
-            },
-        );
-        settings_row(
-            ui,
-            "Catalog",
-            Self::field_help("advanced.catalog_path"),
-            |ui| {
-                path_edit(ui, &mut self.catalog_path_edit, false);
-            },
-        );
-        if !self.daemon_bin_edit.is_empty() {
-            settings_row(ui, "Daemon bin", "", |ui| {
-                path_edit(ui, &mut self.daemon_bin_edit, true);
-            });
-        }
-    }
-
-    /// Settings action strip at the top of the view: Back · Reset left, Save right.
-    fn draw_settings_toolbar(&mut self, ui: &mut egui::Ui) {
-        let full = ui.available_width();
-        let (rect, _) =
-            ui.allocate_exact_size(egui::vec2(full, SETTINGS_TOOLBAR_H), egui::Sense::hover());
-        ui.painter().rect_filled(rect, 0.0, BG_PANEL);
-        ui.painter().hline(
-            rect.x_range(),
-            rect.bottom(),
-            egui::Stroke::new(1.0, BORDER),
-        );
-
-        let mut child = ui.new_child(
-            egui::UiBuilder::new()
-                .max_rect(rect.shrink2(egui::vec2(SIDE_MARGIN, 0.0)))
-                .layout(egui::Layout::left_to_right(egui::Align::Center)),
-        );
-        if ghost_button(&mut child, "← Back", TEXT_DIM, TEXT).clicked() {
-            self.discard_settings();
-        }
-        child.add_space(8.0);
-        if ghost_button(&mut child, "↺ Reset", TEXT_DIM, WARN).clicked() {
-            self.reset_settings();
-        }
-        child.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if filled_button(ui, "Save").clicked() {
-                self.save_settings();
-            }
-        });
-    }
-
-    /// One-click prompt after a restart-requiring settings save, replacing the
-    /// old silent "applies after next restart" text. Stays a manual click —
-    /// restarting drops live TouchDesigner bridge sessions.
-    fn draw_restart_bar(&mut self, ui: &mut egui::Ui) {
-        let full = ui.available_width();
-        let (rect, _) =
-            ui.allocate_exact_size(egui::vec2(full, SETTINGS_TOOLBAR_H), egui::Sense::hover());
-        ui.painter().rect_filled(rect, 0.0, BG_PANEL);
-        ui.painter()
-            .hline(rect.x_range(), rect.bottom(), egui::Stroke::new(1.0, WARN));
-
-        let mut child = ui.new_child(
-            egui::UiBuilder::new()
-                .max_rect(rect.shrink2(egui::vec2(SIDE_MARGIN, 0.0)))
-                .layout(egui::Layout::left_to_right(egui::Align::Center)),
-        );
-        child.colored_label(WARN, "Settings changed");
-        child.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if filled_button(ui, "Restart to apply").clicked() {
-                self.restart_daemon();
-                self.needs_restart = false;
-            }
-            ui.add_space(4.0);
-            if ghost_button(ui, "Dismiss", TEXT_DIM, TEXT).clicked() {
-                self.needs_restart = false;
-            }
-        });
-    }
-
-    /// `f` follow, `space` pause, `esc` back to Fleet (T4.2 keyboard contract).
-    fn handle_logs_shortcuts(&mut self, ui: &egui::Ui) {
-        ui.input(|i| {
-            if i.key_pressed(egui::Key::F) {
-                self.logs_view.follow = !self.logs_view.follow;
-            }
-            if i.key_pressed(egui::Key::Space) {
-                self.logs_view.paused = !self.logs_view.paused;
-            }
-            if i.key_pressed(egui::Key::Escape) {
-                self.view = View::Fleet;
-            }
-        });
-    }
-
-    fn draw_logs_toolbar(&mut self, ui: &mut egui::Ui) {
-        section_header(ui, "LOGS");
-        let full = ui.available_width();
-        let (rect, _) = ui.allocate_exact_size(egui::vec2(full, 22.0), egui::Sense::hover());
-        let mut child = ui.new_child(
-            egui::UiBuilder::new()
-                .max_rect(rect.shrink2(egui::vec2(SIDE_MARGIN, 0.0)))
-                .layout(egui::Layout::left_to_right(egui::Align::Center)),
-        );
-        for (label, level) in [("ALL", None), ("ERR", Some("error")), ("WRN", Some("warn"))] {
-            let active = self.logs_view.min_level == level;
-            let color = if active { ACCENT } else { TEXT_DIM };
-            if ghost_button(&mut child, label, color, ACCENT).clicked() && !active {
-                self.logs_view.min_level = level;
-                self.reset_logs_filter_state();
-            }
-        }
-        child.add_space(6.0);
-        for src in ["daemon", "bridge", "proxy"] {
-            let active = self.logs_view.srcs.contains(src);
-            let color = if active { ACCENT } else { TEXT_DIM };
-            let label = src.to_ascii_uppercase();
-            if ghost_button(&mut child, &label, color, ACCENT).clicked() {
-                if active {
-                    self.logs_view.srcs.remove(src);
-                } else {
-                    self.logs_view.srcs.insert(src);
-                }
-                self.reset_logs_filter_state();
-            }
-        }
-        child.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ghost_button(ui, "Open folder", TEXT_DIM, ACCENT).clicked() {
-                self.reveal_logs_dir();
-            }
-        });
-    }
-
-    fn draw_logs(&mut self, ui: &mut egui::Ui) {
-        if let Some(err) = &self.logs_view.fetch_error {
-            ui.horizontal(|ui| {
-                ui.add_space(SIDE_MARGIN);
-                ui.colored_label(TEXT_DIM, format!("daemon unreachable — retrying ({err})"));
-            });
-        }
-
-        let list_h = WINDOW_MAX_HEIGHT
-            - 60.0
-            - if self.logs_view.expanded.is_some() {
-                90.0
-            } else {
-                0.0
-            };
-        egui::ScrollArea::vertical()
-            .id_salt("logs_scroll")
-            .auto_shrink(false)
-            .max_height(list_h.max(80.0))
-            .stick_to_bottom(self.logs_view.follow)
-            .show(ui, |ui| {
-                if self.logs_view.buf.is_empty() {
-                    ui.vertical_centered(|ui| {
-                        ui.add_space(16.0);
-                        ui.label(
-                            egui::RichText::new("( no logs )")
-                                .font(font_meta())
-                                .color(TEXT_FAINT),
-                        );
-                    });
-                    return;
-                }
-                let expanded = self.logs_view.expanded;
-                let mut clicked_seq = None;
-                for (i, r) in self.logs_view.buf.iter().enumerate() {
-                    let bg = if i.is_multiple_of(2) {
-                        BG_ROW
-                    } else {
-                        BG_ROW_ALT
-                    };
-                    let dot = level_color(&r.level);
-                    let time = r.ts.get(11..19).unwrap_or(&r.ts);
-                    let letter = level_letter(&r.level);
-                    let line = format!("{time} {letter} {} {}", r.target, r.msg.replace('\n', " "));
-                    let full = ui.available_width();
-                    let (rect, response) =
-                        ui.allocate_exact_size(egui::vec2(full, 16.0), egui::Sense::click());
-                    let row_bg = if Some(r.seq) == expanded {
-                        BG_HOVER
-                    } else {
-                        bg
-                    };
-                    ui.painter().rect_filled(rect, 0.0, row_bg);
-                    ui.painter().circle_filled(
-                        egui::pos2(rect.left() + 8.0, rect.center().y),
-                        2.5,
-                        dot,
-                    );
-                    ui.painter().text(
-                        egui::pos2(rect.left() + 16.0, rect.center().y),
-                        egui::Align2::LEFT_CENTER,
-                        clip_line(&line, 68),
-                        font_mono(),
-                        TEXT,
-                    );
-                    if response.clicked() {
-                        clicked_seq = Some(r.seq);
-                    }
-                }
-                if let Some(seq) = clicked_seq {
-                    self.logs_view.expanded = if self.logs_view.expanded == Some(seq) {
-                        None
-                    } else {
-                        Some(seq)
-                    };
-                }
-            });
-
-        if let Some(seq) = self.logs_view.expanded {
-            if let Some(r) = self.logs_view.buf.iter().find(|r| r.seq == seq) {
-                let kvs = if r.kvs.is_empty() {
-                    "{}".to_owned()
-                } else {
-                    r.kvs
-                        .iter()
-                        .map(|(k, v)| format!("{k}={v}"))
-                        .collect::<Vec<_>>()
-                        .join(" ")
-                };
-                let detail = format!(
-                    "target {}\ncode {} · kvs {kvs}",
-                    r.target,
-                    r.code.as_deref().unwrap_or("null")
-                );
-                ui.horizontal(|ui| {
-                    ui.add_space(SIDE_MARGIN);
-                    ui.add(
-                        egui::Label::new(
-                            egui::RichText::new(detail.clone())
-                                .font(font_mono())
-                                .color(TEXT_DIM),
-                        )
-                        .wrap(),
-                    );
-                });
-                if ui.input(|i| i.key_pressed(egui::Key::C) && i.modifiers.command) {
-                    ui.ctx().copy_text(format!(
-                        "{} {} {} pid={} {} {detail}",
-                        r.ts, r.level, r.src, r.pid, r.msg
-                    ));
-                }
-            }
-        }
-
-        // Footer bar.
-        let full = ui.available_width();
-        let (rect, _) = ui.allocate_exact_size(egui::vec2(full, 24.0), egui::Sense::hover());
-        ui.painter().rect_filled(rect, 0.0, BG_PANEL);
-        ui.painter()
-            .hline(rect.x_range(), rect.top(), egui::Stroke::new(1.0, BORDER));
-        let mut child = ui.new_child(
-            egui::UiBuilder::new()
-                .max_rect(rect.shrink2(egui::vec2(SIDE_MARGIN, 0.0)))
-                .layout(egui::Layout::left_to_right(egui::Align::Center)),
-        );
-        let pause_label = if self.logs_view.paused {
-            "▶ Resume"
-        } else {
-            "⏸ Pause"
-        };
-        if ghost_button(&mut child, pause_label, TEXT_DIM, ACCENT).clicked() {
-            self.logs_view.paused = !self.logs_view.paused;
-        }
-        child.add_space(6.0);
-        child.label(
-            egui::RichText::new(format!("{} shown", self.logs_view.buf.len()))
-                .font(font_meta())
-                .color(TEXT_DIM),
-        );
-        child.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let follow_label = if self.logs_view.follow {
-                "● FOLLOW"
-            } else {
-                "○ FOLLOW"
-            };
-            let color = if self.logs_view.follow {
-                ACCENT
-            } else {
-                TEXT_DIM
-            };
-            if ghost_button(ui, follow_label, color, ACCENT).clicked() {
-                self.logs_view.follow = !self.logs_view.follow;
-            }
-        });
-    }
-
     /// Fleet-view nudge toward federation for a not-yet-shared daemon — today
     /// nothing on the main screen hints the feature exists until Settings is opened.
     fn draw_share_banner(&mut self, ui: &mut egui::Ui) {
@@ -1936,6 +1213,8 @@ impl DashboardApp {
             if ghost_button(ui, "Share this daemon on your network →", TEXT_DIM, ACCENT).clicked()
             {
                 self.open_settings();
+                self.dash_tab = dashboard::DashTab::Settings;
+                self.dashboard_open = true;
             }
         });
         ui.add_space(2.0);
@@ -2855,46 +2134,21 @@ impl eframe::App for DashboardApp {
             )
             .show(ui, |ui| {
                 self.draw_header(ui);
-                if self.view == View::Fleet && self.needs_restart {
-                    self.draw_restart_bar(ui);
+                if let Some(err) = &self.error {
+                    ui.horizontal(|ui| {
+                        ui.add_space(SIDE_MARGIN);
+                        ui.colored_label(ERR, err);
+                    });
                 }
-                match self.view {
-                    View::Settings => {
-                        self.draw_settings_toolbar(ui);
-                        egui::ScrollArea::vertical()
-                            .auto_shrink(false)
-                            .max_height(WINDOW_MAX_HEIGHT - 96.0)
-                            .show(ui, |ui| {
-                                self.draw_settings(ui);
-                            });
-                    }
-                    View::Logs => {
-                        self.handle_logs_shortcuts(ui);
-                        self.draw_logs_toolbar(ui);
-                        self.draw_logs(ui);
-                    }
-                    View::Fleet => {
-                        if let Some(err) = &self.error {
-                            ui.horizontal(|ui| {
-                                ui.add_space(SIDE_MARGIN);
-                                ui.colored_label(ERR, err);
-                            });
-                        }
-                        error_strip(ui, &self.error_ring, self.fleet_panel != FleetPanel::None);
-                        self.draw_share_banner(ui);
-                        egui::ScrollArea::vertical()
-                            .auto_shrink(false)
-                            .max_height(WINDOW_MAX_HEIGHT - 60.0)
-                            .show(ui, |ui| match self.fleet_panel {
-                                FleetPanel::AddSlave => self.draw_add_slave_panel(ui),
-                                FleetPanel::SlaveSettings => self.draw_slave_settings_panel(ui),
-                                FleetPanel::None => {
-                                    self.draw_mcp_section(ui);
-                                    self.draw_td_section(ui);
-                                }
-                            });
-                    }
-                }
+                error_strip(ui, &self.error_ring);
+                self.draw_share_banner(ui);
+                egui::ScrollArea::vertical()
+                    .auto_shrink(false)
+                    .max_height(WINDOW_MAX_HEIGHT - 60.0)
+                    .show(ui, |ui| {
+                        self.draw_mcp_section(ui);
+                        self.draw_td_section(ui);
+                    });
                 ui.add_space(6.0);
             });
     }
@@ -2952,16 +2206,6 @@ fn settings_row(ui: &mut egui::Ui, label: &str, help: &str, add: impl FnOnce(&mu
     if !help.is_empty() {
         response.on_hover_text(help);
     }
-}
-
-/// Full-width mono path input; `read_only` locks it (the resolved daemon bin).
-fn path_edit(ui: &mut egui::Ui, text: &mut String, read_only: bool) {
-    ui.add_sized(
-        egui::vec2(ui.available_width(), 20.0),
-        egui::TextEdit::singleline(text)
-            .font(font_mono())
-            .interactive(!read_only),
-    );
 }
 
 fn path_edits_from(cfg: &ConfigFile) -> (String, String, String, String) {
@@ -3218,8 +2462,8 @@ fn push_error_ring(ring: &mut Vec<String>, msg: String) {
 }
 
 /// Compact newest-first attention strip under the tray header (≤3 rows).
-fn error_strip(ui: &mut egui::Ui, ring: &[String], suppressed: bool) {
-    if suppressed || ring.is_empty() {
+fn error_strip(ui: &mut egui::Ui, ring: &[String]) {
+    if ring.is_empty() {
         return;
     }
     section_header(ui, "ATTENTION");
