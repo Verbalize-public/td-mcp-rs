@@ -25,6 +25,17 @@ enum Commands {
         #[arg(long, default_value = "target/dist")]
         out: PathBuf,
     },
+    /// Record the source hash of `bridge/bootstrap.py` + `bridge/tox_callbacks.py`
+    /// that `crates/tdmcp-daemon/embedded/bootstrap.tox` was packed from.
+    ///
+    /// Run this immediately after repacking the tox (see
+    /// `scripts/pack_bootstrap_tox.md`) — it is the other half of the
+    /// `bootstrap_tox_matches_packed_source_hash` test in
+    /// `crates/tdmcp-daemon/src/install.rs`, which fails the build if the
+    /// two `.py` sources drift from the last-packed `.tox` without anyone
+    /// noticing (the `.tox` itself is an opaque TD binary format — nothing
+    /// can diff its contents against source outside of TD).
+    StampTox,
 }
 
 fn main() -> Result<()> {
@@ -45,7 +56,52 @@ fn main() -> Result<()> {
             Ok(())
         }
         Commands::Dist { out } => dist(out),
+        Commands::StampTox => stamp_tox(),
     }
+}
+
+/// Deterministic, dependency-free content hash (FNV-1a, 64-bit) — this is a
+/// drift check, not a security boundary, so stdlib's `DefaultHasher` (whose
+/// algorithm stability across toolchains isn't guaranteed) and a real crypto
+/// hash crate are both more than this needs.
+fn fnv1a(chunks: &[&[u8]]) -> u64 {
+    const OFFSET: u64 = 0xcbf29ce484222325;
+    const PRIME: u64 = 0x100000001b3;
+    let mut hash = OFFSET;
+    for chunk in chunks {
+        for &byte in *chunk {
+            hash ^= u64::from(byte);
+            hash = hash.wrapping_mul(PRIME);
+        }
+    }
+    hash
+}
+
+fn stamp_tox() -> Result<()> {
+    let workspace = workspace_root()?;
+    let bootstrap_py = workspace.join("bridge/bootstrap.py");
+    let callbacks_py = workspace.join("bridge/tox_callbacks.py");
+    let hash_path = workspace.join("crates/tdmcp-daemon/embedded/bootstrap.tox.source-hash");
+
+    let bootstrap = fs::read(&bootstrap_py)
+        .with_context(|| format!("read {}", bootstrap_py.display()))?;
+    let callbacks = fs::read(&callbacks_py)
+        .with_context(|| format!("read {}", callbacks_py.display()))?;
+    let hash = fnv1a(&[&bootstrap, &callbacks]);
+
+    fs::write(&hash_path, format!("{hash:016x}\n"))
+        .with_context(|| format!("write {}", hash_path.display()))?;
+    println!(
+        "stamped {} ({hash:016x}) from bootstrap.py + tox_callbacks.py",
+        hash_path.display()
+    );
+    println!(
+        "reminder: this only records that the .tox matches source — it does NOT repack. \
+         If you changed bootstrap.py or tox_callbacks.py, you must have already re-run the \
+         live-TD packing script in scripts/pack_bootstrap_tox.md and saved over \
+         crates/tdmcp-daemon/embedded/bootstrap.tox before stamping."
+    );
+    Ok(())
 }
 
 fn workspace_root() -> Result<PathBuf> {

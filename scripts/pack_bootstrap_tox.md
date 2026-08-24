@@ -2,6 +2,37 @@
 
 Regenerate [`crates/tdmcp-daemon/embedded/bootstrap.tox`](../crates/tdmcp-daemon/embedded/bootstrap.tox) after changing [`bridge/bootstrap.py`](../bridge/bootstrap.py) or [`bridge/tox_callbacks.py`](../bridge/tox_callbacks.py).
 
+## The four copies (read this before touching either `.py` file)
+
+`bootstrap.tox` is TouchDesigner's opaque binary component format — nothing
+outside TD can open, diff, or patch it. It is a **frozen snapshot** of the two
+`.py` files above, baked in by the live-TD script below. That snapshot then
+propagates through several more copies, each one only refreshed by an
+explicit step — there is no auto-sync between any of them:
+
+| # | What | Where | Refreshed by |
+| --- | --- | --- | --- |
+| 1 | Source | [`bridge/bootstrap.py`](../bridge/bootstrap.py), [`bridge/tox_callbacks.py`](../bridge/tox_callbacks.py) | You editing them (git-tracked, plain text, the only one worth reading a diff of) |
+| 2 | Packed blob | [`crates/tdmcp-daemon/embedded/bootstrap.tox`](../crates/tdmcp-daemon/embedded/bootstrap.tox) | Re-running "Live pack" below, **inside TD** — the only place a `.tox` can be produced |
+| 3 | Installed copy | `{data_dir}/bootstrap.tox` (e.g. `%LOCALAPPDATA%/tdmcp-rs/bootstrap.tox`) | `tdmcp-daemon install --force` / `ensure --force`, which re-extracts #2 |
+| 4 | Baked into a project | Inside whatever `.toe` file a human dragged #3 into | Manually dragging a fresh #3 into that project again — **TD never re-reads this on its own**, not on reconnect, not on daemon restart |
+
+**#1 and #2 silently drifting apart is exactly the failure mode `cargo test`
+now catches**: `install::tests::bootstrap_tox_matches_packed_source_hash` in
+`crates/tdmcp-daemon/src/install.rs` hashes #1 and compares it against a
+sidecar file (`embedded/bootstrap.tox.source-hash`) recording what #1 looked
+like the last time #2 was packed. If you change either `.py` file, that test
+goes red until you repack (#2) and run `cargo run -p xtask -- stamp-tox`
+(updates the sidecar). It cannot verify #2's *content* is correct — no tool
+outside TD can — only that someone repacked *after* the source last changed.
+
+**#4 has no automated guard and can't have one** — it lives inside a user's
+own project file, which this repo doesn't and shouldn't touch. If you change
+`bootstrap.py`/`tox_callbacks.py` in a way that matters at runtime (not just
+comments), say so explicitly and tell the user which of their open TD
+projects need a fresh `.tox` drag-in — don't assume `install --force` alone
+fixes an already-open session.
+
 ## Graph
 
 Inside a base COMP named `tdmcp_rs`:
@@ -45,7 +76,15 @@ Clear `externaltox` on the COMP before save. Use `comp.save(path)` (not `saveTox
 2. Run the pack script below via `execute_python_script`.
 3. Confirm output size ≫ 1KB and file is binary (not the old ASCII placeholder).
 4. Rebuild `tdmcp-daemon` so `include_bytes!` / `include_dir!` pick up the new tox and `bridge/`.
-5. Force re-extract (same semver skips refresh by default): `tdmcp-daemon install --force` (or `ensure --force`). Restart any running daemon so TD loads the new bridge. For a quick live check you can also copy `bridge/` into the data dir and reload the tox COMP.
+5. `cargo run -p xtask -- stamp-tox` — records the source hash so the
+   drift-check test (`bootstrap_tox_matches_packed_source_hash` in
+   `crates/tdmcp-daemon/src/install.rs`) goes green again. Skipping this
+   step leaves the test correctly red.
+6. Force re-extract (same semver skips refresh by default): `tdmcp-daemon install --force` (or `ensure --force`). Restart any running daemon so TD loads the new bridge.
+7. If a TD project already has the **old** tox baked in (copy #4 in the table
+   above — see e.g. a project you were live-testing against), drag the
+   freshly-installed `.tox` into it again. `install --force` / a daemon
+   restart does **not** reach an already-open project on its own.
 
 ```python
 import os

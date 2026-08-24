@@ -20,6 +20,12 @@ const CATALOG_YAML: &str = include_str!("../../../diagnostics/catalog.yaml");
 /// Shipped bootstrap tox (thin dialer — handshake → FS load of `bridge/`).
 const BOOTSTRAP_TOX: &[u8] = include_bytes!("../embedded/bootstrap.tox");
 
+/// FNV-1a hash of `bridge/bootstrap.py` + `bridge/tox_callbacks.py` as of the
+/// last live-TD pack of `BOOTSTRAP_TOX` — see `stamp_tox_source_hash` test
+/// below and `xtask stamp-tox`.
+#[cfg(test)]
+const TOX_SOURCE_HASH: &str = include_str!("../embedded/bootstrap.tox.source-hash");
+
 const STAMP_NAME: &str = "install.version";
 
 /// Result of an install / ensure-assets pass.
@@ -322,6 +328,55 @@ pub fn render_skills_to(dest: &Path) -> Result<Vec<(String, PathBuf)>> {
 mod tests {
     use super::*;
     use tempfile::tempdir;
+
+    /// `bootstrap.tox` is TouchDesigner's opaque binary component format —
+    /// nothing outside TD can parse or diff its contents against source. It
+    /// is packed from `bridge/bootstrap.py` + `bridge/tox_callbacks.py` by a
+    /// **manual, live-TD-only** step (`scripts/pack_bootstrap_tox.md`), so
+    /// editing either `.py` file and forgetting to repack silently ships a
+    /// stale tox with no error anywhere — this is exactly that guard. The
+    /// FNV-1a hash is a drift check, not a content check: it can't tell you
+    /// the tox is *correct*, only that it was packed after these two files
+    /// last looked like this. Failing here means: re-run the packing script
+    /// in a live TD session, save over `embedded/bootstrap.tox`, then run
+    /// `cargo run -p xtask -- stamp-tox` to record the new hash.
+    #[test]
+    fn bootstrap_tox_matches_packed_source_hash() {
+        let bootstrap = BRIDGE
+            .get_file("bootstrap.py")
+            .expect("bootstrap.py embedded in BRIDGE")
+            .contents();
+        let callbacks = BRIDGE
+            .get_file("tox_callbacks.py")
+            .expect("tox_callbacks.py embedded in BRIDGE")
+            .contents();
+        let hash = fnv1a(&[bootstrap, callbacks]);
+        let stored = TOX_SOURCE_HASH.trim();
+        assert_eq!(
+            format!("{hash:016x}"),
+            stored,
+            "bridge/bootstrap.py or bridge/tox_callbacks.py changed since \
+             crates/tdmcp-daemon/embedded/bootstrap.tox was last packed. Re-run the \
+             live-TD packing script in scripts/pack_bootstrap_tox.md, save over \
+             embedded/bootstrap.tox, then run `cargo run -p xtask -- stamp-tox`."
+        );
+    }
+
+    /// Same algorithm as `xtask`'s `fnv1a` — deliberately duplicated rather
+    /// than shared (10 lines, used in exactly these two places; a shared
+    /// crate for this would be the over-engineering, not the duplication).
+    fn fnv1a(chunks: &[&[u8]]) -> u64 {
+        const OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+        const PRIME: u64 = 0x0000_0100_0000_01b3;
+        let mut hash = OFFSET;
+        for chunk in chunks {
+            for &byte in *chunk {
+                hash ^= u64::from(byte);
+                hash = hash.wrapping_mul(PRIME);
+            }
+        }
+        hash
+    }
 
     #[test]
     fn extract_to_empty_data_dir() {

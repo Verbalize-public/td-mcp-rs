@@ -31,6 +31,20 @@ When changing binary code:
 
 **Stop after 3 failures or handoff to user.** The daemon installed binary may be used by the harness or running standalone, causing file locks.
 
+### Editing `bridge/bootstrap.py` or `bridge/tox_callbacks.py`?
+
+These two files get baked into `crates/tdmcp-daemon/embedded/bootstrap.tox` —
+an opaque TD binary format nothing outside TD can read or patch. Editing
+either `.py` file without repacking silently ships a stale tox with **no
+error anywhere** unless `cargo test` catches it
+(`bootstrap_tox_matches_packed_source_hash` in
+`crates/tdmcp-daemon/src/install.rs`). If that test goes red, or you touched
+either file: read [`scripts/pack_bootstrap_tox.md`](scripts/pack_bootstrap_tox.md)
+first — it explains the four copies this one `.tox` propagates through and
+exactly which command re-syncs each one, including `cargo run -p xtask --
+stamp-tox` to close the drift check. Do not silence or delete that test to
+make it pass.
+
 ### Hard Rules
 
 - **MCP-first** for live claims — never claim success from code alone.
