@@ -26,6 +26,7 @@ version = "0.1.3"
 edition = "2021"
 license = "MIT"
 rust-version = "1.88"
+repository = "https://github.com/Verbalize-public/td-mcp-rs"
 
 [workspace.dependencies]
 tdmcp-core = { path = "crates/tdmcp-core" }
@@ -93,3 +94,7 @@ unwrap_used = "deny"
 expect_used = "deny"
 panic = "deny"
 exit = "deny"
+
+[profile.release]
+# Distribution binaries ship stripped (cargo-native, applies to MSVC + macOS).
+strip = true

@@ -1,4 +1,6 @@
 target/
+/dist/
+/staging/
 **/*.rs.bk
 .idea/
 .vscode/
