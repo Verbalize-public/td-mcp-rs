@@ -6,7 +6,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use axum::extract::State;
+use axum::extract::{Query, State};
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use chrono::Utc;
@@ -19,6 +21,8 @@ use tdmcp_mcp::{fleet_summary, AppState, FleetInclude, FleetParams};
 
 use crate::ensure::{configure_detached_spawn, daemon_lock_path};
 use crate::federation::{tag_local_processes, FederationRuntime};
+use crate::logrecord::{Level, Src};
+use crate::logring::LogRing;
 
 /// Arguments needed to respawn the daemon after `/admin/restart`.
 #[derive(Debug, Clone)]
@@ -47,15 +51,20 @@ struct AdminState {
     shutdown: CancellationToken,
     quit: Arc<AtomicBool>,
     federation: FederationRuntime,
+    logs: Arc<LogRing>,
+    logs_dir: PathBuf,
 }
 
 /// Admin router.
+#[allow(clippy::too_many_arguments, reason = "router wiring")]
 pub fn build_admin_router(
     state: AppState,
     restart: RestartArgs,
     shutdown: CancellationToken,
     quit: Arc<AtomicBool>,
     federation: FederationRuntime,
+    logs: Arc<LogRing>,
+    logs_dir: PathBuf,
 ) -> Router {
     let state = AdminState {
         app: state,
@@ -63,6 +72,8 @@ pub fn build_admin_router(
         shutdown,
         quit,
         federation: federation.clone(),
+        logs,
+        logs_dir,
     };
     Router::new()
         .route("/admin/status", get(status))
@@ -71,6 +82,8 @@ pub fn build_admin_router(
         .route("/admin/mcp-sessions/annotate", post(annotate_session))
         .route("/admin/shutdown", post(shutdown_handler))
         .route("/admin/restart", post(restart_daemon))
+        .route("/admin/logs", get(admin_logs))
+        .route("/admin/logs/path", get(admin_logs_path))
         .with_state(state)
         .merge(crate::federation::federation_router(federation))
 }
@@ -267,4 +280,72 @@ async fn restart_daemon(State(state): State<AdminState>) -> Json<Value> {
         token.cancel();
     });
     Json(serde_json::json!({ "ok": true, "restarting": true }))
+}
+
+/// Records returned per page (also the default when `limit` is omitted).
+const LOGS_DEFAULT_LIMIT: usize = 256;
+/// Server-side hard cap regardless of the requested `limit` (spec T4.1).
+const LOGS_MAX_LIMIT: usize = 512;
+
+#[derive(Debug, Deserialize)]
+struct LogsQuery {
+    #[serde(default)]
+    after: u64,
+    #[serde(default)]
+    limit: Option<usize>,
+    #[serde(default)]
+    level: Option<String>,
+    #[serde(default)]
+    src: Option<String>,
+}
+
+fn bad_request(message: impl Into<String>) -> Response {
+    (
+        StatusCode::BAD_REQUEST,
+        Json(json!({ "ok": false, "message": message.into() })),
+    )
+        .into_response()
+}
+
+fn parse_level(s: &str) -> Option<Level> {
+    serde_json::from_value(Value::String(s.to_ascii_lowercase())).ok()
+}
+
+fn parse_src(s: &str) -> Option<Src> {
+    serde_json::from_value(Value::String(s.to_ascii_lowercase())).ok()
+}
+
+/// `GET /admin/logs?after&limit&level&src` — tail of the central ring,
+/// newest cursor first via `next` (spec T4.1). `src` is a comma-separated
+/// list (`src=bridge,daemon`); omitted/empty means no source filter.
+async fn admin_logs(State(state): State<AdminState>, Query(q): Query<LogsQuery>) -> Response {
+    let limit = q.limit.unwrap_or(LOGS_DEFAULT_LIMIT).clamp(1, LOGS_MAX_LIMIT);
+    let min_level = match q.level.as_deref() {
+        None => None,
+        Some(s) => match parse_level(s) {
+            Some(l) => Some(l),
+            None => return bad_request(format!("invalid level: {s}")),
+        },
+    };
+    let srcs: Vec<Src> = match q.src.as_deref().filter(|s| !s.is_empty()) {
+        None => Vec::new(),
+        Some(s) => {
+            let mut out = Vec::new();
+            for part in s.split(',') {
+                match parse_src(part) {
+                    Some(v) => out.push(v),
+                    None => return bad_request(format!("invalid src: {part}")),
+                }
+            }
+            out
+        }
+    };
+    let (records, next) = state.logs.snapshot_after(q.after, limit, min_level, &srcs);
+    Json(json!({ "records": records, "next": next })).into_response()
+}
+
+/// `GET /admin/logs/path` — the resolved logging directory (tray "Open
+/// folder" action).
+async fn admin_logs_path(State(state): State<AdminState>) -> Json<Value> {
+    Json(json!({ "dir": state.logs_dir.display().to_string() }))
 }

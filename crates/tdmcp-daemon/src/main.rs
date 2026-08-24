@@ -740,7 +740,7 @@ async fn run_daemon(
     let sessions = BridgeSessions::new(registry.clone())
         .with_heartbeat(heartbeat)
         .with_timeouts(timeouts)
-        .with_log_sink(log_sink);
+        .with_log_sink(log_sink.clone());
     let bridge: Arc<dyn tdmcp_mcp::BridgeRpc> = Arc::new(sessions.clone());
     let resource_provider = Arc::new(
         tdmcp_mcp::ResourceProvider::from_embedded()
@@ -812,6 +812,8 @@ async fn run_daemon(
             shutdown.clone(),
             Arc::clone(&quit),
             federation.clone(),
+            log_sink.ring().clone(),
+            cfg.logging_dir.clone(),
         ))
         .nest_service("/mcp/rpc", streamable_http)
         .layer(from_fn_with_state(auth_state, auth_and_loopback));

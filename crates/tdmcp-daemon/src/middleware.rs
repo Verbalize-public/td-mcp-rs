@@ -67,6 +67,12 @@ pub fn requires_psk_auth(path: &str) -> bool {
         || is_admin_federation_path(path)
         || path == "/admin/config"
         || path.starts_with("/admin/config/")
+        // Covers /admin/logs, /admin/logs/path, and the M5 proxy ingest
+        // route /admin/logs/ingest — the proxy sends the same bearer
+        // handling as tool calls, so all three need the same rule now
+        // rather than a follow-up touch when ingest lands.
+        || path == "/admin/logs"
+        || path.starts_with("/admin/logs/")
 }
 
 fn unauthorized_response() -> Response {
@@ -172,6 +178,9 @@ mod tests {
         assert!(requires_psk_auth("/mcp/tools/list"));
         assert!(requires_psk_auth("/admin/federation/register"));
         assert!(requires_psk_auth("/admin/config"));
+        assert!(requires_psk_auth("/admin/logs"));
+        assert!(requires_psk_auth("/admin/logs/path"));
+        assert!(requires_psk_auth("/admin/logs/ingest"));
         assert!(!requires_psk_auth("/admin/federation/status"));
         assert!(!requires_psk_auth("/admin/federation/status/extra"));
         assert!(!requires_psk_auth("/admin/status"));
