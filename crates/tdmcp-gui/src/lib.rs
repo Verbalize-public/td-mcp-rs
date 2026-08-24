@@ -19,7 +19,6 @@ use eframe::egui;
 use serde::Deserialize;
 use tdmcp_config::{self as cfgfile, ConfigFile, FIELD_DESCS};
 use tracing::{info, warn};
-use tray_icon::menu::{Menu, MenuEvent, MenuItem};
 use tray_icon::{
     Icon, MouseButton, MouseButtonState, Rect, TrayIcon, TrayIconBuilder, TrayIconEvent,
 };
@@ -193,9 +192,6 @@ struct DashboardApp {
     last_poll: Option<Instant>,
     error: Option<String>,
     tray: Option<TrayIcon>,
-    menu_restart: MenuItem,
-    menu_stop: MenuItem,
-    menu_dashboard: MenuItem,
     icon_normal: RgbaIcon,
     icon_attention: RgbaIcon,
     attention: bool,
@@ -388,10 +384,6 @@ impl DashboardApp {
         config_path: PathBuf,
         window_icon: egui::IconData,
     ) -> Result<Self> {
-        let menu_restart = MenuItem::new("Restart daemon", true, None);
-        let menu_stop = MenuItem::new("Stop daemon", true, None);
-        let menu_dashboard = MenuItem::new("Open dashboard", true, None);
-
         let draft = cfgfile::load(&config_path).unwrap_or_default();
         // Dev/test hook: TDMCP_OPEN_DASH=1|logs|fleet|settings opens the
         // dashboard (optionally on a tab) instead of staying tray-only.
@@ -427,9 +419,6 @@ impl DashboardApp {
             // inside eframe's creation callback can re-enter AppKit on macOS and
             // trip winit 0.30's "event while another event is handled" abort.
             tray: None,
-            menu_restart,
-            menu_stop,
-            menu_dashboard,
             icon_normal,
             icon_attention,
             attention: false,
@@ -485,19 +474,9 @@ impl DashboardApp {
             return;
         }
         self.pending_tray = false;
-        let menu = Menu::new();
-        if let Err(e) = menu.append(&self.menu_dashboard) {
-            warn!(error = %e, "tray menu append dashboard failed");
-            return;
-        }
-        if let Err(e) = menu.append(&self.menu_restart) {
-            warn!(error = %e, "tray menu append restart failed");
-            return;
-        }
-        if let Err(e) = menu.append(&self.menu_stop) {
-            warn!(error = %e, "tray menu append stop failed");
-            return;
-        }
+        // No context menu: left click = dashboard, right click = glance panel
+        // (see `handle_tray_events`). Daemon Stop/Restart live in the
+        // dashboard's DAEMON card.
         let icon = match tray_icon_from(&self.icon_normal) {
             Ok(i) => i,
             Err(e) => {
@@ -506,11 +485,6 @@ impl DashboardApp {
             }
         };
         match TrayIconBuilder::new()
-            .with_menu(Box::new(menu))
-            .with_menu_on_left_click(false)
-            // Right-click must always pop the context menu ('Open dashboard'
-            // is its first item); don't rely on the crate default.
-            .with_menu_on_right_click(true)
             .with_tooltip("td-mcp-rs")
             .with_icon(icon)
             // Do not set template mode: our PNGs are full-color opaque RGB.
@@ -732,9 +706,10 @@ impl DashboardApp {
         self.ignore_focus_loss_until = Some(now + Duration::from_millis(400));
     }
 
-    /// Tray left-click: open when closed; close when open (or when focus-loss
-    /// already closed this gesture — avoids blink-reopen).
-    fn on_tray_left_click(&mut self, ctx: &egui::Context, tray_rect: Rect) {
+    /// Tray right-click: toggle the glance panel — open when closed; close
+    /// when open (or when focus-loss already closed this gesture — avoids
+    /// blink-reopen).
+    fn on_tray_popup_toggle(&mut self, ctx: &egui::Context, tray_rect: Rect) {
         let now = Instant::now();
         if self
             .last_tray_toggle_at
@@ -1031,33 +1006,25 @@ impl DashboardApp {
     fn handle_tray_events(&mut self, ctx: &egui::Context) {
         while let Ok(event) = TrayIconEvent::receiver().try_recv() {
             match event {
-                // Left Click{Up} only — ignore DoubleClick (would double-toggle).
+                // Left click opens the dashboard; DoubleClick ignored.
                 TrayIconEvent::Click {
                     button: MouseButton::Left,
+                    button_state: MouseButtonState::Up,
+                    ..
+                } => {
+                    self.dashboard_open = true;
+                }
+                // Right click toggles the glance panel near the tray
+                // (Up only — Down/Up each arrive as separate Click events).
+                TrayIconEvent::Click {
+                    button: MouseButton::Right,
                     button_state: MouseButtonState::Up,
                     rect,
                     ..
                 } => {
-                    self.on_tray_left_click(ctx, rect);
-                }
-                TrayIconEvent::Click {
-                    button: MouseButton::Right,
-                    rect,
-                    ..
-                } => {
-                    // Keep rect for later show; OS menu handles Restart/Stop.
-                    self.last_tray_rect = Some(rect);
+                    self.on_tray_popup_toggle(ctx, rect);
                 }
                 _ => {}
-            }
-        }
-        while let Ok(event) = MenuEvent::receiver().try_recv() {
-            if event.id == self.menu_restart.id() {
-                self.restart_daemon();
-            } else if event.id == self.menu_stop.id() {
-                self.shutdown_daemon();
-            } else if event.id == self.menu_dashboard.id() {
-                self.dashboard_open = true;
             }
         }
     }

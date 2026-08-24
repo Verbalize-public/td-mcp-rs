@@ -236,10 +236,12 @@ per-OS `reveal_in_file_manager` (explorer/open/xdg-open),
    only covers some, and only in Monospace) — they rendered as tofu
    squares. Launcher is now `⛶` U+26F6 (covered), arrow/bullet strings
    reworded or color-coded, and `theme::apply()` appends bundled "Hack"
-   to the Proportional fallback so `← Back` renders. Tray builder sets
-   `.with_menu_on_right_click(true)` explicitly (right-click context
-   menu opens with 'Open dashboard' as its first item). Verification
-   gotcha: at >100% display scale a non-DPI-aware PrintWindow captures
+   to the Proportional fallback so `← Back` renders.
+7. ✅ Pass 7 tray interaction: context menu removed entirely —
+   **left click opens the dashboard**, **right click toggles the glance
+   panel** near the tray (`on_tray_popup_toggle`, Up-event filtered).
+   Daemon Stop/Restart live in the dashboard DAEMON card; no MenuItem /
+   MenuEvent plumbing remains. Verification gotcha: at >100% display scale a non-DPI-aware PrintWindow captures
    only the top-left logical crop of the physical window — size the
    bitmap from a DPI-aware GetWindowRect before trusting "missing UI".
 
