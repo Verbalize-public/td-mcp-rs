@@ -22,14 +22,14 @@ pub enum Level {
     Error,
 }
 
-impl From<&tracing::core::Level> for Level {
-    fn from(level: &tracing::core::Level) -> Self {
+impl From<&tracing::Level> for Level {
+    fn from(level: &tracing::Level) -> Self {
         match *level {
-            tracing::core::Level::TRACE => Level::Trace,
-            tracing::core::Level::DEBUG => Level::Debug,
-            tracing::core::Level::INFO => Level::Info,
-            tracing::core::Level::WARN => Level::Warn,
-            tracing::core::Level::ERROR => Level::Error,
+            tracing::Level::TRACE => Level::Trace,
+            tracing::Level::DEBUG => Level::Debug,
+            tracing::Level::INFO => Level::Info,
+            tracing::Level::WARN => Level::Warn,
+            tracing::Level::ERROR => Level::Error,
         }
     }
 }

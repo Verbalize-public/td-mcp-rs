@@ -16,11 +16,23 @@ use std::time::Duration;
 use serde_json::{json, Value};
 use tdmcp_core::{PidRegistry, ProcessAttrs, ProcessFingerprint};
 use tdmcp_daemon::bridge::{BridgeSessions, BridgeTimeouts, HeartbeatConfig};
+use tdmcp_daemon::{LogRing, LogSink};
 use tdmcp_diagnostics::Catalog;
 use tdmcp_ipc::{IpcStream, Message};
 use tdmcp_mcp::dispatch_tool;
 use tdmcp_test_support::FakeTdPeer;
 use tokio::sync::Mutex;
+
+/// A [`LogSink`] backed by a temp-dir file appender, for tests that assert on
+/// bridge log ingestion (M2).
+fn test_log_sink(dir: &std::path::Path) -> LogSink {
+    let appender = tracing_appender::rolling::never(dir, "test.log");
+    let (writer, _guard) = tracing_appender::non_blocking(appender);
+    // Leaking the guard is fine in a short-lived test process: it only
+    // controls flush-on-drop for a file we don't assert on.
+    std::mem::forget(_guard);
+    LogSink::new(Arc::new(LogRing::new(4096)), writer)
+}
 
 fn attrs() -> ProcessAttrs {
     ProcessAttrs {
@@ -665,6 +677,88 @@ async fn superseding_spawn_aborts_old_actor_while_stream_still_open() {
             tdmcp_core::BridgeStatus::Connected
         );
     }
+}
+
+/// Blocking acceptance test (M2 T2.3): a slow tool call interleaved with a
+/// flood of `log` events must still resolve correctly, persist every event,
+/// and never trip a disconnect.
+#[tokio::test]
+async fn interleaved_log_events_do_not_disconnect_and_are_all_ingested() {
+    const N_EVENTS: usize = 100;
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let sink = test_log_sink(dir.path());
+    let registry = Arc::new(Mutex::new(PidRegistry::new()));
+    let sessions = BridgeSessions::new(registry.clone())
+        .with_heartbeat(HeartbeatConfig::disabled())
+        .with_log_sink(sink.clone());
+    let (mut peer, server) = FakeTdPeer::pair(72);
+    let server_task = tokio::spawn(async move {
+        IpcStream::accept_memory_handshake(server, "/bridge", "0.1.0")
+            .await
+            .expect("server handshake")
+    });
+    peer.handshake("proj").await.expect("client handshake");
+    let ipc_stream = server_task.await.expect("join server");
+    {
+        let mut reg = registry.lock().await;
+        reg.handshake(72, attrs(), Some("1".into()));
+    }
+    sessions.spawn(72, ipc_stream).await;
+    let catalog = Catalog::fallback();
+
+    let driver = tokio::spawn(async move {
+        let msg = peer.recv_message().await.expect("recv request");
+        let Message::Request { id, .. } = msg else {
+            panic!("expected request, got {msg:?}");
+        };
+        for i in 0..N_EVENTS {
+            peer.send_event(
+                "log",
+                json!({"records": [
+                    {"level": "info", "target": "bridge::x", "msg": format!("line {i}")}
+                ]}),
+            )
+            .await
+            .expect("send log event");
+        }
+        peer.send_response(id, json!({"ok": true, "result": 1}))
+            .await
+            .expect("send response");
+    });
+
+    let v = dispatch_tool(
+        &registry,
+        &catalog,
+        &sessions,
+        "execute_python",
+        json!({"pid": 72, "script": "result=1"}),
+        None,
+        None,
+    )
+    .await
+    .expect("reply must still match despite interleaved log events");
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["result"], 1);
+    let _ = driver.await;
+
+    let (recs, _) = sink.ring().snapshot_after(0, 4096, None, &[]);
+    assert_eq!(
+        recs.len(),
+        N_EVENTS,
+        "all interleaved log events must be persisted"
+    );
+    assert!(recs
+        .iter()
+        .all(|r| r.pid == 72 && r.src == tdmcp_daemon::Src::Bridge));
+
+    let reg = registry.lock().await;
+    let entry = reg.get(72).expect("entry");
+    assert_eq!(
+        entry.bridge,
+        tdmcp_core::BridgeStatus::Connected,
+        "interleaved log events must never disconnect the session"
+    );
 }
 
 async fn setup_with_timeouts(

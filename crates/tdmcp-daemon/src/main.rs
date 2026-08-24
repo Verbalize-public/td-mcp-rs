@@ -188,7 +188,7 @@ fn main() -> Result<()> {
             // Ensure embedded assets exist under data_dir (no-op when current).
             let _ = install::ensure_installed(&cfg.data_dir, false)?;
             let log_handles = tdmcp_daemon::tracing_init::init(&cfg)?;
-            start_daemon(cfg)?;
+            start_daemon(cfg, log_handles.sink.clone())?;
             // The buffered file writer flushes when the guard drops; keep it
             // alive until the daemon has fully stopped.
             drop(log_handles);
@@ -578,7 +578,7 @@ fn classify_startup_failure(e: &anyhow::Error) -> (&'static str, String) {
     }
 }
 
-fn start_daemon(cfg: Config) -> Result<()> {
+fn start_daemon(cfg: Config, log_sink: tdmcp_daemon::LogSink) -> Result<()> {
     let shutdown = CancellationToken::new();
     let quit = Arc::new(AtomicBool::new(false));
     let no_gui = cfg.no_gui;
@@ -592,6 +592,7 @@ fn start_daemon(cfg: Config) -> Result<()> {
             let daemon_cfg = cfg;
             let shutdown_bg = shutdown.clone();
             let quit_bg = Arc::clone(&quit);
+            let log_sink_bg = log_sink.clone();
             let handle = std::thread::Builder::new()
                 .name("tdmcp-daemon".into())
                 .spawn(move || {
@@ -603,7 +604,7 @@ fn start_daemon(cfg: Config) -> Result<()> {
                         }
                     };
                     // no_gui=false: restart must respawn with the tray again.
-                    let result = rt.block_on(run_daemon(daemon_cfg, false, shutdown_bg, quit_bg.clone()));
+                    let result = rt.block_on(run_daemon(daemon_cfg, false, shutdown_bg, quit_bg.clone(), log_sink_bg));
                     if let Err(e) = &result {
                         // The daemon never came up — nothing is backing the
                         // tray. Tell the user why and close the window
@@ -636,7 +637,7 @@ fn start_daemon(cfg: Config) -> Result<()> {
     }
 
     let rt = tokio::runtime::Runtime::new().context("tokio runtime")?;
-    rt.block_on(run_daemon(cfg, no_gui, shutdown, quit))
+    rt.block_on(run_daemon(cfg, no_gui, shutdown, quit, log_sink))
 }
 
 /// Join the daemon OS thread with a hard deadline; main-owned exit if stuck.
@@ -677,6 +678,7 @@ async fn run_daemon(
     no_gui: bool,
     shutdown: CancellationToken,
     quit: Arc<AtomicBool>,
+    log_sink: tdmcp_daemon::LogSink,
 ) -> Result<()> {
     info!(
         port = cfg.port,
@@ -737,7 +739,8 @@ async fn run_daemon(
     );
     let sessions = BridgeSessions::new(registry.clone())
         .with_heartbeat(heartbeat)
-        .with_timeouts(timeouts);
+        .with_timeouts(timeouts)
+        .with_log_sink(log_sink);
     let bridge: Arc<dyn tdmcp_mcp::BridgeRpc> = Arc::new(sessions.clone());
     let resource_provider = Arc::new(
         tdmcp_mcp::ResourceProvider::from_embedded()

@@ -30,9 +30,11 @@ use tdmcp_ipc::{BridgeEndpoint, HandshakeOffer, IpcListener, IpcStream, Message}
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio::time::{timeout, MissedTickBehavior};
 use tokio_util::sync::CancellationToken;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use tdmcp_mcp::{BridgeRpc, BridgeRpcError};
+
+use crate::logring::{ingest_bridge_logs, LogSink};
 
 /// Capacity of the per-pid job mpsc (MCP → session actor).
 pub const JOB_CHANNEL_CAPACITY: usize = 32;
@@ -171,6 +173,7 @@ pub struct BridgeSessions {
     heartbeat: HeartbeatConfig,
     timeouts: BridgeTimeouts,
     disconnected_ttl: Duration,
+    log_sink: Option<LogSink>,
 }
 
 impl BridgeSessions {
@@ -184,7 +187,16 @@ impl BridgeSessions {
             heartbeat: HeartbeatConfig::production(),
             timeouts: BridgeTimeouts::production(),
             disconnected_ttl: DISCONNECTED_TTL,
+            log_sink: None,
         }
+    }
+
+    /// Wire the central log sink so bridge-uplinked `log` events (M2) land in
+    /// the same ring + JSONL file as in-process records.
+    #[must_use]
+    pub fn with_log_sink(mut self, sink: LogSink) -> Self {
+        self.log_sink = Some(sink);
+        self
     }
 
     /// Override idle heartbeat (tests: short intervals or [`HeartbeatConfig::disabled`]).
@@ -270,6 +282,7 @@ impl BridgeSessions {
         let heartbeat = self.heartbeat;
         let timeouts = self.timeouts;
         let disconnected_ttl = self.disconnected_ttl;
+        let log_sink = self.log_sink.clone();
         tokio::spawn(async move {
             run_session(
                 pid,
@@ -282,6 +295,7 @@ impl BridgeSessions {
                 timeouts,
                 disconnected_ttl,
                 cancel,
+                log_sink,
             )
             .await;
         });
@@ -328,6 +342,7 @@ async fn run_session(
     timeouts: BridgeTimeouts,
     disconnected_ttl: Duration,
     cancel: CancellationToken,
+    log_sink: Option<LogSink>,
 ) {
     info!(pid, generation, "bridge session started");
     let mut last_activity = Instant::now();
@@ -361,7 +376,7 @@ async fn run_session(
                 let Some(job) = job else {
                     break;
                 };
-                match run_tool_job(pid, &mut stream, &registry, timeouts, &cancel, job).await {
+                match run_tool_job(pid, &mut stream, &registry, timeouts, &cancel, job, log_sink.as_ref()).await {
                     // Always refresh on Continue — including call Timeout. A timed-out
                     // wait otherwise leaves last_activity stale across a budget longer
                     // than idle_dead, and the next select iteration immediately
@@ -382,7 +397,7 @@ async fn run_session(
                 if last_activity.elapsed() < heartbeat.interval {
                     continue;
                 }
-                match run_heartbeat_ping(pid, &mut stream, heartbeat.pong_timeout, &cancel).await {
+                match run_heartbeat_ping(pid, &mut stream, heartbeat.pong_timeout, &cancel, log_sink.as_ref()).await {
                     Ok(()) => {
                         last_activity = Instant::now();
                     }
@@ -400,6 +415,7 @@ enum JobLoop {
     Disconnect,
 }
 
+#[allow(clippy::too_many_arguments, reason = "session actor wiring")]
 async fn run_tool_job(
     pid: u32,
     stream: &mut IpcStream,
@@ -407,6 +423,7 @@ async fn run_tool_job(
     timeouts: BridgeTimeouts,
     cancel: &CancellationToken,
     job: TaskJob,
+    log_sink: Option<&LogSink>,
 ) -> JobLoop {
     // Promote the head pending task (this job, FIFO) to in-flight.
     {
@@ -423,7 +440,7 @@ async fn run_tool_job(
     };
 
     let outcome = match stream.send(&req).await {
-        Ok(()) => match await_matching_response(pid, stream, &id, budget, cancel).await {
+        Ok(()) => match await_matching_response(pid, stream, &id, budget, cancel, log_sink).await {
             RecvOutcome::Matched(result, error) => {
                 if let Some(err) = error {
                     let msg = err
@@ -484,6 +501,7 @@ async fn await_matching_response(
     want_id: &str,
     budget: Duration,
     cancel: &CancellationToken,
+    log_sink: Option<&LogSink>,
 ) -> RecvOutcome {
     let deadline = Instant::now() + budget;
     loop {
@@ -514,6 +532,17 @@ async fn await_matching_response(
                         );
                         continue;
                     }
+                    // Log uplink (M2): never a disconnect signal, on any wait.
+                    Ok(Ok(Message::Event { name, payload })) if name == "log" => {
+                        if let Some(sink) = log_sink {
+                            ingest_bridge_logs(pid, &payload, sink);
+                        }
+                        continue;
+                    }
+                    Ok(Ok(Message::Event { name, .. })) => {
+                        debug!(pid, event = %name, "unrecognized bridge event");
+                        continue;
+                    }
                     Ok(Ok(_other)) => {
                         warn!(
                             pid,
@@ -535,6 +564,7 @@ async fn run_heartbeat_ping(
     stream: &mut IpcStream,
     pong_timeout: Duration,
     cancel: &CancellationToken,
+    log_sink: Option<&LogSink>,
 ) -> Result<(), ()> {
     let id = CALL_ID.fetch_add(1, Ordering::Relaxed).to_string();
     let req = Message::Request {
@@ -546,7 +576,7 @@ async fn run_heartbeat_ping(
         warn!(pid, "bridge heartbeat send failed");
         return Err(());
     }
-    match await_matching_response(pid, stream, &id, pong_timeout, cancel).await {
+    match await_matching_response(pid, stream, &id, pong_timeout, cancel, log_sink).await {
         RecvOutcome::Matched(result, None) => {
             let ok = result
                 .as_ref()

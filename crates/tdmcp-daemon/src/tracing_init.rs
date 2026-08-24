@@ -8,20 +8,19 @@
 //! `[logging]` cover the need).
 
 use std::collections::BTreeMap;
-use std::io::Write;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use tracing::field::{Field, Visit};
 use tracing::{Event, Metadata};
-use tracing_appender::non_blocking::{NonBlocking, WorkerGuard};
+use tracing_appender::non_blocking::WorkerGuard;
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::layer::Layer;
 use tracing_subscriber::{prelude::*, EnvFilter};
 
 use crate::config::Config;
 use crate::logrecord::{Level, Record, Src};
-use crate::logring::LogRing;
+use crate::logring::{LogRing, LogSink};
 
 /// Built-in file-layer filter when neither config nor env specifies one.
 const DEFAULT_FILE_FILTER: &str = "info,tdmcp_daemon=debug";
@@ -34,8 +33,9 @@ const DEFAULT_CONSOLE_FILTER: &str =
 /// [`Self::guard`] flushes-and-stops the background writer thread, so the
 /// binding lives in `main`'s scope until shutdown.
 pub struct LogHandles {
-    /// Shared tail buffer (admin API / GUI consumers read from here).
-    pub ring: Arc<LogRing>,
+    /// Shared ring + file writer — also handed to the bridge session layer
+    /// so bridge-uplinked log events land through the same path (M2).
+    pub sink: LogSink,
     /// Buffered writer flush guard — hold until shutdown.
     #[allow(dead_code, reason = "kept alive intentionally; M4 wires readers")]
     pub guard: WorkerGuard,
@@ -67,11 +67,11 @@ pub fn init(cfg: &Config) -> Result<LogHandles> {
         .build(&cfg.logging_dir)
         .with_context(|| format!("build rolling appender in {}", cfg.logging_dir.display()))?;
     let (writer, guard) = tracing_appender::non_blocking(appender);
+    let sink = LogSink::new(ring, writer);
 
-    let sink = SinkLayer {
+    let sink_layer = SinkLayer {
         filter: file_filter,
-        ring: Arc::clone(&ring),
-        writer,
+        sink: sink.clone(),
     };
 
     let fmt_layer = tracing_subscriber::fmt::layer()
@@ -80,13 +80,13 @@ pub fn init(cfg: &Config) -> Result<LogHandles> {
         .with_filter(console_filter);
 
     tracing_subscriber::registry()
-        .with(sink)
+        .with(sink_layer)
         .with(fmt_layer)
         .try_init()
         .map_err(|e| anyhow::anyhow!(e))
         .context("install global tracing subscriber")?;
 
-    Ok(LogHandles { ring, guard })
+    Ok(LogHandles { sink, guard })
 }
 
 /// Filter precedence: valid config value > valid `RUST_LOG` > default.
@@ -106,12 +106,11 @@ fn pick_filter(explicit: Option<&str>, rust_log: Option<&str>, default: &str) ->
 }
 
 /// Registry layer writing each event as one JSONL record into both the ring
-/// and the rotating file writer. Never panics; file-write failures are
-/// dropped silently (the stderr layer keeps working regardless).
+/// and the rotating file writer (via [`LogSink`]). Never panics; file-write
+/// failures are dropped silently (the stderr layer keeps working regardless).
 struct SinkLayer {
     filter: EnvFilter,
-    ring: Arc<LogRing>,
-    writer: NonBlocking,
+    sink: LogSink,
 }
 
 impl<S: tracing::Subscriber> Layer<S> for SinkLayer {
@@ -137,14 +136,7 @@ impl<S: tracing::Subscriber> Layer<S> for SinkLayer {
             code: visitor.code,
             kvs: visitor.kvs,
         };
-        // Push first so the file line carries the ring-assigned seq (push
-        // mutates its own copy and returns it; serializing before push would
-        // always write seq:0).
-        let arc = self.ring.push(record);
-        let line = crate::logrecord::to_line(&arc);
-        let mut writer = self.writer.clone();
-        let _ = writer.write_all(line.as_bytes());
-        let _ = writer.write_all(b"\n");
+        self.sink.push(record);
     }
 }
 

@@ -74,6 +74,19 @@ impl FakeTdPeer {
         read_msg(&mut self.stream).await
     }
 
+    /// Send a `Message::Event` frame (e.g. the M2 bridge log uplink).
+    pub async fn send_event(
+        &mut self,
+        name: impl Into<String>,
+        payload: serde_json::Value,
+    ) -> Result<(), IpcError> {
+        let msg = Message::Event {
+            name: name.into(),
+            payload,
+        };
+        write_msg(&mut self.stream, &msg).await
+    }
+
     /// Answer `ping` (and optionally other methods) until the peer drops.
     ///
     /// Spawns a background task; returns a [`JoinHandle`](tokio::task::JoinHandle).

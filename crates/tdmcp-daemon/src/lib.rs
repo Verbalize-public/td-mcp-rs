@@ -34,4 +34,4 @@ pub use install::{
     verify_installed_version, InstallOutcome,
 };
 pub use logrecord::{to_line as record_to_line, from_line as record_from_line, Level, Record, Src};
-pub use logring::LogRing;
+pub use logring::{LogRing, LogSink};
