@@ -314,7 +314,7 @@ fn main() -> Result<()> {
                     let opts = respawn_opts.clone();
                     Box::pin(async move {
                         if let Err(e) = ensure_daemon(opts).await {
-                            warn!(error = %e, "mcp: automatic respawn attempt failed");
+                            warn!(error = %e, "automatic respawn attempt failed");
                         }
                     })
                 });

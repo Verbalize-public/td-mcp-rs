@@ -136,7 +136,7 @@ where
     if respawn.is_some() {
         install_log_uplink(admin_base.clone());
     }
-    info!(%daemon_url, "stdio_proxy: serving stdio (daemon link lazy)");
+    info!(%daemon_url, "serving stdio (daemon link lazy)");
 
     let resource_provider = Arc::new(
         ResourceProvider::from_embedded()
@@ -168,7 +168,7 @@ where
                     let _ = prefetch.set(link);
                 }
                 Err(e) => {
-                    warn!(error = %e, "stdio_proxy: background daemon connect failed");
+                    warn!(error = %e, "background daemon connect failed");
                 }
             }
         });
@@ -180,12 +180,12 @@ where
         .await
         .map_err(|e| StdioProxyError::Serve(e.to_string()))?;
 
-    info!("stdio_proxy: initialized (request/response only; notifications not forwarded)");
+    info!("initialized (request/response only; notifications not forwarded)");
     let quit = server
         .waiting()
         .await
         .map_err(|e| StdioProxyError::Session(e.to_string()))?;
-    debug!(?quit, "stdio_proxy: stdio session ended");
+    debug!(?quit, "stdio session ended");
     if let Some(link) = link_cell.get() {
         link.shutdown().await;
     }
@@ -245,7 +245,7 @@ impl ServerHandler for StdioProxy {
             .unwrap_or_else(|| self.admin_base.clone());
         tokio::spawn(async move {
             if let Err(e) = annotate_daemon_session(&admin_base, &name, &version).await {
-                warn!(error = %e, "stdio_proxy: annotate MCP session failed");
+                warn!(error = %e, "annotate MCP session failed");
             }
         });
         let mut info = self.get_info();
@@ -341,7 +341,7 @@ impl StdioProxy {
                 Ok(link)
             }
             Err(e) => {
-                warn!(error = %e, "stdio_proxy: daemon connect failed on tool call");
+                warn!(error = %e, "daemon connect failed on tool call");
                 Err(unreachable_error(
                     HealOutcome {
                         healed: false,
@@ -377,18 +377,18 @@ impl StdioProxy {
         match tokio::time::timeout(budget, op(peer)).await {
             Ok(Ok(response)) => Ok(response),
             Ok(Err(e)) if is_transport_error(&e) => {
-                warn!(error = %e, "stdio_proxy: transport error — attempting heal");
+                warn!(error = %e, "transport error — attempting heal");
                 let outcome = link.heal(gen).await;
                 Err(unreachable_error(outcome, link.config(), link.can_respawn()))
             }
             Ok(Err(e)) => {
-                warn!(error = %e, "stdio_proxy: call forward failed");
+                warn!(error = %e, "call forward failed");
                 Err(service_err_to_error_data(e))
             }
             Err(_) => {
                 warn!(
                     budget_ms = budget.as_millis(),
-                    "stdio_proxy: call exceeded budget — healing link"
+                    "call exceeded budget — healing link"
                 );
                 let outcome = link.heal(gen).await;
                 Err(call_timeout_error(budget, outcome))

@@ -105,6 +105,7 @@ impl PidRegistry {
                     entry.process = process;
                     entry.protocol_version = protocol_version;
                     entry.bridge = BridgeStatus::Connected;
+                    tracing::info!(pid, "pid handshake — reused onto a different process");
                 } else {
                     let was_disconnected = entry.bridge == BridgeStatus::Disconnected;
                     entry.process = process;
@@ -112,6 +113,9 @@ impl PidRegistry {
                     entry.bridge = BridgeStatus::Connected;
                     if was_disconnected {
                         entry.resurrection.on_resurrect();
+                        tracing::info!(pid, "pid handshake — resurrected");
+                    } else {
+                        tracing::info!(pid, "pid handshake — already connected");
                     }
                 }
             }
@@ -127,12 +131,17 @@ impl PidRegistry {
                         protocol_version,
                     },
                 );
+                tracing::info!(pid, "pid handshake — new registration");
             }
         }
         self.evict_all_disconnected(Some(pid));
     }
 
     /// Mark IPC lost: disconnect, cancel waits, stack traces.
+    ///
+    /// Not logged here — every caller already logs this fact at its own
+    /// boundary (e.g. `bridge.rs`'s "bridge session ended" warn); rule §5.7.3
+    /// (log once, at the boundary) applies.
     pub fn on_bridge_lost(&mut self, pid: u32, now: DateTime<Utc>) {
         let Some(entry) = self.entries.get_mut(&pid) else {
             return;
@@ -174,7 +183,9 @@ impl PidRegistry {
 
     /// Process exited — drop mapping unconditionally.
     pub fn on_process_exit(&mut self, pid: u32) {
-        self.entries.remove(&pid);
+        if self.entries.remove(&pid).is_some() {
+            tracing::info!(pid, "pid registry entry dropped — process exited");
+        }
     }
 
     /// Enqueue a task for a connected pid.

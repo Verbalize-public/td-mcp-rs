@@ -380,7 +380,7 @@ impl DaemonLink {
         let gate = match tokio::time::timeout(HEAL_GATE_WAIT, self.reconnect_gate.lock()).await {
             Ok(guard) => guard,
             Err(_) => {
-                debug!("daemon_link: heal gate wait timed out");
+                debug!("heal gate wait timed out");
                 return HealOutcome {
                     healed: false,
                     downtime: self.downtime().or(downtime),
@@ -401,7 +401,7 @@ impl DaemonLink {
         }
 
         if self.debounced() {
-            debug!("daemon_link: heal debounced");
+            debug!("heal debounced");
             return HealOutcome {
                 healed: false,
                 downtime: self.downtime().or(downtime),
@@ -411,7 +411,7 @@ impl DaemonLink {
         self.note_probe();
 
         if !self.health_ok().await {
-            debug!("daemon_link: health probe failed");
+            debug!("health probe failed");
             return HealOutcome {
                 healed: false,
                 downtime: self.downtime(),
@@ -433,7 +433,7 @@ impl DaemonLink {
                 info!(
                     generation = self.generation(),
                     downtime_ms = downtime.map(|d| d.as_millis()).unwrap_or(0),
-                    "daemon_link: reconnected to daemon"
+                    "reconnected to daemon"
                 );
                 let _ = old.cancel().await;
                 self.reannotate_best_effort().await;
@@ -443,14 +443,14 @@ impl DaemonLink {
                 }
             }
             Ok(Err(e)) => {
-                warn!(error = %e, "daemon_link: reconnect handshake failed");
+                warn!(error = %e, "reconnect handshake failed");
                 HealOutcome {
                     healed: false,
                     downtime: self.downtime(),
                 }
             }
             Err(_) => {
-                warn!("daemon_link: reconnect handshake timed out");
+                warn!("reconnect handshake timed out");
                 HealOutcome {
                     healed: false,
                     downtime: self.downtime(),
@@ -498,7 +498,7 @@ impl DaemonLink {
                     self.maybe_trigger_respawn();
                 }
             }
-            debug!("daemon_link: watcher stopped");
+            debug!("watcher stopped");
         });
     }
 
@@ -530,7 +530,7 @@ impl DaemonLink {
         }
         info!(
             downtime_ms = downtime.as_millis(),
-            "daemon_link: sustained downtime — triggering automatic daemon respawn"
+            "sustained downtime — triggering automatic daemon respawn"
         );
         tokio::spawn(async move { (respawn)().await });
     }
@@ -586,7 +586,7 @@ impl DaemonLink {
             "clientVersion": version,
         });
         if let Err(e) = self.http.post(&url).json(&body).send().await {
-            warn!(error = %e, "daemon_link: re-annotate after reconnect failed");
+            warn!(error = %e, "re-annotate after reconnect failed");
         }
     }
 }

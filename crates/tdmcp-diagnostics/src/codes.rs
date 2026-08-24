@@ -224,4 +224,74 @@ mod tests {
             );
         }
     }
+
+    /// M6 §5.7 rule 8: every `tdmcp.*`-shaped string literal in **production**
+    /// Rust source (everything before this codebase's own `#[cfg(test)] mod
+    /// tests { ... }` tail — the convention every file here follows) must be
+    /// a real catalog entry. Catches a typo'd or ad-hoc code written as a raw
+    /// literal instead of a `codes::*` constant (which
+    /// `every_code_constant_is_in_catalog` alone can't see, since it only
+    /// walks the constants that exist). Test-only fixture codes (e.g. an
+    /// intentionally-fake code exercising an "unknown code" fallback path)
+    /// are out of scope by construction, not by an allowlist.
+    #[test]
+    fn no_unregistered_code_literals_in_source() {
+        let cat = Catalog::fallback();
+        let crates_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../crates");
+        let mut offenders = Vec::new();
+        scan_dir_for_code_literals(&crates_dir, &cat, &mut offenders);
+        assert!(
+            offenders.is_empty(),
+            "code literal(s) not in diagnostics/catalog.yaml (typo, or missing catalog \
+             entry — add one or route through a codes::* constant): {offenders:#?}"
+        );
+    }
+
+    fn scan_dir_for_code_literals(dir: &std::path::Path, cat: &Catalog, offenders: &mut Vec<String>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                if path.file_name().and_then(|n| n.to_str()) == Some("target") {
+                    continue;
+                }
+                scan_dir_for_code_literals(&path, cat, offenders);
+            } else if path.extension().and_then(|e| e.to_str()) == Some("rs") {
+                let Ok(text) = std::fs::read_to_string(&path) else {
+                    continue;
+                };
+                // Production code only — everything up to this codebase's
+                // `#[cfg(test)]` tail convention (see doc comment above).
+                let production = text.split("#[cfg(test)]").next().unwrap_or(&text);
+                for code in extract_tdmcp_code_literals(production) {
+                    if !cat.contains(&code) {
+                        offenders.push(format!("{}: {code}", path.display()));
+                    }
+                }
+            }
+        }
+    }
+
+    /// Every `"tdmcp.foo.bar"`-shaped string literal in `text` (the catalog's
+    /// own namespace — nothing else in this codebase uses a `tdmcp.` dotted
+    /// prefix, as opposed to `tdmcp_*` crate/target names or `tdmcp://` URIs).
+    fn extract_tdmcp_code_literals(text: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        let bytes = text.as_bytes();
+        let mut i = 0;
+        while let Some(rel) = text[i..].find("\"tdmcp.") {
+            let start = i + rel + 1; // skip the opening quote
+            let mut end = start;
+            while end < bytes.len() && bytes[end] != b'"' && bytes[end] != b'\n' {
+                end += 1;
+            }
+            if end < bytes.len() && bytes[end] == b'"' {
+                out.push(text[start..end].to_owned());
+            }
+            i = end.max(start + 1);
+        }
+        out
+    }
 }

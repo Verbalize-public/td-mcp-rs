@@ -352,12 +352,14 @@ pub fn ensure_default(path: &Path, force: bool) -> Result<bool> {
 /// Load config from `path`. Missing file → [`ConfigFile::default`].
 pub fn load(path: &Path) -> Result<ConfigFile> {
     if !path.is_file() {
+        tracing::debug!(path = %path.display(), "config file missing — using defaults");
         return Ok(ConfigFile::default());
     }
     let text =
         fs::read_to_string(path).with_context(|| format!("read config {}", path.display()))?;
     let file: ConfigFile = toml_edit::de::from_str(&text)
         .with_context(|| format!("parse config {}", path.display()))?;
+    tracing::debug!(path = %path.display(), "config loaded");
     Ok(file)
 }
 
@@ -469,6 +471,7 @@ pub fn save(path: &Path, cfg: &ConfigFile) -> Result<()> {
     );
 
     fs::write(path, doc.to_string()).with_context(|| format!("write config {}", path.display()))?;
+    tracing::debug!(path = %path.display(), "config section values applied and saved");
     Ok(())
 }
 

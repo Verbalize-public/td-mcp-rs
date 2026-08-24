@@ -80,7 +80,7 @@ pub async fn ensure_daemon(opts: EnsureOptions) -> Result<EnsureResult> {
         if !opts.no_gui && daemon_is_headless(opts.port).await {
             info!(
                 port = opts.port,
-                "ensure: healthy headless daemon but tray requested — restarting with tray"
+                "healthy headless daemon but tray requested — restarting with tray"
             );
             let _ = request_shutdown(opts.port).await;
             wait_until_unhealthy(opts.port, Duration::from_secs(5)).await;
@@ -269,7 +269,7 @@ fn spawn_detached(
         idle_exit_secs,
         ipc_pipe,
         config_path = ?config_path.map(|p| p.display().to_string()),
-        "ensure: spawning detached daemon"
+        "spawning detached daemon"
     );
     let mut cmd = Command::new(exe);
     cmd.arg("start")
@@ -296,7 +296,7 @@ fn spawn_detached(
         .spawn()
         .with_context(|| format!("spawn detached {} start --port {port}", exe.display()))?;
     let child_pid = child.id();
-    info!(child_pid, "ensure: detached daemon spawned");
+    info!(child_pid, "detached daemon spawned");
     // Reap on a side thread. Dropping `Child` without `wait` leaves a zombie
     // under the long-lived `mcp` parent; on macOS/BSD `kill -0` still sees
     // zombies, so a crashed GUI child would pin a stale `daemon.lock`.
