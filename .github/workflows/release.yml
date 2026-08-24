@@ -1,0 +1,128 @@
+name: Release
+
+# Tag-driven: pushing tag v{version} (= [workspace.package] version) builds
+# every target through the same `cargo run -p xtask -- package` used locally,
+# smoke-tests each archive, aggregates checksums, and publishes the release.
+#
+# Failure playbook:
+# - "tag vX but Cargo.toml says Y" -> fix mismatched side, delete tag, retag.
+# - lockfile drift                 -> commit updated Cargo.lock first.
+# - missing ISCC (windows)         -> fallback `choco install innosetup -y --no-progress`.
+# - mac link errors                -> see docs/DELIVERY.md packaging section.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  assert:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tag must equal [workspace.package] version
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          CARGO_VERSION="$(grep -m1 '^version = "' Cargo.toml | sed 's/^version = "\(.*\)"$/\1/')"
+          if [ "$TAG_VERSION" != "$CARGO_VERSION" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} but Cargo.toml says ${CARGO_VERSION} — fix one side, delete the tag, retag"
+            exit 1
+          fi
+          echo "releasing ${CARGO_VERSION}"
+
+  build:
+    needs: assert
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+          - target: aarch64-apple-darwin
+            os: macos-15
+          - target: x86_64-apple-darwin
+            os: macos-15-intel
+    runs-on: ${{ matrix.os }}
+    env:
+      # Floor for egui/winit; keep in sync with LSMinimumSystemVersion in
+      # packaging/macos/Info.plist.template.
+      MACOSX_DEPLOYMENT_TARGET: "12.0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - name: Package binaries
+        run: cargo run -p xtask -- package --target ${{ matrix.target }} --out dist
+
+      # --- macOS: .app bundle + DMG; signs/notarizes when secrets exist ---
+      - name: Build app bundle + DMG (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          packaging/macos/make_app.sh \
+            "target/${{ matrix.target }}/release/tdmcp-daemon" \
+            "${{ github.ref_name }}" "${{ matrix.target }}" dist
+      - name: Smoke test archive (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          tar -xzf dist/tdmcp-rs-*-${{ matrix.target }}.tar.gz -C /tmp
+          /tmp/tdmcp-daemon --version
+
+      # --- Windows: one extraction feeds the smoke test and the installer ---
+      - name: Stage installer payload (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Expand-Archive -Path dist/tdmcp-rs-*.zip -DestinationPath staging -Force
+          ./staging/tdmcp-daemon.exe --version
+      - name: Build installer (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup -y --no-progress
+            $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          }
+          & $iscc "/DVersion=${{ github.ref_name }}" packaging/windows/installer.iss
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.target }}
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+          path: dist
+      - name: Aggregate SHA256SUMS across platforms
+        working-directory: dist
+        run: |
+          rm -f SHA256SUMS.txt
+          sha256sum tdmcp-rs-*.zip tdmcp-rs-*.tar.gz > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+      # Attestations are public-repo-only on this plan; auto-enable when the
+      # repo goes public. Private repos rely on the SHA256SUMS above.
+      - name: Attest build provenance
+        if: github.repository_visibility == 'public'
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: dist/**
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${{ github.ref_name }}" dist/* --verify-tag --generate-notes
