@@ -98,22 +98,43 @@ def append_local(msg: str, level: str = "info", target: str = "bridge") -> None:
     _append(msg, level, target)
 
 
-def install(on_flush: Callable[[list[dict[str, Any]]], None]) -> bool:
-    """Replace ``sys.stdout`` / ``sys.stderr`` with :class:`Tee` instances.
+def _unwrap_stale_tee(stream: Any) -> Any:
+    """Peel off a tee left by an *earlier* reload generation.
 
-    Idempotent / reinstall-safe: if the current stream is already our tee,
-    it is left in place (only the flush callback rebinds) — calling this
-    again after TD swaps a stream back wraps whatever is current as the new
-    "original", so write-through is preserved either way.
+    TD reloads this module on every reconnect (``_load_bridge_package``),
+    which re-executes the module body and rebinds ``_buffer``/``_on_flush``/
+    ``_append`` to fresh objects — but a ``Tee`` instance already sitting in
+    ``sys.stdout`` from a *previous* generation keeps its old bound method
+    referencing the *old* globals dict (reload reuses the module object, but
+    only for modules still reached through ``sys.modules`` at reload time;
+    an instance holds its class's original ``__globals__` regardless). Left
+    in place, it silently writes into an orphaned buffer nothing ever
+    flushes — the tee looks installed but the uplink is dead. Unwrap down to
+    the true non-tee original so a fresh, correctly-bound ``Tee`` can be
+    installed on every call.
+    """
+    seen = 0
+    while getattr(stream, "_is_tdmcp_logtap_tee", False) and seen < 8:
+        inner = getattr(stream, "_original", None)
+        if inner is None:
+            break
+        stream = inner
+        seen += 1
+    return stream
+
+
+def install(on_flush: Callable[[list[dict[str, Any]]], None]) -> bool:
+    """Replace ``sys.stdout`` / ``sys.stderr`` with fresh :class:`Tee`
+    instances, unwrapping any stale tee from an earlier reload generation
+    first (see :func:`_unwrap_stale_tee`) — always safe to call again, never
+    nests, and always rebinds to *this* generation's buffer/flush state.
     """
     global _orig_stdout, _orig_stderr, _on_flush
     _on_flush = on_flush
-    if not getattr(sys.stdout, "_is_tdmcp_logtap_tee", False):
-        _orig_stdout = sys.stdout
-        sys.stdout = Tee(_orig_stdout, "info", "bridge::stdout")
-    if not getattr(sys.stderr, "_is_tdmcp_logtap_tee", False):
-        _orig_stderr = sys.stderr
-        sys.stderr = Tee(_orig_stderr, "error", "bridge::stderr")
+    _orig_stdout = _unwrap_stale_tee(sys.stdout)
+    sys.stdout = Tee(_orig_stdout, "info", "bridge::stdout")
+    _orig_stderr = _unwrap_stale_tee(sys.stderr)
+    sys.stderr = Tee(_orig_stderr, "error", "bridge::stderr")
     return True
 
 

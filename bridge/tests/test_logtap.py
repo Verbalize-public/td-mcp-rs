@@ -31,11 +31,75 @@ def test_install_tees_stdout_and_stderr_write_through(capsys: pytest.CaptureFixt
     assert "boom" in captured.err
 
 
-def test_install_is_idempotent_does_not_double_wrap() -> None:
+def test_reinstall_never_nests_even_though_it_rewraps() -> None:
+    """install() always rewraps (see the stale-tee test below for why), but
+    it must never grow a Tee-in-Tee-in-Tee chain: the second tee's own
+    "original" must be the true pre-install stream, not the first tee."""
+    real_stdout = sys.stdout
     logtap.install(lambda _records: None)
     first_tee = sys.stdout
+    assert first_tee is not real_stdout
     logtap.install(lambda _records: None)
-    assert sys.stdout is first_tee
+    second_tee = sys.stdout
+    assert second_tee is not first_tee, "must rewrap, not skip"
+    assert second_tee._original is real_stdout, "must not nest onto the first tee"
+
+
+def test_reinstall_over_stale_tee_from_earlier_generation_rebinds() -> None:
+    """Reproduces a real bug found via live TD: TD reloads this module on
+    every reconnect (``_load_bridge_package``), which rebinds module-level
+    state (``_buffer``, ``_on_flush``, ``_append``) to fresh objects for the
+    *new* generation — but a ``Tee`` instance already sitting in
+    ``sys.stdout`` from an *earlier* generation keeps its bound method
+    referencing that earlier generation's globals. The old "skip if already
+    a tee" install() logic left that stale tee in place forever (its marker
+    still reads True), so it looked installed but every write landed in an
+    orphaned buffer nothing ever flushed — the M2 uplink went silently dead
+    after the first reconnect. This fakes one prior generation's Tee (bound
+    to its own private state, like a genuinely separately-reloaded module
+    would produce) and asserts install() unwraps it rather than treating it
+    as already-installed.
+    """
+
+    class _StaleGenerationState:
+        """Stands in for a previous reload's module globals — its own
+        _buffer/_append, independent of the current logtap module's."""
+
+        def __init__(self) -> None:
+            self.buffer: list[dict] = []
+
+        def append(self, msg: str) -> None:
+            self.buffer.append({"level": "info", "target": "t", "msg": msg})
+
+    stale_state = _StaleGenerationState()
+
+    class _StaleTee:
+        _is_tdmcp_logtap_tee = True  # looks like ours to a naive check
+
+        def __init__(self, original: object) -> None:
+            self._original = original
+
+        def write(self, s: str) -> int:
+            if s.strip():
+                stale_state.append(s)
+            return len(s)
+
+        def flush(self) -> None:
+            pass
+
+    real_stdout = sys.stdout
+    sys.stdout = _StaleTee(real_stdout)
+
+    flushed: list[list[dict]] = []
+    logtap.install(lambda records: flushed.append(records))
+    print("goes to the fresh tee, not the stale one")
+    logtap.maybe_flush(force=True)
+
+    assert isinstance(sys.stdout, logtap.Tee), "must replace the stale tee, not keep it"
+    assert sys.stdout._original is real_stdout, "must unwrap down to the true original"
+    assert len(flushed) == 1
+    assert flushed[0][0]["msg"] == "goes to the fresh tee, not the stale one"
+    assert stale_state.buffer == [], "nothing should reach the orphaned stale buffer anymore"
 
 
 def test_install_wraps_whatever_is_current_even_after_reload_marker_reset() -> None:
