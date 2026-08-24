@@ -27,6 +27,7 @@ from . import (
     execute as _execute,
     identity as _identity,
     inspect as _inspect,
+    logtap as _logtap,
     mutate as _mutate,
     paths as _paths,
     suggest as _suggest,
@@ -73,6 +74,7 @@ for _mod in (
     _editor_context,
     _identity,
     _task_queue,
+    _logtap,
 ):
     _reexport(_mod)
 del _mod, _reexport
@@ -267,6 +269,14 @@ def bootstrap(bridge_dir: str | None = None) -> dict[str, Any]:
     return resp
 
 
+def _bridge_log_sender(records: list[dict[str, Any]]) -> None:
+    """``logtap`` flush callback (M2): enqueue a ``log`` event for the
+    connection's own worker thread to write (see ``task_queue.enqueue_event``
+    — never write the IPC stream from a second thread)."""
+    pkg = sys.modules[__name__]
+    pkg.enqueue_event({"type": "event", "name": "log", "payload": {"records": records}})
+
+
 _active_stream: Any = None
 _active_thread: threading.Thread | None = None
 
@@ -335,6 +345,9 @@ def bootstrap_threaded(bridge_dir: str | None = None) -> dict[str, Any]:
     pkg._active_thread = thread
     # Timeline-independent dispatch so the bridge works while paused.
     pkg.start_pump()
+    # Log uplink (M2): reinstall-safe, so this also re-asserts the tee if a
+    # prior connection's reload left `sys.stdout` pointing at a stale tee.
+    pkg.install(pkg._bridge_log_sender)
     return resp
 
 

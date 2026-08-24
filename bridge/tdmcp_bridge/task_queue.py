@@ -21,6 +21,7 @@ from .identity import (
     idle_dead_from_handshake,
     max_call_wait_from_handshake,
 )
+from . import logtap as _logtap
 from .transport import (
     MidFrameTimeout,
     _apply_read_timeout,
@@ -86,6 +87,48 @@ class _PendingItem:
 _pending_lock = threading.Lock()
 _pending: list[_PendingItem] = []
 _running: _PendingItem | None = None
+
+# Outbound events (M2 log uplink) for the active connection. Only
+# `serve_queued`'s own worker thread ever writes to the stream — other
+# threads (e.g. the main-thread pump) enqueue here instead of writing
+# directly, so two threads never race `_write_frame` on the same stream.
+_event_queue: "queue.Queue[dict[str, Any]] | None" = None
+
+
+def enqueue_event(msg: dict[str, Any]) -> bool:
+    """Queue an outbound event frame for the active connection to send.
+
+    Returns False (silently) when no connection is currently serving —
+    callers (e.g. the log uplink) should just drop in that case.
+    """
+    q = _event_queue
+    if q is None:
+        return False
+    try:
+        q.put_nowait(msg)
+        return True
+    except queue.Full:
+        return False
+
+
+def _drain_outbound(stream, max_items: int = 64) -> bool:
+    """Write queued outbound events onto ``stream``. Returns False on the
+    first write failure (caller should treat the connection as dead)."""
+    q = _event_queue
+    if q is None:
+        return True
+    n = 0
+    while n < max_items:
+        try:
+            msg = q.get_nowait()
+        except queue.Empty:
+            break
+        try:
+            _write_frame(stream, msg)
+        except Exception:  # noqa: BLE001 — the read loop will observe the dead stream
+            return False
+        n += 1
+    return True
 
 
 def _deliver_response(item: _PendingItem, resp: dict[str, Any]) -> None:
@@ -391,6 +434,11 @@ def _pump() -> None:
     except Exception:  # noqa: BLE001 — one bad dispatch must not kill the pump
         pass
 
+    try:
+        _logtap.maybe_flush()
+    except Exception:  # noqa: BLE001 — uplink must never kill the pump
+        pass
+
     with _pump_lock:
         import tdmcp_bridge as _pkg
 
@@ -464,9 +512,17 @@ def serve_queued(
     except Exception:  # noqa: BLE001 — makefile / test stubs may not support it
         pass
 
+    global _event_queue
+    my_event_queue: "queue.Queue[dict[str, Any]]" = queue.Queue(maxsize=1024)
+    _event_queue = my_event_queue
+
     last_recv = time.monotonic()
     try:
         while True:
+            # Flush any queued outbound events (M2 log uplink) before the next
+            # blocking read — keeps all stream writes on this one thread.
+            if not _drain_outbound(stream):
+                break
             try:
                 msg = _read_frame(stream, idle_dead_s=idle_dead_s)
             except MidFrameTimeout:
@@ -519,5 +575,7 @@ def serve_queued(
                 traceback.print_exc(file=sys.stderr)
                 break
     finally:
+        if _event_queue is my_event_queue:
+            _event_queue = None
         _close_serve_stream(stream)
 

@@ -28,6 +28,7 @@ class QueuedServeTest(unittest.TestCase):
     def setUp(self) -> None:
         # Fresh module-level queue per test — tests run in one process.
         tdmcp_bridge._reset_pending_for_tests()  # noqa: SLF001
+        tdmcp_bridge._task_queue._event_queue = None  # noqa: SLF001
         bridge_sock, daemon_sock = socket.socketpair()
         self.bridge_stream = bridge_sock.makefile("rwb")
         self.daemon_stream = daemon_sock.makefile("rwb")
@@ -162,6 +163,53 @@ class QueuedServeTest(unittest.TestCase):
             }
         )
         self.assertEqual(s, "# comment")
+
+    def test_enqueue_event_reaches_wire_via_worker_thread(self) -> None:
+        """M2 log uplink: `enqueue_event` frames are written by the
+        connection's own `serve_queued` worker — never a second writer
+        racing `_write_frame` on the same stream.
+
+        The stream here (a plain `socketpair().makefile()`) has no read
+        timeout support, so the worker's blocking read never wakes up on its
+        own to drain — a real request is what cycles the loop back to the
+        top-of-loop drain point, same as the real named-pipe/UDS streams do
+        every ``_READ_POLL_S`` while idle.
+        """
+        worker = threading.Thread(
+            target=tdmcp_bridge.serve_queued, args=(self.bridge_stream,), daemon=True
+        )
+        worker.start()
+        deadline = time.monotonic() + 1.0
+        while tdmcp_bridge._task_queue._event_queue is None and time.monotonic() < deadline:  # noqa: SLF001
+            time.sleep(0.01)
+        self.assertIsNotNone(
+            tdmcp_bridge._task_queue._event_queue,  # noqa: SLF001
+            "serve_queued must install its outbound queue before serving",
+        )
+
+        ok = tdmcp_bridge.enqueue_event(
+            {
+                "type": "event",
+                "name": "log",
+                "payload": {"records": [{"level": "info", "target": "t", "msg": "hi"}]},
+            }
+        )
+        self.assertTrue(ok)
+
+        # Unblock the worker's current read so its loop cycles back to the
+        # drain point; a normal request/response must still work cleanly.
+        self._send_request(1, "ping")
+        resp = self._recv_response()
+        self.assertEqual(resp["result"], {"ok": True, "pong": True})
+
+        frame = tdmcp_bridge._read_frame(self.daemon_stream)  # noqa: SLF001
+        self.assertEqual(frame["type"], "event")
+        self.assertEqual(frame["name"], "log")
+        self.assertEqual(frame["payload"]["records"][0]["msg"], "hi")
+
+    def test_enqueue_event_without_active_connection_drops_silently(self) -> None:
+        self.assertIsNone(tdmcp_bridge._task_queue._event_queue)  # noqa: SLF001
+        self.assertFalse(tdmcp_bridge.enqueue_event({"type": "event", "name": "log", "payload": {}}))
 
 
 class IdleDeadTest(unittest.TestCase):
