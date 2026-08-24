@@ -4,6 +4,7 @@
 //! Closing the window or losing focus only hides the UI — it does not stop
 //! the daemon. Use Stop / `/admin/shutdown` to end the process (sets `quit`).
 
+mod dashboard;
 mod theme;
 
 use std::collections::{HashMap, HashSet};
@@ -68,7 +69,9 @@ const SETTINGS_ROW_H: f32 = 26.0;
 /// Symmetric side inset for content (px).
 const SIDE_MARGIN: f32 = 12.0;
 /// Width reserved for the header's right-anchored actions (px).
-const HEADER_ACTIONS_W: f32 = 158.0;
+const HEADER_ACTIONS_W: f32 = 186.0;
+/// Newest-first error/warning entries kept for popup + dashboard surfaces.
+const ERROR_RING_CAP: usize = 50;
 /// Rendered log rows kept client-side (evict oldest; matches the daemon ring cap).
 const LOGS_RENDER_CAP: usize = 2048;
 /// Records requested per `/admin/logs` fetch while the Logs view is active.
@@ -90,9 +93,14 @@ pub fn run(
     let icon_normal = load_rgba(include_bytes!("../assets/icon-normal.png"), Some(32))?;
     let icon_attention = load_rgba(include_bytes!("../assets/icon-attention.png"), Some(32))?;
     let window_icon = egui::IconData {
-        rgba: icon_normal_full.rgba,
+        rgba: icon_normal_full.rgba.clone(),
         width: icon_normal_full.width,
         height: icon_normal_full.height,
+    };
+    let dash_icon = egui::IconData {
+        rgba: window_icon.rgba.clone(),
+        width: window_icon.width,
+        height: window_icon.height,
     };
 
     #[allow(unused_mut)]
@@ -131,6 +139,7 @@ pub fn run(
                 icon_attention,
                 quit,
                 config_path,
+                dash_icon,
             )?))
         }),
     )
@@ -193,6 +202,7 @@ struct DashboardApp {
     tray: Option<TrayIcon>,
     menu_restart: MenuItem,
     menu_stop: MenuItem,
+    menu_dashboard: MenuItem,
     icon_normal: RgbaIcon,
     icon_attention: RgbaIcon,
     attention: bool,
@@ -262,6 +272,14 @@ struct DashboardApp {
     slaves_seen_once: bool,
     /// Tray Logs view (T4.2).
     logs_view: LogsViewState,
+    /// Dashboard secondary viewport is open.
+    dashboard_open: bool,
+    /// Selected dashboard tab.
+    dash_tab: dashboard::DashTab,
+    /// Latest errors/warnings, newest first (tray strip + dashboard card).
+    error_ring: Vec<String>,
+    /// Window icon reused by the dashboard viewport builder.
+    window_icon: egui::IconData,
 }
 
 /// One record as returned by `/admin/logs` (camelCase over the wire).
@@ -372,9 +390,11 @@ impl DashboardApp {
         icon_attention: RgbaIcon,
         quit: Arc<AtomicBool>,
         config_path: PathBuf,
+        window_icon: egui::IconData,
     ) -> Result<Self> {
         let menu_restart = MenuItem::new("Restart daemon", true, None);
         let menu_stop = MenuItem::new("Stop daemon", true, None);
+        let menu_dashboard = MenuItem::new("Open dashboard", true, None);
 
         let draft = cfgfile::load(&config_path).unwrap_or_default();
         let (data_dir_edit, bridge_dir_edit, catalog_path_edit, daemon_bin_edit) =
@@ -404,6 +424,7 @@ impl DashboardApp {
             tray: None,
             menu_restart,
             menu_stop,
+            menu_dashboard,
             icon_normal,
             icon_attention,
             attention: false,
@@ -447,6 +468,10 @@ impl DashboardApp {
             known_slave_ids: HashSet::new(),
             slaves_seen_once: false,
             logs_view: LogsViewState::default(),
+            dashboard_open: false,
+            dash_tab: dashboard::DashTab::default(),
+            error_ring: Vec::new(),
+            window_icon,
         })
     }
 
@@ -456,6 +481,10 @@ impl DashboardApp {
         }
         self.pending_tray = false;
         let menu = Menu::new();
+        if let Err(e) = menu.append(&self.menu_dashboard) {
+            warn!(error = %e, "tray menu append dashboard failed");
+            return;
+        }
         if let Err(e) = menu.append(&self.menu_restart) {
             warn!(error = %e, "tray menu append restart failed");
             return;
@@ -794,14 +823,18 @@ impl DashboardApp {
                 self.fleet_json = body;
                 self.apply_fleet_status();
             }
-            Err(e) => self.error = Some(e),
+            Err(e) => {
+                self.error = Some(e.clone());
+                push_error_ring(&mut self.error_ring, e);
+            }
         }
         match http_get_blocking(&format!("{}/admin/mcp-sessions", self.admin_base), None) {
             Ok(body) => self.sessions_json = body,
             Err(e) => {
                 if self.error.is_none() {
-                    self.error = Some(e);
+                    self.error = Some(e.clone());
                 }
+                push_error_ring(&mut self.error_ring, e);
             }
         }
 
@@ -891,6 +924,10 @@ impl DashboardApp {
                         "Bridge resurrected",
                         &format!("pid {pid} reconnected — check cancelled tasks"),
                     );
+                    push_error_ring(
+                        &mut self.error_ring,
+                        format!("bridge resurrected — pid {pid} reconnected"),
+                    );
                 }
             }
             for pid in &self.prev_snapshot.connected_pids {
@@ -899,6 +936,10 @@ impl DashboardApp {
                         "Bridge disconnected",
                         &format!("pid {pid} lost IPC — tasks cancelled"),
                     );
+                    push_error_ring(
+                        &mut self.error_ring,
+                        format!("bridge disconnected — pid {pid} lost IPC"),
+                    );
                 }
             }
             if snap.cancelled_total > self.prev_snapshot.cancelled_total {
@@ -906,6 +947,10 @@ impl DashboardApp {
                 notify(
                     "Tasks cancelled",
                     &format!("{delta} task(s) stacked on bridge loss"),
+                );
+                push_error_ring(
+                    &mut self.error_ring,
+                    format!("{delta} task(s) cancelled on bridge loss"),
                 );
             }
         }
@@ -991,6 +1036,8 @@ impl DashboardApp {
                 self.restart_daemon();
             } else if event.id == self.menu_stop.id() {
                 self.shutdown_daemon();
+            } else if event.id == self.menu_dashboard.id() {
+                self.dashboard_open = true;
             }
         }
     }
@@ -1124,6 +1171,14 @@ impl DashboardApp {
                 } else {
                     self.open_logs();
                 }
+            }
+            ui.add_space(4.0);
+            // Dashboard launcher (leftmost header action).
+            let dash_active = self.dashboard_open;
+            let dash_color = if dash_active { ACCENT } else { TEXT_DIM };
+            let dash = ghost_button(ui, "⤢", dash_color, ACCENT).on_hover_text("Open dashboard");
+            if dash.clicked() {
+                self.dashboard_open = true;
             }
         });
     }
@@ -2737,6 +2792,13 @@ impl eframe::App for DashboardApp {
             self.scan_busy = false;
             self.scan_rx = None;
         }
+        if self.dashboard_open {
+            let vb = dashboard::builder(&self.window_icon);
+            let id = dashboard::viewport_id();
+            ctx.show_viewport_immediate(id, vb, |ui, _class| {
+                dashboard::render(self, ui);
+            });
+        }
         ctx.request_repaint_after(Duration::from_millis(250));
     }
 
@@ -2775,6 +2837,7 @@ impl eframe::App for DashboardApp {
                                 ui.colored_label(ERR, err);
                             });
                         }
+                        error_strip(ui, &self.error_ring, self.fleet_panel != FleetPanel::None);
                         self.draw_share_banner(ui);
                         egui::ScrollArea::vertical()
                             .auto_shrink(false)
@@ -3100,6 +3163,48 @@ struct FleetProc {
     /// Owning hostname.
     #[serde(default)]
     hostname: Option<String>,
+}
+
+/// Push a message onto the newest-first error ring, deduping a repeated head.
+fn push_error_ring(ring: &mut Vec<String>, msg: String) {
+    if ring.first().is_some_and(|m| *m == msg) {
+        return;
+    }
+    ring.insert(0, msg);
+    ring.truncate(ERROR_RING_CAP);
+}
+
+/// Compact newest-first attention strip under the tray header (≤3 rows).
+fn error_strip(ui: &mut egui::Ui, ring: &[String], suppressed: bool) {
+    if suppressed || ring.is_empty() {
+        return;
+    }
+    section_header(ui, "ATTENTION");
+    let shown = ring.len().min(3);
+    for msg in ring.iter().take(shown) {
+        let full = ui.available_width().min(WINDOW_WIDTH);
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(full, 20.0), egui::Sense::hover());
+        let center = egui::pos2(rect.left() + 16.0, rect.center().y);
+        ui.painter().circle_filled(center, 3.0, ERR);
+        ui.painter().text(
+            egui::pos2(rect.left() + 28.0, rect.center().y),
+            egui::Align2::LEFT_CENTER,
+            clip_line(msg, 46),
+            font_mono(),
+            TEXT_DIM,
+        );
+    }
+    if ring.len() > shown {
+        let full = ui.available_width().min(WINDOW_WIDTH);
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(full, 16.0), egui::Sense::hover());
+        ui.painter().text(
+            egui::pos2(rect.left() + 28.0, rect.center().y),
+            egui::Align2::LEFT_CENTER,
+            format!("+{} more — open dashboard", ring.len() - shown),
+            font_meta(),
+            TEXT_FAINT,
+        );
+    }
 }
 
 fn http_get_blocking(url: &str, bearer: Option<&str>) -> Result<String, String> {
@@ -3485,6 +3590,20 @@ mod tests {
             assert_ne!(level_letter(level), "?", "missing mapping for {level}");
         }
         assert_eq!(level_letter("not-a-level"), "?");
+    }
+
+    #[test]
+    fn error_ring_dedupes_head_and_caps() {
+        let mut ring: Vec<String> = Vec::new();
+        push_error_ring(&mut ring, "a".to_owned());
+        push_error_ring(&mut ring, "a".to_owned());
+        assert_eq!(ring.len(), 1);
+        push_error_ring(&mut ring, "b".to_owned());
+        assert_eq!(ring.first().map(String::as_str), Some("b"));
+        for i in 0..(ERROR_RING_CAP + 10) {
+            push_error_ring(&mut ring, format!("m{i}"));
+        }
+        assert_eq!(ring.len(), ERROR_RING_CAP);
     }
 
     #[test]
