@@ -14,6 +14,7 @@
 //! cargo test -p tdmcp-daemon --test multi_client_freeze -- --nocapture --test-threads=1
 //! ```
 
+#![cfg(windows)] // named-pipe transport is Windows-only
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -719,4 +720,3 @@ async fn multi_client_storm_does_not_freeze() {
          ephemeral port range and freezes the MCP transport"
     );
 }
-

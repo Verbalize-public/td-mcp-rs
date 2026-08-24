@@ -114,8 +114,16 @@ pub fn render(app: &mut DashboardApp, ui: &mut egui::Ui) {
         .show(ui, |ui| match app.dash_tab {
             DashTab::Overview => overview(app, ui),
             DashTab::Fleet => fleet(app, ui),
-            DashTab::Logs => placeholder(ui, "Logs", "Log streaming lands in iteration 2.\nUse the tray popup's ≡ view meanwhile."),
-            DashTab::Settings => placeholder(ui, "Settings", "Full settings forms land in iteration 3.\nUse the tray popup's ⚙ view meanwhile."),
+            DashTab::Logs => placeholder(
+                ui,
+                "Logs",
+                "Log streaming lands in iteration 2.\nUse the tray popup's ≡ view meanwhile.",
+            ),
+            DashTab::Settings => placeholder(
+                ui,
+                "Settings",
+                "Full settings forms land in iteration 3.\nUse the tray popup's ⚙ view meanwhile.",
+            ),
         });
 }
 
@@ -140,7 +148,11 @@ fn sidebar(app: &mut DashboardApp, ui: &mut egui::Ui) {
             .as_ref()
             .map(|s| s.role.to_ascii_lowercase())
             .unwrap_or_else(|| "offline".to_owned());
-        ui.label(egui::RichText::new(role).font(font_meta()).color(TEXT_FAINT));
+        ui.label(
+            egui::RichText::new(role)
+                .font(font_meta())
+                .color(TEXT_FAINT),
+        );
     });
     ui.add_space(18.0);
 
@@ -224,8 +236,18 @@ fn overview(app: &mut DashboardApp, ui: &mut egui::Ui) {
     ui.add_space(4.0);
     ui.columns(4, |cols| {
         stat_card(&mut cols[0], &mcp_n.to_string(), "MCP CLIENTS", OK);
-        stat_card(&mut cols[1], &snap.connected.to_string(), "TD CONNECTED", OK);
-        stat_card(&mut cols[2], &attention.to_string(), "NEEDS ATTENTION", if attention > 0 { WARN } else { TEXT_DIM });
+        stat_card(
+            &mut cols[1],
+            &snap.connected.to_string(),
+            "TD CONNECTED",
+            OK,
+        );
+        stat_card(
+            &mut cols[2],
+            &attention.to_string(),
+            "NEEDS ATTENTION",
+            if attention > 0 { WARN } else { TEXT_DIM },
+        );
         stat_card(&mut cols[3], role.to_uppercase().as_str(), "ROLE", ACCENT);
     });
 
@@ -276,8 +298,7 @@ fn overview(app: &mut DashboardApp, ui: &mut egui::Ui) {
 fn stat_card(ui: &mut egui::Ui, value: &str, title: &str, value_color: Color32) {
     let size = egui::vec2(ui.available_width(), 68.0);
     let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
-    ui.painter()
-        .rect_filled(rect, 6.0, BG_PANEL);
+    ui.painter().rect_filled(rect, 6.0, BG_PANEL);
     ui.painter().rect_stroke(
         rect,
         6.0,
@@ -303,11 +324,8 @@ fn stat_card(ui: &mut egui::Ui, value: &str, title: &str, value_color: Color32) 
 fn error_row(ui: &mut egui::Ui, msg: &str) {
     let h = 22.0;
     let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), h), Sense::hover());
-    ui.painter().circle_filled(
-        egui::pos2(rect.left() + 5.0, rect.center().y),
-        3.0,
-        ERR,
-    );
+    ui.painter()
+        .circle_filled(egui::pos2(rect.left() + 5.0, rect.center().y), 3.0, ERR);
     ui.painter().text(
         egui::pos2(rect.left() + 16.0, rect.center().y),
         egui::Align2::LEFT_CENTER,
@@ -336,7 +354,11 @@ fn placeholder(ui: &mut egui::Ui, title: &str, note: &str) {
                     .color(TEXT_DIM),
             );
             ui.add_space(6.0);
-            ui.label(egui::RichText::new(note).font(font_label()).color(TEXT_FAINT));
+            ui.label(
+                egui::RichText::new(note)
+                    .font(font_label())
+                    .color(TEXT_FAINT),
+            );
         });
     });
 }

@@ -277,5 +277,3 @@ async fn unknown_tool_is_a_protocol_error() {
 
     ct.cancel();
 }
-
-

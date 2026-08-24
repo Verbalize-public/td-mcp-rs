@@ -379,7 +379,11 @@ impl StdioProxy {
             Ok(Err(e)) if is_transport_error(&e) => {
                 warn!(error = %e, "transport error — attempting heal");
                 let outcome = link.heal(gen).await;
-                Err(unreachable_error(outcome, link.config(), link.can_respawn()))
+                Err(unreachable_error(
+                    outcome,
+                    link.config(),
+                    link.can_respawn(),
+                ))
             }
             Ok(Err(e)) => {
                 warn!(error = %e, "call forward failed");

@@ -5,7 +5,7 @@
 **Bring AI coding assistants into your TouchDesigner workflow — live, local, and in the editor you already use.**
 
 ![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
-![Rust](https://img.shields.io/badge/Rust-1.88-000000?style=for-the-badge&logo=rust&logoColor=white)
+![Rust](https://img.shields.io/badge/Rust-1.92-000000?style=for-the-badge&logo=rust&logoColor=white)
 ![Version](https://img.shields.io/badge/version-0.1.1-blue?style=for-the-badge)
 ![MCP](https://img.shields.io/badge/MCP-Streamable_HTTP-7C3AED?style=for-the-badge)
 ![Platform](https://img.shields.io/badge/Windows%20%7C%20macOS-9cf?style=for-the-badge)
@@ -268,3 +268,4 @@ td-mcp-rs/
 ## 📄 License
 
 MIT — declared in [`Cargo.toml`](Cargo.toml).
+

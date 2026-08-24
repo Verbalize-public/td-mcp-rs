@@ -97,7 +97,9 @@ impl LogRing {
     fn lock(&self) -> std::sync::MutexGuard<'_, Inner> {
         // A panicking holder must not take logging down with it; recover the
         // (structurally consistent) data instead of poisoning forever.
-        self.inner.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 }
 
@@ -281,7 +283,11 @@ fn parse_external_fields(entry: &serde_json::Value) -> Option<ExternalFields> {
         .and_then(|v| v.as_str())
         .unwrap_or("bridge")
         .to_owned();
-    let mut msg = obj.get("msg").and_then(|v| v.as_str()).unwrap_or("").to_owned();
+    let mut msg = obj
+        .get("msg")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_owned();
     truncate_to_byte_cap(&mut msg, MAX_EXTERNAL_MSG_BYTES);
     let code = obj.get("code").and_then(|v| v.as_str()).map(str::to_owned);
     let mut kvs: std::collections::BTreeMap<String, String> = obj
@@ -370,7 +376,10 @@ mod tests {
         assert_eq!(ring.path_hint(), 3);
         // Oldest survivor is seq 8.
         let (all, cursor) = ring.snapshot_after(0, 512, None, &[]);
-        assert_eq!(all.iter().map(|r| r.seq).collect::<Vec<_>>(), vec![8, 9, 10]);
+        assert_eq!(
+            all.iter().map(|r| r.seq).collect::<Vec<_>>(),
+            vec![8, 9, 10]
+        );
         assert_eq!(cursor, 10);
     }
 
@@ -390,7 +399,11 @@ mod tests {
     #[test]
     fn snapshot_cursor_advances_even_when_empty() {
         let ring = LogRing::new(8);
-        assert_eq!(ring.snapshot_after(0, 8, None, &[]).1, 0, "nothing pushed yet");
+        assert_eq!(
+            ring.snapshot_after(0, 8, None, &[]).1,
+            0,
+            "nothing pushed yet"
+        );
         ring.push(rec("a"));
         let (_, first) = ring.snapshot_after(0, 8, None, &[]);
         assert_eq!(first, 1);
@@ -445,7 +458,11 @@ mod tests {
     #[test]
     fn age_predicate_matches_cutoff() {
         let now = SystemTime::now();
-        assert!(is_older_than(now - Duration::from_secs(31 * 24 * 3600), now, 30));
+        assert!(is_older_than(
+            now - Duration::from_secs(31 * 24 * 3600),
+            now,
+            30
+        ));
         assert!(!is_older_than(now - Duration::from_secs(3600), now, 30));
         // Future mtimes are never stale.
         assert!(!is_older_than(now + Duration::from_secs(3600), now, 30));
@@ -471,7 +488,10 @@ mod tests {
         let (recs, _) = sink.ring().snapshot_after(0, 8, None, &[]);
         assert_eq!(recs.len(), 1);
         let r = &recs[0];
-        assert_eq!(r.pid, 42, "pid must come from handshake identity, not payload");
+        assert_eq!(
+            r.pid, 42,
+            "pid must come from handshake identity, not payload"
+        );
         assert_eq!(r.src, Src::Bridge);
         assert_eq!(r.level, Level::Warn);
         assert_eq!(r.msg, "hi");
@@ -518,7 +538,10 @@ mod tests {
     fn ingest_proxy_logs_ignores_payload_without_lines() {
         let dir = tempfile::tempdir().expect("tempdir");
         let (sink, _guard) = test_sink(dir.path());
-        assert_eq!(ingest_proxy_logs(1, &serde_json::json!({"records": []}), &sink), 0);
+        assert_eq!(
+            ingest_proxy_logs(1, &serde_json::json!({"records": []}), &sink),
+            0
+        );
     }
 
     #[test]

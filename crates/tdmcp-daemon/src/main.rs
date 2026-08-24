@@ -324,7 +324,9 @@ fn main() -> Result<()> {
                     let result = ensure_daemon(opts.clone()).await?;
                     let daemon_url = format!("{}/mcp/rpc", result.base_url);
                     // Stdio MCP: do not print to stdout (JSON-RPC). Logs go via tracing/stderr.
-                    match tdmcp_mcp::run_stdio_proxy_with_respawn(&daemon_url, respawn.clone()).await {
+                    match tdmcp_mcp::run_stdio_proxy_with_respawn(&daemon_url, respawn.clone())
+                        .await
+                    {
                         Ok(()) => return Ok(()),
                         Err(e) if e.is_connect() && attempt < MAX_CONNECT_ATTEMPTS => {
                             warn!(
@@ -425,8 +427,8 @@ fn render_record(r: &tdmcp_daemon::Record) -> String {
 /// T1.8 CLI tail: read the newest `daemon.*.log` under `logging_dir` and
 /// print the last `n` records human-readably (JSONL is the machine format).
 fn print_log_tail(logging_dir: &Path, n: usize) -> Result<()> {
-    let entries =
-        std::fs::read_dir(logging_dir).with_context(|| format!("open {}", logging_dir.display()))?;
+    let entries = std::fs::read_dir(logging_dir)
+        .with_context(|| format!("open {}", logging_dir.display()))?;
     let mut newest: Option<PathBuf> = None;
     for entry in entries.flatten() {
         let path = entry.path();
@@ -446,9 +448,12 @@ fn print_log_tail(logging_dir: &Path, n: usize) -> Result<()> {
             logging_dir.display()
         );
     };
-    let text = std::fs::read_to_string(&path)
-        .with_context(|| format!("read {}", path.display()))?;
-    let records: Vec<_> = text.lines().filter_map(tdmcp_daemon::record_from_line).collect();
+    let text =
+        std::fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
+    let records: Vec<_> = text
+        .lines()
+        .filter_map(tdmcp_daemon::record_from_line)
+        .collect();
     if records.is_empty() {
         println!("( no readable records in {} )", path.display());
         return Ok(());
@@ -536,7 +541,9 @@ enum StartupFailure {
 impl std::fmt::Display for StartupFailure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            StartupFailure::AlreadyRunning(m) | StartupFailure::BindFailed(m) | StartupFailure::Other(m) => {
+            StartupFailure::AlreadyRunning(m)
+            | StartupFailure::BindFailed(m)
+            | StartupFailure::Other(m) => {
                 write!(f, "{m}")
             }
         }
@@ -604,7 +611,13 @@ fn start_daemon(cfg: Config, log_sink: tdmcp_daemon::LogSink) -> Result<()> {
                         }
                     };
                     // no_gui=false: restart must respawn with the tray again.
-                    let result = rt.block_on(run_daemon(daemon_cfg, false, shutdown_bg, quit_bg.clone(), log_sink_bg));
+                    let result = rt.block_on(run_daemon(
+                        daemon_cfg,
+                        false,
+                        shutdown_bg,
+                        quit_bg.clone(),
+                        log_sink_bg,
+                    ));
                     if let Err(e) = &result {
                         // The daemon never came up — nothing is backing the
                         // tray. Tell the user why and close the window
@@ -999,6 +1012,9 @@ mod cli_tests {
     #[test]
     fn explicit_start_still_parses() {
         let cli = Cli::try_parse_from(["tdmcp-daemon", "start", "--no-gui"]).expect("start parse");
-        assert!(matches!(cli.command, Some(Commands::Start { no_gui: true, .. })));
+        assert!(matches!(
+            cli.command,
+            Some(Commands::Start { no_gui: true, .. })
+        ));
     }
 }

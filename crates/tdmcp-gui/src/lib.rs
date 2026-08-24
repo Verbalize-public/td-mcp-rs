@@ -591,7 +591,15 @@ impl DashboardApp {
         }
         if !self.logs_view.srcs.is_empty() {
             url.push_str("&src=");
-            url.push_str(&self.logs_view.srcs.iter().copied().collect::<Vec<_>>().join(","));
+            url.push_str(
+                &self
+                    .logs_view
+                    .srcs
+                    .iter()
+                    .copied()
+                    .collect::<Vec<_>>()
+                    .join(","),
+            );
         }
         let bearer = local_master_psk(&self.draft);
         match http_get_blocking(&url, bearer.as_deref()) {
@@ -1365,27 +1373,38 @@ impl DashboardApp {
 
         ui.add_space(6.0);
         section_header(ui, "FEDERATION");
-        settings_row(ui, "Federation", Self::field_help("federation.role"), |ui| {
-            let current = self.draft.federation.role.clone();
-            if ui.selectable_label(current == "standalone", "Solo").clicked() && current != "standalone" {
-                self.draft.federation.role = "standalone".to_owned();
-                self.role_change_note = Some("role → standalone (restart to apply)".to_owned());
-            }
-            ui.add_enabled_ui(sharing, |ui| {
-                if ui.selectable_label(current == "master", "Master").clicked() && current != "master" {
-                    self.draft.federation.role = "master".to_owned();
-                    self.role_change_note = Some("role → master (restart to apply)".to_owned());
-                }
+        settings_row(
+            ui,
+            "Federation",
+            Self::field_help("federation.role"),
+            |ui| {
+                let current = self.draft.federation.role.clone();
                 if ui
-                    .selectable_label(current == "slave", "Join a master")
+                    .selectable_label(current == "standalone", "Solo")
                     .clicked()
-                    && current != "slave"
+                    && current != "standalone"
                 {
-                    self.draft.federation.role = "slave".to_owned();
-                    self.role_change_note = Some("role → slave (restart to apply)".to_owned());
+                    self.draft.federation.role = "standalone".to_owned();
+                    self.role_change_note = Some("role → standalone (restart to apply)".to_owned());
                 }
-            });
-        });
+                ui.add_enabled_ui(sharing, |ui| {
+                    if ui.selectable_label(current == "master", "Master").clicked()
+                        && current != "master"
+                    {
+                        self.draft.federation.role = "master".to_owned();
+                        self.role_change_note = Some("role → master (restart to apply)".to_owned());
+                    }
+                    if ui
+                        .selectable_label(current == "slave", "Join a master")
+                        .clicked()
+                        && current != "slave"
+                    {
+                        self.draft.federation.role = "slave".to_owned();
+                        self.role_change_note = Some("role → slave (restart to apply)".to_owned());
+                    }
+                });
+            },
+        );
         if !sharing {
             ui.horizontal(|ui| {
                 ui.add_space(12.0);
@@ -1713,8 +1732,7 @@ impl DashboardApp {
     fn draw_logs_toolbar(&mut self, ui: &mut egui::Ui) {
         section_header(ui, "LOGS");
         let full = ui.available_width();
-        let (rect, _) =
-            ui.allocate_exact_size(egui::vec2(full, 22.0), egui::Sense::hover());
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(full, 22.0), egui::Sense::hover());
         let mut child = ui.new_child(
             egui::UiBuilder::new()
                 .max_rect(rect.shrink2(egui::vec2(SIDE_MARGIN, 0.0)))
@@ -1759,7 +1777,11 @@ impl DashboardApp {
 
         let list_h = WINDOW_MAX_HEIGHT
             - 60.0
-            - if self.logs_view.expanded.is_some() { 90.0 } else { 0.0 };
+            - if self.logs_view.expanded.is_some() {
+                90.0
+            } else {
+                0.0
+            };
         egui::ScrollArea::vertical()
             .id_salt("logs_scroll")
             .auto_shrink(false)
@@ -1770,7 +1792,9 @@ impl DashboardApp {
                     ui.vertical_centered(|ui| {
                         ui.add_space(16.0);
                         ui.label(
-                            egui::RichText::new("( no logs )").font(font_meta()).color(TEXT_FAINT),
+                            egui::RichText::new("( no logs )")
+                                .font(font_meta())
+                                .color(TEXT_FAINT),
                         );
                     });
                     return;
@@ -1778,21 +1802,23 @@ impl DashboardApp {
                 let expanded = self.logs_view.expanded;
                 let mut clicked_seq = None;
                 for (i, r) in self.logs_view.buf.iter().enumerate() {
-                    let bg = if i.is_multiple_of(2) { BG_ROW } else { BG_ROW_ALT };
+                    let bg = if i.is_multiple_of(2) {
+                        BG_ROW
+                    } else {
+                        BG_ROW_ALT
+                    };
                     let dot = level_color(&r.level);
                     let time = r.ts.get(11..19).unwrap_or(&r.ts);
                     let letter = level_letter(&r.level);
-                    let line = format!(
-                        "{time} {letter} {} {}",
-                        r.target,
-                        r.msg.replace('\n', " ")
-                    );
+                    let line = format!("{time} {letter} {} {}", r.target, r.msg.replace('\n', " "));
                     let full = ui.available_width();
-                    let (rect, response) = ui.allocate_exact_size(
-                        egui::vec2(full, 16.0),
-                        egui::Sense::click(),
-                    );
-                    let row_bg = if Some(r.seq) == expanded { BG_HOVER } else { bg };
+                    let (rect, response) =
+                        ui.allocate_exact_size(egui::vec2(full, 16.0), egui::Sense::click());
+                    let row_bg = if Some(r.seq) == expanded {
+                        BG_HOVER
+                    } else {
+                        bg
+                    };
                     ui.painter().rect_filled(rect, 0.0, row_bg);
                     ui.painter().circle_filled(
                         egui::pos2(rect.left() + 8.0, rect.center().y),
@@ -1811,8 +1837,11 @@ impl DashboardApp {
                     }
                 }
                 if let Some(seq) = clicked_seq {
-                    self.logs_view.expanded =
-                        if self.logs_view.expanded == Some(seq) { None } else { Some(seq) };
+                    self.logs_view.expanded = if self.logs_view.expanded == Some(seq) {
+                        None
+                    } else {
+                        Some(seq)
+                    };
                 }
             });
 
@@ -1836,7 +1865,9 @@ impl DashboardApp {
                     ui.add_space(SIDE_MARGIN);
                     ui.add(
                         egui::Label::new(
-                            egui::RichText::new(detail.clone()).font(font_mono()).color(TEXT_DIM),
+                            egui::RichText::new(detail.clone())
+                                .font(font_mono())
+                                .color(TEXT_DIM),
                         )
                         .wrap(),
                     );
@@ -1861,7 +1892,11 @@ impl DashboardApp {
                 .max_rect(rect.shrink2(egui::vec2(SIDE_MARGIN, 0.0)))
                 .layout(egui::Layout::left_to_right(egui::Align::Center)),
         );
-        let pause_label = if self.logs_view.paused { "▶ Resume" } else { "⏸ Pause" };
+        let pause_label = if self.logs_view.paused {
+            "▶ Resume"
+        } else {
+            "⏸ Pause"
+        };
         if ghost_button(&mut child, pause_label, TEXT_DIM, ACCENT).clicked() {
             self.logs_view.paused = !self.logs_view.paused;
         }
@@ -1872,8 +1907,16 @@ impl DashboardApp {
                 .color(TEXT_DIM),
         );
         child.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let follow_label = if self.logs_view.follow { "● FOLLOW" } else { "○ FOLLOW" };
-            let color = if self.logs_view.follow { ACCENT } else { TEXT_DIM };
+            let follow_label = if self.logs_view.follow {
+                "● FOLLOW"
+            } else {
+                "○ FOLLOW"
+            };
+            let color = if self.logs_view.follow {
+                ACCENT
+            } else {
+                TEXT_DIM
+            };
             if ghost_button(ui, follow_label, color, ACCENT).clicked() {
                 self.logs_view.follow = !self.logs_view.follow;
             }

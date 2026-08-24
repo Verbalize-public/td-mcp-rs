@@ -585,5 +585,3 @@ async fn stdio_proxy_call_timeout_heals_and_returns_budget_error() {
     let _ = proxy_task.await;
     ct.cancel();
 }
-
-

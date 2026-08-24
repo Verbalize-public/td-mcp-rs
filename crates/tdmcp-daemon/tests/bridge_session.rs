@@ -1056,4 +1056,3 @@ async fn call_timeout_does_not_idle_dead_session() {
 
     let _ = driver.await;
 }
-

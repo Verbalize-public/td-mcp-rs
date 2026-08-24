@@ -8,6 +8,7 @@
 //! cargo test -p tdmcp-daemon --test federation_proxy -- --nocapture --test-threads=1
 //! ```
 
+#![cfg(windows)] // named-pipe transport is Windows-only
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -510,4 +511,3 @@ async fn slave_unreachable_after_kill() {
 
     let _ = master;
 }
-

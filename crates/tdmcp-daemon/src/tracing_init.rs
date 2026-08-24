@@ -114,7 +114,11 @@ struct SinkLayer {
 }
 
 impl<S: tracing::Subscriber> Layer<S> for SinkLayer {
-    fn enabled(&self, metadata: &Metadata<'_>, cx: tracing_subscriber::layer::Context<'_, S>) -> bool {
+    fn enabled(
+        &self,
+        metadata: &Metadata<'_>,
+        cx: tracing_subscriber::layer::Context<'_, S>,
+    ) -> bool {
         self.filter.enabled(metadata, cx)
     }
 
@@ -184,7 +188,10 @@ mod tests {
             pick_filter(None, Some("debug"), DEFAULT_FILE_FILTER),
             "debug"
         );
-        assert_eq!(pick_filter(None, None, DEFAULT_FILE_FILTER), DEFAULT_FILE_FILTER);
+        assert_eq!(
+            pick_filter(None, None, DEFAULT_FILE_FILTER),
+            DEFAULT_FILE_FILTER
+        );
         // Invalid config value falls through to env, then default. EnvFilter's
         // directive grammar accepts almost any bare string as a target name,
         // so use a `target=level` form with a garbage level to force a

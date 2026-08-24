@@ -849,5 +849,3 @@ async fn transport_not_connected_clears_queue_for_exclusive() {
         let _ = reg.cancel_queue_keep_connected(34);
     }
 }
-
-

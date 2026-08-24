@@ -258,9 +258,21 @@ async fn admin_logs_limit_is_clamped_server_side() {
 #[tokio::test]
 async fn admin_logs_filters_by_level_and_src() {
     let (sink, ring) = test_log_sink();
-    ring.push(rec("info-daemon", tdmcp_daemon::Level::Info, tdmcp_daemon::Src::Daemon));
-    ring.push(rec("warn-bridge", tdmcp_daemon::Level::Warn, tdmcp_daemon::Src::Bridge));
-    ring.push(rec("error-mcp", tdmcp_daemon::Level::Error, tdmcp_daemon::Src::Mcp));
+    ring.push(rec(
+        "info-daemon",
+        tdmcp_daemon::Level::Info,
+        tdmcp_daemon::Src::Daemon,
+    ));
+    ring.push(rec(
+        "warn-bridge",
+        tdmcp_daemon::Level::Warn,
+        tdmcp_daemon::Src::Bridge,
+    ));
+    ring.push(rec(
+        "error-mcp",
+        tdmcp_daemon::Level::Error,
+        tdmcp_daemon::Src::Mcp,
+    ));
     let app = admin_router_with_logs(test_state(), sink);
 
     let (_, warn_up) = get_json(&app, "/admin/logs?level=warn").await;
@@ -295,7 +307,10 @@ async fn admin_logs_path_returns_configured_dir() {
     let app = admin_router_with_logs(test_state(), sink);
     let (status, body) = get_json(&app, "/admin/logs/path").await;
     assert_eq!(status, 200);
-    assert!(body["dir"].as_str().expect("dir").contains("tdmcp-test-logs"));
+    assert!(body["dir"]
+        .as_str()
+        .expect("dir")
+        .contains("tdmcp-test-logs"));
 }
 
 async fn post_json(app: &axum::Router, uri: &str, body: Value) -> (axum::http::StatusCode, Value) {
@@ -344,9 +359,15 @@ async fn admin_logs_ingest_stamps_proxy_src_and_pid_zero() {
 
     let (recs, _) = ring.snapshot_after(0, 8, None, &[]);
     assert_eq!(recs.len(), 1);
-    assert_eq!(recs[0].pid, 0, "record pid must never be the proxy's own claim");
+    assert_eq!(
+        recs[0].pid, 0,
+        "record pid must never be the proxy's own claim"
+    );
     assert_eq!(recs[0].src, tdmcp_daemon::Src::Proxy);
-    assert_eq!(recs[0].kvs.get("proxyPid").map(String::as_str), Some("4242"));
+    assert_eq!(
+        recs[0].kvs.get("proxyPid").map(String::as_str),
+        Some("4242")
+    );
     assert_eq!(recs[0].msg, "heal failed");
 }
 
@@ -360,4 +381,3 @@ async fn admin_logs_ingest_ignores_payload_without_lines() {
     assert_eq!(body["ingested"], 0);
     assert!(ring.snapshot_after(0, 8, None, &[]).0.is_empty());
 }
-

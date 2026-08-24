@@ -494,4 +494,3 @@ async fn zero_args_defaults_to_start() {
     let _ = child.kill();
     let _ = child.wait();
 }
-

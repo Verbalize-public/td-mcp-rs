@@ -802,10 +802,7 @@ port = 9860
         cfg.logging.retention_days = 5;
         save(&path, &cfg).expect("save");
         let again = load(&path).expect("reload");
-        assert_eq!(
-            again.logging.dir,
-            Some(dir.path().join("custom-logs"))
-        );
+        assert_eq!(again.logging.dir, Some(dir.path().join("custom-logs")));
         assert_eq!(again.logging.filter.as_deref(), Some("debug,hyper=warn"));
         assert_eq!(again.logging.console_level.as_deref(), Some("warn"));
         assert_eq!(again.logging.max_files, 7);

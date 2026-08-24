@@ -72,4 +72,3 @@ fn rust_limits_match_shared_fixture() {
     );
     assert_eq!(BridgeTimeouts::production(), BridgeTimeouts::from(&section));
 }
-

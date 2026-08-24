@@ -16,10 +16,10 @@
 
 mod raw {
     pub use windows_sys::Win32::Foundation::LocalFree;
-    pub use windows_sys::Win32::Security::SECURITY_ATTRIBUTES;
     pub use windows_sys::Win32::Security::Authorization::{
         ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
     };
+    pub use windows_sys::Win32::Security::SECURITY_ATTRIBUTES;
 }
 
 use std::ffi::OsStr;
@@ -33,10 +33,7 @@ const PIPE_SDDL: &str = "D:(A;;GRGW;;;AU)";
 
 /// Create one named-pipe server instance like [`ServerOptions::create`], but
 /// with the permissive descriptor from [`PIPE_SDDL`].
-pub(crate) fn create_server(
-    name: &str,
-    first_pipe_instance: bool,
-) -> io::Result<NamedPipeServer> {
+pub(crate) fn create_server(name: &str, first_pipe_instance: bool) -> io::Result<NamedPipeServer> {
     let sddl_w = wide(PIPE_SDDL);
     let mut sd: *mut core::ffi::c_void = std::ptr::null_mut();
     let mut sd_len = 0u32;

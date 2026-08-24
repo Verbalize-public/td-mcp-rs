@@ -233,7 +233,10 @@ pub struct DaemonLink {
 impl DaemonLink {
     /// Connect once, start the keep-warm watcher, return the link.
     /// Reconnect-only — no respawn escalation on sustained downtime.
-    #[allow(dead_code, reason = "kept as the reconnect-only entry point for callers/tests without a respawn hook")]
+    #[allow(
+        dead_code,
+        reason = "kept as the reconnect-only entry point for callers/tests without a respawn hook"
+    )]
     pub async fn connect(
         daemon_url: &str,
         admin_base: String,

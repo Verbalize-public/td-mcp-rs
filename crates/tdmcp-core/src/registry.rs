@@ -89,12 +89,7 @@ impl PidRegistry {
     /// Handshake from a connecting TD. Handles resurrection vs pid-reuse.
     ///
     /// Any successful handshake also evicts other disconnected fleet ghosts.
-    pub fn handshake(
-        &mut self,
-        pid: u32,
-        process: ProcessAttrs,
-        protocol_version: Option<String>,
-    ) {
+    pub fn handshake(&mut self, pid: u32, process: ProcessAttrs, protocol_version: Option<String>) {
         match self.entries.get_mut(&pid) {
             Some(entry) => {
                 let same = entry.process.fingerprint.matches(&process.fingerprint);
@@ -381,5 +376,3 @@ mod tests {
         assert!(r.get(10).is_none());
     }
 }
-
-

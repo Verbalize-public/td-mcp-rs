@@ -33,5 +33,5 @@ pub use install::{
     copy_daemon_binary, default_data_dir, ensure_installed, render_skills_to, skills_dir,
     verify_installed_version, InstallOutcome,
 };
-pub use logrecord::{to_line as record_to_line, from_line as record_from_line, Level, Record, Src};
+pub use logrecord::{from_line as record_from_line, to_line as record_to_line, Level, Record, Src};
 pub use logring::{LogRing, LogSink};

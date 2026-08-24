@@ -24,6 +24,7 @@ mod tools;
 
 pub use bridge_rpc::{BridgeRpc, BridgeRpcError};
 pub use daemon_link::ReconnectConfig;
+pub use daemon_link::RespawnFn;
 pub use editor_context::EditorContextParams;
 pub use fleet::{fleet_summary, FleetInclude, FleetParams, FleetProcess, FleetResponse};
 pub use resources::{
@@ -35,7 +36,6 @@ pub use server::{build_mcp_router, AppState, FederationCtx};
 pub use session_registry::{
     BridgeCallSlot, McpSessionInfo, McpSessionRegistry, DAEMON_SCOPE_LOCAL,
 };
-pub use daemon_link::RespawnFn;
 pub use stdio_proxy::{
     run as run_stdio_proxy, run_with_respawn as run_stdio_proxy_with_respawn,
     run_with_rw as run_stdio_proxy_rw, run_with_rw_config as run_stdio_proxy_rw_config,

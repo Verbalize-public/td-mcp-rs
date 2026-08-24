@@ -55,8 +55,11 @@ impl IdleHarness {
         // the keep_alive gate in main.rs is checked first and would otherwise
         // disable idle-exit entirely.
         let text = std::fs::read_to_string(&config_path).expect("read seeded config");
-        std::fs::write(&config_path, text.replace("keep_alive = true", "keep_alive = false"))
-            .expect("force keep_alive = false");
+        std::fs::write(
+            &config_path,
+            text.replace("keep_alive = true", "keep_alive = false"),
+        )
+        .expect("force keep_alive = false");
         let child = Command::new(daemon_bin())
             .args([
                 "start",
@@ -159,4 +162,3 @@ async fn empty_daemon_exits_after_idle_timeout() {
     // Clean exit — don't force-kill in Drop.
     let _ = harness.child.take();
 }
-

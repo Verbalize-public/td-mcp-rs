@@ -247,7 +247,11 @@ mod tests {
         );
     }
 
-    fn scan_dir_for_code_literals(dir: &std::path::Path, cat: &Catalog, offenders: &mut Vec<String>) {
+    fn scan_dir_for_code_literals(
+        dir: &std::path::Path,
+        cat: &Catalog,
+        offenders: &mut Vec<String>,
+    ) {
         let Ok(entries) = std::fs::read_dir(dir) else {
             return;
         };

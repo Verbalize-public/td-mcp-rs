@@ -320,7 +320,10 @@ fn parse_src(s: &str) -> Option<Src> {
 /// newest cursor first via `next` (spec T4.1). `src` is a comma-separated
 /// list (`src=bridge,daemon`); omitted/empty means no source filter.
 async fn admin_logs(State(state): State<AdminState>, Query(q): Query<LogsQuery>) -> Response {
-    let limit = q.limit.unwrap_or(LOGS_DEFAULT_LIMIT).clamp(1, LOGS_MAX_LIMIT);
+    let limit = q
+        .limit
+        .unwrap_or(LOGS_DEFAULT_LIMIT)
+        .clamp(1, LOGS_MAX_LIMIT);
     let min_level = match q.level.as_deref() {
         None => None,
         Some(s) => match parse_level(s) {
@@ -341,7 +344,10 @@ async fn admin_logs(State(state): State<AdminState>, Query(q): Query<LogsQuery>)
             out
         }
     };
-    let (records, next) = state.logs.ring().snapshot_after(q.after, limit, min_level, &srcs);
+    let (records, next) = state
+        .logs
+        .ring()
+        .snapshot_after(q.after, limit, min_level, &srcs);
     Json(json!({ "records": records, "next": next })).into_response()
 }
 
