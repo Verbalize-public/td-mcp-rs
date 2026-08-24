@@ -509,13 +509,9 @@ fn logs(app: &mut DashboardApp, ui: &mut egui::Ui) {
                 app.logs_view.paused = !paused;
             }
             let follow_on = app.logs_view.follow;
-            let follow_label = if follow_on {
-                "● FOLLOW"
-            } else {
-                "○ FOLLOW"
-            };
+            // U+25CF is covered by no bundled font — color carries the state.
             let follow_color = if follow_on { ACCENT } else { TEXT_DIM };
-            if ghost_button(ui, follow_label, follow_color, ACCENT).clicked() {
+            if ghost_button(ui, "FOLLOW", follow_color, ACCENT).clicked() {
                 app.logs_view.follow = !follow_on;
             }
         });
@@ -1030,14 +1026,14 @@ fn federation_card(app: &mut DashboardApp, ui: &mut egui::Ui) {
                 && current != "standalone"
             {
                 app.draft.federation.role = "standalone".to_owned();
-                app.role_change_note = Some("role → standalone (restart to apply)".to_owned());
+                app.role_change_note = Some("role: standalone (restart to apply)".to_owned());
             }
             ui.add_enabled_ui(sharing, |ui| {
                 if ui.selectable_label(current == "master", "Master").clicked()
                     && current != "master"
                 {
                     app.draft.federation.role = "master".to_owned();
-                    app.role_change_note = Some("role → master (restart to apply)".to_owned());
+                    app.role_change_note = Some("role: master (restart to apply)".to_owned());
                 }
                 if ui
                     .selectable_label(current == "slave", "Join a master")
@@ -1045,7 +1041,7 @@ fn federation_card(app: &mut DashboardApp, ui: &mut egui::Ui) {
                     && current != "slave"
                 {
                     app.draft.federation.role = "slave".to_owned();
-                    app.role_change_note = Some("role → slave (restart to apply)".to_owned());
+                    app.role_change_note = Some("role: slave (restart to apply)".to_owned());
                 }
             });
         },
@@ -1153,7 +1149,7 @@ fn federation_card(app: &mut DashboardApp, ui: &mut egui::Ui) {
         );
         ui.label(
             egui::RichText::new(
-                "Only needed if the master requires a PSK — get it from the master's Settings → Federation copy button.",
+                "Only needed if the master requires a PSK — copy it from the master's Settings, Federation card.",
             )
             .font(font_meta())
             .color(TEXT_DIM),

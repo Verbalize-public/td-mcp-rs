@@ -230,6 +230,18 @@ per-OS `reveal_in_file_manager` (explorer/open/xdg-open),
    `CARD_PAD`) and shared helpers (`card()`, `row_between()`,
    `chip()`); dashboard stat cards, logs toolbar, errors card, modals
    and master-actions row moved onto them; `section_header` deleted.
+6. ✅ Pass 6 glyph hygiene + tray: the launcher glyph `⤢` (U+2922) and
+   arrows `→`/`←`, bullet `●` have **no glyph** in egui's bundled
+   proportional fonts (Ubuntu-Light → NotoEmoji → emoji-icon-font; Hack
+   only covers some, and only in Monospace) — they rendered as tofu
+   squares. Launcher is now `⛶` U+26F6 (covered), arrow/bullet strings
+   reworded or color-coded, and `theme::apply()` appends bundled "Hack"
+   to the Proportional fallback so `← Back` renders. Tray builder sets
+   `.with_menu_on_right_click(true)` explicitly (right-click context
+   menu opens with 'Open dashboard' as its first item). Verification
+   gotcha: at >100% display scale a non-DPI-aware PrintWindow captures
+   only the top-left logical crop of the physical window — size the
+   bitmap from a DPI-aware GetWindowRect before trusting "missing UI".
 
 ## 8. Remaining open items
 

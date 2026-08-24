@@ -101,6 +101,17 @@ pub fn apply(ctx: &egui::Context) {
     style.interaction.selectable_labels = false;
     ctx.set_theme(egui::Theme::Dark);
     ctx.set_style_of(egui::Theme::Dark, style);
+
+    // Hack ships in the default font_data but is only wired to Monospace;
+    // appending it to Proportional gives arrows (← → ↑) a real glyph instead
+    // of a tofu box, since Ubuntu/NotoEmoji/emoji-icon cover none of them.
+    let mut fonts = egui::FontDefinitions::default();
+    fonts
+        .families
+        .entry(egui::FontFamily::Proportional)
+        .or_default()
+        .push("Hack".to_owned());
+    ctx.set_fonts(fonts);
 }
 
 fn dark_visuals() -> Visuals {

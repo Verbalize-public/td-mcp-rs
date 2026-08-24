@@ -508,6 +508,9 @@ impl DashboardApp {
         match TrayIconBuilder::new()
             .with_menu(Box::new(menu))
             .with_menu_on_left_click(false)
+            // Right-click must always pop the context menu ('Open dashboard'
+            // is its first item); don't rely on the crate default.
+            .with_menu_on_right_click(true)
             .with_tooltip("td-mcp-rs")
             .with_icon(icon)
             // Do not set template mode: our PNGs are full-color opaque RGB.
@@ -1102,13 +1105,16 @@ impl DashboardApp {
             egui::Stroke::new(1.0, BORDER),
         );
 
-        let mut child = ui.new_child(
+        // Overlapping LTR/RTL children over one rect (see theme::row_between):
+        // a sequential with_layout here clipped the actions out of the render.
+        let inset = rect.shrink2(egui::vec2(SIDE_MARGIN, 0.0));
+        let mut left_ui = ui.new_child(
             egui::UiBuilder::new()
-                .max_rect(rect.shrink2(egui::vec2(SIDE_MARGIN, 0.0)))
+                .max_rect(inset)
                 .layout(egui::Layout::left_to_right(egui::Align::Center)),
         );
-        status_led(&mut child, ACCENT);
-        child.add_space(theme::sp::XS);
+        status_led(&mut left_ui, ACCENT);
+        left_ui.add_space(theme::sp::XS);
 
         let title = match self.status.as_ref().map(|s| s.role.as_str()) {
             Some("master") => "td-mcp-rs · master",
@@ -1131,8 +1137,8 @@ impl DashboardApp {
             };
             format!("pid {}{bind}", st.pid)
         });
-        let id_w = (child.available_width() - HEADER_ACTIONS_W).max(64.0);
-        child.allocate_ui_with_layout(
+        let id_w = (left_ui.available_width() - HEADER_ACTIONS_W).max(64.0);
+        left_ui.allocate_ui_with_layout(
             egui::vec2(id_w, HEADER_H),
             egui::Layout::left_to_right(egui::Align::Center),
             |ui| {
@@ -1153,21 +1159,28 @@ impl DashboardApp {
         );
 
         // Right-anchored ghost actions: dashboard launcher · gear (RTL).
-        child.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let gear = ghost_button(ui, "⚙", TEXT_DIM, ACCENT).on_hover_text("Settings");
-            if gear.clicked() {
-                self.open_settings();
-                self.dash_tab = dashboard::DashTab::Settings;
-                self.dashboard_open = true;
-            }
-            ui.add_space(theme::sp::XS);
-            let dash_active = self.dashboard_open;
-            let dash_color = if dash_active { ACCENT } else { TEXT_DIM };
-            let dash = ghost_button(ui, "⤢", dash_color, ACCENT).on_hover_text("Open dashboard");
-            if dash.clicked() {
-                self.dashboard_open = true;
-            }
-        });
+        // First widget added lands at the RIGHT edge.
+        let mut right_ui = ui.new_child(
+            egui::UiBuilder::new()
+                .max_rect(inset)
+                .layout(egui::Layout::right_to_left(egui::Align::Center)),
+        );
+        let gear = ghost_button(&mut right_ui, "⚙", TEXT_DIM, ACCENT).on_hover_text("Settings");
+        if gear.clicked() {
+            self.open_settings();
+            self.dash_tab = dashboard::DashTab::Settings;
+            self.dashboard_open = true;
+        }
+        right_ui.add_space(theme::sp::XS);
+        let dash_active = self.dashboard_open;
+        let dash_color = if dash_active { ACCENT } else { TEXT_DIM };
+        // U+26F6 FOUR CORNERS — the only expand-ish glyph covered by the
+        // bundled proportional fonts (U+2922 is in none of them → tofu box).
+        let dash =
+            ghost_button(&mut right_ui, "⛶", dash_color, ACCENT).on_hover_text("Open dashboard");
+        if dash.clicked() {
+            self.dashboard_open = true;
+        }
     }
 
     fn field_help(key: &str) -> &'static str {
@@ -1179,7 +1192,7 @@ impl DashboardApp {
     }
 
     /// Glance-card body: attention, TouchDesigner instances, MCP clients,
-    /// share hint — each compact, with depth one ⤢ away in the dashboard.
+    /// share hint — each compact, with depth one click away in the dashboard.
     fn draw_summary(&mut self, ui: &mut egui::Ui) {
         let procs = serde_json::from_str::<FleetView>(&self.fleet_json)
             .map(|f| f.processes)
@@ -1295,7 +1308,7 @@ impl DashboardApp {
         if self.share_applicable() {
             ui.horizontal(|ui| {
                 ui.add_space(SIDE_MARGIN);
-                if ghost_button(ui, "Share this daemon →", TEXT_DIM, ACCENT).clicked() {
+                if ghost_button(ui, "Share this daemon", TEXT_DIM, ACCENT).clicked() {
                     self.open_settings();
                     self.dash_tab = dashboard::DashTab::Settings;
                     self.dashboard_open = true;
@@ -1488,7 +1501,8 @@ impl DashboardApp {
             } else {
                 format!("SLAVE · {hostname} · {tail} · {reach}{count}")
             };
-            let header = egui::RichText::new(format!("● {label}"))
+            // No ● prefix: U+25CF has no glyph in the bundled fonts.
+            let header = egui::RichText::new(label)
                 .font(font_label())
                 .color(if is_local { TEXT } else { led });
             egui::CollapsingHeader::new(header)
