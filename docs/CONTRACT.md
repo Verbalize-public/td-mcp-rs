@@ -65,6 +65,8 @@ Crate layout: `[ARCHITECTURE.md](../ARCHITECTURE.md)`. Engineering law: `[CONSTI
 | Operator → daemon | In-process tray + admin HTTP + OS toasts (`gui` feature, default on) | Human monitor                    | **Shipped** |
 | IDE → daemon      | Streamable HTTP remote (`bind_address` + optional Bearer PSK)        | LAN / non-loopback MCP           | **P3**      |
 | Master → slave    | Streamable HTTP tool proxy (`daemonId`) + `/admin/federation/*`      | Single-level federation          | **P3**      |
+| Bridge/proxy → daemon | Bridge `log` events (IPC) + `POST /admin/logs/ingest` (proxy)   | Log uplink into the central JSONL sink | **Shipped** |
+| Operator → daemon | `GET /admin/logs*` + tray `View::Logs`                               | Central log tail, filter, follow | **Shipped** (TD-side textport mirror: **Planned**, needs live-TD verification) |
 
 
 **Singleton:** one owner per listen port. Exclusivity = `daemon.lock` (pid) + TCP bind on `{bind_address}:{port}` (default `127.0.0.1`). Stale locks (dead pid) are reclaimed on `start` / `ensure`. A second `start` while healthy refuses with a clear error. `/admin/restart` clears the lock then spawn-then-exit; the replacement retries bind briefly. No distributed leader election — single-host by default; P3 federation is single-level master→slave, not multi-master.

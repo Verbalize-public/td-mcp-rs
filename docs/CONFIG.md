@@ -138,6 +138,30 @@ A call timeout fails the **wait** (`tdmcp.bridge.timeout`); it does not tear dow
 the bridge. Stale late responses are discarded on the next call so they cannot
 masquerade as `tdmcp.bridge.lost`.
 
+### `[logging]`
+
+Central JSONL sink (`docs/OBSERVABILITY_PLAN.md` M1). `dir`/`filter` are
+optional overrides — omit to use the defaults below. `filter` precedence for
+the file layer is `[logging].filter` > `RUST_LOG` > built-in default
+(`info,tdmcp_daemon=debug`); `console_level` follows the same precedence for
+the stderr layer, falling back to the historical per-target defaults when
+unset. An invalid explicit filter falls through to the next source rather
+than failing startup.
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `dir` | *(unset)* | Log directory override; unset = `{data_dir}/logs` |
+| `filter` | *(unset)* | `EnvFilter` string for the file layer |
+| `max_files` | `14` | Daily rotated files kept on disk |
+| `retention_days` | `30` | Sweep threshold (startup + every 24h) |
+| `console_level` | *(unset)* | Separate `EnvFilter` for the stderr layer |
+
+`tdmcp-daemon logs [N]` prints the tail of the newest `daemon.*.log` in the
+resolved directory, human-formatted (`HH:MM:SS.SSS LEVEL SRC TARGET msg
+{kvs}`) — the JSONL files themselves are the machine-readable format.
+There is deliberately no `TDMCP_LOG` env var — `RUST_LOG` plus `[logging]`
+cover the need.
+
 ### `[advanced]`
 
 Optional path overrides. Omit (or leave blank in the GUI) to use defaults under

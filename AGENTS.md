@@ -50,6 +50,7 @@ When changing binary code:
 | Local quality gate | `scripts/check.ps1` / `scripts/check.sh` |
 | Config file | [`docs/CONFIG.md`](docs/CONFIG.md) |
 | Packaging | [`docs/DELIVERY.md`](docs/DELIVERY.md) |
+| Logging / central sink / observability | [`docs/OBSERVABILITY.md`](docs/OBSERVABILITY.md) (spec) + [`docs/OBSERVABILITY_PLAN.md`](docs/OBSERVABILITY_PLAN.md) (execution plan) |
 
 ### Build / check
 

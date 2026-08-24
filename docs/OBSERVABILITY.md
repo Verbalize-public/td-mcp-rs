@@ -1,7 +1,10 @@
 # Observability & Logging — Spec
 
-Status: **Planned** (spec v2 — challenged & revised; implementation plan:
-[`OBSERVABILITY_PLAN.md`](OBSERVABILITY_PLAN.md)). Owner: daemon/GUI.
+Status: **M1/M2/M4/M5/M6 shipped; M3 planned** (spec v2 — challenged & revised;
+implementation plan: [`OBSERVABILITY_PLAN.md`](OBSERVABILITY_PLAN.md)). M3 (TD
+textport mirror / face LOGS upgrade) needs its own T3.1 live-verify gate
+against a real TD instance before implementation starts — not yet run.
+Owner: daemon/GUI.
 Cross-refs: [`CONTRACT.md`](CONTRACT.md) (diagnostics catalog, `execute_python`
 logs), [`CONFIG.md`](CONFIG.md) (config surface — gains `[logging]`),
 [`E2E_CHECKLIST.md`](E2E_CHECKLIST.md).

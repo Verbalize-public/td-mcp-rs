@@ -150,6 +150,27 @@ Zone
 `null1` remapped to `null2`. Occupant inputs stayed empty; `capture` top
 on `null2` non-black. HTTP `/mcp/tools/call`.
 
+### Observability (`docs/OBSERVABILITY_PLAN.md`)
+
+M1 (central sink), M2 (bridge uplink), M4 (admin API + tray Logs view), and
+M5 (proxy ingest) are implemented and covered by non-live tests (Rust
+workspace + `bridge/tests/`). M3 (TD-side textport mirror / face LOGS
+upgrade) is **not implemented** — its own T3.1 live-verify gate (probes V1–V5
+against a real TD instance) never ran, so it was skipped rather than built
+against unverified assumptions about TD's `sys.stdout` semantics. The rows
+below are the M2/M4 acceptance criteria that need a live TD + a real Cursor
+(or manual stdio) session to confirm; none have been run yet.
+
+| # | Step | Pass? |
+| --- | --- | --- |
+| O1 | Bridge `print(...)` from a live TD session, with the tray Logs view open, appears centrally within ~1s of the batch flush (`_BATCH_INTERVAL_S=0.5`) with `src:"bridge"` and the correct pid | |
+| O2 | A slow `execute_python` call with many bridge prints during the wait still returns its normal result — no timeout/disconnect caused by the log-event interleaving (mirrors the mocked regression in `bridge_session.rs`, live this time) | |
+| O3 | Tray Logs view: level chips (ALL/ERR/WRN) and source chips (DAEMON/BRIDGE/PROXY) filter the live list; changing a filter shows the tail under the new filter with no dropped/duplicated rows | |
+| O4 | Tray Logs view: reconnect a TD bridge mid-session (kill tox, re-handshake) — the log list keeps scrolling through the gap, cursor resume after the GUI window is hidden/reshown loses no lines | |
+| O5 | `tdmcp-daemon mcp` (stdio proxy) tool call, with the daemon up, produces at least one `src:"proxy"` line centrally (`kvs.proxyPid` matches the proxy process) | |
+| O6 | Stop the daemon mid-session, then make an MCP tool call through the proxy — the call still succeeds (reconnect/respawn heals it); the proxy's own uplink POSTs fail silently in the meantime (one rate-limited stderr note, not a wall of retries) | |
+| O7 | *(M3, once implemented)* `print` from an unrelated node/DAT appears in face LOGS within ~1s; a broken node's traceback shows as `error` in both face LOGS and the central sink | |
+
 ## Bugs found and fixed during this run
 
 Live TD is the only environment that exercises the real named-pipe transport,

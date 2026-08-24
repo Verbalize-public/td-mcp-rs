@@ -50,6 +50,7 @@ Your TouchDesigner project (via the tdmcp_rs .tox you drop in)
 | **Teaches itself TouchDesigner** | A built-in skill pack (primers + references) is served to the assistant automatically |
 | **Everything in one place** | One binary carries the bridge, catalog, bootstrap `.tox`, and skills — no extra installs |
 | **Windows & macOS** | System-tray dashboard by default, headless if you prefer |
+| **One place to see what's happening** | TD prints, bridge/proxy activity, and daemon internals all land in one rotating JSONL log — tail it with `tdmcp-daemon logs`, or watch it live in the tray's Logs view |
 
 ---
 

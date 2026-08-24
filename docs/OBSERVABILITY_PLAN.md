@@ -27,14 +27,14 @@ M1 Sink ──► M2 Uplink ──┬─► M3 TD Mirror ──┐
 
 M3/M4/M5 are independent once M2 lands. M6 last (audit over final code).
 
-| Milestone | Size | Owns |
-| --- | --- | --- |
-| M1 Sink | L | File sink, ring, retention, subscriber rewrite, CLI tail |
-| M2 Uplink | M | Python logtap, IPC event arm, daemon ingest |
-| M3 TD Mirror | M | Textport tee wiring into TD, face LOGS upgrade, `td.errors` |
-| M4 GUI+API | M | `/admin/logs*`, tray Logs view UX |
-| M5 Proxy Ingest | S | stdio proxy forwarding |
-| M6 Hygiene | M | Message audit, silent-crate baselines, docs |
+| Milestone | Size | Owns | Status |
+| --- | --- | --- | --- |
+| M1 Sink | L | File sink, ring, retention, subscriber rewrite, CLI tail | **Shipped** |
+| M2 Uplink | M | Python logtap, IPC event arm, daemon ingest | **Shipped** |
+| M3 TD Mirror | M | Textport tee wiring into TD, face LOGS upgrade, `td.errors` | **Planned** — T3.1 live-verify gate not yet run |
+| M4 GUI+API | M | `/admin/logs*`, tray Logs view UX | **Shipped** — GUI not pixel-verified (no live TD/GUI env available at implementation time) |
+| M5 Proxy Ingest | S | stdio proxy forwarding | **Shipped** |
+| M6 Hygiene | M | Message audit, silent-crate baselines, docs | **Shipped** |
 
 ---
 
