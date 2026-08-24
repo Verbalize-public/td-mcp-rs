@@ -13,6 +13,8 @@ pub mod federation;
 pub mod http_util;
 pub mod idle;
 pub mod install;
+pub mod logrecord;
+pub mod logring;
 pub mod middleware;
 pub mod tracing_init;
 
@@ -23,11 +25,13 @@ pub use bridge::{
     SCRIPT_TIMEOUT,
 };
 pub use ensure::{
-    configure_detached_spawn, configure_detached_spawn_with_log, daemon_lock_path, ensure_daemon,
-    health_ok, pid_alive, read_daemon_lock_pid, reclaim_stale_daemon_lock, refuse_if_daemon_owned,
-    request_shutdown, running_version, wait_until_unhealthy, EnsureOptions, EnsureResult,
+    configure_detached_spawn, daemon_lock_path, ensure_daemon, health_ok, pid_alive,
+    read_daemon_lock_pid, reclaim_stale_daemon_lock, refuse_if_daemon_owned, request_shutdown,
+    running_version, wait_until_unhealthy, EnsureOptions, EnsureResult,
 };
 pub use install::{
     copy_daemon_binary, default_data_dir, ensure_installed, render_skills_to, skills_dir,
     verify_installed_version, InstallOutcome,
 };
+pub use logrecord::{to_line as record_to_line, from_line as record_from_line, Level, Record, Src};
+pub use logring::LogRing;

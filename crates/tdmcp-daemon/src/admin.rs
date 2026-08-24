@@ -17,7 +17,7 @@ use tracing::{info, warn};
 
 use tdmcp_mcp::{fleet_summary, AppState, FleetInclude, FleetParams};
 
-use crate::ensure::{configure_detached_spawn_with_log, daemon_lock_path};
+use crate::ensure::{configure_detached_spawn, daemon_lock_path};
 use crate::federation::{tag_local_processes, FederationRuntime};
 
 /// Arguments needed to respawn the daemon after `/admin/restart`.
@@ -254,7 +254,7 @@ async fn restart_daemon(State(state): State<AdminState>) -> Json<Value> {
             cmd.arg("--no-gui");
         }
         // Same detach as ensure — no inherited console flash on Windows.
-        configure_detached_spawn_with_log(&mut cmd, args.no_gui, Some(&args.data_dir));
+        configure_detached_spawn(&mut cmd, args.no_gui);
         match cmd.spawn() {
             Ok(child) => {
                 info!(child_pid = child.id(), "spawned replacement daemon");

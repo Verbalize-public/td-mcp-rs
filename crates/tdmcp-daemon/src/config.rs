@@ -41,6 +41,16 @@ pub struct Config {
     pub no_gui: bool,
     /// Bridge IPC call / heartbeat budgets from `[bridge]`.
     pub bridge: BridgeSection,
+    /// Resolved `[logging]` directory (`[logging].dir` > `data_dir/logs`).
+    pub logging_dir: PathBuf,
+    /// EnvFilter string for the file layer; None => RUST_LOG => built-in default.
+    pub logging_filter: Option<String>,
+    /// Separate EnvFilter for stderr; None => current console defaults.
+    pub logging_console_level: Option<String>,
+    /// Daily rotated log files kept on disk.
+    pub logging_max_files: u32,
+    /// Log sweep threshold in days.
+    pub logging_retention_days: u32,
     /// Path to the installed daemon binary (auto-set by `install`).
     /// When `Some`, spawn / restart / autostart use this path instead of `current_exe()`.
     pub daemon_bin: Option<PathBuf>,
@@ -99,6 +109,12 @@ impl Config {
             .unwrap_or_else(|| default_catalog_path(&data_dir));
         let no_gui = overrides.no_gui || !file.daemon.show_tray;
 
+        let logging_dir = file
+            .logging
+            .dir
+            .clone()
+            .unwrap_or_else(|| data_dir.join("logs"));
+
         fs::create_dir_all(&data_dir)
             .with_context(|| format!("create data dir {}", data_dir.display()))?;
 
@@ -119,6 +135,12 @@ impl Config {
             always_on: file.daemon.always_on,
             no_gui,
             bridge: file.bridge,
+            logging_dir,
+            logging_filter: file.logging.filter,
+            logging_console_level: file.logging.console_level,
+            // Clamp degenerate zeros so rotation/sweep always keep something.
+            logging_max_files: file.logging.max_files.max(1),
+            logging_retention_days: file.logging.retention_days.max(1),
             daemon_bin: file.advanced.daemon_bin,
         })
     }
@@ -203,6 +225,31 @@ mod tests {
         assert!(cfg.keep_alive);
         assert!(cfg.always_on);
         assert!(cfg.no_gui);
+    }
+
+    #[test]
+    fn logging_defaults_and_clamps() {
+        let dir = tempdir().expect("tempdir");
+        let config_path = dir.path().join("config.toml");
+        cfgfile::ensure_default(&config_path, true).expect("seed");
+        let mut file = cfgfile::load(&config_path).expect("load");
+        file.logging.max_files = 0;
+        file.logging.retention_days = 0;
+        let data = dir.path().join("data");
+        let cfg = Config::from_file(
+            config_path,
+            file,
+            ConfigOverrides {
+                data_dir: Some(data.clone()),
+                ..Default::default()
+            },
+        )
+        .expect("from_file");
+        assert_eq!(cfg.logging_dir, data.join("logs"));
+        assert_eq!(cfg.logging_filter, None);
+        assert_eq!(cfg.logging_console_level, None);
+        assert_eq!(cfg.logging_max_files, 1);
+        assert_eq!(cfg.logging_retention_days, 1);
     }
 
     #[test]

@@ -126,6 +126,12 @@ enum Commands {
         #[command(subcommand)]
         action: SkillsCmd,
     },
+    /// Print the tail of the newest daemon log file (human-readable).
+    Logs {
+        /// Number of recent records to show.
+        #[arg(default_value_t = 50)]
+        n: usize,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -181,8 +187,12 @@ fn main() -> Result<()> {
             })?;
             // Ensure embedded assets exist under data_dir (no-op when current).
             let _ = install::ensure_installed(&cfg.data_dir, false)?;
-            tdmcp_daemon::tracing_init::init(&cfg)?;
-            start_daemon(cfg)
+            let log_handles = tdmcp_daemon::tracing_init::init(&cfg)?;
+            start_daemon(cfg)?;
+            // The buffered file writer flushes when the guard drops; keep it
+            // alive until the daemon has fully stopped.
+            drop(log_handles);
+            Ok(())
         }
         Commands::Install { data_dir, force } => {
             let data_dir = data_dir.unwrap_or_else(install::default_data_dir);
@@ -349,6 +359,10 @@ fn main() -> Result<()> {
                 Ok(())
             }
         },
+        Commands::Logs { n } => {
+            let cfg = Config::load(ConfigOverrides::default())?;
+            print_log_tail(&cfg.logging_dir, n)
+        }
         Commands::Status { port } => {
             let port = resolve_port(port)?;
             let rt = tokio::runtime::Runtime::new().context("tokio runtime")?;
@@ -391,6 +405,59 @@ fn resolve_port(port: Option<u16>) -> Result<u16> {
         return Ok(p);
     }
     Ok(Config::load(ConfigOverrides::default())?.port)
+}
+
+/// Render one record as `HH:MM:SS.SSS LEVEL SRC TARGET msg {kvs}`.
+fn render_record(r: &tdmcp_daemon::Record) -> String {
+    // RFC3339 UTC ms ("…T14:02:11.123Z") — slice only on ASCII-produced ts.
+    let time = r.ts.get(11..23).unwrap_or(r.ts.as_str());
+    let level = format!("{:?}", r.level).to_uppercase();
+    let src = format!("{:?}", r.src).to_uppercase();
+    let kvs = if r.kvs.is_empty() {
+        String::new()
+    } else {
+        let pairs: Vec<String> = r.kvs.iter().map(|(k, v)| format!("{k}={v}")).collect();
+        format!(" {{{}}}", pairs.join(", "))
+    };
+    format!("{time} {level:<5} {src:<6} {} {}{kvs}", r.target, r.msg)
+}
+
+/// T1.8 CLI tail: read the newest `daemon.*.log` under `logging_dir` and
+/// print the last `n` records human-readably (JSONL is the machine format).
+fn print_log_tail(logging_dir: &Path, n: usize) -> Result<()> {
+    let entries =
+        std::fs::read_dir(logging_dir).with_context(|| format!("open {}", logging_dir.display()))?;
+    let mut newest: Option<PathBuf> = None;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(|f| f.to_str()) else {
+            continue;
+        };
+        if name.starts_with("daemon.") && name.ends_with(".log") {
+            // Date-stamped names sort lexicographically == chronologically.
+            if newest.as_ref().is_none_or(|cur| &path > cur) {
+                newest = Some(path);
+            }
+        }
+    }
+    let Some(path) = newest else {
+        bail!(
+            "no daemon.*.log found under {} — start the daemon once to create it",
+            logging_dir.display()
+        );
+    };
+    let text = std::fs::read_to_string(&path)
+        .with_context(|| format!("read {}", path.display()))?;
+    let records: Vec<_> = text.lines().filter_map(tdmcp_daemon::record_from_line).collect();
+    if records.is_empty() {
+        println!("( no readable records in {} )", path.display());
+        return Ok(());
+    }
+    let start = records.len().saturating_sub(n);
+    for r in &records[start..] {
+        println!("{}", render_record(r));
+    }
+    Ok(())
 }
 
 /// After `install` swaps in a new binary, bounce a running daemon onto it and
@@ -769,6 +836,14 @@ async fn run_daemon(
     let lock_path = daemon_lock_path(&cfg.data_dir);
     std::fs::create_dir_all(&cfg.data_dir)?;
     std::fs::write(&lock_path, std::process::id().to_string())?;
+
+    // Retention sweep: immediate first pass, then every 24 h until shutdown.
+    tokio::spawn(tdmcp_daemon::logring::run_sweep_loop(
+        cfg.logging_dir.clone(),
+        cfg.data_dir.clone(),
+        cfg.logging_retention_days,
+        shutdown.clone(),
+    ));
 
     // IPC accept loop: bind the local bridge endpoint and spawn a per-pid
     // session actor for each handshaken TD peer.

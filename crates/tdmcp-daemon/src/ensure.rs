@@ -224,14 +224,9 @@ fn resolve_exe(override_exe: Option<&PathBuf>) -> Result<PathBuf> {
 /// `CREATE_NO_WINDOW` only when headless — it suppresses the notification-area
 /// tray icon. GUI restarts must use `DETACHED_PROCESS` alone.
 ///
-/// On Unix, append stdout/stderr to `{data_dir}/daemon.log` when `data_dir` is
-/// provided so Cursor-spawned daemons leave a trail; otherwise null both.
+/// stdio is nulled on both platforms: the central JSONL file sink inside the
+/// child captures everything, so parent-side fd attachment is obsolete.
 pub fn configure_detached_spawn(cmd: &mut Command, no_gui: bool) {
-    configure_detached_spawn_with_log(cmd, no_gui, None);
-}
-
-/// Like [`configure_detached_spawn`], optionally appending logs under `data_dir`.
-pub fn configure_detached_spawn_with_log(cmd: &mut Command, no_gui: bool, data_dir: Option<&Path>) {
     cmd.stdin(Stdio::null());
 
     #[cfg(windows)]
@@ -245,8 +240,6 @@ pub fn configure_detached_spawn_with_log(cmd: &mut Command, no_gui: bool, data_d
             DETACHED_PROCESS
         };
         cmd.creation_flags(flags);
-        cmd.stdout(Stdio::null()).stderr(Stdio::null());
-        let _ = data_dir;
     }
     #[cfg(not(windows))]
     {
@@ -255,34 +248,8 @@ pub fn configure_detached_spawn_with_log(cmd: &mut Command, no_gui: bool, data_d
         // session and survives parent exit without SIGHUP surprises.
         use std::os::unix::process::CommandExt;
         cmd.process_group(0);
-        if let Some(dir) = data_dir {
-            if let Err(e) = attach_unix_daemon_log(cmd, dir) {
-                warn!(error = %e, "ensure: could not attach daemon.log");
-                cmd.stdout(Stdio::null()).stderr(Stdio::null());
-            }
-        } else {
-            cmd.stdout(Stdio::null()).stderr(Stdio::null());
-        }
     }
-}
-
-#[cfg(unix)]
-fn attach_unix_daemon_log(cmd: &mut Command, data_dir: &Path) -> std::io::Result<()> {
-    fs::create_dir_all(data_dir)?;
-    let log_path = data_dir.join("daemon.log");
-    let file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&log_path)?;
-    match file.try_clone() {
-        Ok(err_file) => {
-            cmd.stdout(Stdio::from(file)).stderr(Stdio::from(err_file));
-        }
-        Err(_) => {
-            cmd.stdout(Stdio::from(file)).stderr(Stdio::null());
-        }
-    }
-    Ok(())
+    cmd.stdout(Stdio::null()).stderr(Stdio::null());
 }
 
 fn spawn_detached(
@@ -324,7 +291,7 @@ fn spawn_detached(
     if let Some(cfg) = config_path {
         cmd.env(tdmcp_config::CONFIG_PATH_ENV, cfg);
     }
-    configure_detached_spawn_with_log(&mut cmd, no_gui, Some(data_dir));
+    configure_detached_spawn(&mut cmd, no_gui);
     let mut child = cmd
         .spawn()
         .with_context(|| format!("spawn detached {} start --port {port}", exe.display()))?;
