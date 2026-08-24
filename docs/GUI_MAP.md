@@ -1,24 +1,33 @@
 # GUI Map — td-mcp-rs
 
-Curated, hand-written map of the current GUI. Living document for the
-tray-popup + dashboard-window refactor. Last verified against source:
-2026-02 (graph commit `443031e`, HEAD `645dd1b`).
+Curated, hand-written map of the GUI. **Refactor complete** (iterations 1–4
+shipped): tray popup + second-viewport dashboard. Last verified live:
+2026-08 (debug daemon, real TD bridge attached).
 
 ---
 
 ## 1. What the GUI is today
 
-A **single fixed-size tray popup** (380 px wide, max 600 px tall, frameless,
-hidden at startup) rendered in-process by the daemon binary. There is no
-separate dashboard window yet — everything (status, settings, logs,
-federation) is crammed into the one popup with three stacked views.
+Two surfaces in one process:
 
+- **Dashboard window** (`src/dashboard.rs`, secondary egui viewport,
+  980×660 resizable, decorated): sidebar nav Overview / Fleet / Logs /
+  Settings. Everything lives here — status cards + latest errors, fleet
+  sections with federation modals (`egui::Modal`), full log stream with
+  filters/search/follow/pause, wide settings cards with sticky
+  restart-needed bar.
+- **Tray popup** (`lib.rs`, 380×320 frameless): launcher + compact
+  summary — header actions (Stop/Restart/.tox/⤢ dashboard/≡ logs/⚙
+  settings all open the dashboard), ATTENTION error strip (latest 3 from
+  the error ring), share banner, MCP CLIENTS + TOUCHDESIGNER mini lists.
 - Stack: `eframe`/`egui 0.35` + `tray-icon` + `notify-rust` + `reqwest`
-  (blocking calls over throwaway current-thread tokio runtimes).
+  (blocking calls over throwaway current-thread tokio runtimes — known
+  smell, unchanged).
 - Process: lives inside `tdmcp-daemon`; disabled with `--no-gui` /
-  `TDMCP_NO_GUI`. On daemon restart the tray is respawned.
-- Closing the window or losing focus only **hides** it; real exit is
-  Stop / `/admin/shutdown` (shared `quit: Arc<AtomicBool>`).
+  `TDMCP_NO_GUI`. Dev/test hook: `TDMCP_OPEN_DASH=1|logs|fleet|settings`
+  opens the dashboard on launch.
+- Closing the popup or losing focus only **hides** it; the dashboard has
+  a real close button. Real exit is Stop / `/admin/shutdown`.
 
 ## 2. File inventory
 
@@ -189,18 +198,28 @@ per-OS `reveal_in_file_manager` (explorer/open/xdg-open),
   migrate there); the tray popup stays as launcher + **short summary**
   + **latest errors always visible** in the popup.
 
-### Iteration order
+### Iteration order — ALL SHIPPED
 
-1. Scaffold dashboard viewport (sidebar nav shell) + open from tray
-   menu/header; introduce shared error-ring surfaced in both windows.
-2. Migrate Fleet/status content into dashboard Overview+Fleet pages.
-3. Migrate Logs; then Settings forms (real rows, not 26 px strips).
-4. Polish pass: spacing scale, hover/transition states, empty/loading
-   states, keyboard access, icons.
+1. ✅ Dashboard viewport scaffold (sidebar nav, Overview cards, error
+   ring surfaced in popup ATTENTION strip + dashboard card); openers:
+   tray menu item + header ⤢.
+2. ✅ Logs tab: shared `LogsViewState`, level/src chips + client-side
+   text search, follow/pause, click-to-expand detail with Ctrl+C copy,
+   keyboard F/Space/Esc; popup Logs view deleted.
+3. ✅ Settings tab: section cards + wide two-column rows
+   (`row_wide`/`section_card`), toolbar Reset/Discard/Save, sticky
+   restart-needed bar; federation flows (add-slave, slave settings) as
+   `egui::Modal` overlays on Fleet tab; popup Settings deleted;
+   `View` enum removed — popup is unconditional summary.
+4. ✅ Polish: 120ms nav hover animation (`animate_bool_with_time`),
+   first-poll spinner states, health LED tooltip with attention
+   breakdown, share banner opens dashboard settings.
 
-## 8. Remaining open questions
+## 8. Remaining open items
 
-1. Migration order within Fleet sub-flows (add-slave / slave settings /
-   scan panels) — dashboard-first or keep in popup until step 3?
-2. Platform parity timing: Windows-first polish, macOS/Linux catch up
-   when? (macOS Accessory policy affects secondary viewports.)
+1. macOS/Linux parity unverified (Windows-first development session);
+   macOS Accessory policy may affect secondary viewports.
+2. Blocking HTTP on the UI thread per poll (pre-existing smell) — worth
+   moving to a background worker if jank ever shows under load.
+3. Modal visuals verified compile-level + code-path only; one manual
+   glance at Add-Slave/Slave-Settings modals recommended on next use.

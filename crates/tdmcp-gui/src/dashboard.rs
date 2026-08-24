@@ -6,10 +6,11 @@
 use eframe::egui::{self, Color32, FontId, Sense};
 
 use crate::theme::{
-    self, font_label, font_meta, font_mono, font_title, status_led, ACCENT, BG_ACTIVE, BG_HOVER,
-    BG_PANEL, BG_ROW, BORDER, ERR, OK, TEXT, TEXT_DIM, TEXT_FAINT, WARN,
+    self, filled_button, font_label, font_meta, font_mono, font_title, ghost_button, status_led,
+    ACCENT, BG_ACTIVE, BG_HOVER, BG_PANEL, BG_ROW, BG_ROW_ALT, BORDER, ERR, OK, TEXT, TEXT_DIM,
+    TEXT_FAINT, WARN,
 };
-use crate::DashboardApp;
+use crate::{clip_line, level_color, level_letter, FleetPanel, LogRecordView, ScanPurpose, DashboardApp};
 
 /// Sidebar width (px).
 const SIDEBAR_W: f32 = 196.0;
@@ -114,8 +115,8 @@ pub fn render(app: &mut DashboardApp, ui: &mut egui::Ui) {
         .show(ui, |ui| match app.dash_tab {
             DashTab::Overview => overview(app, ui),
             DashTab::Fleet => fleet(app, ui),
-            DashTab::Logs => placeholder(ui, "Logs", "Log streaming lands in iteration 2.\nUse the tray popup's ≡ view meanwhile."),
-            DashTab::Settings => placeholder(ui, "Settings", "Full settings forms land in iteration 3.\nUse the tray popup's ⚙ view meanwhile."),
+            DashTab::Logs => logs(app, ui),
+            DashTab::Settings => settings(app, ui),
         });
 }
 
@@ -163,7 +164,12 @@ fn sidebar(app: &mut DashboardApp, ui: &mut egui::Ui) {
                 Some(s) => format!("pid {} · {}", s.pid, s.bind_address),
                 None => "daemon unreachable".to_owned(),
             };
-            ui.label(egui::RichText::new(meta).font(font_mono()).color(TEXT_DIM));
+            let snap = &app.prev_snapshot;
+            ui.label(egui::RichText::new(meta).font(font_mono()).color(TEXT_DIM))
+                .on_hover_text(format!(
+                    "attention: {} disconnected · {} resurrected · {} cancelled",
+                    snap.disconnected, snap.resurrected, snap.cancelled
+                ));
         });
     });
 }
@@ -172,12 +178,14 @@ fn nav_item(ui: &mut egui::Ui, label: &str, selected: bool) -> egui::Response {
     let size = egui::vec2(ui.available_width(), 30.0);
     let (rect, response) = ui.allocate_exact_size(size, Sense::click());
     let hovered = response.hovered();
+    // Smooth 120ms hover fill instead of a hard swap.
+    let t = ui
+        .ctx()
+        .animate_bool_with_time(egui::Id::new(("dash_nav", label)), hovered, 0.12);
     let fill = if selected {
         BG_ACTIVE
-    } else if hovered {
-        BG_HOVER
     } else {
-        Color32::TRANSPARENT
+        blend(BG_HOVER, Color32::TRANSPARENT, 1.0 - t)
     };
     ui.painter().rect_filled(rect, 0.0, fill);
     if selected {
@@ -195,6 +203,12 @@ fn nav_item(ui: &mut egui::Ui, label: &str, selected: bool) -> egui::Response {
         if selected { TEXT } else { TEXT_DIM },
     );
     response
+}
+
+/// Linear blend of two colors; `t` = amount of `b`.
+fn blend(a: Color32, b: Color32, t: f32) -> Color32 {
+    let lerp = |x: u8, y: u8| -> u8 { (x as f32 + (y as f32 - x as f32) * t).round() as u8 };
+    Color32::from_rgb(lerp(a.r(), b.r()), lerp(a.g(), b.g()), lerp(a.b(), b.b()))
 }
 
 fn health_color(app: &DashboardApp) -> Color32 {
@@ -230,6 +244,20 @@ fn overview(app: &mut DashboardApp, ui: &mut egui::Ui) {
     });
 
     ui.add_space(18.0);
+
+    // First-poll connecting hint (errors surface separately once known).
+    if app.status.is_none() && app.error.is_none() {
+        ui.horizontal(|ui| {
+            ui.spinner();
+            ui.add_space(6.0);
+            ui.label(
+                egui::RichText::new("connecting to daemon…")
+                    .font(font_label())
+                    .color(TEXT_FAINT),
+            );
+        });
+        ui.add_space(8.0);
+    }
 
     // Latest errors card.
     let count = app.error_ring.len();
@@ -325,18 +353,680 @@ fn fleet(app: &mut DashboardApp, ui: &mut egui::Ui) {
             app.draw_mcp_section(ui);
             app.draw_td_section(ui);
         });
+
+    // Federation overlays as centered modal cards; Esc or the panel's
+    // "← Back" (fleet_panel = None) dismisses them.
+    match app.fleet_panel {
+        FleetPanel::None => {}
+        FleetPanel::AddSlave => {
+            modal_shell(ui.ctx(), "dash_add_slave", |ui| {
+                app.draw_add_slave_panel(ui);
+            });
+        }
+        FleetPanel::SlaveSettings => {
+            modal_shell(ui.ctx(), "dash_slave_settings", |ui| {
+                app.draw_slave_settings_panel(ui);
+            });
+        }
+    }
+    if app.fleet_panel != FleetPanel::None
+        && ui.input(|i| i.key_pressed(egui::Key::Escape))
+    {
+        app.fleet_panel = FleetPanel::None;
+    }
 }
 
-fn placeholder(ui: &mut egui::Ui, title: &str, note: &str) {
-    ui.centered_and_justified(|ui| {
-        ui.vertical_centered(|ui| {
-            ui.label(
-                egui::RichText::new(title)
-                    .font(FontId::new(17.0, egui::FontFamily::Proportional))
-                    .color(TEXT_DIM),
-            );
-            ui.add_space(6.0);
-            ui.label(egui::RichText::new(note).font(font_label()).color(TEXT_FAINT));
+fn modal_shell(ctx: &egui::Context, id: &str, add: impl FnOnce(&mut egui::Ui)) {
+    egui::Modal::new(egui::Id::new(id))
+        .frame(
+            egui::Frame::NONE
+                .fill(theme::BG_WINDOW)
+                .stroke(egui::Stroke::new(1.0, BORDER))
+                .corner_radius(egui::CornerRadius::same(6))
+                .inner_margin(egui::Margin::same(16)),
+        )
+        .show(ctx, |ui| {
+            ui.set_width(440.0);
+            add(ui);
+        });
+}
+
+/// Wide log stream: server-side level/src filters (shared state), client-side
+/// text search, follow/pause controls, click-to-expand detail with Ctrl+C copy.
+fn logs(app: &mut DashboardApp, ui: &mut egui::Ui) {
+    app.ensure_logs_dir();
+
+    // Keyboard contract: F follow · Space pause · Esc back to Overview —
+    // suppressed while the search box owns focus so typing is never hijacked.
+    let search_id = egui::Id::new("dash_logs_search");
+    let typing = ui.memory(|m| m.has_focus(search_id));
+    if !typing {
+        ui.input(|i| {
+            if i.key_pressed(egui::Key::F) {
+                app.logs_view.follow = !app.logs_view.follow;
+            }
+            if i.key_pressed(egui::Key::Space) {
+                app.logs_view.paused = !app.logs_view.paused;
+            }
+            if i.key_pressed(egui::Key::Escape) {
+                app.dash_tab = DashTab::Overview;
+            }
+        });
+    }
+
+    // Toolbar: level chips · source chips · right side follow/pause/folder.
+    ui.horizontal(|ui| {
+        for (label, level) in [("ALL", None), ("ERR", Some("error")), ("WRN", Some("warn"))] {
+            let active = app.logs_view.min_level == level;
+            let color = if active { ACCENT } else { TEXT_DIM };
+            if ghost_button(ui, label, color, ACCENT).clicked() && !active {
+                app.logs_view.min_level = level;
+                app.reset_logs_filter_state();
+            }
+        }
+        ui.add_space(10.0);
+        for src in ["daemon", "bridge", "proxy"] {
+            let active = app.logs_view.srcs.contains(src);
+            let color = if active { ACCENT } else { TEXT_DIM };
+            let label = src.to_ascii_uppercase();
+            if ghost_button(ui, &label, color, ACCENT).clicked() {
+                if active {
+                    app.logs_view.srcs.remove(src);
+                } else {
+                    app.logs_view.srcs.insert(src);
+                }
+                app.reset_logs_filter_state();
+            }
+        }
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if ghost_button(ui, "Open folder", TEXT_DIM, ACCENT).clicked() {
+                app.reveal_logs_dir();
+            }
+            let paused = app.logs_view.paused;
+            let pause_label = if paused { "▶ Resume" } else { "⏸ Pause" };
+            let pause_color = if paused { WARN } else { TEXT_DIM };
+            if ghost_button(ui, pause_label, pause_color, WARN).clicked() {
+                app.logs_view.paused = !paused;
+            }
+            let follow_on = app.logs_view.follow;
+            let follow_label = if follow_on { "● FOLLOW" } else { "○ FOLLOW" };
+            let follow_color = if follow_on { ACCENT } else { TEXT_DIM };
+            if ghost_button(ui, follow_label, follow_color, ACCENT).clicked() {
+                app.logs_view.follow = !follow_on;
+            }
         });
     });
+
+    // Search row.
+    ui.add_space(4.0);
+    ui.horizontal(|ui| {
+        egui::TextEdit::singleline(&mut app.logs_view.text_filter)
+            .id(search_id)
+            .desired_width(ui.available_width() - 34.0)
+            .hint_text("Filter message or target…")
+            .show(ui);
+        if !app.logs_view.text_filter.is_empty()
+            && ghost_button(ui, "×", TEXT_DIM, TEXT).clicked()
+        {
+            app.logs_view.text_filter.clear();
+        }
+    });
+    ui.add_space(6.0);
+
+    if let Some(err) = &app.logs_view.fetch_error {
+        ui.label(
+            egui::RichText::new(format!("daemon unreachable — retrying ({err})"))
+                .font(font_meta())
+                .color(TEXT_FAINT),
+        );
+    }
+
+    // List.
+    let follow = app.logs_view.follow;
+    let expanded_seq = app.logs_view.expanded;
+    let needle = app.logs_view.text_filter.trim().to_lowercase();
+    let empty_before_filter = app.logs_view.buf.is_empty();
+    let fetched_once = app.logs_view.last_fetch.is_some();
+    let mut clicked_seq: Option<u64> = None;
+    egui::ScrollArea::vertical()
+        .id_salt("dash_logs_scroll")
+        .auto_shrink(false)
+        .stick_to_bottom(follow)
+        .show(ui, |ui| {
+            if empty_before_filter {
+                ui.vertical_centered(|ui| {
+                    ui.add_space(32.0);
+                    if fetched_once {
+                        ui.label(
+                            egui::RichText::new("( no logs )")
+                                .font(font_meta())
+                                .color(TEXT_FAINT),
+                        );
+                    } else {
+                        ui.spinner();
+                        ui.add_space(8.0);
+                        ui.label(
+                            egui::RichText::new("connecting…")
+                                .font(font_label())
+                                .color(TEXT_FAINT),
+                        );
+                    }
+                });
+                return;
+            }
+            let mut shown = 0usize;
+            for r in app.logs_view.buf.iter() {
+                if !matches_filter(r, &needle) {
+                    continue;
+                }
+                shown += 1;
+                let full = ui.available_width().max(120.0);
+                let (rect, response) =
+                    ui.allocate_exact_size(egui::vec2(full, 18.0), Sense::click());
+                let bg = if Some(r.seq) == expanded_seq {
+                    BG_HOVER
+                } else if shown.is_multiple_of(2) {
+                    BG_ROW
+                } else {
+                    BG_ROW_ALT
+                };
+                ui.painter().rect_filled(rect, 0.0, bg);
+                ui.painter().circle_filled(
+                    egui::pos2(rect.left() + 9.0, rect.center().y),
+                    2.5,
+                    level_color(&r.level),
+                );
+                let time = r.ts.get(11..19).unwrap_or(&r.ts);
+                let line = format!(
+                    "{time} {} {} {}",
+                    level_letter(&r.level),
+                    r.target,
+                    r.msg.replace('\n', " ")
+                );
+                // ~6.6 px per mono glyph at the 11px mono size.
+                let max_chars = (((rect.width() - 26.0) / 6.6) as usize).max(20);
+                ui.painter().text(
+                    egui::pos2(rect.left() + 18.0, rect.center().y),
+                    egui::Align2::LEFT_CENTER,
+                    clip_line(&line, max_chars),
+                    font_mono(),
+                    TEXT,
+                );
+                if response.clicked() {
+                    clicked_seq = Some(r.seq);
+                }
+            }
+            if shown == 0 {
+                ui.vertical_centered(|ui| {
+                    ui.add_space(16.0);
+                    ui.label(
+                        egui::RichText::new("( no rows match the filter )")
+                            .font(font_meta())
+                            .color(TEXT_FAINT),
+                    );
+                });
+            }
+        });
+    if let Some(seq) = clicked_seq {
+        app.logs_view.expanded =
+            if app.logs_view.expanded == Some(seq) { None } else { Some(seq) };
+    }
+
+    // Detail drawer for the expanded record.
+    if let Some(seq) = app.logs_view.expanded {
+        if let Some(r) = app.logs_view.buf.iter().find(|r| r.seq == seq) {
+            ui.add_space(6.0);
+            egui::Frame::NONE
+                .fill(BG_PANEL)
+                .stroke(egui::Stroke::new(1.0, BORDER))
+                .corner_radius(egui::CornerRadius::same(6))
+                .inner_margin(egui::Margin::same(12))
+                .show(ui, |ui| {
+                    let kvs = if r.kvs.is_empty() {
+                        "{}".to_owned()
+                    } else {
+                        r.kvs
+                            .iter()
+                            .map(|(k, v)| format!("{k}={v}"))
+                            .collect::<Vec<_>>()
+                            .join(" ")
+                    };
+                    let detail = format!(
+                        "target {}\ncode {} · kvs {kvs}",
+                        r.target,
+                        r.code.as_deref().unwrap_or("null")
+                    );
+                    ui.add(
+                        egui::Label::new(
+                            egui::RichText::new(detail.clone())
+                                .font(font_mono())
+                                .color(TEXT_DIM),
+                        )
+                        .wrap(),
+                    );
+                    ui.label(
+                        egui::RichText::new("Ctrl+C copies the full record")
+                            .font(font_meta())
+                            .color(TEXT_FAINT),
+                    );
+                    if ui.input(|i| i.key_pressed(egui::Key::C) && i.modifiers.command) {
+                        ui.ctx().copy_text(format!(
+                            "{} {} {} pid={} {} {detail}",
+                            r.ts, r.level, r.src, r.pid, r.msg
+                        ));
+                    }
+                });
+        }
+    }
+}
+
+/// Client-side substring filter over msg/target; empty matches everything.
+fn matches_filter(r: &LogRecordView, needle: &str) -> bool {
+    needle.is_empty()
+        || r.msg.to_lowercase().contains(needle)
+        || r.target.to_lowercase().contains(needle)
+}
+
+// ---------------------------------------------------------------------------
+// Settings tab — wide section cards + two-column form rows.
+// ---------------------------------------------------------------------------
+
+/// Fixed label-column width for `row_wide`.
+const LABEL_COL_W: f32 = 266.0;
+
+fn settings(app: &mut DashboardApp, ui: &mut egui::Ui) {
+    // Action toolbar: Reset · Discard left, Save right.
+    ui.horizontal(|ui| {
+        if ghost_button(ui, "Reset to defaults", TEXT_DIM, WARN).clicked() {
+            app.reset_settings();
+        }
+        if ghost_button(ui, "Discard changes", TEXT_DIM, TEXT).clicked() {
+            app.discard_settings();
+        }
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if filled_button(ui, "Save").clicked() {
+                app.save_settings();
+            }
+        });
+    });
+
+    // Sticky one-click restart prompt after a restart-requiring save.
+    if app.needs_restart {
+        ui.add_space(6.0);
+        let full = ui.available_width();
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(full, 34.0), egui::Sense::hover());
+        ui.painter().rect_filled(rect, 4.0, BG_PANEL);
+        ui.painter().rect_stroke(
+            rect,
+            4.0,
+            egui::Stroke::new(1.0, WARN),
+            egui::StrokeKind::Inside,
+        );
+        ui.painter().text(
+            egui::pos2(rect.left() + 14.0, rect.center().y),
+            egui::Align2::LEFT_CENTER,
+            "Settings changed — a restart is needed for some values",
+            font_label(),
+            WARN,
+        );
+        let mut child = ui.new_child(
+            egui::UiBuilder::new()
+                .max_rect(rect.shrink2(egui::vec2(12.0, 5.0)))
+                .layout(egui::Layout::right_to_left(egui::Align::Center)),
+        );
+        if filled_button(&mut child, "Restart to apply").clicked() {
+            app.restart_daemon();
+            app.needs_restart = false;
+        }
+        ui.add_space(2.0);
+        if ghost_button(ui, "Dismiss", TEXT_DIM, TEXT).clicked() {
+            app.needs_restart = false;
+        }
+    }
+    ui.add_space(8.0);
+
+    egui::ScrollArea::vertical()
+        .auto_shrink(false)
+        .show(ui, |ui| {
+            section_card(ui, "GENERAL", |ui| {
+                ui.add(
+                    egui::Label::new(
+                        egui::RichText::new(app.config_path.display().to_string())
+                            .font(font_mono())
+                            .color(TEXT_FAINT),
+                    )
+                    .truncate(),
+                );
+                ui.label(
+                    egui::RichText::new(
+                        "Some changes need a restart — you'll get a one-click prompt after saving.",
+                    )
+                    .font(font_meta())
+                    .color(TEXT_DIM),
+                );
+                if let Some(err) = &app.settings_error {
+                    ui.colored_label(ERR, err.clone());
+                }
+            });
+
+            section_card(ui, "SERVER", |ui| {
+                row_wide(ui, "Port", DashboardApp::field_help("server.port"), |ui| {
+                    ui.add(
+                        egui::DragValue::new(&mut app.draft.server.port)
+                            .range(1..=65535)
+                            .speed(1),
+                    );
+                });
+            });
+
+            section_card(ui, "NETWORK", |ui| network_card(app, ui));
+            section_card(ui, "FEDERATION", |ui| federation_card(app, ui));
+
+            section_card(ui, "DAEMON", |ui| {
+                row_wide(ui, "Keep alive", DashboardApp::field_help("daemon.keep_alive"), |ui| {
+                    ui.checkbox(&mut app.draft.daemon.keep_alive, "");
+                });
+                row_wide(ui, "Always on", DashboardApp::field_help("daemon.always_on"), |ui| {
+                    ui.checkbox(&mut app.draft.daemon.always_on, "");
+                });
+                row_wide(ui, "Show tray", DashboardApp::field_help("daemon.show_tray"), |ui| {
+                    ui.checkbox(&mut app.draft.daemon.show_tray, "");
+                });
+            });
+
+            section_card(ui, "BRIDGE", |ui| {
+                row_wide(ui, "Call timeout (s)", DashboardApp::field_help("bridge.call_timeout_secs"), |ui| {
+                    ui.add(secs_drag(&mut app.draft.bridge.call_timeout_secs, 600));
+                });
+                row_wide(ui, "Script timeout (s)", DashboardApp::field_help("bridge.script_timeout_secs"), |ui| {
+                    ui.add(secs_drag(&mut app.draft.bridge.script_timeout_secs, 600));
+                });
+                row_wide(ui, "Heartbeat interval (s)", DashboardApp::field_help("bridge.heartbeat_interval_secs"), |ui| {
+                    ui.add(secs_drag(&mut app.draft.bridge.heartbeat_interval_secs, 120));
+                });
+                row_wide(ui, "Pong timeout (s)", DashboardApp::field_help("bridge.pong_timeout_secs"), |ui| {
+                    ui.add(secs_drag(&mut app.draft.bridge.pong_timeout_secs, 120));
+                });
+                row_wide(ui, "Idle dead (s)", DashboardApp::field_help("bridge.idle_dead_secs"), |ui| {
+                    ui.add(secs_drag(&mut app.draft.bridge.idle_dead_secs, 300));
+                });
+            });
+
+            section_card(ui, "ADVANCED", |ui| {
+                row_wide(ui, "Data dir", DashboardApp::field_help("advanced.data_dir"), |ui| {
+                    path_edit_wide(ui, &mut app.data_dir_edit, false);
+                });
+                row_wide(ui, "Bridge dir", DashboardApp::field_help("advanced.bridge_dir"), |ui| {
+                    path_edit_wide(ui, &mut app.bridge_dir_edit, false);
+                });
+                row_wide(ui, "Catalog", DashboardApp::field_help("advanced.catalog_path"), |ui| {
+                    path_edit_wide(ui, &mut app.catalog_path_edit, false);
+                });
+                if !app.daemon_bin_edit.is_empty() {
+                    row_wide(ui, "Daemon bin", "", |ui| {
+                        path_edit_wide(ui, &mut app.daemon_bin_edit, true);
+                    });
+                }
+            });
+        });
+}
+
+fn secs_drag<'a>(value: &'a mut u64, max: u64) -> egui::DragValue<'a> {
+    egui::DragValue::new(value).range(1..=max).speed(1)
+}
+
+fn network_card(app: &mut DashboardApp, ui: &mut egui::Ui) {
+    let sharing = !tdmcp_config::is_loopback_bind(&app.draft.server.bind_address);
+    row_wide(
+        ui,
+        "Share on my network",
+        "Make this daemon reachable on your local network — required for federation. Auth is a separate, optional choice.",
+        |ui| {
+            let mut sharing_now = sharing;
+            if ui.checkbox(&mut sharing_now, "").changed() {
+                if sharing_now {
+                    app.set_sharing(true);
+                } else if app.draft.federation.role != "standalone" {
+                    app.confirm_turn_off_sharing = true;
+                } else {
+                    app.set_sharing(false);
+                }
+            }
+        },
+    );
+    ui.label(
+        egui::RichText::new(if sharing {
+            format!(
+                "{}:{} on your network",
+                app.draft.server.bind_address, app.draft.server.port
+            )
+        } else {
+            "Only this machine (127.0.0.1)".to_owned()
+        })
+        .font(font_meta())
+        .color(TEXT_DIM),
+    );
+    if app.confirm_turn_off_sharing {
+        ui.colored_label(WARN, "This will disconnect federation on this machine.");
+        ui.horizontal(|ui| {
+            if filled_button(ui, "Turn off anyway").clicked() {
+                app.set_sharing(false);
+            }
+            ui.add_space(4.0);
+            if ghost_button(ui, "Cancel", TEXT_DIM, TEXT).clicked() {
+                app.confirm_turn_off_sharing = false;
+            }
+        });
+    }
+    row_wide(
+        ui,
+        "Auth PSK (optional)",
+        "Leave blank to allow anyone on your network to connect. Set a PSK to require it.",
+        |ui| {
+            let resp = ui.add_sized(
+                egui::vec2(ui.available_width().min(320.0), 22.0),
+                egui::TextEdit::singleline(&mut app.draft.auth.psk)
+                    .font(font_mono())
+                    .password(!app.show_psk),
+            );
+            if resp.changed() {
+                app.draft.auth.mode =
+                    if app.draft.auth.psk.trim().is_empty() { "none" } else { "psk" }.to_owned();
+            }
+            if ghost_button(
+                ui,
+                if app.show_psk { "hide" } else { "show" },
+                TEXT_DIM,
+                TEXT,
+            )
+            .clicked()
+            {
+                app.show_psk = !app.show_psk;
+            }
+            if ghost_button(ui, "copy", TEXT_DIM, ACCENT)
+                .on_hover_text("Copy to clipboard — paste into another machine's Master PSK")
+                .clicked()
+            {
+                ui.ctx().copy_text(app.draft.auth.psk.clone());
+            }
+        },
+    );
+    egui::CollapsingHeader::new("Advanced (manual bind & auth)")
+        .id_salt("dash_network_advanced")
+        .default_open(false)
+        .show(ui, |ui| {
+            row_wide(ui, "Bind address", DashboardApp::field_help("server.bind_address"), |ui| {
+                ui.add_sized(
+                    egui::vec2(ui.available_width().min(280.0), 22.0),
+                    egui::TextEdit::singleline(&mut app.draft.server.bind_address)
+                        .font(font_mono()),
+                );
+            });
+            row_wide(ui, "Auth mode", DashboardApp::field_help("auth.mode"), |ui| {
+                let mut mode_psk = app.draft.auth.mode == "psk";
+                if ui.selectable_label(!mode_psk, "none").clicked() {
+                    app.draft.auth.mode = "none".to_owned();
+                    mode_psk = false;
+                }
+                if ui.selectable_label(mode_psk, "psk").clicked() {
+                    app.draft.auth.mode = "psk".to_owned();
+                    if app.draft.auth.psk.trim().is_empty() {
+                        app.draft.auth.psk = crate::generate_psk();
+                    }
+                }
+            });
+        });
+}
+
+fn federation_card(app: &mut DashboardApp, ui: &mut egui::Ui) {
+    let sharing = !tdmcp_config::is_loopback_bind(&app.draft.server.bind_address);
+    row_wide(ui, "Role", DashboardApp::field_help("federation.role"), |ui| {
+        let current = app.draft.federation.role.clone();
+        if ui.selectable_label(current == "standalone", "Solo").clicked() && current != "standalone" {
+            app.draft.federation.role = "standalone".to_owned();
+            app.role_change_note = Some("role → standalone (restart to apply)".to_owned());
+        }
+        ui.add_enabled_ui(sharing, |ui| {
+            if ui.selectable_label(current == "master", "Master").clicked() && current != "master" {
+                app.draft.federation.role = "master".to_owned();
+                app.role_change_note = Some("role → master (restart to apply)".to_owned());
+            }
+            if ui.selectable_label(current == "slave", "Join a master").clicked() && current != "slave" {
+                app.draft.federation.role = "slave".to_owned();
+                app.role_change_note = Some("role → slave (restart to apply)".to_owned());
+            }
+        });
+    });
+    if !sharing {
+        ui.label(
+            egui::RichText::new("Turn on sharing above to become a master or join one.")
+                .font(font_meta())
+                .color(TEXT_DIM),
+        );
+    }
+    if let Some(note) = &app.role_change_note {
+        ui.label(egui::RichText::new(note.clone()).font(font_meta()).color(WARN));
+    }
+    if !app.draft.federation.daemon_id.is_empty() {
+        row_wide(ui, "Daemon ID", DashboardApp::field_help("federation.daemon_id"), |ui| {
+            ui.add(
+                egui::Label::new(
+                    egui::RichText::new(&app.draft.federation.daemon_id)
+                        .font(font_mono())
+                        .color(TEXT_FAINT),
+                )
+                .truncate(),
+            );
+        });
+    }
+    if app.draft.federation.role == "master" {
+        let (this_url, _) = app.master_federation_values();
+        row_wide(ui, "This machine's URL", "Share with a machine that wants to join as a slave.", |ui| {
+            ui.label(egui::RichText::new(&this_url).font(font_mono()).color(TEXT_DIM));
+            if ghost_button(ui, "copy", TEXT_DIM, ACCENT).clicked() {
+                ui.ctx().copy_text(this_url.clone());
+            }
+        });
+    }
+    if app.draft.federation.role == "slave" {
+        ui.horizontal(|ui| {
+            if app.scan_busy && app.scan_purpose == ScanPurpose::JoinMaster {
+                ui.label(egui::RichText::new("scanning…").font(font_meta()).color(TEXT_DIM));
+            } else if ghost_button(ui, "Scan for masters", TEXT_DIM, ACCENT).clicked() {
+                app.start_scan(tdmcp_config::DEFAULT_PORT, ScanPurpose::JoinMaster);
+            }
+        });
+        app.draw_scan_results(ui, ScanPurpose::JoinMaster);
+        row_wide(ui, "Master URL", DashboardApp::field_help("federation.master_url"), |ui| {
+            ui.add_sized(
+                egui::vec2(ui.available_width().min(360.0), 22.0),
+                egui::TextEdit::singleline(&mut app.draft.federation.master_url)
+                    .font(font_mono()),
+            );
+        });
+        row_wide(ui, "Master PSK (optional)", DashboardApp::field_help("federation.master_psk"), |ui| {
+            let resp = ui.add_sized(
+                egui::vec2(ui.available_width().min(280.0), 22.0),
+                egui::TextEdit::singleline(&mut app.draft.federation.master_psk)
+                    .font(font_mono())
+                    .password(!app.show_master_psk),
+            );
+            if app.focus_master_psk {
+                resp.request_focus();
+                app.focus_master_psk = false;
+            }
+            if ghost_button(
+                ui,
+                if app.show_master_psk { "hide" } else { "show" },
+                TEXT_DIM,
+                TEXT,
+            )
+            .clicked()
+            {
+                app.show_master_psk = !app.show_master_psk;
+            }
+        });
+        ui.label(
+            egui::RichText::new(
+                "Only needed if the master requires a PSK — get it from the master's Settings → Federation copy button.",
+            )
+            .font(font_meta())
+            .color(TEXT_DIM),
+        );
+    }
+}
+
+/// Section card: rounded panel with a faint uppercase title and content.
+fn section_card(ui: &mut egui::Ui, title: &str, add: impl FnOnce(&mut egui::Ui)) {
+    egui::Frame::NONE
+        .fill(BG_ROW)
+        .stroke(egui::Stroke::new(1.0, BORDER))
+        .corner_radius(egui::CornerRadius::same(6))
+        .inner_margin(egui::Margin::same(14))
+        .show(ui, |ui| {
+            ui.label(egui::RichText::new(title).font(font_meta()).color(TEXT_FAINT));
+            ui.add_space(6.0);
+            add(ui);
+        });
+    ui.add_space(10.0);
+}
+
+/// Wide settings row: fixed label column, control fills the rest.
+fn row_wide(ui: &mut egui::Ui, label: &str, help: &str, add: impl FnOnce(&mut egui::Ui)) {
+    let h = 30.0;
+    let full = ui.available_width();
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(full, h), egui::Sense::hover());
+    if response.hovered() {
+        ui.painter().rect_filled(rect, 4.0, BG_HOVER);
+    }
+    ui.painter().text(
+        egui::pos2(rect.left() + 4.0, rect.center().y),
+        egui::Align2::LEFT_CENTER,
+        label,
+        font_label(),
+        TEXT,
+    );
+    let control = egui::Rect::from_min_max(
+        egui::pos2(rect.left() + LABEL_COL_W, rect.top()),
+        egui::pos2(rect.right() - 4.0, rect.bottom()),
+    );
+    let mut child = ui.new_child(
+        egui::UiBuilder::new()
+            .max_rect(control)
+            .layout(egui::Layout::left_to_right(egui::Align::Center)),
+    );
+    add(&mut child);
+    if !help.is_empty() {
+        response.on_hover_text(help.to_owned());
+    }
+}
+
+/// Full-width mono path input; `read_only` locks it (the resolved daemon bin).
+fn path_edit_wide(ui: &mut egui::Ui, text: &mut String, read_only: bool) {
+    ui.add_sized(
+        egui::vec2(ui.available_width(), 22.0),
+        egui::TextEdit::singleline(text)
+            .font(font_mono())
+            .interactive(!read_only),
+    );
 }
