@@ -75,9 +75,9 @@ pub fn init(cfg: &Config) -> Result<LogHandles> {
     };
 
     let fmt_layer = tracing_subscriber::fmt::layer()
-        .with_filter(console_filter)
         .with_target(true)
-        .with_writer(std::io::stderr);
+        .with_writer(std::io::stderr)
+        .with_filter(console_filter);
 
     tracing_subscriber::registry()
         .with(sink)
@@ -137,8 +137,11 @@ impl<S: tracing::Subscriber> Layer<S> for SinkLayer {
             code: visitor.code,
             kvs: visitor.kvs,
         };
-        let line = crate::logrecord::to_line(&record);
-        let _arc = self.ring.push(record);
+        // Push first so the file line carries the ring-assigned seq (push
+        // mutates its own copy and returns it; serializing before push would
+        // always write seq:0).
+        let arc = self.ring.push(record);
+        let line = crate::logrecord::to_line(&arc);
         let mut writer = self.writer.clone();
         let _ = writer.write_all(line.as_bytes());
         let _ = writer.write_all(b"\n");
@@ -190,13 +193,16 @@ mod tests {
             "debug"
         );
         assert_eq!(pick_filter(None, None, DEFAULT_FILE_FILTER), DEFAULT_FILE_FILTER);
-        // Invalid config value falls through to env, then default.
+        // Invalid config value falls through to env, then default. EnvFilter's
+        // directive grammar accepts almost any bare string as a target name,
+        // so use a `target=level` form with a garbage level to force a
+        // genuine parse error.
         assert_eq!(
-            pick_filter(Some("not a filter!!"), Some("debug"), DEFAULT_FILE_FILTER),
+            pick_filter(Some("tdmcp=notalevel"), Some("debug"), DEFAULT_FILE_FILTER),
             "debug"
         );
         assert_eq!(
-            pick_filter(Some("not a filter!!"), None, DEFAULT_FILE_FILTER),
+            pick_filter(Some("tdmcp=notalevel"), None, DEFAULT_FILE_FILTER),
             DEFAULT_FILE_FILTER
         );
     }
