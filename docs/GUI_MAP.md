@@ -152,24 +152,29 @@ clipped message; client ring 2048, fetch 512 per poll while visible.
 
 ## 6. Design system (`theme.rs`)
 
-"Ableton-dark": flat, square corners everywhere, hairline borders, orange
-used sparingly as signal.
+"Ableton-dark": flat surfaces, hairline borders, orange used sparingly as
+signal. Rounding is tokenized, not zero-everywhere.
 
 | Token | Value | Use |
 | --- | --- | --- |
 | `BG_WINDOW` | `#131313` | popup background |
-| `BG_PANEL` | `#1c1c1c` | header/section strips |
-| `BG_ROW` / `BG_ROW_ALT` | `#1a1a1a` / `#1f1f1f` | zebra rows |
+| `BG_PANEL` | `#1c1c1c` | stat cards / strips |
+| `BG_ROW` / `BG_ROW_ALT` | `#1a1a1a` / `#1f1f1f` | cards / zebra rows (logs) |
 | `BG_HOVER` / `BG_ACTIVE` | `#262626` / `#2e2e2e` | hover / pressed |
 | `TEXT` / `TEXT_DIM` / `TEXT_FAINT` | `#e6e6e6` / `#7a7a7a` / `#555555` | text tiers |
 | `ACCENT` | `#ff7a1a` | Ableton orange, ≤5% of frame |
 | `OK` / `WARN` / `ERR` | `#5fd35f` / `#f0a830` / `#e85d5d` | status LEDs |
 | `BORDER` / `BORDER_STRONG` | `#2a2a2a` / `#3a3a3a` | hairlines |
 
+Scale: spacing `sp::{XS=4, SM=8, MD=12, LG=16, XL=24}`, radius
+`RADIUS_SM=4` / `RADIUS_MD=6`, row height `ROW_H=26`, card padding
+`CARD_PAD=12`.
+
 Fonts: title 13 / label 12 / meta 11 proportional, mono 11 for ids/durations.
-Widgets: `status_led`, `section_header`, `filled_button` (accent Save),
-`ghost_button` (borderless icon actions). Zero corner radius globally,
-no shadows.
+Widgets: `status_led`, `filled_button` (accent Save), `ghost_button`
+(borderless icon actions), `card()` (bordered rounded container),
+`row_between()` (justify-between flex row), `chip()` (filter toggle pill).
+No shadows.
 
 Platform glue: macOS `ActivationPolicy::Accessory` (menu-bar-only),
 per-OS `reveal_in_file_manager` (explorer/open/xdg-open),
@@ -214,6 +219,17 @@ per-OS `reveal_in_file_manager` (explorer/open/xdg-open),
 4. ✅ Polish: 120ms nav hover animation (`animate_bool_with_time`),
    first-poll spinner states, health LED tooltip with attention
    breakdown, share banner opens dashboard settings.
+5. ✅ Pass 5 streamlining: popup rebuilt as a glance card — header is
+   LED·title·version + ⚙/⤢ only (Stop/Restart/.tox actions moved into a
+   new `daemon_card()` atop dashboard Overview); attention capped at 2
+   rows from the ring, TD fleet capped at 4 (+N more), MCP reduced to a
+   one-line name list; share banner replaced by conditional
+   `share_applicable()` hint button; transient red error line, section
+   strips and zebra deleted; default popup height 320→260. Theme gained
+   the spacing/radius scale (`sp::*`, `RADIUS_SM/MD`, `ROW_H`,
+   `CARD_PAD`) and shared helpers (`card()`, `row_between()`,
+   `chip()`); dashboard stat cards, logs toolbar, errors card, modals
+   and master-actions row moved onto them; `section_header` deleted.
 
 ## 8. Remaining open items
 

@@ -26,9 +26,9 @@ use tray_icon::{
 use uuid::Uuid;
 
 use theme::{
-    filled_button, font_label, font_meta, font_mono, font_title, ghost_button, section_header,
-    status_led, ACCENT, BG_HOVER, BG_PANEL, BG_ROW, BG_ROW_ALT, BORDER, ERR, OK, TEXT, TEXT_DIM,
-    TEXT_FAINT, WARN, WINDOW_MAX_HEIGHT, WINDOW_WIDTH,
+    filled_button, font_label, font_meta, font_mono, font_title, ghost_button, status_led, ACCENT,
+    BG_HOVER, BG_PANEL, BORDER, ERR, OK, RADIUS_SM, TEXT, TEXT_DIM, TEXT_FAINT, WARN,
+    WINDOW_MAX_HEIGHT, WINDOW_WIDTH,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -59,7 +59,11 @@ const SETTINGS_ROW_H: f32 = 26.0;
 /// Symmetric side inset for content (px).
 const SIDE_MARGIN: f32 = 12.0;
 /// Width reserved for the header's right-anchored actions (px).
-const HEADER_ACTIONS_W: f32 = 186.0;
+const HEADER_ACTIONS_W: f32 = 64.0;
+
+/// Popup glance caps — depth lives in the dashboard, not the tray window.
+const POPUP_ATTENTION_ROWS: usize = 2;
+const POPUP_FLEET_ROWS: usize = 4;
 /// Newest-first error/warning entries kept for popup + dashboard surfaces.
 const ERROR_RING_CAP: usize = 50;
 /// Rendered log rows kept client-side (evict oldest; matches the daemon ring cap).
@@ -96,8 +100,8 @@ pub fn run(
     #[allow(unused_mut)]
     let mut options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([WINDOW_WIDTH, 320.0])
-            .with_min_inner_size([WINDOW_WIDTH, 200.0])
+            .with_inner_size([WINDOW_WIDTH, 260.0])
+            .with_min_inner_size([WINDOW_WIDTH, 180.0])
             .with_max_inner_size([WINDOW_WIDTH, WINDOW_MAX_HEIGHT])
             .with_title("td-mcp-rs")
             .with_icon(window_icon)
@@ -1085,9 +1089,9 @@ impl DashboardApp {
         }
     }
 
-    /// Top chrome: LED + identity (title · version) left, Stop/Restart/.tox/gear right.
-    /// The identity block is width-capped and clipped so a long title can never
-    /// slide under the right-anchored actions; pid/bind live on the version tooltip.
+    /// Top chrome: LED + identity (title · version) left, dashboard/gear right.
+    /// Daemon controls live in the dashboard Overview card — the popup stays a
+    /// glance surface.
     fn draw_header(&mut self, ui: &mut egui::Ui) {
         let full = ui.available_width();
         let (rect, _) = ui.allocate_exact_size(egui::vec2(full, HEADER_H), egui::Sense::hover());
@@ -1104,7 +1108,7 @@ impl DashboardApp {
                 .layout(egui::Layout::left_to_right(egui::Align::Center)),
         );
         status_led(&mut child, ACCENT);
-        child.add_space(6.0);
+        child.add_space(theme::sp::XS);
 
         let title = match self.status.as_ref().map(|s| s.role.as_str()) {
             Some("master") => "td-mcp-rs · master",
@@ -1135,7 +1139,7 @@ impl DashboardApp {
                 ui.set_clip_rect(ui.max_rect());
                 ui.label(egui::RichText::new(title).font(font_title()).color(TEXT));
                 if !version.is_empty() {
-                    ui.add_space(4.0);
+                    ui.add_space(theme::sp::XS);
                     let meta = ui.label(
                         egui::RichText::new(format!("v{version}"))
                             .font(font_meta())
@@ -1148,41 +1152,15 @@ impl DashboardApp {
             },
         );
 
-        // Right-anchored ghost actions: Stop · Restart · .tox · gear (RTL).
+        // Right-anchored ghost actions: dashboard launcher · gear (RTL).
         child.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let stop = ghost_button(ui, "■", TEXT_DIM, ERR).on_hover_text("Stop daemon");
-            if stop.clicked() {
-                self.shutdown_daemon();
-            }
-            ui.add_space(2.0);
-            let restart = ghost_button(ui, "↻", TEXT_DIM, ACCENT).on_hover_text("Restart daemon");
-            if restart.clicked() {
-                self.restart_daemon();
-            }
-            ui.add_space(4.0);
-            let tox_path = self.data_dir.join("bootstrap.tox");
-            let tip = format!("Reveal {}", tox_path.display());
-            let tox = ghost_button(ui, ".tox", TEXT_DIM, ACCENT).on_hover_text(tip);
-            if tox.clicked() {
-                self.reveal_tox();
-            }
-            ui.add_space(4.0);
             let gear = ghost_button(ui, "⚙", TEXT_DIM, ACCENT).on_hover_text("Settings");
             if gear.clicked() {
                 self.open_settings();
                 self.dash_tab = dashboard::DashTab::Settings;
                 self.dashboard_open = true;
             }
-            ui.add_space(2.0);
-            let dash_logs = self.dashboard_open && self.dash_tab == dashboard::DashTab::Logs;
-            let logs_color = if dash_logs { ACCENT } else { TEXT_DIM };
-            let logs = ghost_button(ui, "≡", logs_color, ACCENT).on_hover_text("Logs");
-            if logs.clicked() {
-                self.dash_tab = dashboard::DashTab::Logs;
-                self.dashboard_open = true;
-            }
-            ui.add_space(4.0);
-            // Dashboard launcher (leftmost header action).
+            ui.add_space(theme::sp::XS);
             let dash_active = self.dashboard_open;
             let dash_color = if dash_active { ACCENT } else { TEXT_DIM };
             let dash = ghost_button(ui, "⤢", dash_color, ACCENT).on_hover_text("Open dashboard");
@@ -1200,99 +1178,175 @@ impl DashboardApp {
             .unwrap_or("")
     }
 
-    /// Fleet-view nudge toward federation for a not-yet-shared daemon — today
-    /// nothing on the main screen hints the feature exists until Settings is opened.
-    fn draw_share_banner(&mut self, ui: &mut egui::Ui) {
-        let Some(status) = &self.status else { return };
-        let role_ok = status.role.is_empty() || status.role == "standalone";
-        if !role_ok || !cfgfile::is_loopback_bind(&status.bind_address) {
-            return;
-        }
-        ui.horizontal(|ui| {
-            ui.add_space(SIDE_MARGIN);
-            if ghost_button(ui, "Share this daemon on your network →", TEXT_DIM, ACCENT).clicked()
-            {
-                self.open_settings();
-                self.dash_tab = dashboard::DashTab::Settings;
-                self.dashboard_open = true;
-            }
-        });
-        ui.add_space(2.0);
-    }
-
-    fn draw_mcp_section(&self, ui: &mut egui::Ui) {
-        section_header(ui, "MCP CLIENTS");
+    /// Glance-card body: attention, TouchDesigner instances, MCP clients,
+    /// share hint — each compact, with depth one ⤢ away in the dashboard.
+    fn draw_summary(&mut self, ui: &mut egui::Ui) {
+        let procs = serde_json::from_str::<FleetView>(&self.fleet_json)
+            .map(|f| f.processes)
+            .unwrap_or_default();
         let sessions = serde_json::from_str::<SessionsView>(&self.sessions_json)
             .map(|v| v.sessions)
             .unwrap_or_default();
+
+        if self.status.is_none() && self.error.is_none() {
+            ui.vertical_centered(|ui| {
+                ui.add_space(theme::sp::XL);
+                ui.spinner();
+                ui.add_space(theme::sp::SM);
+                ui.label(
+                    egui::RichText::new("Connecting to daemon…")
+                        .font(font_meta())
+                        .color(TEXT_DIM),
+                );
+                ui.add_space(theme::sp::XL);
+            });
+            return;
+        }
+
+        // Attention: transient action/poll error first, then ring history.
+        // The transient line is not in the ring, so skip a duplicate head.
+        let mut shown = 0usize;
+        if let Some(err) = &self.error {
+            attention_row(ui, err);
+            shown += 1;
+        }
+        for msg in &self.error_ring {
+            if shown >= POPUP_ATTENTION_ROWS {
+                break;
+            }
+            if self.error.as_deref() == Some(msg.as_str()) {
+                continue;
+            }
+            attention_row(ui, msg);
+            shown += 1;
+        }
+        let hidden = self.error_ring.len() + usize::from(self.error.is_some()) - shown;
+        if hidden > 0 && shown > 0 {
+            ui.horizontal(|ui| {
+                ui.add_space(SIDE_MARGIN);
+                if ghost_button(
+                    ui,
+                    &format!("+{hidden} more — open dashboard"),
+                    TEXT_FAINT,
+                    ACCENT,
+                )
+                .clicked()
+                {
+                    self.dash_tab = dashboard::DashTab::Overview;
+                    self.dashboard_open = true;
+                }
+            });
+        }
+
+        if !procs.is_empty() {
+            section_caption(ui, &format!("TOUCHDESIGNER · {}", procs.len()));
+            for p in procs.iter().take(POPUP_FLEET_ROWS) {
+                fleet_row(ui, p);
+            }
+            if procs.len() > POPUP_FLEET_ROWS {
+                ui.horizontal(|ui| {
+                    ui.add_space(SIDE_MARGIN);
+                    if ghost_button(
+                        ui,
+                        &format!("+{} more — open dashboard", procs.len() - POPUP_FLEET_ROWS),
+                        TEXT_FAINT,
+                        ACCENT,
+                    )
+                    .clicked()
+                    {
+                        self.dash_tab = dashboard::DashTab::Fleet;
+                        self.dashboard_open = true;
+                    }
+                });
+            }
+        }
+
+        if !sessions.is_empty() {
+            let names: Vec<String> = sessions
+                .iter()
+                .take(2)
+                .map(|s| s.client_name.clone())
+                .collect();
+            let more = sessions.len().saturating_sub(names.len());
+            let names = if more > 0 {
+                format!("{}, … +{more}", names.join(", "))
+            } else {
+                names.join(", ")
+            };
+            section_caption(ui, &format!("MCP CLIENTS · {}", sessions.len()));
+            ui.horizontal(|ui| {
+                ui.add_space(SIDE_MARGIN);
+                ui.label(egui::RichText::new(names).font(font_meta()).color(TEXT_DIM));
+            });
+        }
+
+        if procs.is_empty() && sessions.is_empty() && shown == 0 {
+            ui.vertical_centered(|ui| {
+                ui.add_space(theme::sp::LG);
+                ui.label(
+                    egui::RichText::new("Waiting for TouchDesigner…")
+                        .font(font_meta())
+                        .color(TEXT_DIM),
+                );
+                ui.add_space(theme::sp::SM);
+            });
+        }
+
+        if self.share_applicable() {
+            ui.horizontal(|ui| {
+                ui.add_space(SIDE_MARGIN);
+                if ghost_button(ui, "Share this daemon →", TEXT_DIM, ACCENT).clicked() {
+                    self.open_settings();
+                    self.dash_tab = dashboard::DashTab::Settings;
+                    self.dashboard_open = true;
+                }
+            });
+        }
+        ui.add_space(theme::sp::XS);
+    }
+
+    /// Fleet-view nudge toward federation for a not-yet-shared daemon — today
+    /// nothing on the main screen hints the feature exists until Settings is opened.
+    fn share_applicable(&self) -> bool {
+        match &self.status {
+            Some(status) => {
+                (status.role.is_empty() || status.role == "standalone")
+                    && cfgfile::is_loopback_bind(&status.bind_address)
+            }
+            None => false,
+        }
+    }
+
+    fn draw_mcp_section(&self, ui: &mut egui::Ui) {
+        let sessions = serde_json::from_str::<SessionsView>(&self.sessions_json)
+            .map(|v| v.sessions)
+            .unwrap_or_default();
+        section_caption(
+            ui,
+            &format!("MCP CLIENTS · {}", sessions.len()),
+        );
         if sessions.is_empty() {
             ui.vertical_centered(|ui| {
-                ui.add_space(8.0);
+                ui.add_space(theme::sp::SM);
                 ui.label(
                     egui::RichText::new("No MCP clients connected")
                         .font(font_meta())
                         .color(TEXT_DIM),
                 );
-                ui.add_space(8.0);
+                ui.add_space(theme::sp::SM);
             });
             return;
         }
-        for (i, s) in sessions.iter().enumerate() {
-            let bg = if i.is_multiple_of(2) {
-                BG_ROW
-            } else {
-                BG_ROW_ALT
-            };
-            let full = ui.available_width();
-            let (rect, response) =
-                ui.allocate_exact_size(egui::vec2(full, 24.0), egui::Sense::hover());
-            let fill = if response.hovered() { BG_HOVER } else { bg };
-            ui.painter().rect_filled(rect, 0.0, fill);
-            ui.painter().hline(
-                rect.x_range(),
-                rect.bottom(),
-                egui::Stroke::new(1.0, BORDER),
-            );
-
-            let mut child = ui.new_child(
-                egui::UiBuilder::new()
-                    .max_rect(rect.shrink2(egui::vec2(12.0, 0.0)))
-                    .layout(egui::Layout::left_to_right(egui::Align::Center)),
-            );
-            status_led(&mut child, OK);
-            child.add_space(6.0);
-            let id_tail = id_tail(&s.id);
-            child.label(
-                egui::RichText::new(id_tail)
-                    .font(font_mono())
-                    .color(TEXT_FAINT),
-            );
-            child.add_space(8.0);
-            child.label(
-                egui::RichText::new(&s.client_name)
-                    .font(font_label())
-                    .color(TEXT),
-            );
-            child.add_space(8.0);
-            if !s.client_version.is_empty() {
-                child.label(
-                    egui::RichText::new(&s.client_version)
-                        .font(font_mono())
-                        .color(TEXT_DIM),
-                );
-            }
-            child.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label(
-                    egui::RichText::new(format_duration_since(s.connected_at))
-                        .font(font_mono())
-                        .color(TEXT_DIM),
-                );
-            });
+        for s in &sessions {
+            mcp_row(ui, s);
         }
     }
 
     fn draw_td_section(&mut self, ui: &mut egui::Ui) {
-        section_header(ui, "TOUCHDESIGNER");
+        let count = serde_json::from_str::<FleetView>(&self.fleet_json)
+            .map(|f| f.processes.len())
+            .unwrap_or(0);
+        section_caption(ui, &format!("TOUCHDESIGNER · {count}"));
         let role = self
             .status
             .as_ref()
@@ -1311,30 +1365,45 @@ impl DashboardApp {
     }
 
     fn draw_master_actions(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
-            ui.add_space(12.0);
-            if ghost_button(ui, "+ Add slave", TEXT_DIM, ACCENT).clicked() {
-                self.fleet_panel = FleetPanel::AddSlave;
-            }
-            ui.add_space(4.0);
-            if self.scan_busy && self.scan_purpose == ScanPurpose::AddSlave {
+        // State pre-extracted so neither row_between closure captures self.
+        let scanning = self.scan_busy && self.scan_purpose == ScanPurpose::AddSlave;
+        let slaves_n = self.slave_count();
+        let mut add_slave = false;
+        let mut scan = false;
+        theme::row_between(
+            ui,
+            theme::ROW_H,
+            |ui| {
+                ui.add_space(SIDE_MARGIN);
+                if ghost_button(ui, "+ Add slave", TEXT_DIM, ACCENT).clicked() {
+                    add_slave = true;
+                }
+                if scanning {
+                    ui.add_space(theme::sp::XS);
+                    ui.label(
+                        egui::RichText::new("scanning…")
+                            .font(font_meta())
+                            .color(TEXT_DIM),
+                    );
+                } else if ghost_button(ui, "Scan", TEXT_DIM, ACCENT).clicked() {
+                    scan = true;
+                }
+            },
+            |ui| {
                 ui.label(
-                    egui::RichText::new("scanning…")
+                    egui::RichText::new(format!("{slaves_n} slave(s)"))
                         .font(font_meta())
                         .color(TEXT_DIM),
                 );
-            } else if ghost_button(ui, "Scan", TEXT_DIM, ACCENT).clicked() {
-                self.start_scan(self.add_slave_port, ScanPurpose::AddSlave);
-            }
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label(
-                    egui::RichText::new(format!("{} slave(s)", self.slave_count()))
-                        .font(font_meta())
-                        .color(TEXT_DIM),
-                );
-            });
-        });
-        ui.add_space(2.0);
+            },
+        );
+        if add_slave {
+            self.fleet_panel = FleetPanel::AddSlave;
+        }
+        if scan {
+            self.start_scan(self.add_slave_port, ScanPurpose::AddSlave);
+        }
+        ui.add_space(theme::sp::XS);
     }
 
     /// Master fleet: one collapsible group per daemon (local first, then slaves).
@@ -1460,8 +1529,8 @@ impl DashboardApp {
                         });
                         ui.add_space(2.0);
                     }
-                    for (i, p) in procs.iter().enumerate() {
-                        fleet_row(ui, p, i);
+                    for p in procs.iter() {
+                        fleet_row(ui, p);
                     }
                 });
         }
@@ -1480,8 +1549,8 @@ impl DashboardApp {
             self.draw_empty_fleet(ui);
             return;
         }
-        for (i, p) in fleet.processes.iter().enumerate() {
-            fleet_row(ui, p, i);
+        for p in fleet.processes.iter() {
+            fleet_row(ui, p);
         }
     }
 
@@ -1513,24 +1582,15 @@ impl DashboardApp {
             return;
         }
         ui.add_space(6.0);
-        section_header(ui, &format!("SCAN · {} hit(s)", hits.len()));
+        section_caption(ui, &format!("SCAN · {} hit(s)", hits.len()));
         let mut use_hit: Option<(String, u16)> = None;
-        for (i, hit) in hits.iter().enumerate() {
-            let bg = if i.is_multiple_of(2) {
-                BG_ROW
-            } else {
-                BG_ROW_ALT
-            };
+        for hit in hits.iter() {
             let full = ui.available_width();
             let (rect, response) =
-                ui.allocate_exact_size(egui::vec2(full, 24.0), egui::Sense::hover());
-            let fill = if response.hovered() { BG_HOVER } else { bg };
-            ui.painter().rect_filled(rect, 0.0, fill);
-            ui.painter().hline(
-                rect.x_range(),
-                rect.bottom(),
-                egui::Stroke::new(1.0, BORDER),
-            );
+                ui.allocate_exact_size(egui::vec2(full, theme::ROW_H), egui::Sense::hover());
+            if response.hovered() {
+                ui.painter().rect_filled(rect, RADIUS_SM, BG_HOVER);
+            }
 
             let mut child = ui.new_child(
                 egui::UiBuilder::new()
@@ -1791,7 +1851,7 @@ impl DashboardApp {
     }
 
     fn draw_add_slave_panel(&mut self, ui: &mut egui::Ui) {
-        section_header(ui, "ADD SLAVE");
+        section_caption(ui, "ADD SLAVE");
         ui.horizontal(|ui| {
             ui.add_space(12.0);
             if ghost_button(ui, "← Back", TEXT_DIM, TEXT).clicked() {
@@ -1902,7 +1962,7 @@ impl DashboardApp {
     }
 
     fn draw_slave_settings_panel(&mut self, ui: &mut egui::Ui) {
-        section_header(ui, "SLAVE SETTINGS");
+        section_caption(ui, "SLAVE SETTINGS");
         ui.horizontal(|ui| {
             ui.add_space(12.0);
             if ghost_button(ui, "← Back", TEXT_DIM, TEXT).clicked() {
@@ -1985,7 +2045,7 @@ impl DashboardApp {
     /// Slave self-view: master link + Go standalone (saves role, restarts locally).
     fn draw_slave_self_view(&mut self, ui: &mut egui::Ui) {
         ui.add_space(6.0);
-        section_header(ui, "FEDERATION");
+        section_caption(ui, "FEDERATION");
         let master_url = self.draft.federation.master_url.clone();
         let daemon_id = id_tail(&self.draft.federation.daemon_id);
         settings_row(
@@ -2134,22 +2194,13 @@ impl eframe::App for DashboardApp {
             )
             .show(ui, |ui| {
                 self.draw_header(ui);
-                if let Some(err) = &self.error {
-                    ui.horizontal(|ui| {
-                        ui.add_space(SIDE_MARGIN);
-                        ui.colored_label(ERR, err);
-                    });
-                }
-                error_strip(ui, &self.error_ring);
-                self.draw_share_banner(ui);
                 egui::ScrollArea::vertical()
                     .auto_shrink(false)
-                    .max_height(WINDOW_MAX_HEIGHT - 60.0)
+                    .max_height(WINDOW_MAX_HEIGHT - HEADER_H - theme::sp::LG)
                     .show(ui, |ui| {
-                        self.draw_mcp_section(ui);
-                        self.draw_td_section(ui);
+                        ui.add_space(theme::sp::SM);
+                        self.draw_summary(ui);
                     });
-                ui.add_space(6.0);
             });
     }
 }
@@ -2461,37 +2512,83 @@ fn push_error_ring(ring: &mut Vec<String>, msg: String) {
     ring.truncate(ERROR_RING_CAP);
 }
 
-/// Compact newest-first attention strip under the tray header (≤3 rows).
-fn error_strip(ui: &mut egui::Ui, ring: &[String]) {
-    if ring.is_empty() {
-        return;
+/// Quiet section caption — dim meta text, no strip, no rule. Replaces the old
+/// full-width header bars.
+fn section_caption(ui: &mut egui::Ui, title: &str) {
+    let (rect, _) = ui.allocate_exact_size(
+        egui::vec2(ui.available_width(), 20.0),
+        egui::Sense::hover(),
+    );
+    ui.painter().text(
+        egui::pos2(rect.left() + SIDE_MARGIN, rect.center().y),
+        egui::Align2::LEFT_CENTER,
+        title,
+        font_meta(),
+        TEXT_FAINT,
+    );
+}
+
+/// One attention line: ERR dot + clipped message, hover highlight only.
+fn attention_row(ui: &mut egui::Ui, msg: &str) {
+    let full = ui.available_width();
+    let (rect, response) =
+        ui.allocate_exact_size(egui::vec2(full, theme::ROW_H), egui::Sense::hover());
+    if response.hovered() {
+        ui.painter()
+            .rect_filled(rect, RADIUS_SM, BG_HOVER);
     }
-    section_header(ui, "ATTENTION");
-    let shown = ring.len().min(3);
-    for msg in ring.iter().take(shown) {
-        let full = ui.available_width().min(WINDOW_WIDTH);
-        let (rect, _) = ui.allocate_exact_size(egui::vec2(full, 20.0), egui::Sense::hover());
-        let center = egui::pos2(rect.left() + 16.0, rect.center().y);
-        ui.painter().circle_filled(center, 3.0, ERR);
-        ui.painter().text(
-            egui::pos2(rect.left() + 28.0, rect.center().y),
-            egui::Align2::LEFT_CENTER,
-            clip_line(msg, 46),
-            font_mono(),
-            TEXT_DIM,
+    let center = egui::pos2(rect.left() + SIDE_MARGIN + 3.0, rect.center().y);
+    ui.painter().circle_filled(center, 3.0, ERR);
+    ui.painter().text(
+        egui::pos2(rect.left() + SIDE_MARGIN + 14.0, rect.center().y),
+        egui::Align2::LEFT_CENTER,
+        clip_line(msg, 46),
+        font_mono(),
+        TEXT_DIM,
+    );
+}
+
+/// One MCP session row (dashboard fleet list): LED, id tail, client name.
+fn mcp_row(ui: &mut egui::Ui, s: &SessionRow) {
+    let full = ui.available_width();
+    let (rect, response) =
+        ui.allocate_exact_size(egui::vec2(full, theme::ROW_H), egui::Sense::hover());
+    if response.hovered() {
+        ui.painter().rect_filled(rect, RADIUS_SM, BG_HOVER);
+    }
+    let mut child = ui.new_child(
+        egui::UiBuilder::new()
+            .max_rect(rect.shrink2(egui::vec2(SIDE_MARGIN, 0.0)))
+            .layout(egui::Layout::left_to_right(egui::Align::Center)),
+    );
+    status_led(&mut child, OK);
+    child.add_space(theme::sp::XS);
+    child.label(
+        egui::RichText::new(id_tail(&s.id))
+            .font(font_mono())
+            .color(TEXT_FAINT),
+    );
+    child.add_space(theme::sp::SM);
+    child.label(
+        egui::RichText::new(&s.client_name)
+            .font(font_label())
+            .color(TEXT),
+    );
+    if !s.client_version.is_empty() {
+        child.add_space(theme::sp::SM);
+        child.label(
+            egui::RichText::new(&s.client_version)
+                .font(font_mono())
+                .color(TEXT_DIM),
         );
     }
-    if ring.len() > shown {
-        let full = ui.available_width().min(WINDOW_WIDTH);
-        let (rect, _) = ui.allocate_exact_size(egui::vec2(full, 16.0), egui::Sense::hover());
-        ui.painter().text(
-            egui::pos2(rect.left() + 28.0, rect.center().y),
-            egui::Align2::LEFT_CENTER,
-            format!("+{} more — open dashboard", ring.len() - shown),
-            font_meta(),
-            TEXT_FAINT,
+    child.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        ui.label(
+            egui::RichText::new(format_duration_since(s.connected_at))
+                .font(font_mono())
+                .color(TEXT_DIM),
         );
-    }
+    });
 }
 
 fn http_get_blocking(url: &str, bearer: Option<&str>) -> Result<String, String> {
@@ -2683,7 +2780,9 @@ fn parse_slaves(json: &str) -> Vec<SlaveRow> {
 }
 
 /// One full-width fleet row (pid, title, counts, bridge status) shared by all views.
-fn fleet_row(ui: &mut egui::Ui, p: &FleetProc, index: usize) {
+/// One TouchDesigner instance row (shared popup + dashboard): LED, pid, title;
+/// trailing bridge/task counts. Hover-only highlight — no zebra, no rules.
+fn fleet_row(ui: &mut egui::Ui, p: &FleetProc) {
     let bridge = p.bridge.as_str().unwrap_or("?");
     let led = if p.resurrected || !p.cancelled_tasks.is_empty() || bridge == "disconnected" {
         WARN
@@ -2692,46 +2791,39 @@ fn fleet_row(ui: &mut egui::Ui, p: &FleetProc, index: usize) {
     } else {
         TEXT_FAINT
     };
-    let bg = if index.is_multiple_of(2) {
-        BG_ROW
-    } else {
-        BG_ROW_ALT
-    };
     let full = ui.available_width();
-    let (rect, response) = ui.allocate_exact_size(egui::vec2(full, 24.0), egui::Sense::hover());
-    let fill = if response.hovered() { BG_HOVER } else { bg };
-    ui.painter().rect_filled(rect, 0.0, fill);
-    ui.painter().hline(
-        rect.x_range(),
-        rect.bottom(),
-        egui::Stroke::new(1.0, BORDER),
-    );
+    let (rect, response) =
+        ui.allocate_exact_size(egui::vec2(full, theme::ROW_H), egui::Sense::hover());
+    let fill = if response.hovered() { BG_HOVER } else { egui::Color32::TRANSPARENT };
+    ui.painter().rect_filled(rect, RADIUS_SM, fill);
 
     let mut child = ui.new_child(
         egui::UiBuilder::new()
-            .max_rect(rect.shrink2(egui::vec2(12.0, 0.0)))
+            .max_rect(rect.shrink2(egui::vec2(SIDE_MARGIN, 0.0)))
             .layout(egui::Layout::left_to_right(egui::Align::Center)),
     );
     status_led(&mut child, led);
-    child.add_space(6.0);
+    child.add_space(theme::sp::XS);
     child.label(
         egui::RichText::new(p.pid.to_string())
             .font(font_mono())
             .color(TEXT_FAINT),
     );
-    child.add_space(8.0);
+    child.add_space(theme::sp::SM);
     child.label(
         egui::RichText::new(p.title.as_deref().unwrap_or(""))
             .font(font_label())
             .color(TEXT),
     );
     child.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-        ui.label(
-            egui::RichText::new(p.cancelled_tasks.len().to_string())
-                .font(font_mono())
-                .color(TEXT_DIM),
-        );
-        ui.add_space(8.0);
+        if !p.cancelled_tasks.is_empty() {
+            ui.label(
+                egui::RichText::new(p.cancelled_tasks.len().to_string())
+                    .font(font_mono())
+                    .color(WARN),
+            );
+            ui.add_space(theme::sp::XS);
+        }
         ui.label(
             egui::RichText::new(
                 p.tasks
@@ -2742,17 +2834,11 @@ fn fleet_row(ui: &mut egui::Ui, p: &FleetProc, index: usize) {
             .font(font_mono())
             .color(TEXT_DIM),
         );
-        ui.add_space(10.0);
-        // Flexible middle: status takes remaining width, aligned right.
-        let avail = ui.available_width();
-        let (status_rect, _) =
-            ui.allocate_exact_size(egui::vec2(avail, 20.0), egui::Sense::hover());
-        ui.painter().text(
-            egui::pos2(status_rect.right(), status_rect.center().y),
-            egui::Align2::RIGHT_CENTER,
-            bridge,
-            font_meta(),
-            TEXT_DIM,
+        ui.add_space(theme::sp::SM);
+        ui.label(
+            egui::RichText::new(bridge)
+                .font(font_meta())
+                .color(TEXT_FAINT),
         );
     });
 }

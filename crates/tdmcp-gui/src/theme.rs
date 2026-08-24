@@ -1,4 +1,4 @@
-//! Ableton-dark design tokens + egui Visuals for the tray popup.
+//! Ableton-dark design tokens + shared widget kit (popup + dashboard).
 
 use eframe::egui::{
     self, Color32, CornerRadius, FontFamily, FontId, Shadow, Stroke, Style, Visuals,
@@ -41,6 +41,29 @@ pub const WINDOW_WIDTH: f32 = 380.0;
 pub const WINDOW_MAX_HEIGHT: f32 = 600.0;
 /// Status LED diameter (px).
 pub const LED_SIZE: f32 = 6.0;
+
+/// Spacing scale — every margin/gap in the GUI comes from here.
+pub mod sp {
+    /// Tight intra-row gaps.
+    pub const XS: f32 = 4.0;
+    /// Default item spacing.
+    pub const SM: f32 = 8.0;
+    /// Side margins, row padding.
+    pub const MD: f32 = 12.0;
+    /// Block separation inside cards.
+    pub const LG: f32 = 16.0;
+    /// Section separation.
+    pub const XL: f32 = 24.0;
+}
+
+/// Corner radius — chips and small controls.
+pub const RADIUS_SM: f32 = 4.0;
+/// Corner radius — cards.
+pub const RADIUS_MD: f32 = 6.0;
+/// Standard list-row height.
+pub const ROW_H: f32 = 26.0;
+/// Card inner padding.
+pub const CARD_PAD: f32 = 12.0;
 
 /// Wordmark / title.
 #[must_use]
@@ -146,22 +169,6 @@ pub fn status_led(ui: &mut egui::Ui, color: Color32) {
     ui.painter().circle_filled(center, LED_SIZE * 0.5, color);
 }
 
-/// Section header strip: `bg_panel`, meta title, hairline below.
-pub fn section_header(ui: &mut egui::Ui, title: &str) {
-    let full = ui.available_width();
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(full, 20.0), egui::Sense::hover());
-    ui.painter().rect_filled(rect, 0.0, BG_PANEL);
-    ui.painter().text(
-        egui::pos2(rect.left() + 12.0, rect.center().y),
-        egui::Align2::LEFT_CENTER,
-        title,
-        font_meta(),
-        TEXT_DIM,
-    );
-    ui.painter()
-        .hline(rect.x_range(), rect.bottom(), Stroke::new(1.0, BORDER));
-}
-
 /// Filled accent button — the settings primary action (Save).
 pub fn filled_button(ui: &mut egui::Ui, label: &str) -> egui::Response {
     let galley = ui.painter().layout_no_wrap(
@@ -233,6 +240,76 @@ pub fn ghost_button(ui: &mut egui::Ui, label: &str, rest: Color32, hot: Color32)
             rect.center().y - text_galley.size().y * 0.5,
         ),
         text_galley,
+        text_color,
+    );
+    response
+}
+
+/// Card container — the single surface primitive: row fill, hairline border,
+/// soft corners, uniform padding. Every boxed panel sits on this so borders
+/// and margins stay identical everywhere.
+pub fn card(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui)) {
+    egui::Frame::NONE
+        .fill(BG_ROW)
+        .stroke(Stroke::new(1.0, BORDER))
+        .corner_radius(CornerRadius::same(RADIUS_MD as u8))
+        .inner_margin(egui::Margin::same(CARD_PAD as i8))
+        .show(ui, add);
+}
+
+/// Flexbox-style justify-between row over one full-width line of `height`:
+/// `left` lays out left-to-right, `right` is pinned to the trailing edge.
+pub fn row_between(
+    ui: &mut egui::Ui,
+    height: f32,
+    left: impl FnOnce(&mut egui::Ui),
+    right: impl FnOnce(&mut egui::Ui),
+) {
+    let (rect, _) = ui.allocate_exact_size(
+        egui::vec2(ui.available_width(), height),
+        egui::Sense::hover(),
+    );
+    let mut l = ui.new_child(
+        egui::UiBuilder::new()
+            .max_rect(rect)
+            .layout(egui::Layout::left_to_right(egui::Align::Center)),
+    );
+    left(&mut l);
+    let mut r = ui.new_child(
+        egui::UiBuilder::new()
+            .max_rect(rect)
+            .layout(egui::Layout::right_to_left(egui::Align::Center)),
+    );
+    right(&mut r);
+}
+
+/// Selected-chip fill — a warm accent tint, kept static to avoid runtime
+/// color math.
+const CHIP_SELECTED_BG: Color32 = Color32::from_rgb(0x36, 0x2a, 0x1c);
+
+/// Toggle pill — filter chips. Selected gets the warm tint + bright text.
+pub fn chip(ui: &mut egui::Ui, label: &str, selected: bool) -> egui::Response {
+    let text_color = if selected { TEXT } else { TEXT_DIM };
+    let galley = ui
+        .painter()
+        .layout_no_wrap(label.to_owned(), font_meta(), text_color);
+    let size = egui::vec2(galley.size().x + sp::SM * 2.0, 20.0);
+    let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+
+    let fill = if response.is_pointer_button_down_on() || response.hovered() {
+        BG_HOVER
+    } else if selected {
+        CHIP_SELECTED_BG
+    } else {
+        Color32::TRANSPARENT
+    };
+    ui.painter().rect_filled(rect, RADIUS_SM, fill);
+    ui.painter().galley(
+        egui::pos2(
+            rect.center().x - galley.size().x * 0.5,
+            rect.center().y - galley.size().y * 0.5,
+        ),
+        galley,
         text_color,
     );
     response

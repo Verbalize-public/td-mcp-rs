@@ -3,12 +3,12 @@
 //! Iteration 1 shell: sidebar navigation + Overview cards + latest errors +
 //! embedded Fleet sections. Logs/Settings migrate here in later iterations.
 
-use eframe::egui::{self, Color32, FontId, Sense};
+use eframe::egui::{self, Color32, Sense};
 
 use crate::theme::{
-    self, filled_button, font_label, font_meta, font_mono, font_title, ghost_button, status_led,
-    ACCENT, BG_ACTIVE, BG_HOVER, BG_PANEL, BG_ROW, BG_ROW_ALT, BORDER, ERR, OK, TEXT, TEXT_DIM,
-    TEXT_FAINT, WARN,
+    self, chip, filled_button, font_label, font_meta, font_mono, font_title, ghost_button,
+    row_between, status_led, ACCENT, BG_ACTIVE, BG_HOVER, BG_PANEL, BG_ROW, BG_ROW_ALT, BORDER,
+    CARD_PAD, ERR, OK, RADIUS_MD, ROW_H, TEXT, TEXT_DIM, TEXT_FAINT, WARN,
 };
 use crate::{
     clip_line, level_color, level_letter, DashboardApp, FleetPanel, LogRecordView, ScanPurpose,
@@ -18,6 +18,8 @@ use crate::{
 const SIDEBAR_W: f32 = 196.0;
 /// Top bar height (px).
 const TOPBAR_H: f32 = 44.0;
+/// Modal dialog width (px).
+const MODAL_W: f32 = 480.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum DashTab {
@@ -233,62 +235,64 @@ fn overview(app: &mut DashboardApp, ui: &mut egui::Ui) {
         .as_ref()
         .map(|s| s.mcp_session_count)
         .unwrap_or(0);
-    let snap = &app.prev_snapshot;
-    let attention = snap.disconnected + snap.resurrected + snap.cancelled;
+    // Owned copies: daemon_card below takes `app` mutably.
+    let connected = app.prev_snapshot.connected;
+    let attention = {
+        let snap = &app.prev_snapshot;
+        snap.disconnected + snap.resurrected + snap.cancelled
+    };
     let role = app
         .status
         .as_ref()
         .map(|s| s.role.to_ascii_lowercase())
         .unwrap_or_else(|| "offline".to_owned());
 
-    ui.add_space(4.0);
+    ui.add_space(theme::sp::SM);
+
+    daemon_card(app, ui);
+
+    ui.add_space(theme::sp::MD);
     ui.columns(4, |cols| {
         stat_card(&mut cols[0], &mcp_n.to_string(), "MCP CLIENTS", OK);
-        stat_card(
-            &mut cols[1],
-            &snap.connected.to_string(),
-            "TD CONNECTED",
-            OK,
-        );
-        stat_card(
-            &mut cols[2],
-            &attention.to_string(),
-            "NEEDS ATTENTION",
-            if attention > 0 { WARN } else { TEXT_DIM },
-        );
+        stat_card(&mut cols[1], &connected.to_string(), "TD CONNECTED", OK);
+        // Compact label: keeps clear margin inside its 186px column even
+        // under high DPI scaling.
+        stat_card(&mut cols[2], &attention.to_string(), "ATTENTION", {
+            if attention > 0 { WARN } else { TEXT_DIM }
+        });
         stat_card(&mut cols[3], role.to_uppercase().as_str(), "ROLE", ACCENT);
     });
 
-    ui.add_space(18.0);
+    ui.add_space(theme::sp::LG);
 
     // First-poll connecting hint (errors surface separately once known).
     if app.status.is_none() && app.error.is_none() {
         ui.horizontal(|ui| {
             ui.spinner();
-            ui.add_space(6.0);
+            ui.add_space(theme::sp::XS);
             ui.label(
                 egui::RichText::new("connecting to daemon…")
                     .font(font_label())
                     .color(TEXT_FAINT),
             );
         });
-        ui.add_space(8.0);
+        ui.add_space(theme::sp::SM);
     }
 
     // Latest errors card.
     let count = app.error_ring.len();
-    egui::Frame::NONE
-        .fill(BG_ROW)
-        .stroke(egui::Stroke::new(1.0, BORDER))
-        .corner_radius(egui::CornerRadius::same(6))
-        .inner_margin(egui::Margin::same(14))
-        .show(ui, |ui| {
-            ui.horizontal(|ui| {
+    theme::card(ui, |ui| {
+        row_between(
+            ui,
+            18.0,
+            |ui| {
                 ui.label(
                     egui::RichText::new("LATEST ERRORS")
                         .font(font_meta())
                         .color(TEXT_DIM),
                 );
+            },
+            |ui| {
                 if count > 0 {
                     ui.label(
                         egui::RichText::new(count.to_string())
@@ -296,46 +300,94 @@ fn overview(app: &mut DashboardApp, ui: &mut egui::Ui) {
                             .color(ERR),
                     );
                 }
-            });
-            ui.add_space(6.0);
-            if app.error_ring.is_empty() {
+            },
+        );
+        ui.add_space(theme::sp::XS);
+        if app.error_ring.is_empty() {
+            ui.label(
+                egui::RichText::new("No recent errors")
+                    .font(font_label())
+                    .color(TEXT_FAINT),
+            );
+        } else {
+            egui::ScrollArea::vertical()
+                .max_height(220.0)
+                .auto_shrink(false)
+                .show(ui, |ui| {
+                    for msg in app.error_ring.clone().iter() {
+                        error_row(ui, msg);
+                    }
+                });
+        }
+    });
+}
+
+/// Lifecycle card: identity line plus the Restart / Stop / Reveal-.tox actions
+/// that moved out of the popup header in pass 5.
+fn daemon_card(app: &mut DashboardApp, ui: &mut egui::Ui) {
+    let info = app
+        .status
+        .as_ref()
+        .map(|s| (s.role.to_ascii_lowercase(), s.version.clone(), s.pid));
+
+    theme::card(ui, |ui| {
+        // Right side is laid out right-to-left: add Stop first so it lands at
+        // the trailing edge and the visual order reads Reveal · Restart · Stop.
+        row_between(
+            ui,
+            ROW_H,
+            |ui| {
                 ui.label(
-                    egui::RichText::new("No recent errors")
-                        .font(font_label())
+                    egui::RichText::new("DAEMON")
+                        .font(font_meta())
                         .color(TEXT_FAINT),
                 );
-            } else {
-                egui::ScrollArea::vertical()
-                    .max_height(220.0)
-                    .auto_shrink(false)
-                    .show(ui, |ui| {
-                        for msg in app.error_ring.clone().iter() {
-                            error_row(ui, msg);
-                        }
-                    });
-            }
-        });
+            },
+            |ui| {
+                if ghost_button(ui, "Stop", TEXT_DIM, ERR).clicked() {
+                    app.shutdown_daemon();
+                }
+                if ghost_button(ui, "Restart", TEXT_DIM, ACCENT).clicked() {
+                    app.restart_daemon();
+                }
+                if ghost_button(ui, "Reveal .tox", TEXT_DIM, ACCENT).clicked() {
+                    app.reveal_tox();
+                }
+            },
+        );
+        ui.add_space(theme::sp::XS);
+        let line = match &info {
+            Some((role, version, pid)) => format!("{role} · v{version} · pid {pid}"),
+            None => "not running".to_owned(),
+        };
+        ui.label(
+            egui::RichText::new(line)
+                .font(font_mono())
+                .color(if info.is_some() { TEXT_DIM } else { TEXT_FAINT }),
+        );
+    });
 }
 
 fn stat_card(ui: &mut egui::Ui, value: &str, title: &str, value_color: Color32) {
     let size = egui::vec2(ui.available_width(), 68.0);
     let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
-    ui.painter().rect_filled(rect, 6.0, BG_PANEL);
+    ui.painter()
+        .rect_filled(rect, RADIUS_MD, BG_PANEL);
     ui.painter().rect_stroke(
         rect,
-        6.0,
+        RADIUS_MD,
         egui::Stroke::new(1.0, BORDER),
         egui::StrokeKind::Inside,
     );
     ui.painter().text(
-        egui::pos2(rect.left() + 14.0, rect.top() + 26.0),
+        egui::pos2(rect.left() + CARD_PAD + 2.0, rect.top() + 26.0),
         egui::Align2::LEFT_CENTER,
         value,
-        FontId::new(19.0, egui::FontFamily::Proportional),
+        font_title(),
         value_color,
     );
     ui.painter().text(
-        egui::pos2(rect.left() + 14.0, rect.bottom() - 16.0),
+        egui::pos2(rect.left() + CARD_PAD + 2.0, rect.bottom() - theme::sp::LG),
         egui::Align2::LEFT_CENTER,
         title,
         font_meta(),
@@ -344,7 +396,7 @@ fn stat_card(ui: &mut egui::Ui, value: &str, title: &str, value_color: Color32) 
 }
 
 fn error_row(ui: &mut egui::Ui, msg: &str) {
-    let h = 22.0;
+    let h = ROW_H;
     let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), h), Sense::hover());
     ui.painter()
         .circle_filled(egui::pos2(rect.left() + 5.0, rect.center().y), 3.0, ERR);
@@ -392,11 +444,11 @@ fn modal_shell(ctx: &egui::Context, id: &str, add: impl FnOnce(&mut egui::Ui)) {
             egui::Frame::NONE
                 .fill(theme::BG_WINDOW)
                 .stroke(egui::Stroke::new(1.0, BORDER))
-                .corner_radius(egui::CornerRadius::same(6))
-                .inner_margin(egui::Margin::same(16)),
+                .corner_radius(egui::CornerRadius::same(RADIUS_MD as u8))
+                .inner_margin(egui::Margin::same(theme::sp::LG as i8)),
         )
         .show(ctx, |ui| {
-            ui.set_width(440.0);
+            ui.set_width(MODAL_W);
             add(ui);
         });
 }
@@ -428,18 +480,16 @@ fn logs(app: &mut DashboardApp, ui: &mut egui::Ui) {
     ui.horizontal(|ui| {
         for (label, level) in [("ALL", None), ("ERR", Some("error")), ("WRN", Some("warn"))] {
             let active = app.logs_view.min_level == level;
-            let color = if active { ACCENT } else { TEXT_DIM };
-            if ghost_button(ui, label, color, ACCENT).clicked() && !active {
+            if chip(ui, label, active).clicked() && !active {
                 app.logs_view.min_level = level;
                 app.reset_logs_filter_state();
             }
         }
-        ui.add_space(10.0);
+        ui.add_space(theme::sp::SM);
         for src in ["daemon", "bridge", "proxy"] {
             let active = app.logs_view.srcs.contains(src);
-            let color = if active { ACCENT } else { TEXT_DIM };
             let label = src.to_ascii_uppercase();
-            if ghost_button(ui, &label, color, ACCENT).clicked() {
+            if chip(ui, &label, active).clicked() {
                 if active {
                     app.logs_view.srcs.remove(src);
                 } else {
