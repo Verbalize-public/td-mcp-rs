@@ -414,22 +414,53 @@ round-trip diffing. Each phase lands with catalog codes, docs, tests
 (`FakeOfficialRunner`-style injectable runner for CI, fake `DialogSource` for watcher tests),
 and a live smoke against the 2025.32460 install.
 
+### 6.1 V2-0 probe results — executed 2026-08-25 against TD 2025.32460 (all three decisive)
+
+Evidence: `fixtures/v2-probes/` + reusable scripts under `scripts/probes/v2/`.
+
+- **R1 nested-tox — INLINE, not opaque.** Live capture (`r1_live.toe`) expanded cleanly:
+  dragged-tox subtrees (`tdmcp_rs`, `e2e_kit`) materialize as ordinary per-op grammar files.
+  ⇒ `project_install_bridge` update-existing needs no opaque-payload fallback.
+- **Bridge DAT mirror (critical for F):** `tdmcp_exec.text` ≡ `callbacks.text` byte-identical
+  (SHA-256); exec parm has start/create/exit/framestart all ON — install_bridge must rewrite
+  **three** bodies (`bootstrap`, `callbacks`, `tdmcp_exec`), never two, or stale code runs.
+- **`.text` sidecar v2 envelope (derived from 4 samples incl. empty + 101,500 B):**
+  `"2\n"` + u32LE(42) + 4×u32LE(1) + tag byte `0x02` + **u32BE payload length** + raw UTF-8
+  body; header = exactly 27 bytes. TD stores LF-only: repo CRLF sources equal payloads after
+  CR-strip ⇒ live baked bridge == current repo sources (zero drift). Writer rule: normalize
+  CRLF→LF, write the envelope verbatim.
+- **`.toc` law:** LF-only, no BOM, tree-walk order with extensions. CRLF ⇒ `toecollapse`
+  writes a **silent 0-byte output with exit 0**. Exit codes of both official tools lie in both
+  directions (expand success=1 twice observed; collapse open-error=0 once) — filesystem
+  evidence is the only oracle, now proven adversarially.
+- **R2 lifecycle numbers:** spawn→window 6 s; spawn→handshake 27 s cold / 23 s warm / 8 s hot;
+  handshake identity exact-matches the opened file every time (deterministic ownership works).
+  Graceful `WM_CLOSE` exits <8 s with no prompt on clean projects. TD quirks captured:
+  `project.save(path)` is save-as (**rebinds** the session); collision naming creates `.N.toe`
+  siblings plus a `Backup/` dir next to saves.
+- **Wedged-pump phenomenon (feeds DIALOGS design):** one stale session answered ping (worker
+  thread) but never serviced main-thread dispatch — no dialog, OS-responsive, queue empty;
+  recycle fixed it. Exactly the failure mode `window_status` + the dialogs watcher exist for.
+- **R3 grammar authoring — PASS end-to-end:** hand-written 6-line `.n` (clone-shape of real
+  files, trailing space after color values preserved) + one `.toc` line → strict-LF rewrite →
+  `toecollapse` → spawned real TD → `inspect` over MCP shows `/project1/authored_v2`
+  (`baseCOMP`). TD tolerates any toc position and re-derives canonical order itself.
+
 ---
 
 ## 7. Risks & open questions
 
-- **R1 — nested tox opacity.** If `toeexpand` keeps dragged `.tox` payloads opaque, bridge
-  injection into components that carry their own bridge copies needs a different entry point.
-  Probe before V2-A. Fixture evidence suggests inline expansion (external refs appear as
-  `*_ext.text` sidecars), unconfirmed.
+- **R1 — nested tox opacity.** ~~Open~~ **RESOLVED by V2-0 (§6.1):** expansion is inline;
+  no fallback needed. Kept for the record.
 - **R2 — spawn-time dialogs.** Licence expiry / first-run / compat prompts can block handshake
   indefinitely. Merged mitigation: pre-handshake registration + popup watch turn these into
   `spawn.blocked_by_dialog` with actionable popups instead of opaque timeouts; hard-severity
   startup dialogs are surfaced, never auto-dismissed; DIALOGS.md §7 risk table (UIPI, hwnd
   reuse, save-prompt loss) applies unchanged to the shared watcher.
 - **R3 — grammar authoring risk.** Creating brand-new nodes from text templates is easy to get
-  subtly wrong (flags, defaults). Gate behind a real-TD round-trip probe; until then the
-  install tool only rewrites existing DAT bodies (low-risk surface).
+  subtly wrong (flags, defaults). **V2-0 R3 round-trip PASSED** for a minimal COMP (§6.1);
+  V2-F stays update-existing; P3 create-from-scratch is unblocked but still lands behind its
+  own live-TD validation suite.
 - **R4 — version skew.** Expand grammar may shift between TD builds; record
   `toolVersion`/build in every result; pin per-operation via `installId`; never mix installs
   within one unpack→pack cycle (enforced in `tdmcp-projectio`).

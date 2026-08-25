@@ -55,7 +55,17 @@ Mechanics:
   non-routing for pid-less tools).
 - **install_bridge content:** bytes verbatim from embedded `bridge/` tree; ensure/force =
   SHA-256 compare of existing DAT bodies; fs::write byte-exact (no newline translation);
-  only existing DAT bodies rewritten ⇒ toc untouched.
+  only existing DAT bodies rewritten ⇒ toc untouched. **V2-0 amendment: rewrite THREE bodies**
+  (`bootstrap`, `callbacks`, `tdmcp_exec` — the exec DAT mirrors callbacks byte-for-byte).
+  Injected bodies normalized CRLF→LF.
+- **V2-0 probe laws (2026-08-25, evidence in `fixtures/v2-probes/`):** `.text` sidecar
+  envelope = `"2\n"` + u32LE(42) + 4×u32LE(1) + tag `0x02` + u32BE(len) + UTF-8 body
+  (header exactly 27 B); `.toc` is strict-LF/no-BOM — CRLF makes `toecollapse` emit a silent
+  **0-byte** file with exit 0; official-tool exit codes lie in BOTH directions ⇒ FS-evidence
+  checks are the only oracle; `project.save(path)` rebinds the session and collision-naming
+  creates `.N.toe` + `Backup/`; TD tolerates any toc entry position (re-derives canonical
+  order on load/save); spawn→handshake observed 8–27 s locally (60 s default wait has ~2×
+  headroom).
 
 ## 3. Agentic loop
 
