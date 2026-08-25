@@ -33,6 +33,8 @@ pub enum DiagnosticLayer {
     Script,
     /// Editor pane / selection context.
     Editor,
+    /// Tool-call argument validation (schema-level failures).
+    Args,
 }
 
 /// Payload size for diagnostics (independent of structural `detailLevel`).

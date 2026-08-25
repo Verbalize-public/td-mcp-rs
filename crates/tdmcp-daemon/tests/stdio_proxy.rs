@@ -164,17 +164,15 @@ async fn stdio_proxy_preserves_invalid_params_code() {
 
     let client = ().serve(client_side).await.expect("stdio client initialize");
 
+    // Protocol-level errors stay protocol errors end-to-end: unknown tool
+    // remains -32602 through the proxy.
     let err = client
         .call_tool(
-            CallToolRequestParams::new("fleet").with_arguments(
-                json!({"include": ["typo"]})
-                    .as_object()
-                    .cloned()
-                    .unwrap_or_default(),
-            ),
+            CallToolRequestParams::new("no_such_tool")
+                .with_arguments(json!({}).as_object().cloned().unwrap_or_default()),
         )
         .await
-        .expect_err("typo include must fail");
+        .expect_err("unknown tool must fail");
 
     match err {
         ServiceError::McpError(data) => {
@@ -184,10 +182,61 @@ async fn stdio_proxy_preserves_invalid_params_code() {
                 "stdio proxy must forward -32602, not remap to internal_error: {data}"
             );
             let msg = data.message.to_string();
-            assert!(msg.contains("typo"), "message should mention typo: {msg}");
+            assert!(
+                msg.contains("no_such_tool"),
+                "message should mention the tool: {msg}"
+            );
         }
         other => panic!("expected ServiceError::McpError, got {other:?}"),
     }
+
+    let _ = client.cancel().await;
+    let proxy_result = proxy_task.await.expect("join proxy");
+    assert!(
+        proxy_result.is_ok(),
+        "proxy should exit cleanly: {proxy_result:?}"
+    );
+    ct.cancel();
+}
+
+#[tokio::test]
+async fn stdio_proxy_forwards_curated_arg_errors() {
+    let bridge: Arc<dyn BridgeRpc> = Arc::new(FakeBridgeRpc::responding(json!({})));
+    let (url, _addr, ct) = spawn_http_daemon(bridge).await;
+
+    let (client_side, server_side) = tokio::io::duplex(64 * 1024);
+    let (server_read, server_write) = tokio::io::split(server_side);
+    let proxy_task =
+        tokio::spawn(async move { run_stdio_proxy_rw(&url, server_read, server_write).await });
+
+    let client = ().serve(client_side).await.expect("stdio client initialize");
+
+    // Schema-level arg failures arrive as structured isError results —
+    // catalog-backed, hinted, untouched by the proxy.
+    let result = client
+        .call_tool(
+            CallToolRequestParams::new("fleet").with_arguments(
+                json!({"include": ["typo"]})
+                    .as_object()
+                    .cloned()
+                    .unwrap_or_default(),
+            ),
+        )
+        .await
+        .expect("bad-include returns an isError result, not a protocol error");
+
+    assert_eq!(result.is_error, Some(true), "curated arg error: {result:?}");
+    let structured = result.structured_content.expect("structured_content");
+    let item = &structured["items"][0];
+    assert_eq!(item["code"], "tdmcp.args.unknown_variant", "{item}");
+    assert_eq!(item["span"]["field"], "include[0]", "{item}");
+    assert!(
+        item["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("tasks"),
+        "allowed variants must be listed: {item}"
+    );
 
     let _ = client.cancel().await;
     let proxy_result = proxy_task.await.expect("join proxy");

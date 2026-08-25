@@ -161,10 +161,9 @@ impl ServerHandler for McpHandler {
         {
             Ok(value) => Ok(call_tool_result_from_value(&name, value).into()),
             Err(ToolCallError::UnknownTool(name)) => Err(ErrorData::invalid_params(
-                format!("unknown tool: {name}"),
+                format!("unknown tool: {name} — call describe_tools for available tools"),
                 None,
             )),
-            Err(ToolCallError::InvalidArgs(msg)) => Err(ErrorData::invalid_params(msg, None)),
             Err(ToolCallError::Failed(fail)) => {
                 let payload = fail.structured_content();
                 Ok(call_tool_error_result(payload, fail.image_base64, fail.image_mime_type).into())

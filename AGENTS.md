@@ -65,6 +65,7 @@ make it pass.
 | Config file | [`docs/CONFIG.md`](docs/CONFIG.md) |
 | Packaging | [`docs/DELIVERY.md`](docs/DELIVERY.md) |
 | Logging / central sink / observability | [`docs/OBSERVABILITY.md`](docs/OBSERVABILITY.md) (spec) + [`docs/OBSERVABILITY_PLAN.md`](docs/OBSERVABILITY_PLAN.md) (execution plan) |
+| Tool-call arg-error diagnostics (`tdmcp.args.*`) | [`docs/TOOL_ERROR_PLAN.md`](docs/TOOL_ERROR_PLAN.md) |
 
 ### Build / check
 

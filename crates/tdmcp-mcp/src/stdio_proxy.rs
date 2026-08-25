@@ -441,7 +441,7 @@ async fn annotate_daemon_session(
 
 fn service_err_to_error_data(err: ServiceError) -> ErrorData {
     match err {
-        // Preserve upstream protocol codes (e.g. -32602 invalid_params for bad include).
+        // Preserve upstream protocol codes (e.g. -32602 invalid_params for unknown tool).
         ServiceError::McpError(data) => data,
         other => ErrorData::internal_error(other.to_string(), None),
     }

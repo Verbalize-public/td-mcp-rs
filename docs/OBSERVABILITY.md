@@ -246,6 +246,9 @@ Rules:
 8. Every emitted `code` field value must exist in `diagnostics/catalog.yaml`
    (completeness test extended to scan log statements, mirroring the existing
    response-code test in [`TESTING.md`](TESTING.md)).
+9. Argument-shape tool failures carry `tdmcp.args.*` codes as structured
+   `isError` results — raw serde strings never reach agents; mapping in
+   [`TOOL_ERROR_PLAN.md`](TOOL_ERROR_PLAN.md).
 
 ## 6. Milestones
 

@@ -16,6 +16,19 @@ pub const BRIDGE_MAIN_THREAD_TIMEOUT: &str = "tdmcp.bridge.main_thread_timeout";
 pub const BRIDGE_QUEUE_BUSY: &str = "tdmcp.bridge.queue_busy";
 /// MCP session already has an in-flight bridged tool against this pid.
 pub const MCP_SESSION_BUSY: &str = "tdmcp.mcp.session_busy";
+/// Tool result failed to serialize (internal; never the caller's fault).
+pub const MCP_SERIALIZE_FAILED: &str = "tdmcp.mcp.serialize_failed";
+
+/// Tool-call arguments missing a required field.
+pub const ARGS_MISSING_FIELD: &str = "tdmcp.args.missing_field";
+/// Tool-call argument key not in the schema (`deny_unknown_fields`).
+pub const ARGS_UNKNOWN_FIELD: &str = "tdmcp.args.unknown_field";
+/// Argument value not a valid enum variant (e.g. `include` / `detailLevel` / step `op`).
+pub const ARGS_UNKNOWN_VARIANT: &str = "tdmcp.args.unknown_variant";
+/// Argument value has the wrong JSON type for its schema slot.
+pub const ARGS_WRONG_TYPE: &str = "tdmcp.args.wrong_type";
+/// Lint: similar argument key found (typo / near-miss).
+pub const ARGS_SIMILAR_FIELD: &str = "tdmcp.args.similar_field";
 /// Daemon wait timed out.
 pub const BRIDGE_TIMEOUT: &str = "tdmcp.bridge.timeout";
 /// Bridge package version incompatible with daemon.
@@ -141,6 +154,12 @@ pub const ALL: &[&str] = &[
     BRIDGE_MAIN_THREAD_TIMEOUT,
     BRIDGE_QUEUE_BUSY,
     MCP_SESSION_BUSY,
+    MCP_SERIALIZE_FAILED,
+    ARGS_MISSING_FIELD,
+    ARGS_UNKNOWN_FIELD,
+    ARGS_UNKNOWN_VARIANT,
+    ARGS_WRONG_TYPE,
+    ARGS_SIMILAR_FIELD,
     BRIDGE_TIMEOUT,
     BRIDGE_VERSION,
     DAEMON_UNREACHABLE,

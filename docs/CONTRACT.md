@@ -259,6 +259,8 @@ Structured success is **flat tool fields** with a single outer `ok` (bridge may 
 
 Failures (all bridge-backed tools): `{ ok: false, summary, items, … }` via diagnostics flatten. Mutate soft-fail splices `applied` / `failedAt` / `steps` **flat** (not under `data`). Soft perception fails (black/uniform frame) use `isError` + diagnostics + image content — that path is separate from success nesting.
 
+**Argument-shape failures** (missing / unknown field, bad enum value, wrong type) are **not** protocol errors: every tool returns the same `{ ok: false, summary, items }` shape with catalog-backed `tdmcp.args.*` codes (`missing_field`, `unknown_field`, `unknown_variant`, `wrong_type`; `tdmcp.args.similar_field` lint carries a did-you-mean suggestion). Spans point at the exact JSON reference (`steps[0].op`). `-32602 invalid_params` is reserved for unknown tool names and malformed requests; expected fields/values are derived from each tool's advertised schema. See [`TOOL_ERROR_PLAN.md`](TOOL_ERROR_PLAN.md).
+
 **Transport note:** Streamable HTTP JSON fallback (`/mcp/tools/call`) still wraps success as `{ ok: true, data: <above> }`; stdio/rmcp does not. Failures are not double-wrapped.
 
 ### `fleet` / `include`
@@ -272,11 +274,11 @@ Failures (all bridge-backed tools): `{ ok: false, summary, items, … }` via dia
 | `popups`       | deferred / empty until P1                                                                                                           |
 
 
-Unknown `include` values are **rejected** at MCP arg deserialize (invalid params) — not silently ignored.
+Unknown `include` values are **rejected** at arg validation — structured failure with `tdmcp.args.unknown_variant` listing allowed values (not a protocol error).
 
 ### `inspect` / `paths`
 
-`inspect` requires a non-empty `paths: OpPath[]` array. There is **no single-`path` param** and **no auto-recursion** — the caller chooses exactly which nodes to fetch. Soft-capped at **96** paths per call (`tdmcp.op.paths_truncated` when exceeded; first 96 processed). Empty / missing `paths` → MCP `InvalidArgs` (Rust) or bridge `tdmcp.op.paths_required`.
+`inspect` requires a non-empty `paths: OpPath[]` array. There is **no single-`path` param** and **no auto-recursion** — the caller chooses exactly which nodes to fetch. Soft-capped at **96** paths per call (`tdmcp.op.paths_truncated` when exceeded; first 96 processed). Empty / missing `paths` → structured `tdmcp.op.paths_required` failure (daemon pre-check; bridge emits the same code).
 
 **Partial success:** a bad path does not fail the whole batch. That entry is `{ ok: false, path, code: "tdmcp.op.not_found", message }` (or `tdmcp.op.inspect_failed`); siblings still return data. Top-level success stays `{ ok: true, nodes: [...] }`.
 
@@ -289,7 +291,7 @@ Unknown `include` values are **rejected** at MCP arg deserialize (invalid params
 | non-empty      | allowlist only (`nodes` / `params` / `errors` / `warnings` / `content`) |
 
 
-`params` and `content` are opt-in. `errors` / `warnings` are string arrays from `OP.errors()` / `OP.warnings()` (no recurse). Not gated by `detailLevel`. When those sections are included (including via default empty `include`), empty arrays are still emitted as “section loaded” — they never flip MCP tool failure. Tool-level failure is only bridge soft-fail (`ok: false`), queue busy, or transport. Unknown `include` values are **rejected** at MCP arg deserialize.
+`params` and `content` are opt-in. `errors` / `warnings` are string arrays from `OP.errors()` / `OP.warnings()` (no recurse). Not gated by `detailLevel`. When those sections are included (including via default empty `include`), empty arrays are still emitted as “section loaded” — they never flip MCP tool failure. Tool-level failure is only bridge soft-fail (`ok: false`), queue busy, or transport. Unknown `include` values are **rejected** at arg validation with `tdmcp.args.unknown_variant`.
 
 Child roster fields (`childCount`, `childrenReturned`, `children`, and when truncated `childrenTruncated` / `truncation`) and positional wire peers (`inputs`, `outputs`) are emitted **only when `nodes` is in the effective include set** (default empty `include` includes `nodes`). When a non-empty `include` omits `nodes`, those keys are absent entirely — same "section not loaded" signal as omitted `params` / `errors` / `warnings`.
 
@@ -608,6 +610,6 @@ Daemon CLI: `start` (foreground; tray + toast by default, dashboard hidden until
 - Identity: `pid` required on bridged tools; optional `daemonId` when federated (ambiguous pid → `tdmcp.federation.ambiguous_pid`). Bridged tools always exclusive-enqueue (fail iff queue non-empty); session chill on `(mcp_session, pid)` locally and `(mcp_session, daemonId, pid)` when proxied; resurrection stacks until first success.
 - Perception: `capture` only; builders never self-grade look.
 - Paths: `OpPath` + optional `contextPath`; TD resolves; default base `/project1`.
-- Diagnostics: catalog-backed codes; free-string-only failures forbidden.
+- Diagnostics: catalog-backed codes; free-string-only failures forbidden. Argument-shape failures use `tdmcp.args.*` codes as structured `isError` results; `-32602` reserved for unknown tool / malformed request (see [`TOOL_ERROR_PLAN.md`](TOOL_ERROR_PLAN.md)).
 - MCP success: flat tool fields (`node` / `path` / `result` / `steps` at top level); bridge mini-envelopes are passed through by mappers, not nested under the tool name. HTTP JSON fallback still wraps success in `{ ok, data }`.
 

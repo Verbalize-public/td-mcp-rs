@@ -141,7 +141,7 @@ async fn list_tools() -> Json<Value> {
 async fn call_tool(
     State(state): State<AppState>,
     Json(body): Json<CallBody>,
-) -> Result<Json<Value>, axum::http::StatusCode> {
+) -> Result<Json<Value>, (axum::http::StatusCode, Json<Value>)> {
     match dispatch_tool(
         &state.registry,
         &state.catalog,
@@ -166,8 +166,13 @@ async fn call_tool(
             }
             Ok(Json(payload))
         }
-        Err(ToolCallError::UnknownTool(_) | ToolCallError::InvalidArgs(_)) => {
-            Err(axum::http::StatusCode::BAD_REQUEST)
-        }
+        Err(ToolCallError::UnknownTool(name)) => Err((
+            axum::http::StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "ok": false,
+                "summary":
+                    format!("unknown tool: {name} — call /mcp/tools/list or describe_tools"),
+            })),
+        )),
     }
 }

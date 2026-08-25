@@ -689,3 +689,58 @@ entries:
       - kind: doc
         id: look-grade
         uri: tdmcp://docs/look-grade
+
+  - code: tdmcp.args.missing_field
+    layer: args
+    message: "Tool call arguments are missing a required field"
+    mitigation:
+      - "Add the missing field shown in the error message"
+      - "Call describe_tools for the tool's full inputSchema"
+    references:
+      - kind: tool
+        id: describe_tools
+
+  - code: tdmcp.args.unknown_field
+    layer: args
+    message: "Tool call arguments contain an unknown field"
+    mitigation:
+      - "Remove or rename the field shown in the error message (camelCase)"
+      - "Call describe_tools for the tool's full inputSchema"
+    references:
+      - kind: tool
+        id: describe_tools
+
+  - code: tdmcp.args.unknown_variant
+    layer: args
+    message: "Argument value is not one of the allowed variants"
+    mitigation:
+      - "Use one of the allowed values listed in the error message"
+      - "Call describe_tools for the tool's full inputSchema"
+    references:
+      - kind: tool
+        id: describe_tools
+
+  - code: tdmcp.args.wrong_type
+    layer: args
+    message: "Argument value has the wrong JSON type"
+    mitigation:
+      - "Match the expected type shown in the error message"
+      - "Call describe_tools for the tool's full inputSchema"
+    references:
+      - kind: tool
+        id: describe_tools
+
+  - code: tdmcp.args.similar_field
+    layer: args
+    message: "Similar argument key found (typo / near-miss)"
+    mitigation:
+      - "Replace the key with the suggested spelling"
+    references:
+      - kind: tool
+        id: describe_tools
+
+  - code: tdmcp.mcp.serialize_failed
+    layer: fleet
+    message: "Tool result failed to serialize (internal error)"
+    mitigation:
+      - "Retry the call; if it persists, inspect daemon logs (`tdmcp-daemon logs`)"

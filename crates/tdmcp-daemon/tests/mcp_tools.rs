@@ -88,7 +88,25 @@ async fn unknown_field_rejected() {
         ))
         .unwrap();
     let resp = app.oneshot(req).await.unwrap();
-    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "arg errors are isError results"
+    );
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(v["ok"], json!(false));
+    let item = &v["items"][0];
+    assert_eq!(item["code"], "tdmcp.args.unknown_field", "{item}");
+    assert!(
+        item["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("nope"),
+        "message must name the offending field: {item}"
+    );
 }
 
 #[tokio::test]
@@ -573,7 +591,26 @@ async fn mutate_nodes_unknown_field_rejected() {
         ))
         .unwrap();
     let resp = app.oneshot(req).await.unwrap();
-    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "arg errors are isError results"
+    );
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(v["ok"], json!(false));
+    let item = &v["items"][0];
+    assert_eq!(item["code"], "tdmcp.args.unknown_field", "{item}");
+    assert_eq!(item["span"]["field"], "steps[0].extra", "{item}");
+    assert!(
+        item["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("expected one of"),
+        "allowed step fields must be listed: {item}"
+    );
 }
 
 #[tokio::test]

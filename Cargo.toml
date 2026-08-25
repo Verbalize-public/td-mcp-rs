@@ -62,6 +62,7 @@ rmcp = { version = "3", default-features = false, features = [
 schemars = { version = "1", features = ["chrono04"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+serde_path_to_error = "0.1.20"
 serde_yaml = "0.9"
 image = { version = "0.25", default-features = false, features = ["png"] }
 notify-rust = "4"

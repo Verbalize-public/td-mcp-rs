@@ -1,9 +1,11 @@
 # Curated Tool-Call Error Diagnostics — Plan
 
-> **Status: planning only — no implementation yet.** Companion to
+> **Status: implemented & verified (2026-08-25).** All milestones below are
+> done; live probes confirmed the curated payloads through the daemon's HTTP
+> surface, and `stdio_proxy_forwards_curated_arg_errors` covers the stdio
+> path. Companion to
 > [`OBSERVABILITY_PLAN.md`](OBSERVABILITY_PLAN.md); follows the same
-> milestone/task layout. When implementation starts, work the milestones in
-> order and check boxes as they land.
+> milestone/task layout.
 
 ## 0. Problem
 
@@ -111,66 +113,66 @@ emit as a nested `LintItem` with `suggestion.replace` + `confidence`, same as
 
 ### M1 — Catalog & envelope foundation
 
-- [ ] **T1.1** `crates/tdmcp-diagnostics/src/codes.rs`: add `ARGS_MISSING_FIELD`,
+- [x] **T1.1** `crates/tdmcp-diagnostics/src/codes.rs`: add `ARGS_MISSING_FIELD`,
       `ARGS_UNKNOWN_FIELD`, `ARGS_UNKNOWN_VARIANT`, `ARGS_WRONG_TYPE`,
       `ARGS_SIMILAR_FIELD`; append to `ALL`.
-- [ ] **T1.2** `diagnostics/catalog.yaml`: one entry per new code, following the
+- [x] **T1.2** `diagnostics/catalog.yaml`: one entry per new code, following the
       existing pattern (message + `mitigation:` list + `references:` pointing at
       `describe_tools` / relevant docs). Drift tests in `codes.rs`
       (`every_code_constant_is_in_catalog`, orphan scan, literal scan) enforce
       completeness automatically.
-- [ ] **T1.3** `envelope.rs`: add `DiagnosticLayer::Args`.
+- [x] **T1.3** `envelope.rs`: add `DiagnosticLayer::Args`.
 
 ### M2 — Curated parser (`crates/tdmcp-mcp/src/args_diag.rs`, new)
 
-- [ ] **T2.1** `parse_args<T>(catalog, tool, args) -> Result<T, ToolCallError>`
+- [x] **T2.1** `parse_args<T>(catalog, tool, args) -> Result<T, ToolCallError>`
       wrapping `serde_path_to_error::deserialize`; classify the inner serde
       error (missing field / unknown field / unknown variant / type mismatch)
       into D2 codes; build the `DiagnosticItem` via
       `catalog.build_error(code, span{tool, field}, message, …)`; on unknown
       field, attach the T2.3 lint.
-- [ ] **T2.2** Schema-driven context extraction from `input_schema_for(tool)`:
+- [x] **T2.2** Schema-driven context extraction from `input_schema_for(tool)`:
       required-list lookup, per-op-variant property sets via `$defs`, enum
       value lists for `unknown_variant` messages.
-- [ ] **T2.3** Near-miss helper (D5) + unit tests: missing `op`, typo'd top key
+- [x] **T2.3** Near-miss helper (D5) + unit tests: missing `op`, typo'd top key
       (`contextpath` → suggests `contextPath`), bad `include` value, wrong
       type, empty-array pre-check codes.
 
 ### M3 — Wiring across surfaces
 
-- [ ] **T3.1** `dispatch_tool`: swap all seven parse sites to `parse_args`;
+- [x] **T3.1** `dispatch_tool`: swap all seven parse sites to `parse_args`;
       migrate hand checks (`tools.rs:791/899`) to coded items reusing
       `OP_PATHS_REQUIRED` / `API_HELP_QUERIES_REQUIRED`.
-- [ ] **T3.2** `rmcp_handler.rs:163-172`: `InvalidArgs` now carries the payload
+- [x] **T3.2** `rmcp_handler.rs:163-172`: `InvalidArgs` now carries the payload
       and returns via `call_tool_error_result(...)` like `Failed`; `UnknownTool`
       stays `-32602` but with enriched text ("call describe_tools").
-- [ ] **T3.3** `server.rs:141-172`: JSON fallback returns the same failure body
+- [x] **T3.3** `server.rs:141-172`: JSON fallback returns the same failure body
       with HTTP 400 (no more empty body).
-- [ ] **T3.4** stdio proxy needs no logic change; keep
+- [x] **T3.4** stdio proxy needs no logic change; keep
       `stdio_proxy_preserves_invalid_params_code`
       (`crates/tdmcp-daemon/tests/stdio_proxy.rs:156`) green for the remaining
       `-32602` class; add a sibling test asserting the structured arg-error
       payload flows through untouched.
-- [ ] **T3.5** Apply D6 to the four `to_value` sites.
-- [ ] **T3.6** Update the pinned expectations that assert old behavior
+- [x] **T3.5** Apply D6 to the four `to_value` sites.
+- [x] **T3.6** Update the pinned expectations that assert old behavior
       (`rg InvalidArgs crates/*/tests crates/*/src` before starting; also grep
       tests for `"invalid arguments"` / `missing field`).
 
 ### M4 — Contract & docs
 
-- [ ] **T4.1** `docs/CONTRACT.md`: update the failure paragraph (~line 260),
+- [x] **T4.1** `docs/CONTRACT.md`: update the failure paragraph (~line 260),
       the `fleet`/`include` rejection note (line 275), the `inspect`/`paths`
       note (line 279), the inspect include note (line 292), and the
       "Decided contract (summary)" section (~line 604): argument-shape failures
       are structured `isError` results with `tdmcp.args.*` codes;
       `-32602` reserved for unknown tool / malformed request.
-- [ ] **T4.2** Cross-ref the new codes from `docs/OBSERVABILITY.md`; add this
+- [x] **T4.2** Cross-ref the new codes from `docs/OBSERVABILITY.md`; add this
       doc's row to the AGENTS.md Documentation Reference table when done.
 
 ### M5 — Verification (MCP-first)
 
-- [ ] `cargo test --workspace` + `scripts/check.ps1`.
-- [ ] Live probe per AGENTS.md ritual (kill daemons → rebuild →
+- [x] `cargo test --workspace` + `scripts/check.ps1`.
+- [x] Live probe per AGENTS.md ritual (kill daemons → rebuild →
       `tdmcp-daemon ensure`), then through a real MCP client:
       1. `mutate_nodes` step without `op` → curated payload with
          `tdmcp.args.missing_field` + hint (**not** `missing field 'op'`).

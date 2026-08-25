@@ -7,6 +7,7 @@
 
 use include_dir::{include_dir, Dir};
 
+mod args_diag;
 pub mod bridge_rpc;
 mod daemon_link;
 mod editor_context;

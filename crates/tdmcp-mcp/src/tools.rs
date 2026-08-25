@@ -17,10 +17,11 @@ use tdmcp_core::{
     AggregatedFleetProcess, BridgeMethod, DaemonId, OpPath, Pid, PidRegistry, PidResolve,
     SlaveReachability, TaskMode,
 };
-use tdmcp_diagnostics::DiagnosticLevel;
+use tdmcp_diagnostics::{codes, DiagnosticLevel};
 use thiserror::Error;
 use tokio::sync::Mutex;
 
+use crate::args_diag::{coded_failure, parse_args, serialize_failed};
 use crate::bridge_rpc::{BridgeRpc, BridgeRpcError};
 use crate::editor_context::EditorContextParams;
 use crate::fleet::{fleet_summary, FleetParams, FleetProcess, FleetResponse};
@@ -172,9 +173,6 @@ pub enum ToolCallError {
     /// Unknown tool name.
     #[error("unknown tool: {0}")]
     UnknownTool(String),
-    /// JSON args parse failure.
-    #[error("invalid arguments: {0}")]
-    InvalidArgs(String),
     /// Domain / queue / bridge failure with diagnostics.
     #[error("{0}")]
     Failed(Box<ToolFailPayload>),
@@ -659,12 +657,44 @@ pub async fn dispatch_tool(
     session: Option<SessionGate<'_>>,
     federation: Option<&FederationCtx>,
 ) -> Result<Value, ToolCallError> {
+    // One boundary record per call — the only per-call trace agents and the
+    // tray Logs view ever see (observability spec §5.7 rule 3).
+    let started = std::time::Instant::now();
+    let result =
+        dispatch_tool_inner(registry, catalog, bridge, name, args, session, federation).await;
+    let elapsed_ms = started.elapsed().as_millis() as u64;
+    match &result {
+        Ok(_) => tracing::info!(tool = %name, elapsed_ms, "tool call complete"),
+        Err(ToolCallError::UnknownTool(_)) => {
+            tracing::warn!(tool = %name, elapsed_ms, "tool call failed: unknown tool")
+        }
+        Err(ToolCallError::Failed(fail)) => {
+            let code = fail
+                .diagnostics
+                .items
+                .first()
+                .map(|i| i.code.as_str())
+                .unwrap_or("unknown");
+            tracing::warn!(tool = %name, code, elapsed_ms, "tool call failed");
+        }
+    }
+    result
+}
+
+async fn dispatch_tool_inner(
+    registry: &Arc<Mutex<PidRegistry>>,
+    catalog: &tdmcp_diagnostics::Catalog,
+    bridge: &dyn BridgeRpc,
+    name: &str,
+    args: Value,
+    session: Option<SessionGate<'_>>,
+    federation: Option<&FederationCtx>,
+) -> Result<Value, ToolCallError> {
     let tool =
         ToolName::from_wire(name).ok_or_else(|| ToolCallError::UnknownTool(name.to_owned()))?;
     match tool {
         ToolName::Fleet => {
-            let params: FleetParams = serde_json::from_value(args)
-                .map_err(|e| ToolCallError::InvalidArgs(e.to_string()))?;
+            let params: FleetParams = parse_args(catalog, tool, args)?;
             let want_tasks = params.include.contains(&crate::fleet::FleetInclude::Tasks);
             let mut ipc_depths = Vec::new();
             if want_tasks {
@@ -687,17 +717,16 @@ pub async fn dispatch_tool(
             if let Some(fed) = federation {
                 Ok(
                     serde_json::to_value(federated_fleet_summary(fed, local).await)
-                        .map_err(|e| ToolCallError::InvalidArgs(e.to_string()))?,
+                        .map_err(|e| serialize_failed(catalog, tool, "fleet summary", &e))?,
                 )
             } else {
                 Ok(serde_json::to_value(local)
-                    .map_err(|e| ToolCallError::InvalidArgs(e.to_string()))?)
+                    .map_err(|e| serialize_failed(catalog, tool, "fleet summary", &e))?)
             }
         }
         ToolName::DescribeTools => Ok(serde_json::json!({ "tools": tool_descriptors() })),
         ToolName::ExecutePython => {
-            let params: ExecutePythonParams = serde_json::from_value(args.clone())
-                .map_err(|e| ToolCallError::InvalidArgs(e.to_string()))?;
+            let params: ExecutePythonParams = parse_args(catalog, tool, args.clone())?;
             if let ControlFlow::Break(v) = maybe_proxy_bridged(
                 federation,
                 registry,
@@ -743,8 +772,7 @@ pub async fn dispatch_tool(
             )
         }
         ToolName::Capture => {
-            let params: CaptureParams = serde_json::from_value(args.clone())
-                .map_err(|e| ToolCallError::InvalidArgs(e.to_string()))?;
+            let params: CaptureParams = parse_args(catalog, tool, args.clone())?;
             if let ControlFlow::Break(v) = maybe_proxy_bridged(
                 federation,
                 registry,
@@ -785,11 +813,14 @@ pub async fn dispatch_tool(
             )
         }
         ToolName::Inspect => {
-            let params: InspectParams = serde_json::from_value(args.clone())
-                .map_err(|e| ToolCallError::InvalidArgs(e.to_string()))?;
+            let params: InspectParams = parse_args(catalog, tool, args.clone())?;
             if params.paths.is_empty() {
-                return Err(ToolCallError::InvalidArgs(
-                    "inspect requires a non-empty paths array".into(),
+                return Err(coded_failure(
+                    catalog,
+                    tool,
+                    codes::OP_PATHS_REQUIRED,
+                    "paths",
+                    "inspect requires a non-empty paths array",
                 ));
             }
             if let ControlFlow::Break(v) = maybe_proxy_bridged(
@@ -846,8 +877,7 @@ pub async fn dispatch_tool(
             )
         }
         ToolName::MutateNodes => {
-            let params: MutateNodesParams = serde_json::from_value(args.clone())
-                .map_err(|e| ToolCallError::InvalidArgs(e.to_string()))?;
+            let params: MutateNodesParams = parse_args(catalog, tool, args.clone())?;
             if let ControlFlow::Break(v) = maybe_proxy_bridged(
                 federation,
                 registry,
@@ -871,7 +901,7 @@ pub async fn dispatch_tool(
             )?;
             let method = BridgeMethod::MutateNodes;
             let steps = serde_json::to_value(&params.steps)
-                .map_err(|e| ToolCallError::InvalidArgs(e.to_string()))?;
+                .map_err(|e| serialize_failed(catalog, tool, "mutate steps", &e))?;
             let outcome = enqueue_and_call(
                 registry,
                 bridge,
@@ -893,11 +923,14 @@ pub async fn dispatch_tool(
             )
         }
         ToolName::ApiHelp => {
-            let params: ApiHelpParams = serde_json::from_value(args.clone())
-                .map_err(|e| ToolCallError::InvalidArgs(e.to_string()))?;
+            let params: ApiHelpParams = parse_args(catalog, tool, args.clone())?;
             if params.queries.is_empty() {
-                return Err(ToolCallError::InvalidArgs(
-                    "api_help requires a non-empty queries array".into(),
+                return Err(coded_failure(
+                    catalog,
+                    tool,
+                    codes::API_HELP_QUERIES_REQUIRED,
+                    "queries",
+                    "api_help requires a non-empty queries array",
                 ));
             }
             if let ControlFlow::Break(v) = maybe_proxy_bridged(
@@ -917,7 +950,7 @@ pub async fn dispatch_tool(
             let _slot =
                 begin_session_slot(session, catalog, "api_help", DAEMON_SCOPE_LOCAL, params.pid)?;
             let queries = serde_json::to_value(&params.queries)
-                .map_err(|e| ToolCallError::InvalidArgs(e.to_string()))?;
+                .map_err(|e| serialize_failed(catalog, tool, "api_help queries", &e))?;
             let outcome = enqueue_and_call(
                 registry,
                 bridge,
@@ -932,8 +965,7 @@ pub async fn dispatch_tool(
             map_api_help_outcome(catalog, params.pid, outcome, params.diagnostic_level)
         }
         ToolName::EditorContext => {
-            let params: EditorContextParams = serde_json::from_value(args.clone())
-                .map_err(|e| ToolCallError::InvalidArgs(e.to_string()))?;
+            let params: EditorContextParams = parse_args(catalog, tool, args.clone())?;
             if let ControlFlow::Break(v) = maybe_proxy_bridged(
                 federation,
                 registry,
