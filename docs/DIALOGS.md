@@ -10,6 +10,14 @@ Rev 3: platform strategy is a **vendored in-house wrapper** over the OS APIs
 and expose no classic controls (see §4). Windows first, macOS later behind the
 same internal facade.
 
+Rev 4: scheduled into the unified v2 roadmap as phase **V2-D** by
+[`SKILLS_CONTRACT_PROPOSAL.md`](SKILLS_CONTRACT_PROPOSAL.md); this annex keeps the full
+implementation spec, that document owns scope/phasing/interactions. Deltas: watcher predicate
+widens to `{starting, connected}` (pre-handshake spawned pids, resolving limitation §9-1 for
+spawned processes), start-flow dialog policy moves into `spawn_td`
+(`startupDialogPolicy`, proposal §3.6) instead of being a non-goal, and milestones M1–M5 map
+onto V2-A/V2-D/V2-G.
+
 Reserves already in the tree this feature fills:
 
 | Reserve | Location |
@@ -55,7 +63,9 @@ dismiss them.
    P2. Linux: TouchDesigner doesn't run there — out of scope.
 
 Non-goals (P1): lifecycle/start-flow dialog handling (no lifecycle tools exist
-in rs v1), detecting popups of never-handshaken TD processes, event-push over
+in rs v1; *rev 4: the v2 proposal adds `spawn_td` and owns start-flow policy there — this
+annex supplies the mechanics*), detecting popups of never-handshaken TD processes (*rev 4:
+resolved for spawned pids via pre-handshake registration, proposal §3.6*), event-push over
 the bridge protocol, UI automation *inside* TD's own windows (that is what
 `editor_context`/`capture` are for).
 
@@ -258,7 +268,9 @@ is_default}>` (backend-composed: classic controls ∪ accessibility tree),
 
 Daemon background task (spawned in `run_daemon` wiring, `cfg(windows)` +
 config-gated): every `[dialogs].poll_ms` (default 1000) iterate registry pids
-with `bridge == Connected`, call `snapshot()`, store:
+with `bridge == Connected` (*rev 4: predicate widens to `{starting, connected}` so spawned
+pids are watched pre-handshake — see proposal §4.4*), call
+`snapshot()`, store:
 
 - `ProcessAttrs.window_status` ← `WindowStatus` (fills the reserved field);
 - per-pid `DialogSnapshot` cache (side-map keyed by pid in the daemon, TTL =
@@ -347,7 +359,7 @@ poll_ms   = 1000    # watcher cadence
 | Risk | Mitigation |
 | --- | --- |
 | UIPI: elevated TD + non-elevated daemon blocks posted messages | Detect access-denied class of failures (`PostMessage` last-error) → distinct error/help text in catalog entries |
-| Dismissing save-prompts discards unsaved work | Severity surfacing; chrome guard; dismiss requires explicit tool call (agent's choice); doc warning; never auto-dismiss outside start-flow (which rs v1 doesn't have) |
+| Dismissing save-prompts discards unsaved work | Severity surfacing; chrome guard; dismiss requires explicit tool call (agent's choice); doc warning; never auto-dismiss outside start-flow (*rev 4: start-flow policy = `spawn_td.startupDialogPolicy`, which still never auto-answers save-prompts or hard dialogs*) |
 | hwnd reuse between snapshot and dismiss | Re-verify title/class before acting; stale ⇒ `tdmcp.dialog.not_found` |
 | False positives (named non-dialog top-levels) | Enumerate-time `#32770`/style/owner classification + chrome guard (POC lesson) |
 | Probe cost on hot path | Poll path is user32-only (no COM); UIA content runs once per new popup hwnd and is cached; ops serialized through one worker off the tokio runtime |
@@ -366,6 +378,9 @@ permission — document as an install step. Everything above the facade
 unchanged; no other crate changes.
 
 ## 8. Implementation plan (phased)
+
+*Rev 4: milestones below map onto the unified v2 roadmap — M1 → V2-A, M2–M4 → V2-D,
+M5 → V2-G; sequencing/dependencies live in [`SKILLS_CONTRACT_PROPOSAL.md`](SKILLS_CONTRACT_PROPOSAL.md) §6.*
 
 | Milestone | Content | Verification |
 | --- | --- | --- |
@@ -386,6 +401,9 @@ as a limitation with its window class for follow-up.
 - Popups of TD processes that never handshook are invisible (registry rows are
   handshake-created only; no daemon-side process scan exists). Startup-modal
   TDs therefore stay undetectable until lifecycle (P2) adds process launch.
+  *Rev 4: resolved for spawned pids — `spawn_td` registers pre-handshake
+  (proposal §3.6), and the watcher predicate includes `starting` rows. Human-opened,
+  never-handshaken TDs remain invisible by design.*
 - Duplicate-titled dialogs disambiguate by id only after `list`.
 - Open questions (recommendations in §5; adjust during review):
   1. Interception default-on? (recommended yes, `intercept=false` escape)

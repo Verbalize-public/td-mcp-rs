@@ -66,6 +66,8 @@ make it pass.
 | Packaging | [`docs/DELIVERY.md`](docs/DELIVERY.md) |
 | Logging / central sink / observability | [`docs/OBSERVABILITY.md`](docs/OBSERVABILITY.md) (spec) + [`docs/OBSERVABILITY_PLAN.md`](docs/OBSERVABILITY_PLAN.md) (execution plan) |
 | Tool-call arg-error diagnostics (`tdmcp.args.*`) | [`docs/TOOL_ERROR_PLAN.md`](docs/TOOL_ERROR_PLAN.md) |
+| GUI overhaul plan (active work spec) | [`docs/GUI_OVERHAUL_PLAN.md`](docs/GUI_OVERHAUL_PLAN.md) |
+| Payload limits audit / artifact-spool plan (base64 → file delivery) | [`docs/LIMITS_AUDIT.md`](docs/LIMITS_AUDIT.md) + [`docs/PAYLOAD_SPOOL_PLAN.md`](docs/PAYLOAD_SPOOL_PLAN.md) |
 
 ### Build / check
 
