@@ -2,7 +2,7 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use tdmcp_core::{BridgeStatus, Pid, PidRegistry};
+use tdmcp_core::{BridgeStatus, Pid, PidRegistry, SpawnRecord};
 
 /// Optional filters for `fleet`.
 #[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
@@ -50,6 +50,10 @@ pub struct FleetProcess {
     pub toe_path: Option<String>,
     /// Bridge status.
     pub bridge: BridgeStatus,
+    /// Spawn provenance when we launched this process; absent for
+    /// human-opened instances (v2 lifecycle ownership).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub spawn: Option<SpawnRecord>,
     /// In-flight / pending tasks when requested; omitted when the snapshot is empty.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tasks: Option<Vec<tdmcp_core::TaskInfo>>,
@@ -113,6 +117,7 @@ pub fn fleet_summary(
             window_status: entry.process.window_status.clone(),
             toe_path: entry.process.toe_path.clone(),
             bridge: entry.bridge,
+            spawn: entry.spawn.clone(),
             tasks: want_tasks
                 .then(|| entry.queue.snapshot())
                 .filter(|t| !t.is_empty()),
@@ -185,5 +190,63 @@ mod tests {
         assert_eq!(tasks.len(), 1);
         assert_eq!(tasks[0]["name"], "PythonEval");
         assert_eq!(json["processes"][0]["ipcQueueDepth"], 2);
+    }
+
+    fn record(exe: &str) -> SpawnRecord {
+        SpawnRecord {
+            started_at: chrono::Utc::now(),
+            exe_path: exe.into(),
+            expected_project: Some("C:/p/x.toe".into()),
+        }
+    }
+
+    #[test]
+    fn spawned_starting_row_shows_provenance_and_status() {
+        let mut reg = PidRegistry::new();
+        reg.register_starting(50, record("C:/TD/TouchDesigner.exe"));
+        let params = FleetParams::default();
+        let json = serde_json::to_value(fleet_summary(&reg, &params, &[])).expect("serialize");
+        let row = &json["processes"][0];
+        assert_eq!(row["pid"], 50);
+        assert_eq!(row["bridge"], "starting");
+        assert_eq!(row["spawn"]["exePath"], "C:/TD/TouchDesigner.exe");
+        assert!(row.get("owner").is_none() || row["owner"] == "spawned");
+    }
+
+    #[test]
+    fn external_rows_omit_spawn_key() {
+        let reg = connected_registry(9);
+        let json =
+            serde_json::to_value(fleet_summary(&reg, &FleetParams::default(), &[])).expect("s");
+        let row = &json["processes"][0];
+        assert_eq!(row["bridge"], "connected");
+        assert!(
+            row.get("spawn").is_none(),
+            "human-opened rows must not claim provenance"
+        );
+    }
+
+    #[test]
+    fn spawned_connected_row_keeps_spawn_after_handshake() {
+        let mut reg = PidRegistry::new();
+        reg.register_starting(51, record("e"));
+        reg.handshake(
+            51,
+            ProcessAttrs {
+                title: Some("proj".into()),
+                fingerprint: ProcessFingerprint {
+                    title: Some("proj".into()),
+                    image: Some("TouchDesigner.exe".into()),
+                    start_time: Some("t1".into()),
+                },
+                ..Default::default()
+            },
+            Some("1".into()),
+        );
+        let json =
+            serde_json::to_value(fleet_summary(&reg, &FleetParams::default(), &[])).expect("s");
+        let row = &json["processes"][0];
+        assert_eq!(row["bridge"], "connected");
+        assert_eq!(row["spawn"]["expectedProject"], "C:/p/x.toe");
     }
 }

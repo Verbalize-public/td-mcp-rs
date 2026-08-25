@@ -79,11 +79,17 @@ fn derive_timeout(script_timeout_secs: u64, floor: Duration) -> Duration {
 }
 
 fn effective_bridge_timeout() -> Duration {
-    DERIVED_BRIDGE_TIMEOUT.get().copied().unwrap_or(BRIDGE_TIMEOUT)
+    DERIVED_BRIDGE_TIMEOUT
+        .get()
+        .copied()
+        .unwrap_or(BRIDGE_TIMEOUT)
 }
 
 fn effective_proxy_timeout() -> Duration {
-    DERIVED_PROXY_TIMEOUT.get().copied().unwrap_or(PROXY_TIMEOUT)
+    DERIVED_PROXY_TIMEOUT
+        .get()
+        .copied()
+        .unwrap_or(PROXY_TIMEOUT)
 }
 
 /// Soft-cap on `inspect` `paths[]` (bridge enforces; mirrored in docs).
@@ -1094,6 +1100,8 @@ async fn federated_fleet_summary(fed: &FederationCtx, local: FleetResponse) -> F
             window_status: None,
             toe_path: row.toe_path,
             bridge: row.bridge,
+            // Spawn provenance is daemon-local; remote rows carry none.
+            spawn: None,
             tasks: None,
             ipc_queue_depth: None,
             resurrected: false,
@@ -1201,7 +1209,11 @@ async fn maybe_proxy_bridged(
         "name": tool_name,
         "arguments": args,
     });
-    let mut req = fed.http.post(&url).json(&body).timeout(effective_proxy_timeout());
+    let mut req = fed
+        .http
+        .post(&url)
+        .json(&body)
+        .timeout(effective_proxy_timeout());
     if !auth_token.is_empty() {
         req = req.bearer_auth(&auth_token);
     }
@@ -1368,20 +1380,14 @@ mod timeout_tests {
             derive_timeout(600, BRIDGE_TIMEOUT),
             Duration::from_secs(660)
         );
-        assert_eq!(
-            derive_timeout(600, PROXY_TIMEOUT),
-            Duration::from_secs(660)
-        );
+        assert_eq!(derive_timeout(600, PROXY_TIMEOUT), Duration::from_secs(660));
     }
 
     #[test]
     fn derive_timeout_never_drops_below_the_historical_floor() {
         // A short/unconfigured script_timeout_secs must not shrink the
         // safety net below what it's always been.
-        assert_eq!(
-            derive_timeout(10, BRIDGE_TIMEOUT),
-            Duration::from_secs(180)
-        );
+        assert_eq!(derive_timeout(10, BRIDGE_TIMEOUT), Duration::from_secs(180));
         assert_eq!(derive_timeout(10, PROXY_TIMEOUT), Duration::from_secs(130));
     }
 
