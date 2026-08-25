@@ -266,6 +266,8 @@ struct DashboardApp {
     logs_view: LogsViewState,
     /// Dashboard secondary viewport is open.
     dashboard_open: bool,
+    /// `dashboard_open` as of the previous tick (visibility-edge detection).
+    dash_open_prev: bool,
     /// Selected dashboard tab.
     dash_tab: dashboard::DashTab,
     /// Latest errors/warnings, newest first (tray strip + dashboard card).
@@ -474,6 +476,7 @@ impl DashboardApp {
             slaves_seen_once: false,
             logs_view: LogsViewState::default(),
             dashboard_open: dash_open,
+            dash_open_prev: false,
             dash_tab,
             error_ring: Vec::new(),
             last_crash: None,
@@ -2194,13 +2197,29 @@ impl eframe::App for DashboardApp {
             self.scan_busy = false;
             self.scan_rx = None;
         }
-        if self.dashboard_open {
-            let vb = dashboard::builder(&self.window_icon);
+        // Keep the dashboard viewport alive from the very first tick and only
+        // toggle its visibility: when the root window is hidden, eframe drives
+        // its repaints outside the winit event-loop guard, and an immediate
+        // viewport created on such a tick can never get its native window
+        // (egui then panics "the user callback was never called", crashing
+        // the daemon). The window is born during eframe's guarded first paint;
+        // after that, showing/hiding it from any tick is safe.
+        if self.dash_open_prev != self.dashboard_open {
             let id = dashboard::viewport_id();
-            ctx.show_viewport_immediate(id, vb, |ui, _class| {
-                dashboard::render(self, ui);
-            });
+            ctx.send_viewport_cmd_to(id, egui::ViewportCommand::Visible(self.dashboard_open));
+            if self.dashboard_open {
+                ctx.send_viewport_cmd_to(id, egui::ViewportCommand::Focus);
+            }
         }
+        self.dash_open_prev = self.dashboard_open;
+        // Builder `visible` is synced by the backend each frame — mirror the
+        // open flag so the pre-created window stays hidden until opened.
+        let vb = dashboard::builder(&self.window_icon).with_visible(self.dashboard_open);
+        ctx.show_viewport_immediate(dashboard::viewport_id(), vb, |ui, _class| {
+            if self.dashboard_open {
+                dashboard::render(self, ui);
+            }
+        });
         ctx.request_repaint_after(Duration::from_millis(250));
     }
 
