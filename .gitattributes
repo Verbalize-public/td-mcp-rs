@@ -1,0 +1,7 @@
+# TouchDesigner project-io artifacts are byte-sensitive: toc files and .text sidecar
+# samples are strict-LF (CRLF makes toecollapse emit silent empty output).
+*.toc text eol=lf
+fixtures/v2-probes/**/*.bin -text
+# TD packed binaries are opaque - never normalize
+*.toe -text
+*.tox -text
