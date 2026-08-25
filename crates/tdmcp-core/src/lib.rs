@@ -5,6 +5,7 @@
 #![warn(missing_docs)]
 
 mod bridge_method;
+mod dialogs;
 mod federation;
 mod fingerprint;
 mod ids;
@@ -13,6 +14,10 @@ mod resurrection;
 mod task_queue;
 
 pub use bridge_method::BridgeMethod;
+pub use dialogs::{
+    DialogError, DialogSeverity, DialogSnapshot, DialogSource, DismissOutcome, NullDialogSource,
+    PopupButton, PopupInfo, PopupKind, WindowStatus,
+};
 pub use federation::{
     AggregatedFleetProcess, DaemonId, DaemonIdConflict, PidResolve, RemoteFleetProcess, SlaveEntry,
     SlaveReachability, SlaveRegistry,
