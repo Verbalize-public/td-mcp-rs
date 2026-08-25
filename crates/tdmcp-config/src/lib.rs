@@ -43,6 +43,8 @@ pub struct ConfigFile {
     pub bridge: BridgeSection,
     /// Optional path overrides.
     pub advanced: AdvancedSection,
+    /// Official `toeexpand`/`toecollapse` pinning (v2 project I/O).
+    pub official_tools: OfficialToolsSection,
 }
 
 /// `[server]` table.
@@ -201,8 +203,23 @@ pub struct AdvancedSection {
     pub daemon_bin: Option<PathBuf>,
 }
 
-/// Field descriptions shared by docs, GUI tooltips, and the default template.
-#[derive(Debug, Clone, Copy)]
+/// `[official_tools]` table — pin Derivative's expand/collapse tools.
+///
+/// All optional; absence triggers env (`TDMCP_TOEEXPAND` / `TDMCP_TOECOLLAPSE`
+/// / `TDMCP_TOUCHDESIGNER_EXE`) then Program Files scan. Setting exactly one
+/// of expand/collapse is a configuration error (XOR-pair rule).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct OfficialToolsSection {
+    /// Pin one install via its TouchDesigner.exe path.
+    pub td_exe: Option<PathBuf>,
+    /// Explicit toeexpand binary.
+    pub expand_path: Option<PathBuf>,
+    /// Explicit toecollapse binary.
+    pub collapse_path: Option<PathBuf>,
+}
+
+/// Field descriptions shared by docs, GUI tooltips, and the default template.#[derive(Debug, Clone, Copy)]
 pub struct FieldDesc {
     /// TOML key path (e.g. `server.port`).
     pub key: &'static str,
@@ -214,6 +231,21 @@ pub struct FieldDesc {
 
 /// Curated field table for Settings UI / docs.
 pub const FIELD_DESCS: &[FieldDesc] = &[
+    FieldDesc {
+        key: "official_tools.td_exe",
+        label: "TouchDesigner.exe",
+        help: "Pin one install for project I/O; tools are expected beside it. Empty = auto-discover.",
+    },
+    FieldDesc {
+        key: "official_tools.expand_path",
+        label: "toeexpand path",
+        help: "Explicit toeexpand binary (must be set together with collapse path).",
+    },
+    FieldDesc {
+        key: "official_tools.collapse_path",
+        label: "toecollapse path",
+        help: "Explicit toecollapse binary (must be set together with expand path).",
+    },
     FieldDesc {
         key: "server.port",
         label: "Port",
@@ -415,6 +447,7 @@ pub fn save(path: &Path, cfg: &ConfigFile) -> Result<()> {
     ensure_table(&mut doc, "logging");
     ensure_table(&mut doc, "bridge");
     ensure_table(&mut doc, "advanced");
+    ensure_table(&mut doc, "official_tools");
 
     doc["server"]["port"] = value(i64::from(cfg.server.port));
     doc["server"]["bind_address"] = value(cfg.server.bind_address.as_str());
@@ -468,6 +501,22 @@ pub fn save(path: &Path, cfg: &ConfigFile) -> Result<()> {
         &mut doc["advanced"],
         "daemon_bin",
         cfg.advanced.daemon_bin.as_ref(),
+    );
+
+    set_optional_path(
+        &mut doc["official_tools"],
+        "td_exe",
+        cfg.official_tools.td_exe.as_ref(),
+    );
+    set_optional_path(
+        &mut doc["official_tools"],
+        "expand_path",
+        cfg.official_tools.expand_path.as_ref(),
+    );
+    set_optional_path(
+        &mut doc["official_tools"],
+        "collapse_path",
+        cfg.official_tools.collapse_path.as_ref(),
     );
 
     fs::write(path, doc.to_string()).with_context(|| format!("write config {}", path.display()))?;
@@ -771,6 +820,31 @@ show_tray = true
         assert_eq!(cfg.logging.console_level, None);
         assert_eq!(cfg.logging.max_files, 14);
         assert_eq!(cfg.logging.retention_days, 30);
+    }
+
+    #[test]
+    fn save_round_trips_official_tools() {
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join("config.toml");
+        ensure_default(&path, true).expect("seed");
+        let cfg = load(&path).expect("load");
+        assert!(
+            cfg.official_tools.td_exe.is_none(),
+            "default template pins nothing"
+        );
+        let mut cfg = load(&path).expect("load");
+        let exe = std::path::PathBuf::from("C:/Program Files/Derivative/TD/bin/TouchDesigner.exe");
+        cfg.official_tools.td_exe = Some(exe.clone());
+        cfg.official_tools.expand_path = Some(std::path::PathBuf::from("C:/TD/toeexpand.exe"));
+        save(&path, &cfg).expect("save");
+        let again = load(&path).expect("reload");
+        assert_eq!(again.official_tools.td_exe.as_deref(), Some(exe.as_path()));
+        assert_eq!(
+            again.official_tools.expand_path.as_deref(),
+            Some(std::path::Path::new("C:/TD/toeexpand.exe"))
+        );
+        // Unset field is dropped on save (comment-preserving optional pattern).
+        assert!(again.official_tools.collapse_path.is_none());
     }
 
     #[test]

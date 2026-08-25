@@ -95,3 +95,11 @@ idle_dead_secs = 20
 # bridge_dir = "C:/path/to/bridge"
 # catalog_path = "C:/path/to/diagnostics/catalog.yaml"
 # daemon_bin = "C:/path/to/tdmcp-daemon.exe"
+
+[official_tools]
+# Pin Derivative's official tools for offline project I/O (unpack/pack).
+# Leave unset to auto-discover via TDMCP_* env vars and Program Files scan.
+# `expand_path`/`collapse_path` must be set together (or neither).
+# td_exe = "C:/Program Files/Derivative/TouchDesigner.2025.32460/bin/TouchDesigner.exe"
+# expand_path = "C:/Program Files/Derivative/TouchDesigner.2025.32460/bin/toeexpand.exe"
+# collapse_path = "C:/Program Files/Derivative/TouchDesigner.2025.32460/bin/toecollapse.exe"
