@@ -23,3 +23,4 @@ be listed here **in the same change** that introduces them
 
 When adding a row: cite crate path, exact lint allow (if any), and why a typed
 `Result` / diagnostic is insufficient.
+| R9 | `crates/tdmcp-dialogs` (crate-level `unsafe_code = allow`; workspace restated minus unsafe) | Quarantined Win32 FFI: `EnumWindows/EnumChildWindows` + text/class/style queries, `PostMessageW(BM_CLICK/WM_CLOSE)`, `SendMessageTimeoutW(WM_NULL, SMTO_ABORTIFHUNG)`, `OpenProcess+QueryFullProcessImageNameW` | Daemon-side popup detection must work precisely when TD's main thread is wedged (bridge-side ctypes dies with the disease - DIALOGS.md 4). No safe std API exists for per-pid window enumeration/dismissal. All unsafe lives under src/sys/windows.rs; public surface 100% safe; ops serialized on one worker thread; every block carries SAFETY. UIA COM module (A3b) joins this enclave. | 2026-08-26 |

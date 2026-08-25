@@ -1,0 +1,30 @@
+[package]
+name = "tdmcp-dialogs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Daemon-side OS popup detection/dismissal for TouchDesigner processes"
+
+# Constitution carve-out: this single crate hosts the quarantined `unsafe`
+# enclave (platform FFI under src/sys/). Every other workspace lint is
+# restated verbatim; `unsafe_code` flips deny->allow HERE ONLY so the shim can
+# exist. Public surface stays 100% safe. RISKS.md entry lands in the same PR.
+[lints.rust]
+unsafe_code = "allow"
+unused_must_use = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+exit = "deny"
+
+[dependencies]
+tdmcp-core = { workspace = true }
+tracing = { workspace = true }
+windows = { workspace = true }
