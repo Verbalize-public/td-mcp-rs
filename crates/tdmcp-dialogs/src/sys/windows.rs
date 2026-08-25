@@ -22,6 +22,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
 
 use super::{SysControl, SysWindow};
 
+pub mod uia;
+
 fn hwnd_id(hwnd: HWND) -> String {
     (hwnd.0 as isize).to_string()
 }
@@ -121,7 +123,8 @@ unsafe extern "system" fn child_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
     BOOL(1)
 }
 
-/// Child controls of a dialog window (classic controls; UIA fills gaps later).
+/// Child controls of a dialog window: classic controls first, UIA
+/// accessibility fill-in appended (deduped by class+label).
 pub fn child_controls(id: &str) -> Vec<SysControl> {
     let Some(hwnd) = parse_hwnd(id) else {
         return Vec::new();
@@ -135,6 +138,25 @@ pub fn child_controls(id: &str) -> Vec<SysControl> {
             Some(child_proc as unsafe extern "system" fn(HWND, LPARAM) -> BOOL),
             lparam,
         );
+    }
+    let had_buttons = kids
+        .out
+        .iter()
+        .any(|c| c.class.eq_ignore_ascii_case("Button"));
+    let had_message = kids
+        .out
+        .iter()
+        .any(|c| c.class.eq_ignore_ascii_case("Static") && !c.label.is_empty());
+    if !(had_buttons && had_message) {
+        for u in uia::child_controls(id) {
+            let dup = kids
+                .out
+                .iter()
+                .any(|c| c.class == u.class && c.label == u.label);
+            if !dup {
+                kids.out.push(u);
+            }
+        }
     }
     kids.out
 }

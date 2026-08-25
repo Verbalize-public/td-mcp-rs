@@ -119,7 +119,8 @@ on some Qt dialog ⇒ user32-only detection recorded per class; macOS stays Null
 
 | Date | Phase/commit | Blocker | Evidence | Disposition |
 |---|---|---|---|---|
-| — | — | — | — | — |
+| 2026-08-26 | A3a | UIA COM content fill-in split into A3b (reviewability) | Popups detect via user32 with `message:null` until then — pre-agreed degraded subset | `deferred` → A3b |
+| 2026-08-25 | V2-0 observation | One stale TD session answered ping but never serviced main-thread dispatch (no dialog, OS-responsive) | execute_python timeouts ~45s + `discarding stale bridge response`; recycle fixed | recorded → feeds window_status/dialogs design |
 
 ## 6. Standing risks
 
