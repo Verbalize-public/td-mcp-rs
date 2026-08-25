@@ -46,6 +46,8 @@ unsafe extern "system" fn enum_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
     if owner_pid != ctx.pid {
         return BOOL(1); // different process - keep enumerating
     }
+    // SAFETY: read-only queries on an enumerated live handle; context outlives
+    // the synchronous enumeration.
     let visible = IsWindowVisible(hwnd).as_bool();
     let class = read_class(hwnd);
     let title = read_text(hwnd);
@@ -108,6 +110,7 @@ struct KidCtx {
 }
 
 unsafe extern "system" fn child_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
+    // SAFETY: context pointer validity mirrors enum_proc (synchronous walk).
     let kids = &mut *(lparam.0 as *mut KidCtx);
     let class = read_class(hwnd);
     let label = read_text(hwnd);
@@ -168,6 +171,7 @@ struct FindCtx {
 
 unsafe extern "system" fn find_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
     let f = &mut *(lparam.0 as *mut FindCtx);
+    // SAFETY: ctrl-id query on enumerated live handle.
     if GetDlgCtrlID(hwnd) == f.want {
         f.hit = Some(hwnd);
         return BOOL(0); // stop

@@ -90,6 +90,8 @@ pub fn child_controls(id: &str) -> Vec<SysControl> {
         let Ok(cond) = au.CreateTrueCondition() else {
             return Vec::new();
         };
+        // SAFETY: subtree enumeration on our own element pointer; true
+        // condition borrows only COM-owned state.
         let Ok(array) = elem.FindAll(windows::Win32::UI::Accessibility::TreeScope_Children, &cond)
         else {
             return Vec::new();
@@ -134,6 +136,8 @@ fn invoke_element(hwnd_id: &str, _label: &str) -> bool {
         let Ok(elem) = au.ElementFromHandle(HWND(hwnd_val as *mut _)) else {
             return false;
         };
+        // SAFETY: pattern retrieval + Invoke on a live element - post-free
+        // UIA call that never blocks on the target thread.
         let Ok(pattern) = elem.GetCurrentPattern(UIA_InvokePatternId) else {
             return false;
         };
