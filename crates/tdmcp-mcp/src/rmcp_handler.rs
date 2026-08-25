@@ -353,7 +353,11 @@ mod tests {
     fn small_result_keeps_the_duplicate_text_block() {
         let value = json!({"ok": true, "result": 1});
         let result = call_tool_result_from_value("execute_python", value.clone());
-        assert_eq!(result.content.len(), 1, "small results keep the compat text block");
+        assert_eq!(
+            result.content.len(),
+            1,
+            "small results keep the compat text block"
+        );
         assert_eq!(
             result.content[0].as_text().expect("text").text,
             value.to_string()

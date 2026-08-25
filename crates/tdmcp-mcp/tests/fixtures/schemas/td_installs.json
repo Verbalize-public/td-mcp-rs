@@ -1,0 +1,5 @@
+{
+  "additionalProperties": false,
+  "description": "Args for `td_installs` (none today; kept for forward-compatible schemas).",
+  "type": "object"
+}

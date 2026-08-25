@@ -6,6 +6,7 @@ use serde_json::Value;
 
 use crate::editor_context::EditorContextParams;
 use crate::fleet::FleetParams;
+use crate::td_installs::TdInstallsParams;
 use crate::tools::{
     ApiHelpParams, CaptureParams, ExecutePythonParams, InspectParams, MutateNodesParams, ToolName,
 };
@@ -29,6 +30,7 @@ pub fn input_schema_for(tool: ToolName) -> JsonObject {
         ToolName::ApiHelp => schema_value::<ApiHelpParams>(),
         ToolName::EditorContext => schema_value::<EditorContextParams>(),
         ToolName::DescribeTools => Value::Object(empty_object_schema()),
+        ToolName::TdInstalls => schema_value::<TdInstallsParams>(),
     };
     // schemars may wrap with $schema / definitions — MCP wants a plain object schema.
     flatten_schema(schema)

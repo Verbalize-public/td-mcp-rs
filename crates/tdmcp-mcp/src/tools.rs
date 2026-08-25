@@ -126,6 +126,8 @@ pub enum ToolName {
     EditorContext,
     /// Tool manifest.
     DescribeTools,
+    /// TouchDesigner installations on disk (offline discovery).
+    TdInstalls,
 }
 
 impl ToolName {
@@ -141,6 +143,7 @@ impl ToolName {
             Self::ApiHelp => "api_help",
             Self::EditorContext => "editor_context",
             Self::DescribeTools => "describe_tools",
+            Self::TdInstalls => "td_installs",
         }
     }
 
@@ -170,10 +173,13 @@ impl ToolName {
                 "Live editor context — all TD panes with type/ownerPath/focused; per-pane selection as [{path, current}] (omitted when empty). Panes soft-capped at 64; selection soft-capped at 256. Bad panes return ok:false inline; siblings still succeed. Hint for mutation zone — still verify with inspect."
             }
             Self::DescribeTools => "Manifest of available tools",
+            Self::TdInstalls => {
+                "List TouchDesigner installations on disk (version dirs, exe path, which official tools exist). Offline; complete=false marks stub installs. default=true on the newest usable install."
+            }
         }
     }
 
-    /// All v1 tools (descriptor / parity order).
+    /// All tools (descriptor / parity order).
     pub const ALL: &[Self] = &[
         Self::Fleet,
         Self::ExecutePython,
@@ -183,6 +189,7 @@ impl ToolName {
         Self::ApiHelp,
         Self::EditorContext,
         Self::DescribeTools,
+        Self::TdInstalls,
     ];
 
     /// Parse a wire tool name.
@@ -197,6 +204,7 @@ impl ToolName {
             "api_help" => Some(Self::ApiHelp),
             "editor_context" => Some(Self::EditorContext),
             "describe_tools" => Some(Self::DescribeTools),
+            "td_installs" => Some(Self::TdInstalls),
             _ => None,
         }
     }
@@ -784,6 +792,16 @@ async fn dispatch_tool_inner(
             }
         }
         ToolName::DescribeTools => Ok(serde_json::json!({ "tools": tool_descriptors() })),
+        ToolName::TdInstalls => {
+            // Absent args arrive as null; the tool takes none.
+            let args = if args.is_null() {
+                serde_json::json!({})
+            } else {
+                args
+            };
+            let _params: crate::td_installs::TdInstallsParams = parse_args(catalog, tool, args)?;
+            Ok(crate::td_installs::run(&tdmcp_projectio::resolve::std_env))
+        }
         ToolName::ExecutePython => {
             let params: ExecutePythonParams = parse_args(catalog, tool, args.clone())?;
             if let ControlFlow::Break(v) = maybe_proxy_bridged(

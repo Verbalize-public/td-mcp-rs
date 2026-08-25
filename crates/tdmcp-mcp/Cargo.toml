@@ -26,11 +26,13 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 tdmcp-core = { workspace = true }
 tdmcp-diagnostics = { workspace = true }
+tdmcp-projectio = { workspace = true }
 
 reqwest = { workspace = true }
 
 [dev-dependencies]
 tdmcp-test-support = { workspace = true }
+tempfile = { workspace = true }
 
 [lints]
 workspace = true

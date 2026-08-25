@@ -19,6 +19,49 @@ pub struct OfficialTools {
     pub collapse: PathBuf,
 }
 
+/// Per-install inventory beside a TouchDesigner.exe (`td_installs` row source).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstallInfo {
+    /// TouchDesigner.exe path probed.
+    pub exe: PathBuf,
+    /// Versioned install root (`...\Derivative\TouchDesigner.<v>`).
+    pub root: PathBuf,
+    /// toeexpand path when present.
+    pub toeexpand: Option<PathBuf>,
+    /// toecollapse path when present.
+    pub toecollapse: Option<PathBuf>,
+    /// Bundled python.exe when present.
+    pub python: Option<PathBuf>,
+}
+
+fn beside(exe: &Path, name: &str) -> Option<PathBuf> {
+    let bin = exe.parent()?;
+    for candidate in [format!("{name}.exe"), name.to_string()] {
+        let p = bin.join(candidate);
+        if p.is_file() {
+            return Some(p);
+        }
+    }
+    None
+}
+
+/// Inspect one candidate exe: which official tools actually exist beside it.
+#[must_use]
+pub fn inspect_install(exe: &Path) -> InstallInfo {
+    let root = exe
+        .parent()
+        .and_then(Path::parent)
+        .map(Path::to_path_buf)
+        .unwrap_or_default();
+    InstallInfo {
+        exe: exe.to_path_buf(),
+        root,
+        toeexpand: beside(exe, TOOL_NAMES[0]),
+        toecollapse: beside(exe, TOOL_NAMES[1]),
+        python: beside(exe, "python"),
+    }
+}
+
 /// Where tools may come from, mapped from `[official_tools]` config by the caller.
 #[derive(Debug, Default, Clone)]
 pub struct ToolSource {

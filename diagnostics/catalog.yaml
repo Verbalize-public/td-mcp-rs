@@ -754,3 +754,12 @@ entries:
     message: "Tool result failed to serialize (internal error)"
     mitigation:
       - "Retry the call; if it persists, inspect daemon logs (`tdmcp-daemon logs`)"
+
+  - code: tdmcp.installs.scan_failed
+    layer: fleet
+    message: "TouchDesigner installation scan failed - no locations readable"
+    mitigation:
+      - "Check Program Files permissions; or pin official_tools.td_exe in config"
+    references:
+      - kind: tool
+        id: td_installs

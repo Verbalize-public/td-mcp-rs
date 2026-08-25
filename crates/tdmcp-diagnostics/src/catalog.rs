@@ -201,6 +201,7 @@ mod tests {
             "api_help",
             "editor_context",
             "describe_tools",
+            "td_installs",
         ];
         for code in cat.codes() {
             let entry = cat.get(code).expect("code");

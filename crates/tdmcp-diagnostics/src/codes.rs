@@ -16,6 +16,9 @@ pub const BRIDGE_MAIN_THREAD_TIMEOUT: &str = "tdmcp.bridge.main_thread_timeout";
 pub const BRIDGE_QUEUE_BUSY: &str = "tdmcp.bridge.queue_busy";
 /// MCP session already has an in-flight bridged tool against this pid.
 pub const MCP_SESSION_BUSY: &str = "tdmcp.mcp.session_busy";
+/// Official-tools scan could not enumerate any location.
+pub const INSTALLS_SCAN_FAILED: &str = "tdmcp.installs.scan_failed";
+
 /// Tool result failed to serialize (internal; never the caller's fault).
 pub const MCP_SERIALIZE_FAILED: &str = "tdmcp.mcp.serialize_failed";
 
@@ -152,6 +155,7 @@ pub const PERCEPTION_MAX_SIZE_TOO_LARGE: &str = "tdmcp.perception.max_size_too_l
 
 /// All codes that must exist in the catalog (compile-time enumeration).
 pub const ALL: &[&str] = &[
+    INSTALLS_SCAN_FAILED,
     BRIDGE_UNKNOWN_PID,
     BRIDGE_LOST,
     BRIDGE_CANCELLED,
