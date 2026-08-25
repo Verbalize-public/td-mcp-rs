@@ -6,6 +6,7 @@ members = [
     "crates/tdmcp-diagnostics",
     "crates/tdmcp-ipc",
     "crates/tdmcp-mcp",
+    "crates/tdmcp-projectio",
     "crates/tdmcp-daemon",
     "crates/tdmcp-gui",
     "crates/tdmcp-test-support",
@@ -17,6 +18,7 @@ default-members = [
     "crates/tdmcp-diagnostics",
     "crates/tdmcp-ipc",
     "crates/tdmcp-mcp",
+    "crates/tdmcp-projectio",
     "crates/tdmcp-daemon",
     "crates/tdmcp-test-support",
 ]
@@ -34,6 +36,7 @@ tdmcp-config = { path = "crates/tdmcp-config" }
 tdmcp-diagnostics = { path = "crates/tdmcp-diagnostics" }
 tdmcp-ipc = { path = "crates/tdmcp-ipc" }
 tdmcp-mcp = { path = "crates/tdmcp-mcp" }
+tdmcp-projectio = { path = "crates/tdmcp-projectio" }
 tdmcp-test-support = { path = "crates/tdmcp-test-support" }
 
 anyhow = "1"
