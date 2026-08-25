@@ -199,11 +199,19 @@ pub fn resolve_tools(
 }
 
 /// Default Program Files scan roots (`%ProgramFiles%\Derivative`, x86 variant).
+///
+/// Deduplicated case-insensitively — on x64, `ProgramW6432` aliases
+/// `ProgramFiles` and would otherwise yield duplicate installs.
 pub fn default_scan_roots(env: EnvLookup<'_>) -> Vec<PathBuf> {
     let mut roots = Vec::new();
     for var in ["ProgramFiles", "ProgramFiles(x86)", "ProgramW6432"] {
         if let Some(base) = env(var) {
-            roots.push(PathBuf::from(base).join("Derivative"));
+            let root = PathBuf::from(base).join("Derivative");
+            let key = root.to_string_lossy().to_lowercase();
+            if roots.iter().any(|r: &PathBuf| r.to_string_lossy().to_lowercase() == key) {
+                continue;
+            }
+            roots.push(root);
         }
     }
     roots
@@ -334,5 +342,16 @@ mod tests {
         let envf = env_map(&binding);
         let err = resolve_tools(&ToolSource::default(), &envf).unwrap_err();
         assert!(matches!(err, ProjectIoError::ToolMissing { .. }));
+    }
+
+    #[test]
+    fn scan_roots_dedup_aliasing_program_files() {
+        let pf = tempfile::tempdir().unwrap();
+        let binding = [
+            ("ProgramFiles", pf.path().to_str().unwrap()),
+            ("ProgramW6432", pf.path().to_str().unwrap()),
+        ];
+        let envf = env_map(&binding);
+        assert_eq!(default_scan_roots(&envf).len(), 1);
     }
 }
