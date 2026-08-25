@@ -759,6 +759,7 @@ pub fn slave_unreachable(
 
 fn transport(catalog: &Catalog, tool: &str, pid: Pid, err: BridgeRpcError) -> ToolCallError {
     let code = match &err {
+        BridgeRpcError::Unknown { .. } => codes::BRIDGE_UNKNOWN_PID.to_owned(),
         BridgeRpcError::NotConnected { .. } | BridgeRpcError::Disconnected { .. } => {
             codes::BRIDGE_LOST.to_owned()
         }
@@ -1331,6 +1332,30 @@ mod tests {
         match err {
             ToolCallError::Failed(payload) => {
                 assert_eq!(payload.diagnostics.items[0].code, codes::BRIDGE_CANCELLED);
+            }
+            other => panic!("unexpected error: {other}"),
+        }
+    }
+
+    #[test]
+    fn transport_maps_unknown_pid_to_its_own_code_not_bridge_lost() {
+        // A never-registered (or TTL-evicted) pid must not reuse
+        // tdmcp.bridge.lost's "wait for resurrection" mitigation — there is
+        // nothing to resurrect. See docs/LIMITS_AUDIT.md §4.6 / §5 Phase 2.4.
+        let catalog = Catalog::fallback();
+        let err = map_script_outcome(
+            &catalog,
+            Pid::new(999_999),
+            BridgeOutcome::Transport(BridgeRpcError::Unknown { pid: 999_999 }),
+            DiagnosticLevel::Summary,
+            FormatMode::Normal,
+            None,
+        )
+        .expect_err("expected transport failure");
+        match err {
+            ToolCallError::Failed(payload) => {
+                assert_eq!(payload.diagnostics.items[0].code, codes::BRIDGE_UNKNOWN_PID);
+                assert_ne!(payload.diagnostics.items[0].code, codes::BRIDGE_LOST);
             }
             other => panic!("unexpected error: {other}"),
         }

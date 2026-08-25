@@ -363,6 +363,13 @@ impl StdioProxy {
     /// call like a transport failure: heal the link (fresh session), which
     /// also closes the old HTTP connections and lets the daemon-side session
     /// unwedge and drain.
+    ///
+    /// Single-flight via `link.call_gate()`: a second call sent while a first
+    /// is still outstanding on the same session can trip a session-reinit
+    /// edge case in rmcp's client that fails the *first* call's pending
+    /// response too (see `docs/LIMITS_AUDIT.md` §4.1). Queueing here means a
+    /// slow call now delays unrelated calls up to its own budget instead of
+    /// silently losing one of them.
     async fn forward_bounded<F, Fut, T>(
         &self,
         link: &DaemonLink,
@@ -373,6 +380,7 @@ impl StdioProxy {
         F: FnOnce(Arc<rmcp::Peer<rmcp::RoleClient>>) -> Fut,
         Fut: std::future::Future<Output = Result<T, ServiceError>>,
     {
+        let _gate = link.call_gate().await;
         let (peer, gen) = link.current_peer().await;
         match tokio::time::timeout(budget, op(peer)).await {
             Ok(Ok(response)) => Ok(response),

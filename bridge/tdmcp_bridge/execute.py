@@ -25,6 +25,27 @@ def _truncate_logs(text: str, limit: int = _LOGS_RETURN_MAX) -> str:
     return _TRUNC_MARK + text[-keep:]
 
 
+def _truncate_result(value: Any, limit: int = RESULT_MAX_BYTES) -> str:
+    """Best-effort JSON-string truncation for an oversized ``result``.
+
+    Runs *after* the script already executed — must never raise, and keeps
+    the head (the value's shape/prefix is usually more useful than its tail)
+    plus the truncation marker, so the call still returns something instead
+    of discarding a completed run's output entirely.
+    """
+    try:
+        text = json.dumps(value, separators=(",", ":"), default=str)
+    except Exception:  # noqa: BLE001
+        text = str(value)
+    encoded = text.encode("utf-8")
+    if len(encoded) <= limit:
+        return text
+    keep = max(0, limit - len(_TRUNC_MARK.encode("utf-8")))
+    # Decode with errors="ignore" so a truncated multi-byte UTF-8 sequence at
+    # the cut point is dropped instead of raising.
+    return encoded[:keep].decode("utf-8", errors="ignore") + _TRUNC_MARK
+
+
 def _ring_append_text(existing: str, chunk: str, limit: int = _DEBUG_DAT_RING_MAX) -> str:
     if not chunk:
         return existing
@@ -209,17 +230,28 @@ def handle_execute_python(params: dict[str, Any]) -> dict[str, Any]:
                 result_value = local_vars.get("result")
                 result_bytes = _json_utf8_size(result_value)
                 if result_bytes > RESULT_MAX_BYTES:
+                    # Never discard a completed run: the script already had
+                    # its effect on the TD scene regardless of how big the
+                    # return value is. Truncate instead of rejecting.
                     out: dict[str, Any] = {
-                        "ok": False,
-                        "error": (
-                            f"result JSON exceeds {RESULT_MAX_BYTES} bytes "
-                            f"(got {result_bytes}); return a smaller result"
-                        ),
-                        "code": "tdmcp.script.result_too_large",
-                        "message": (
-                            f"result JSON exceeds {RESULT_MAX_BYTES} bytes "
-                            f"(got {result_bytes}); return a smaller result"
-                        ),
+                        "result": _truncate_result(result_value),
+                        "ok": True,
+                        "resultTruncated": True,
+                        "truncation": {
+                            "field": "result",
+                            "limit": RESULT_MAX_BYTES,
+                            "code": "tdmcp.script.result_too_large",
+                            "message": (
+                                f"execute_python result truncated to {RESULT_MAX_BYTES} "
+                                f"bytes (original {result_bytes} bytes); the script "
+                                "already ran and its side effects are unaffected"
+                            ),
+                            "mitigation": [
+                                "Return a smaller result (paths/ids/summaries, not full dumps)",
+                                "Prefer inspect / mutate_nodes for structural reads",
+                                "Persist large data on the node graph and return a reference instead",
+                            ],
+                        },
                     }
                 else:
                     out = {

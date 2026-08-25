@@ -6,6 +6,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use axum::extract::rejection::JsonRejection;
 use axum::extract::State;
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -140,8 +141,25 @@ async fn list_tools() -> Json<Value> {
 
 async fn call_tool(
     State(state): State<AppState>,
-    Json(body): Json<CallBody>,
+    body: Result<Json<CallBody>, JsonRejection>,
 ) -> Result<Json<Value>, (axum::http::StatusCode, Json<Value>)> {
+    // A bare `Json<CallBody>` param would let axum answer oversized/malformed
+    // bodies itself — a raw text body, breaking the curated `{ok:false,
+    // items[]}` envelope every other failure on this route carries (see
+    // docs/LIMITS_AUDIT.md §4.5). Catching the rejection here keeps the
+    // envelope uniform regardless of which layer rejected the request.
+    let Json(body) = match body {
+        Ok(json) => json,
+        Err(rejection) => {
+            return Err((
+                rejection.status(),
+                Json(serde_json::json!({
+                    "ok": false,
+                    "summary": rejection.body_text(),
+                })),
+            ));
+        }
+    };
     match dispatch_tool(
         &state.registry,
         &state.catalog,
@@ -166,13 +184,18 @@ async fn call_tool(
             }
             Ok(Json(payload))
         }
-        Err(ToolCallError::UnknownTool(name)) => Err((
-            axum::http::StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "ok": false,
-                "summary":
-                    format!("unknown tool: {name} — call /mcp/tools/list or describe_tools"),
-            })),
-        )),
+        Err(ToolCallError::UnknownTool(name)) => {
+            let hint = crate::args_diag::suggest_tool(&name)
+                .map(|s| format!(" — did you mean `{s}`?"))
+                .unwrap_or_default();
+            Err((
+                axum::http::StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "ok": false,
+                    "summary":
+                        format!("unknown tool: {name}{hint} — call /mcp/tools/list or describe_tools"),
+                })),
+            ))
+        }
     }
 }

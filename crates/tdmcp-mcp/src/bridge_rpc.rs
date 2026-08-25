@@ -12,9 +12,21 @@ use thiserror::Error;
 /// Failures from a bridge RPC call (daemon → TD peer).
 #[derive(Debug, Error)]
 pub enum BridgeRpcError {
-    /// No connected bridge session for the pid.
+    /// No connected bridge session for the pid, but the registry has seen
+    /// this pid before (resurrection is a real possibility — retrying may help).
     #[error("no connected bridge for pid {pid}")]
     NotConnected {
+        /// Target pid.
+        pid: u32,
+    },
+    /// No connected bridge session for the pid, and the registry has never
+    /// seen it either (never registered, or its record already expired past
+    /// the disconnected-pid TTL). Distinct from [`Self::NotConnected`] so the
+    /// agent-facing mitigation doesn't suggest waiting for a resurrection
+    /// that has nothing to resurrect. See `docs/LIMITS_AUDIT.md` §4.6 / §5
+    /// Phase 2.4.
+    #[error("pid {pid} was never registered (or its record expired) — call fleet")]
+    Unknown {
         /// Target pid.
         pid: u32,
     },

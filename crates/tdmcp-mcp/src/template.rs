@@ -228,10 +228,20 @@ impl TemplateEngine {
 
     /// Render one template by its catalog id in the given mode.
     pub fn render(&self, id: &str, mode: RenderMode) -> Result<String, String> {
-        let entry = self
-            .catalog
-            .get(id)
-            .ok_or_else(|| format!("unknown skill id: {id}"))?;
+        let entry = self.catalog.get(id).ok_or_else(|| {
+            // Agents self-correct from the available-ids list — never bare.
+            let mut ids: Vec<&str> = self.catalog.iter().map(|e| e.id.as_str()).collect();
+            ids.sort_unstable();
+            const CAP: usize = 8;
+            let list = if ids.len() <= CAP {
+                ids.join(", ")
+            } else {
+                format!("{}, … (+{} more)", ids[..CAP].join(", "), ids.len() - CAP)
+            };
+            format!(
+                "unknown skill id: {id} — available: {list}; call resources/list for the full index"
+            )
+        })?;
 
         let source = self
             .templates

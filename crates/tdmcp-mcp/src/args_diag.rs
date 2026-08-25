@@ -288,6 +288,15 @@ fn join_values(values: &[String]) -> String {
 
 // --- schema-driven hints ----------------------------------------------------
 
+/// Nearest shipped tool name for an unknown tool call (silence over wrong hints).
+pub fn suggest_tool(name: &str) -> Option<String> {
+    let candidates: Vec<String> = ToolName::ALL
+        .iter()
+        .map(|t| t.wire_str().to_owned())
+        .collect();
+    similar(name, &candidates).map(|(cand, _)| cand.to_owned())
+}
+
 /// Allowed values for `field`, resolved from the derived schema: top-level
 /// enums and `$defs` variant tables (internally-tagged enums like `MutateStep`).
 /// Tolerant by design — returns `None` whenever the shape is unrecognized.

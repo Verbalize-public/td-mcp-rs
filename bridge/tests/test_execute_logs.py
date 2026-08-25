@@ -277,14 +277,19 @@ def test_tap_not_installed_falls_back_to_legacy_dat_write(
         sys.stdout, sys.stderr = old_out, old_err
 
 
-def test_execute_python_rejects_oversized_result() -> None:
+def test_execute_python_truncates_oversized_result() -> None:
     # Tiny script builds a large runtime result (must not trip SCRIPT_MAX_BYTES).
+    # A prior version rejected this outright (ok:false), discarding whatever
+    # the script had already done; truncation must never discard the run.
     out = bridge.handle_execute_python(
         {
             "script": f"result = 'x' * {bridge.RESULT_MAX_BYTES + 64}",
             "includeLogs": False,
         }
     )
-    assert out["ok"] is False
-    assert out["code"] == "tdmcp.script.result_too_large"
-    assert out.get("result") is None
+    assert out["ok"] is True
+    assert out["resultTruncated"] is True
+    assert out["truncation"]["code"] == "tdmcp.script.result_too_large"
+    assert out["truncation"]["limit"] == bridge.RESULT_MAX_BYTES
+    assert len(out["result"].encode("utf-8")) <= bridge.RESULT_MAX_BYTES
+    assert out["result"].startswith('"x')

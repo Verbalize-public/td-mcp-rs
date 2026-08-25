@@ -39,26 +39,67 @@ use crate::session_registry::{BridgeCallSlot, McpSessionRegistry, DAEMON_SCOPE_L
 /// The daemon owns the real per-method budgets (`[bridge].call_timeout_secs` /
 /// `script_timeout_secs`). This ceiling only fires if the oneshot never
 /// completes (e.g. actor crash without reply). Keep it above the max script
-/// timeout default (120s).
+/// timeout default (120s). Historical fixed fallback — see
+/// [`init_bridge_timeouts`] for the config-derived value actually used once
+/// the daemon has started.
 pub const BRIDGE_TIMEOUT: Duration = Duration::from_secs(180);
 
 /// Master→slave HTTP proxy timeout (bridge script budget + margin).
+/// Historical fixed fallback — see [`init_bridge_timeouts`].
 pub const PROXY_TIMEOUT: Duration = Duration::from_secs(130);
 
+/// Process-wide override for [`BRIDGE_TIMEOUT`] / [`PROXY_TIMEOUT`], set once
+/// at daemon startup by [`init_bridge_timeouts`]. `OnceLock` rather than
+/// threading a value through `dispatch_tool` → `enqueue_and_call` /
+/// `maybe_proxy_bridged` (a dozen call sites) for what is explicitly an
+/// outer safety net, not the primary timeout path. Each keeps its own
+/// historical fallback (180s / 130s) when uninitialized, so tests — which
+/// never call `init_bridge_timeouts` — see unchanged behavior.
+static DERIVED_BRIDGE_TIMEOUT: std::sync::OnceLock<Duration> = std::sync::OnceLock::new();
+static DERIVED_PROXY_TIMEOUT: std::sync::OnceLock<Duration> = std::sync::OnceLock::new();
+
+/// Derive [`BRIDGE_TIMEOUT`] / [`PROXY_TIMEOUT`] from the daemon's
+/// `[bridge].script_timeout_secs` config: `script_timeout_secs + 60s`
+/// margin, each floored at its own historical constant so raising
+/// `script_timeout_secs` (e.g. toward the 600s in `docs/LIMITS_AUDIT.md`
+/// §3.4) can never silently re-open the "hidden glass ceiling" the outer
+/// safety net used to hit first (§2.4 / §5 Phase 2.1), and an unconfigured
+/// deployment never gets a *smaller* safety net than before. Call once,
+/// before serving; a second call is a silent no-op.
+pub fn init_bridge_timeouts(script_timeout_secs: u64) {
+    let _ = DERIVED_BRIDGE_TIMEOUT.set(derive_timeout(script_timeout_secs, BRIDGE_TIMEOUT));
+    let _ = DERIVED_PROXY_TIMEOUT.set(derive_timeout(script_timeout_secs, PROXY_TIMEOUT));
+}
+
+/// `script_timeout_secs + 60s` margin, floored at `floor`. Pure so
+/// [`init_bridge_timeouts`]'s arithmetic is testable without touching the
+/// process-wide `OnceLock`s it feeds.
+fn derive_timeout(script_timeout_secs: u64, floor: Duration) -> Duration {
+    Duration::from_secs(script_timeout_secs.saturating_add(60)).max(floor)
+}
+
+fn effective_bridge_timeout() -> Duration {
+    DERIVED_BRIDGE_TIMEOUT.get().copied().unwrap_or(BRIDGE_TIMEOUT)
+}
+
+fn effective_proxy_timeout() -> Duration {
+    DERIVED_PROXY_TIMEOUT.get().copied().unwrap_or(PROXY_TIMEOUT)
+}
+
 /// Soft-cap on `inspect` `paths[]` (bridge enforces; mirrored in docs).
-pub const INSPECT_PATHS_LIMIT: usize = 96;
+pub const INSPECT_PATHS_LIMIT: usize = 256;
 
 /// Soft-cap on each inspect node's direct-child roster.
-pub const CHILDREN_ROSTER_LIMIT: usize = 96;
+pub const CHILDREN_ROSTER_LIMIT: usize = 256;
 
 /// Soft-cap on `api_help` `queries[]` (bridge enforces; mirrored in docs).
-pub const API_HELP_QUERIES_LIMIT: usize = 32;
+pub const API_HELP_QUERIES_LIMIT: usize = 64;
 
 /// Soft-cap on `editor_context` per-pane selection list.
-pub const EDITOR_SELECTION_LIMIT: usize = 96;
+pub const EDITOR_SELECTION_LIMIT: usize = 256;
 
 /// Soft-cap on `editor_context` panes array.
-pub const EDITOR_PANES_LIMIT: usize = 32;
+pub const EDITOR_PANES_LIMIT: usize = 64;
 
 /// MCP tool names — one enum for descriptors, dispatch, and schemas.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -108,19 +149,19 @@ impl ToolName {
                 "Run Python in TD; failures return structured exception (type/frames/syntax); default diagnosticLevel detailed; formatMode debug adds capped locals; prints tee to Debug DAT / logs."
             }
             Self::Inspect => {
-                "Structural read for an explicit paths[] batch (required, non-empty; soft-capped at 96). No auto-recursion — caller chooses nodes. Empty include defaults to nodes+errors+warnings; params and content opt-in; non-empty include is an allowlist. When nodes is included, each ok node includes positional inputs/outputs peer lists ({path, name, opType} or null per connector; [] when empty). Params entries are {name, mode, val, expr?} (expr only when mode is EXPRESSION; val is evaluated and JSON-safe). Content (opt-in) returns DAT .text bodies (text+table) and GLSL shader stages by following DAT refs plus compileResult — no size cap; omit content key on non-eligible ops. DAT content also carries shader consumers[] diagnostics ({severity note|error, code tdmcp.shader.*, consumer, role, lines[]}; caps 512 ops scanned / 16 consumers — see consumersTruncated); GLSL content carries classified compileState compiled|error. Reading compileResult forces a synchronous recompile of that consumer. Per-node summary includes a direct-child roster ({name, opType}); detailed adds path+family. Roster capped at 96 — when truncated see node.truncation. Bad paths return ok:false inline; siblings still succeed."
+                "Structural read for an explicit paths[] batch (required, non-empty; soft-capped at 256). No auto-recursion — caller chooses nodes. Empty include defaults to nodes+errors+warnings; params and content opt-in; non-empty include is an allowlist. When nodes is included, each ok node includes positional inputs/outputs peer lists ({path, name, opType} or null per connector; [] when empty). Params entries are {name, mode, val, expr?} (expr only when mode is EXPRESSION; val is evaluated and JSON-safe). Content (opt-in) returns DAT .text bodies (text+table) and GLSL shader stages by following DAT refs plus compileResult — no size cap; omit content key on non-eligible ops. DAT content also carries shader consumers[] diagnostics ({severity note|error, code tdmcp.shader.*, consumer, role, lines[]}; caps 2048 ops scanned / 64 consumers — see consumersTruncated); GLSL content carries classified compileState compiled|error. Reading compileResult forces a synchronous recompile of that consumer. Per-node summary includes a direct-child roster ({name, opType}); detailed adds path+family. Roster capped at 256 — when truncated see node.truncation. Bad paths return ok:false inline; siblings still succeed."
             }
             Self::MutateNodes => {
                 "Ordered create/set/delete/connect/disconnect steps; sequential apply, stop on first hard error; later steps skipped (tdmcp.batch.skipped_dependent). Fix from failedAt only. create/set accept text: DAT body write (applied first; non-DAT target = hard error tdmcp.mutate.not_dat; create rolls back). After each successful text write the tool lints consuming GLSL ops and attaches per-step shaderDiagnostics[] ({severity note|error, code tdmcp.shader.*, consumer, consumerOpType, role, message, lines[]} for errors); summary adds shaderNotes/shaderErrors counts. Lint reads compileResult, forcing a synchronous recompile of each consumer; never flips ok."
             }
             Self::Capture => {
-                "Perception capture. top=native TOP JPEG; preview=any family via shared bridge OP Viewer TOP; chop_data=CHOP JSON; chop_image/pop=aliases of preview; auto=TOP→top, CHOP→chop_data, else preview."
+                "Perception capture. top=native TOP JPEG; preview=any family via shared bridge OP Viewer TOP; chop_data=CHOP JSON; chop_image/pop=aliases of preview; auto=TOP→top, CHOP→chop_data, else preview. maxSize is hard-capped at 1536px longer side (tdmcp.perception.max_size_too_large); null (native) is only honored when native resolution is already under the cap."
             }
             Self::ApiHelp => {
-                "Live TD Python API cards (not wiki dumps). Batch queries[] (soft-cap 32): class (doc/opType/family/mro/members), classes (op-like index + family/prefix), module (td thin). No help() / no param listing — use inspect include params for .par names. Case-sensitive class names."
+                "Live TD Python API cards (not wiki dumps). Batch queries[] (soft-cap 64): class (doc/opType/family/mro/members), classes (op-like index + family/prefix), module (td thin). No help() / no param listing — use inspect include params for .par names. Case-sensitive class names."
             }
             Self::EditorContext => {
-                "Live editor context — all TD panes with type/ownerPath/focused; per-pane selection as [{path, current}] (omitted when empty). Panes soft-capped at 32; selection soft-capped at 96. Bad panes return ok:false inline; siblings still succeed. Hint for mutation zone — still verify with inspect."
+                "Live editor context — all TD panes with type/ownerPath/focused; per-pane selection as [{path, current}] (omitted when empty). Panes soft-capped at 64; selection soft-capped at 256. Bad panes return ok:false inline; siblings still succeed. Hint for mutation zone — still verify with inspect."
             }
             Self::DescribeTools => "Manifest of available tools",
         }
@@ -351,7 +392,18 @@ impl CaptureMode {
 }
 
 /// Default longer-side cap for perception images (token / wire discipline).
-pub const CAPTURE_DEFAULT_MAX_SIZE: u32 = 256;
+pub const CAPTURE_DEFAULT_MAX_SIZE: u32 = 512;
+
+/// Hard pre-flight reject for `maxSize` (mirrors bridge
+/// `constants.CAPTURE_MAX_SIZE`) — enforced bridge-side (see `capture.py`),
+/// kept here for parity/documentation only. `null` (native resolution) is
+/// only honored when native is already under this cap; larger native
+/// captures must be an explicit downscale instead.
+#[allow(
+    dead_code,
+    reason = "documents the bridge-side hard cap; not enforced Rust-side, mirrors SCRIPT_MAX_BYTES"
+)]
+pub const CAPTURE_MAX_SIZE: u32 = 1536;
 
 /// Args for capture (perception).
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -371,7 +423,8 @@ pub struct CaptureParams {
     #[serde(default)]
     pub context_path: Option<OpPath>,
     /// Longer-side pixel cap before PNG encode. `null` = native resolution.
-    /// Defaults to 256.
+    /// Defaults to 512. Hard-capped at 1536 (`tdmcp.perception.max_size_too_large`);
+    /// `null` is only honored when native resolution is already under the cap.
     #[serde(default = "default_capture_max_size")]
     pub max_size: Option<u32>,
     /// Diagnostic payload size (`summary` omits raw traceback).
@@ -403,10 +456,10 @@ pub enum InspectInclude {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum DetailLevel {
-    /// Direct-child roster as `{name, opType}` (capped at 96; see `node.truncation`).
+    /// Direct-child roster as `{name, opType}` (capped at 256; see `node.truncation`).
     #[default]
     Summary,
-    /// Direct-child roster as `{path, family, opType}` (same 96 cap — does not uncap).
+    /// Direct-child roster as `{path, family, opType}` (same 256 cap — does not uncap).
     Detailed,
 }
 
@@ -430,7 +483,7 @@ pub struct InspectParams {
     /// Optional federated daemon id (omit for local / unique remote resolve).
     #[serde(default)]
     pub daemon_id: Option<String>,
-    /// Explicit operator paths to inspect (required, non-empty). Soft-capped at 96.
+    /// Explicit operator paths to inspect (required, non-empty). Soft-capped at 256.
     /// No auto-recursion — caller chooses exactly which nodes to fetch.
     pub paths: Vec<OpPath>,
     /// Resolution base for relative entries in `paths`.
@@ -611,7 +664,7 @@ pub struct ApiHelpParams {
     /// Optional federated daemon id (omit for local / unique remote resolve).
     #[serde(default)]
     pub daemon_id: Option<String>,
-    /// Batch of API card / index queries (required, non-empty). Soft-capped at 32.
+    /// Batch of API card / index queries (required, non-empty). Soft-capped at 64.
     pub queries: Vec<ApiHelpQuery>,
     /// Caps member lists / whether wikiUrl + full mro appear (not help prose).
     #[serde(default)]
@@ -1148,7 +1201,7 @@ async fn maybe_proxy_bridged(
         "name": tool_name,
         "arguments": args,
     });
-    let mut req = fed.http.post(&url).json(&body).timeout(PROXY_TIMEOUT);
+    let mut req = fed.http.post(&url).json(&body).timeout(effective_proxy_timeout());
     if !auth_token.is_empty() {
         req = req.bearer_auth(&auth_token);
     }
@@ -1275,7 +1328,7 @@ async fn enqueue_and_call(
     }
 
     let call = bridge.call(raw_pid, method.wire_str(), params);
-    match tokio::time::timeout(BRIDGE_TIMEOUT, call).await {
+    match tokio::time::timeout(effective_bridge_timeout(), call).await {
         Ok(Ok(value)) => BridgeOutcome::Ok(value),
         Ok(Err(err)) => {
             if matches!(
@@ -1290,7 +1343,7 @@ async fn enqueue_and_call(
             clear_queue_keep_connected(registry, raw_pid).await;
             BridgeOutcome::Transport(BridgeRpcError::Timeout {
                 pid: raw_pid,
-                budget_ms: BRIDGE_TIMEOUT.as_millis() as u64,
+                budget_ms: effective_bridge_timeout().as_millis() as u64,
             })
         }
     }
@@ -1299,4 +1352,46 @@ async fn enqueue_and_call(
 async fn clear_queue_keep_connected(registry: &Arc<Mutex<PidRegistry>>, pid: u32) {
     let mut reg = registry.lock().await;
     let _ = reg.cancel_queue_keep_connected(pid);
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, reason = "unit tests")]
+mod timeout_tests {
+    use super::{derive_timeout, BRIDGE_TIMEOUT, PROXY_TIMEOUT};
+    use std::time::Duration;
+
+    #[test]
+    fn derive_timeout_adds_margin_over_the_configured_script_budget() {
+        // 600s (docs/LIMITS_AUDIT.md §3.4 proposed script_timeout_secs) + 60s
+        // margin must clear the historical 180s/130s floors comfortably.
+        assert_eq!(
+            derive_timeout(600, BRIDGE_TIMEOUT),
+            Duration::from_secs(660)
+        );
+        assert_eq!(
+            derive_timeout(600, PROXY_TIMEOUT),
+            Duration::from_secs(660)
+        );
+    }
+
+    #[test]
+    fn derive_timeout_never_drops_below_the_historical_floor() {
+        // A short/unconfigured script_timeout_secs must not shrink the
+        // safety net below what it's always been.
+        assert_eq!(
+            derive_timeout(10, BRIDGE_TIMEOUT),
+            Duration::from_secs(180)
+        );
+        assert_eq!(derive_timeout(10, PROXY_TIMEOUT), Duration::from_secs(130));
+    }
+
+    #[test]
+    fn derive_timeout_matches_the_default_script_timeout_at_the_floor() {
+        // 120s default + 60s margin == 180s == the historical BRIDGE_TIMEOUT
+        // const exactly — the derivation must not regress today's behavior.
+        assert_eq!(
+            derive_timeout(120, BRIDGE_TIMEOUT),
+            Duration::from_secs(180)
+        );
+    }
 }

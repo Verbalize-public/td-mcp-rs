@@ -120,12 +120,12 @@
       "oneOf": [
         {
           "const": "summary",
-          "description": "Direct-child roster as `{name, opType}` (capped at 96; see `node.truncation`).",
+          "description": "Direct-child roster as `{name, opType}` (capped at 256; see `node.truncation`).",
           "type": "string"
         },
         {
           "const": "detailed",
-          "description": "Direct-child roster as `{path, family, opType}` (same 96 cap — does not uncap).",
+          "description": "Direct-child roster as `{path, family, opType}` (same 256 cap — does not uncap).",
           "type": "string"
         }
       ]
@@ -178,7 +178,7 @@
       "description": "Target pid."
     },
     "queries": {
-      "description": "Batch of API card / index queries (required, non-empty). Soft-capped at 32.",
+      "description": "Batch of API card / index queries (required, non-empty). Soft-capped at 64.",
       "items": {
         "$ref": "#/$defs/ApiHelpQuery"
       },

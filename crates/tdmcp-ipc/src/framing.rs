@@ -21,8 +21,11 @@ pub enum FrameError {
     Io(#[from] std::io::Error),
 }
 
-/// Hard cap on a single framed IPC payload (body bytes).
-pub(crate) const MAX_FRAME: usize = 16 * 1024 * 1024;
+/// Hard cap on a single framed IPC payload (body bytes). Kept at 2x the
+/// client-facing HTTP wire cap (`WIRE_BODY_LIMIT_BYTES`, 16 MiB in
+/// `tdmcp-daemon/src/main.rs`) so this internal daemon<->bridge hop never
+/// becomes the tighter bottleneck. See `docs/LIMITS_AUDIT.md` §3.1.
+pub(crate) const MAX_FRAME: usize = 32 * 1024 * 1024;
 
 /// Encode a serializable message as `u32 LE length + utf8 json`.
 pub fn encode<T: Serialize>(msg: &T) -> Result<Vec<u8>, FrameError> {

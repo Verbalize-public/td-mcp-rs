@@ -44,11 +44,12 @@ pub use stdio_proxy::{
 };
 pub use template::{Catalog, CatalogEntry, RenderMode, TemplateEngine};
 pub use tools::{
-    dispatch_tool, tool_descriptors, ApiHelpFamily, ApiHelpParams, ApiHelpQuery, BridgeOutcome,
-    CaptureMode, CaptureParams, DetailLevel, ExecutePythonParams, FormatMode, InspectInclude,
-    InspectParams, MutateNodesParams, MutateStep, SessionGate, ToolCallError, ToolDescriptor,
-    ToolFailPayload, ToolName, API_HELP_QUERIES_LIMIT, BRIDGE_TIMEOUT, CHILDREN_ROSTER_LIMIT,
-    EDITOR_PANES_LIMIT, EDITOR_SELECTION_LIMIT, INSPECT_PATHS_LIMIT,
+    dispatch_tool, init_bridge_timeouts, tool_descriptors, ApiHelpFamily, ApiHelpParams,
+    ApiHelpQuery, BridgeOutcome, CaptureMode, CaptureParams, DetailLevel, ExecutePythonParams,
+    FormatMode, InspectInclude, InspectParams, MutateNodesParams, MutateStep, SessionGate,
+    ToolCallError, ToolDescriptor, ToolFailPayload, ToolName, API_HELP_QUERIES_LIMIT,
+    BRIDGE_TIMEOUT, CHILDREN_ROSTER_LIMIT, EDITOR_PANES_LIMIT, EDITOR_SELECTION_LIMIT,
+    INSPECT_PATHS_LIMIT,
 };
 
 // ---------------------------------------------------------------------------

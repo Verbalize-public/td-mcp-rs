@@ -37,7 +37,7 @@ use tdmcp_mcp::{BridgeRpc, BridgeRpcError};
 use crate::logring::{ingest_bridge_logs, LogSink};
 
 /// Capacity of the per-pid job mpsc (MCP → session actor).
-pub const JOB_CHANNEL_CAPACITY: usize = 32;
+pub const JOB_CHANNEL_CAPACITY: usize = 128;
 
 /// Production default for `ping` / `inspect` / `capture` waits.
 /// After bridge loss, drop the pid from the fleet if still disconnected.
@@ -310,7 +310,15 @@ impl BridgeRpc for BridgeSessions {
             sessions.get(&pid).cloned()
         };
         let Some(handle) = handle else {
-            return Err(BridgeRpcError::NotConnected { pid });
+            // Distinguish "known pid, bridge currently down" (resurrection
+            // is plausible — worth a retry) from "never registered / TTL-
+            // evicted" (nothing to resurrect, retrying wastes a call).
+            let ever_seen = self.registry.lock().await.get(pid).is_some();
+            return Err(if ever_seen {
+                BridgeRpcError::NotConnected { pid }
+            } else {
+                BridgeRpcError::Unknown { pid }
+            });
         };
         let (tx, rx) = oneshot::channel();
         handle

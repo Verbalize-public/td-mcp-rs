@@ -568,11 +568,11 @@ entries:
 
   - code: tdmcp.script.result_too_large
     layer: script
-    message: "execute_python result JSON exceeds the bridge size cap"
+    message: "execute_python result JSON exceeds the bridge size cap — truncated, not discarded (the script already ran)"
     mitigation:
       - "Return a smaller result (paths/ids/summaries, not full dumps)"
       - "Prefer inspect / mutate_nodes for structural reads"
-      - "Keep result JSON under 1 MiB UTF-8 so the IPC frame cannot hard-drop"
+      - "Persist large data on the node graph and return a reference instead"
     references:
       - kind: tool
         id: execute_python
@@ -672,6 +672,16 @@ entries:
     mitigation:
       - "Narrow the CHOP window or channel count in TD before re-capture"
       - "Caps are fixed: 32 channels, 256 samples/channel, 4096 scalars"
+    references:
+      - kind: tool
+        id: capture
+
+  - code: tdmcp.perception.max_size_too_large
+    layer: perception
+    message: "capture maxSize (or native resolution) exceeds the hard cap"
+    mitigation:
+      - "Pass an explicit maxSize at or below the cap (1536px longer side)"
+      - "null (native resolution) is only honored when native is already under the cap"
     references:
       - kind: tool
         id: capture

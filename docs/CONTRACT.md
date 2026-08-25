@@ -182,7 +182,7 @@ timeouts are available. Mid-frame reads tolerate short poll stalls; the bridge
 only treats a transfer as dead after idle-dead with **no byte progress** (then
 disconnects and closes the stream). Idle detection and fleet eviction are
 separate clocks (eviction TTL remains **15s**). IPC frames are hard-capped at
-**16 MiB**. `GET /mcp/health` remains daemon-process liveness only — not bridge
+**32 MiB**. `GET /mcp/health` remains daemon-process liveness only — not bridge
 peer health.
 
 **Per-call wait budgets:** `ping` / `inspect` / `capture` / `api_help` / `editor_context` default to **45s**;
@@ -278,7 +278,7 @@ Unknown `include` values are **rejected** at arg validation — structured failu
 
 ### `inspect` / `paths`
 
-`inspect` requires a non-empty `paths: OpPath[]` array. There is **no single-`path` param** and **no auto-recursion** — the caller chooses exactly which nodes to fetch. Soft-capped at **96** paths per call (`tdmcp.op.paths_truncated` when exceeded; first 96 processed). Empty / missing `paths` → structured `tdmcp.op.paths_required` failure (daemon pre-check; bridge emits the same code).
+`inspect` requires a non-empty `paths: OpPath[]` array. There is **no single-`path` param** and **no auto-recursion** — the caller chooses exactly which nodes to fetch. Soft-capped at **256** paths per call (`tdmcp.op.paths_truncated` when exceeded; first 256 processed). Empty / missing `paths` → structured `tdmcp.op.paths_required` failure (daemon pre-check; bridge emits the same code).
 
 **Partial success:** a bad path does not fail the whole batch. That entry is `{ ok: false, path, code: "tdmcp.op.not_found", message }` (or `tdmcp.op.inspect_failed`); siblings still return data. Top-level success stays `{ ok: true, nodes: [...] }`.
 
@@ -310,7 +310,7 @@ Many TD cook problems (invalid select path, missing movie file, …) surface as 
 
 | Field | Content |
 | ----- | ------- |
-| `parmExprIssues` | `[{ kind: "enableExpr", par, label, expr, errorType, message }, …]` — failures from `OP.evalExpression(enableExpr)` over unique non-empty custom `enableExpr`s (`customParGroups`, else `customPars`), capped at **32** evals |
+| `parmExprIssues` | `[{ kind: "enableExpr", par, label, expr, errorType, message }, …]` — failures from `OP.evalExpression(enableExpr)` over unique non-empty custom `enableExpr`s (`customParGroups`, else `customPars`), capped at **64** evals |
 | `diagnostics` | Soft catalog-shaped entries (`code: tdmcp.par.enable_expr_failed`, `severity: "warning"`, mitigation, `context: { par, expr }`) — **not** a tool-failure envelope |
 
 Both keys are **omitted when empty**. Independent of `include: params`. Never flips node or top-level `ok`. Coarse `warnings[]` strings are always kept.
@@ -338,7 +338,7 @@ When `content` is included, eligible nodes gain a `content` object (omitted on n
 | `isTable` | `OP.isTable` (tables included; body is still `.text` TSV) |
 | `bytes` | UTF-8 byte length of `text` |
 | `text` | Full `OP.text` |
-| `consumers?` | Shader-consumer diagnostics for this DAT — same item shape as mutate `shaderDiagnostics[]`; caps 512 ops scanned / 16 consumers (`consumersTruncated` + standard `truncation` on overflow). Reading consumer `compileResult` forces a synchronous recompile of that consumer |
+| `consumers?` | Shader-consumer diagnostics for this DAT — same item shape as mutate `shaderDiagnostics[]`; caps 2048 ops scanned / 64 consumers (`consumersTruncated` + standard `truncation` on overflow). Reading consumer `compileResult` forces a synchronous recompile of that consumer |
 
 **GLSL** (`opType` in `glslTOP` / `glslmultiTOP` / `glslMAT` / `glslPOP`):
 
@@ -368,7 +368,7 @@ Applies **only when `nodes` is included** (see `inspect` / `include` — default
 
 | Level               | Direct `children` entries | Counts / truncation                                        |
 | ------------------- | ------------------------- | ---------------------------------------------------------- |
-| `summary` (default) | `{name, opType}`          | `childCount` + `childrenReturned`; roster capped at **96** |
+| `summary` (default) | `{name, opType}`          | `childCount` + `childrenReturned`; roster capped at **256** |
 | `detailed`          | `{path, family, opType}`  | Same cap — **does not** raise the limit                    |
 
 
@@ -382,11 +382,11 @@ Live multi-pane snapshot of TouchDesigner’s UI via `td.ui.panes` (bridge metho
 
 | Field | Rule |
 | --- | --- |
-| `panes[]` | All panes (soft-cap **32**; `panesTruncated` + top-level `truncation` when exceeded) |
+| `panes[]` | All panes (soft-cap **64**; `panesTruncated` + top-level `truncation` when exceeded) |
 | `panes[].type` | `PaneType` name (`NETWORKEDITOR`, `PANEL`, …) |
 | `panes[].focused` | `true` when `pane.id == ui.panes.current.id`; all `false` when there is no current pane |
 | `panes[].ownerPath` | `pane.owner.path`, or `null` when unresolved |
-| `panes[].selection` | `[{ path, current }]` for COMP owners — **omitted when empty**; soft-capped at **96** with per-pane `selectionTruncated` / `truncation` |
+| `panes[].selection` | `[{ path, current }]` for COMP owners — **omitted when empty**; soft-capped at **256** with per-pane `selectionTruncated` / `truncation` |
 | `panes[].current` | Exactly one selection entry may have `current: true` (the green current child) |
 
 **Partial success:** a bad pane is `{ ok: false, id?, name?, code: "tdmcp.editor.pane_failed", message }`; siblings still succeed. Top-level handler failure → `tdmcp.editor.context_failed`.
@@ -397,7 +397,7 @@ Live multi-pane snapshot of TouchDesigner’s UI via `td.ui.panes` (bridge metho
 
 Live TD Python API **cards** via bridge introspection (`getattr(td,…)`, `dir`, short `__doc__`, class `opType`/`family`/`mro`). **Not** a documentation fetcher: no raw `help()` dumps, no wiki HTML body, no bundled OP parameter corpus.
 
-Requires `pid` and a non-empty `queries[]` (soft-cap **32**; `queriesTruncated` + `truncation` when exceeded). Partial success: a bad query is `{ ok: false, code: "tdmcp.api_help.not_found", … }`; siblings still succeed; top-level stays `{ ok: true, results: [...] }`.
+Requires `pid` and a non-empty `queries[]` (soft-cap **64**; `queriesTruncated` + `truncation` when exceeded). Partial success: a bad query is `{ ok: false, code: "tdmcp.api_help.not_found", … }`; siblings still succeed; top-level stays `{ ok: true, results: [...] }`.
 
 | `queries[].kind` | Shape |
 | --- | --- |
@@ -416,10 +416,10 @@ Capture does **not** force-cook. TD cooks on read / `saveByteArray`; shared-view
 
 | Mode         | Status      | Behavior                                                                                                                                                                                                                                                                                            |
 | ------------ | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `top`        | **Shipped** | TOP → PNG (native `saveByteArray(".png")`; retains alpha; flat success fields + MCP image content); optional `maxSize` (default 256); black or uniform solid frame = perception fail (`tdmcp.perception.black_frame` / `tdmcp.perception.uniform_frame`; image still returned); wrong family → `tdmcp.perception.wrong_family` |
+| `top`        | **Shipped** | TOP → PNG (native `saveByteArray(".png")`; retains alpha; flat success fields + MCP image content); optional `maxSize` (default 512, hard-capped at 1536 — `tdmcp.perception.max_size_too_large` above the cap, including `null`/native when native resolution itself exceeds it); black or uniform solid frame = perception fail (`tdmcp.perception.black_frame` / `tdmcp.perception.uniform_frame`; image still returned); wrong family → `tdmcp.perception.wrong_family` |
 | `preview`    | **Shipped** | Any family → retarget bridge `./capture_viewer` (OP Viewer TOP) at the source → PNG; missing/unbound viewer → `tdmcp.perception.no_path`. Safe under per-pid FIFO (one capture at a time).                                                                                                          |
 | `auto`       | **Shipped** | TOP → `top`; CHOP → `chop_data`; everything else (COMP/POP/SOP/MAT/DAT/…) → `preview`                                                                                                                                                                                                                |
-| `chop_data`  | **Shipped** | CHOP → capped JSON (32 channels, 256 samples/channel, 4096 scalars); soft `truncation` + `tdmcp.perception.chop_truncated` when capped; empty → `tdmcp.perception.empty_chop`; wrong family → `tdmcp.perception.wrong_family`; all-zero non-empty = success; ignores `maxSize`                      |
+| `chop_data`  | **Shipped** | CHOP → capped JSON (64 channels, 1024 samples/channel, 32768 scalars); soft `truncation` + `tdmcp.perception.chop_truncated` when capped; empty → `tdmcp.perception.empty_chop`; wrong family → `tdmcp.perception.wrong_family`; all-zero non-empty = success; ignores `maxSize`                      |
 | `chop_image` | **Shipped** | Alias of `preview` (shared OP Viewer); kept for existing callers                                                                                                                                                                                                                                    |
 | `pop`        | **Shipped** | Alias of `preview` (shared OP Viewer); kept for existing callers                                                                                                                                                                                                                                    |
 
@@ -452,7 +452,7 @@ Step shapes:
 
 `values` = `.par.*` only. `flags` = direct OP attributes (`node.<name> = val`); allowlist = operate-relevant TD Common Flags subset: `activeViewer`, `allowCooking`, `bypass`, `cloneImmune`, `display`, `lock`, `render`, `viewer`. Unknown flag names → `tdmcp.flag.unknown`. When a name is in the wrong bag (flag under `values` / param under `flags`), the hard code stays (`tdmcp.par.unknown` / `tdmcp.flag.unknown`) and a best-effort nested lint (`tdmcp.par.wrong_collection` / `tdmcp.flag.wrong_collection`) may be attached — hints never auto-redirect and never change the hard outcome. Same-collection near-misses (typo / case) may attach `tdmcp.par.similar_name` or `tdmcp.op.similar_type` with `suggestion.replace` — also best-effort, never changing the hard code. Wire errors: `tdmcp.wire.bad_index` (connector index OOB), `tdmcp.wire.connect_failed` (TD connector exception); missing ops reuse `tdmcp.op.not_found`.
 
-**Text writes & shader lint.** `create`/`set` accept optional `text` (string) — applied **before** `values`. The target must be a DAT: otherwise hard step error `tdmcp.mutate.not_dat` (on `create`, the usual rollback destroys the node). After every successful `text` write, consuming GLSL ops are linted: stage-reference pars (`pixeldat`/`vertexdat`/`computedat`/`predat` on glslTOP/glslmultiTOP; `pdat`/`vdat`/`gdat`/`predat` on glslMAT; `computedat` on glslPOP) are scanned within the `contextPath` subtree (default `/project1`; ≤512 ops scanned), each consumer's `OP.compileResult` is classified (reading forces a synchronous recompile of that consumer), and results attach as `steps[i].shaderDiagnostics[]`: `{severity: "note"|"error", code: "tdmcp.shader.compiled" | "tdmcp.shader.compile_failed" | "tdmcp.shader.unsupported_consumer", consumer, consumerOpType, role, message, lines[]}` — `lines[]` carries verbatim `ERROR:` lines, errors only; `glslPOP` consumers report `unsupported_consumer` (no verified compile surface). Batch summary adds `shaderNotes` / `shaderErrors` counts when nonzero. Consumers cap at 16 per DAT (`tdmcp.shader.consumers_truncated` on overflow in inspect content). Lint is best-effort enrichment: it never flips step/tool `ok`. `detailLevel: detailed` echoes `steps[i].textLength`, never the body. Full verified patterns: [SHADER_LINT.md](SHADER_LINT.md).
+**Text writes & shader lint.** `create`/`set` accept optional `text` (string) — applied **before** `values`. The target must be a DAT: otherwise hard step error `tdmcp.mutate.not_dat` (on `create`, the usual rollback destroys the node). After every successful `text` write, consuming GLSL ops are linted: stage-reference pars (`pixeldat`/`vertexdat`/`computedat`/`predat` on glslTOP/glslmultiTOP; `pdat`/`vdat`/`gdat`/`predat` on glslMAT; `computedat` on glslPOP) are scanned within the `contextPath` subtree (default `/project1`; ≤2048 ops scanned), each consumer's `OP.compileResult` is classified (reading forces a synchronous recompile of that consumer), and results attach as `steps[i].shaderDiagnostics[]`: `{severity: "note"|"error", code: "tdmcp.shader.compiled" | "tdmcp.shader.compile_failed" | "tdmcp.shader.unsupported_consumer", consumer, consumerOpType, role, message, lines[]}` — `lines[]` carries verbatim `ERROR:` lines, errors only; `glslPOP` consumers report `unsupported_consumer` (no verified compile surface). Batch summary adds `shaderNotes` / `shaderErrors` counts when nonzero. Consumers cap at 64 per DAT (`tdmcp.shader.consumers_truncated` on overflow in inspect content). Lint is best-effort enrichment: it never flips step/tool `ok`. `detailLevel: detailed` echoes `steps[i].textLength`, never the body. Full verified patterns: [SHADER_LINT.md](SHADER_LINT.md).
 
 Result (summary):
 
@@ -506,11 +506,11 @@ Canonical output echoes TD’s absolute `node.path`. `execute_python` is OpPath-
 | Global OP Shortcut | Bridge COMP claims `**Debug**` (`ensure_ui`; skipped if already taken)                                                                                                        |
 | Text DAT           | `./debug` under the bridge → `op.Debug.op('debug')` when the shortcut is ours                                                                                                 |
 | Face               | Operator Viewer ASCII panel includes a **LOGS** section (tail of `./debug`)                                                                                                   |
-| `includeLogs`      | Default **true**. When true, stdout/stderr during `exec` are teed (Textport still receives them), ring-appended to `./debug` (64 KiB), and returned as `logs` (capped 32 KiB) |
+| `includeLogs`      | Default **true**. When true, stdout/stderr during `exec` are teed (Textport still receives them), ring-appended to `./debug` (256 KiB), and returned as `logs` (capped 128 KiB) |
 | Success            | `{ ok: true, result, logs? }` — `logs` omitted when `includeLogs: false`                                                                                                      |
 | Failure            | `diagnostics.context.logs` carries the same capture; see structured `exception` below                                                                                         |
 | Scope              | Only stdio (`print` / writes to stdout/stderr). TD `debug()` may bypass stdio                                                                                                 |
-| Size caps          | Script UTF-8 ≤ **1 MiB** (`tdmcp.script.too_large`); JSON-encoded `result` ≤ **1 MiB** (`tdmcp.script.result_too_large`). Caps keep framed IPC under the 16 MiB hard frame limit — oversize fails soft, never drops the bridge. Prefer `mutate_nodes` for create/wire/set batches. |
+| Size caps          | Script UTF-8 ≤ **4 MiB** (`tdmcp.script.too_large`, rejected pre-execution); JSON-encoded `result` ≤ **4 MiB** (over that, `result` is truncated and `resultTruncated`/`truncation` metadata attached — the script already ran, so its effect is never discarded, only the returned value; code `tdmcp.script.result_too_large`). Caps keep framed IPC under the 32 MiB hard frame limit. Prefer `mutate_nodes` for create/wire/set batches. |
 
 
 ### `execute_python` structured exception — Shipped

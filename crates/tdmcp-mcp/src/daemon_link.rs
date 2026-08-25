@@ -211,6 +211,10 @@ struct LinkState {
     generation: u64,
 }
 
+/// Guard held for the full duration of one forwarded call. See
+/// [`DaemonLink::call_gate`].
+pub type CallGateGuard<'a> = tokio::sync::MutexGuard<'a, ()>;
+
 /// Owns the live HTTP MCP client session and reconnect policy.
 pub struct DaemonLink {
     daemon_url: String,
@@ -218,6 +222,8 @@ pub struct DaemonLink {
     config: ReconnectConfig,
     state: tokio::sync::RwLock<LinkState>,
     reconnect_gate: tokio::sync::Mutex<()>,
+    /// Single-flight gate for forwarded tool calls (see [`Self::call_gate`]).
+    call_gate: tokio::sync::Mutex<()>,
     unhealthy_since: Mutex<Option<Instant>>,
     last_downtime: Mutex<Option<Duration>>,
     last_probe: Mutex<Option<Instant>>,
@@ -270,6 +276,7 @@ impl DaemonLink {
                 generation: 0,
             }),
             reconnect_gate: tokio::sync::Mutex::new(()),
+            call_gate: tokio::sync::Mutex::new(()),
             unhealthy_since: Mutex::new(None),
             last_downtime: Mutex::new(None),
             last_probe: Mutex::new(None),
@@ -313,6 +320,23 @@ impl DaemonLink {
     pub async fn current_peer(&self) -> (Arc<Peer<RoleClient>>, u64) {
         let state = self.state.read().await;
         (Arc::clone(&state.peer), state.generation)
+    }
+
+    /// Single-flight gate: hold this for the full duration of one forwarded
+    /// call (send + await response), so no other forwarded call can race it
+    /// on the same rmcp streamable-http session.
+    ///
+    /// rmcp's streamable-http client shares one worker loop per session for
+    /// every outstanding request. If a second request hits a server-side
+    /// session-expiry edge case while a first, slow request (e.g. a
+    /// long-running `execute_python`) is still open, the client transparently
+    /// reinitializes the session — which fails *every* other pending
+    /// request's stream, including the unrelated slow one, even though the
+    /// daemon already computed its (curated) answer. Serializing forwarded
+    /// calls through this gate avoids ever presenting rmcp with concurrent
+    /// requests on one session. See `docs/LIMITS_AUDIT.md` §4.1.
+    pub async fn call_gate(&self) -> CallGateGuard<'_> {
+        self.call_gate.lock().await
     }
 
     /// Current generation (tests).

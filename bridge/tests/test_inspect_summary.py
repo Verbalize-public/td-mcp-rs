@@ -956,16 +956,17 @@ class InspectShaderLintContentTest(unittest.TestCase):
     def test_dat_content_truncation_passes_through(self) -> None:
         dat = _fake_dat(path="/project1/code")
         td_stub = _LintTdStub()
+        limit = tdmcp_bridge.SHADER_CONSUMER_LIMIT
         td_stub.register(
             "glslTOP",
-            *[_lint_glsl(f"/project1/g{i}", dat) for i in range(20)],
+            *[_lint_glsl(f"/project1/g{i}", dat) for i in range(limit + 4)],
         )
         out = tdmcp_bridge.build_inspect_node(
             dat, want_nodes=False, want_content=True, lint_ctx=td_stub,
             scope_root="/project1",
         )
         content = out["content"]
-        self.assertEqual(len(content["consumers"]), 16)
+        self.assertEqual(len(content["consumers"]), limit)
         self.assertTrue(content["consumersTruncated"])
         self.assertEqual(
             content["truncation"]["code"], "tdmcp.shader.consumers_truncated"

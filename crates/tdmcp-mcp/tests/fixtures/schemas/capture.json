@@ -90,8 +90,8 @@
       "description": "Diagnostic payload size (`summary` omits raw traceback)."
     },
     "maxSize": {
-      "default": 256,
-      "description": "Longer-side pixel cap before PNG encode. `null` = native resolution.\nDefaults to 256.",
+      "default": 512,
+      "description": "Longer-side pixel cap before PNG encode. `null` = native resolution.\nDefaults to 512. Hard-capped at 1536 (`tdmcp.perception.max_size_too_large`);\n`null` is only honored when native resolution is already under the cap.",
       "format": "uint32",
       "minimum": 0,
       "type": [

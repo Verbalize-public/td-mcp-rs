@@ -160,10 +160,15 @@ impl ServerHandler for McpHandler {
         .await
         {
             Ok(value) => Ok(call_tool_result_from_value(&name, value).into()),
-            Err(ToolCallError::UnknownTool(name)) => Err(ErrorData::invalid_params(
-                format!("unknown tool: {name} — call describe_tools for available tools"),
-                None,
-            )),
+            Err(ToolCallError::UnknownTool(name)) => {
+                let hint = crate::args_diag::suggest_tool(&name)
+                    .map(|s| format!(" — did you mean `{s}`?"))
+                    .unwrap_or_default();
+                Err(ErrorData::invalid_params(
+                    format!("unknown tool: {name}{hint} — call describe_tools for available tools"),
+                    None,
+                ))
+            }
             Err(ToolCallError::Failed(fail)) => {
                 let payload = fail.structured_content();
                 Ok(call_tool_error_result(payload, fail.image_base64, fail.image_mime_type).into())
@@ -196,15 +201,40 @@ fn tool_from_descriptor(d: crate::tools::ToolDescriptor) -> Tool {
     Tool::new(d.name.clone(), d.description, schema)
 }
 
+/// Above this serialized size, drop the redundant `content[].text` copy of
+/// `structuredContent` that `CallToolResult::structured` /
+/// `structured_error` always attach (`content.to_string()` duplicated
+/// verbatim into a text block). Free for small results — some MCP clients
+/// only render `content[]`, not `structuredContent` — but for large ones it
+/// doubles wire size and eats directly into rmcp's fixed 16 MiB SSE event
+/// cap. See `docs/LIMITS_AUDIT.md` §2.2 / §5 Phase 1.5.
+const DUPLICATE_TEXT_SKIP_BYTES: usize = 256 * 1024;
+
+/// Drop the duplicate `content[0]` text block when it's just a large
+/// restatement of `structured_content`. Leaves image/error content (any
+/// result with more than one content block, or none) untouched.
+fn drop_duplicate_text_if_large(mut result: CallToolResult) -> CallToolResult {
+    let oversized = match result.content.as_slice() {
+        [only] => only
+            .as_text()
+            .is_some_and(|t| t.text.len() > DUPLICATE_TEXT_SKIP_BYTES),
+        _ => false,
+    };
+    if oversized {
+        result.content.clear();
+    }
+    result
+}
+
 /// Build an MCP tool result, promoting top-level `imageBase64` to an image block.
 fn call_tool_result_from_value(tool: &str, value: Value) -> CallToolResult {
     if tool == "capture" {
         return match try_perception_image_result(value) {
             Ok(result) => result,
-            Err(value) => CallToolResult::structured(value),
+            Err(value) => drop_duplicate_text_if_large(CallToolResult::structured(value)),
         };
     }
-    CallToolResult::structured(value)
+    drop_duplicate_text_if_large(CallToolResult::structured(value))
 }
 
 fn call_tool_error_result(
@@ -223,7 +253,7 @@ fn call_tool_error_result(
         result.structured_content = Some(payload);
         return result;
     }
-    CallToolResult::structured_error(payload)
+    drop_duplicate_text_if_large(CallToolResult::structured_error(payload))
 }
 
 /// Promote top-level PNG (or other) payload to an image content block.
@@ -317,5 +347,38 @@ mod tests {
         let value = json!({"ok": true, "node": {"path": "/project1"}});
         let result = call_tool_result_from_value("inspect", value);
         assert!(result.content.iter().all(|c| c.as_image().is_none()));
+    }
+
+    #[test]
+    fn small_result_keeps_the_duplicate_text_block() {
+        let value = json!({"ok": true, "result": 1});
+        let result = call_tool_result_from_value("execute_python", value.clone());
+        assert_eq!(result.content.len(), 1, "small results keep the compat text block");
+        assert_eq!(
+            result.content[0].as_text().expect("text").text,
+            value.to_string()
+        );
+        assert_eq!(result.structured_content, Some(value));
+    }
+
+    #[test]
+    fn oversized_result_drops_the_duplicate_text_block_but_keeps_structured() {
+        let big = "x".repeat(DUPLICATE_TEXT_SKIP_BYTES + 1);
+        let value = json!({"ok": true, "result": big});
+        let result = call_tool_result_from_value("execute_python", value.clone());
+        assert!(
+            result.content.is_empty(),
+            "oversized results must not duplicate the payload into content[]"
+        );
+        assert_eq!(result.structured_content, Some(value));
+    }
+
+    #[test]
+    fn oversized_error_result_also_drops_the_duplicate_text_block() {
+        let big = "x".repeat(DUPLICATE_TEXT_SKIP_BYTES + 1);
+        let payload = json!({"ok": false, "summary": big});
+        let result = call_tool_error_result(payload.clone(), None, None);
+        assert!(result.content.is_empty());
+        assert_eq!(result.structured_content, Some(payload));
     }
 }

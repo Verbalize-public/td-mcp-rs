@@ -1,8 +1,8 @@
 {
-  "inspect_paths_limit": 96,
-  "children_roster_limit": 96,
-  "editor_selection_limit": 96,
-  "editor_panes_limit": 32,
+  "inspect_paths_limit": 256,
+  "children_roster_limit": 256,
+  "editor_selection_limit": 256,
+  "editor_panes_limit": 64,
   "bridge_timeout_secs": 180,
   "call_timeout_secs": 45,
   "script_timeout_secs": 120,

@@ -5,6 +5,7 @@ from typing import Any
 
 from . import state as _state
 from .constants import (
+    CAPTURE_MAX_SIZE,
     CAPTURE_VIEWER_NAME,
     CHOP_DATA_MAX_CHANNELS,
     CHOP_DATA_MAX_SAMPLES,
@@ -191,6 +192,32 @@ def _capture_top_image(
             "path": getattr(target, "path", path),
         }
 
+    # Hard pre-flight reject, mirroring SCRIPT_MAX_BYTES: a PNG+base64 payload
+    # at unbounded native resolution can blow the 16 MiB IPC frame and kill
+    # the whole bridge session, not just this call (docs/LIMITS_AUDIT.md §4.2).
+    if max_size is not None:
+        if int(max_size) > CAPTURE_MAX_SIZE:
+            return {
+                "ok": False,
+                "code": "tdmcp.perception.max_size_too_large",
+                "message": f"maxSize {int(max_size)} exceeds the {CAPTURE_MAX_SIZE}px cap",
+                "path": getattr(target, "path", path),
+            }
+    else:
+        width = int(getattr(target, "width", 0) or 0)
+        height = int(getattr(target, "height", 0) or 0)
+        if max(width, height) > CAPTURE_MAX_SIZE:
+            return {
+                "ok": False,
+                "code": "tdmcp.perception.max_size_too_large",
+                "message": (
+                    f"native resolution {width}x{height} exceeds the "
+                    f"{CAPTURE_MAX_SIZE}px cap; pass an explicit maxSize "
+                    f"(<= {CAPTURE_MAX_SIZE}) instead of native"
+                ),
+                "path": getattr(target, "path", path),
+            }
+
     tmp_top = None
     source = target
     try:
@@ -348,7 +375,7 @@ def handle_capture(params: dict[str, Any]) -> dict[str, Any]:
     path = params.get("path") or ""
     mode = params.get("mode") or "auto"
     context_path = params.get("contextPath")
-    max_size = params.get("maxSize", 256)
+    max_size = params.get("maxSize", 512)
     node = resolve_op(path, context_path)
     if node is None or not getattr(node, "valid", False):
         return {"ok": False, "code": "tdmcp.op.not_found", "path": path}

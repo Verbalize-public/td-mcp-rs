@@ -125,7 +125,9 @@ pub const SCRIPT_EXECUTION_FAILED: &str = "tdmcp.script.execution_failed";
 pub const SCRIPT_NONE_OP: &str = "tdmcp.script.none_op";
 /// execute_python script UTF-8 size exceeds bridge cap.
 pub const SCRIPT_TOO_LARGE: &str = "tdmcp.script.too_large";
-/// execute_python result JSON UTF-8 size exceeds bridge cap.
+/// execute_python result JSON UTF-8 size exceeds bridge cap — truncated
+/// (`truncation` block on an `ok:true` response), never discarded: the
+/// script already ran.
 pub const SCRIPT_RESULT_TOO_LARGE: &str = "tdmcp.script.result_too_large";
 
 /// GLSL compile / cook error from TD.
@@ -145,6 +147,8 @@ pub const PERCEPTION_EMPTY_CHOP: &str = "tdmcp.perception.empty_chop";
 pub const PERCEPTION_CHOP_TRUNCATED: &str = "tdmcp.perception.chop_truncated";
 /// Shared OP Viewer / legacy converter capture path failed.
 pub const PERCEPTION_CONVERTER_FAILED: &str = "tdmcp.perception.converter_failed";
+/// capture `maxSize` (or native resolution) exceeds the hard pre-flight cap.
+pub const PERCEPTION_MAX_SIZE_TOO_LARGE: &str = "tdmcp.perception.max_size_too_large";
 
 /// All codes that must exist in the catalog (compile-time enumeration).
 pub const ALL: &[&str] = &[
@@ -212,6 +216,7 @@ pub const ALL: &[&str] = &[
     PERCEPTION_EMPTY_CHOP,
     PERCEPTION_CHOP_TRUNCATED,
     PERCEPTION_CONVERTER_FAILED,
+    PERCEPTION_MAX_SIZE_TOO_LARGE,
 ];
 
 #[cfg(test)]

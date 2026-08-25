@@ -1056,3 +1056,46 @@ async fn call_timeout_does_not_idle_dead_session() {
 
     let _ = driver.await;
 }
+
+#[tokio::test]
+async fn never_registered_pid_is_unknown_not_not_connected() {
+    // No handshake at all: BridgeSessions has neither a live session nor a
+    // registry entry for this pid. See docs/LIMITS_AUDIT.md §4.6 / §5 Phase 2.4.
+    use tdmcp_mcp::{BridgeRpc, BridgeRpcError};
+
+    let registry = Arc::new(Mutex::new(PidRegistry::new()));
+    let sessions = BridgeSessions::new(registry.clone());
+
+    let err = sessions
+        .call(424_242, "ping", json!({}))
+        .await
+        .expect_err("no session, no registry entry");
+    assert!(
+        matches!(err, BridgeRpcError::Unknown { pid: 424_242 }),
+        "expected Unknown, got {err:?}"
+    );
+}
+
+#[tokio::test]
+async fn registered_but_disconnected_pid_stays_not_connected() {
+    // Registry knows the pid (handshake happened at some point) but no live
+    // bridge session exists — resurrection is still plausible, unlike the
+    // never-seen case above.
+    use tdmcp_mcp::{BridgeRpc, BridgeRpcError};
+
+    let registry = Arc::new(Mutex::new(PidRegistry::new()));
+    {
+        let mut reg = registry.lock().await;
+        reg.handshake(77, attrs(), None);
+    }
+    let sessions = BridgeSessions::new(registry.clone());
+
+    let err = sessions
+        .call(77, "ping", json!({}))
+        .await
+        .expect_err("registry knows the pid but no live session exists");
+    assert!(
+        matches!(err, BridgeRpcError::NotConnected { pid: 77 }),
+        "expected NotConnected, got {err:?}"
+    );
+}
