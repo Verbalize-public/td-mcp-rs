@@ -8,6 +8,7 @@ pub mod admin;
 pub mod autostart;
 pub mod bridge;
 pub mod config;
+pub mod crashreport;
 pub mod ensure;
 pub mod federation;
 pub mod http_util;

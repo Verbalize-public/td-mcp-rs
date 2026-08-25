@@ -188,6 +188,12 @@ fn main() -> Result<()> {
             // Ensure embedded assets exist under data_dir (no-op when current).
             let _ = install::ensure_installed(&cfg.data_dir, false)?;
             let log_handles = tdmcp_daemon::tracing_init::init(&cfg)?;
+            // Before any worker thread spawns: panics on every thread land in
+            // {data_dir}/crash (daemon runtime + GUI render alike).
+            tdmcp_daemon::crashreport::install(
+                &cfg.data_dir,
+                Some(log_handles.sink.ring().clone()),
+            );
             start_daemon(cfg, log_handles.sink.clone())?;
             // The buffered file writer flushes when the guard drops; keep it
             // alive until the daemon has fully stopped.

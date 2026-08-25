@@ -258,7 +258,11 @@ fn overview(app: &mut DashboardApp, ui: &mut egui::Ui) {
         // Compact label: keeps clear margin inside its 186px column even
         // under high DPI scaling.
         stat_card(&mut cols[2], &attention.to_string(), "ATTENTION", {
-            if attention > 0 { WARN } else { TEXT_DIM }
+            if attention > 0 {
+                WARN
+            } else {
+                TEXT_DIM
+            }
         });
         stat_card(&mut cols[3], role.to_uppercase().as_str(), "ROLE", ACCENT);
     });
@@ -319,6 +323,27 @@ fn overview(app: &mut DashboardApp, ui: &mut egui::Ui) {
                     }
                 });
         }
+        if app.crash_count > 0 {
+            ui.add_space(theme::sp::XS);
+            let crash_dir = app.data_dir.join("crash");
+            let fallback = app.data_dir.clone();
+            row_between(
+                ui,
+                theme::ROW_H,
+                |ui| {
+                    ui.label(
+                        egui::RichText::new(format!("CRASH REPORTS · {}", app.crash_count))
+                            .font(font_meta())
+                            .color(WARN),
+                    );
+                },
+                |ui| {
+                    if ghost_button(ui, "Open folder", TEXT_DIM, ACCENT).clicked() {
+                        let _ = crate::reveal_in_file_manager(&crash_dir, &fallback);
+                    }
+                },
+            );
+        }
     });
 }
 
@@ -371,8 +396,7 @@ fn daemon_card(app: &mut DashboardApp, ui: &mut egui::Ui) {
 fn stat_card(ui: &mut egui::Ui, value: &str, title: &str, value_color: Color32) {
     let size = egui::vec2(ui.available_width(), 68.0);
     let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
-    ui.painter()
-        .rect_filled(rect, RADIUS_MD, BG_PANEL);
+    ui.painter().rect_filled(rect, RADIUS_MD, BG_PANEL);
     ui.painter().rect_stroke(
         rect,
         RADIUS_MD,

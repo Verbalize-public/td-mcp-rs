@@ -244,6 +244,21 @@ per-OS `reveal_in_file_manager` (explorer/open/xdg-open),
    MenuEvent plumbing remains. Verification gotcha: at >100% display scale a non-DPI-aware PrintWindow captures
    only the top-left logical crop of the physical window — size the
    bitmap from a DPI-aware GetWindowRect before trusting "missing UI".
+8. ✅ Pass 8 glance-card read-only + crash reports: the popup's last
+   mutation affordance (federation "Share this daemon" nudge +
+   `share_applicable()`) is deleted — the tray panel is now a strictly
+   read-only glance card whose only actions are navigation (`⛶`/`⚙`),
+   `Locate .tox` (`reveal_tox()`), and report links. New daemon module
+   `tdmcp_daemon::crashreport`: a panic hook installed in the Start
+   branch of `main.rs` writes `{data_dir}/crash/crash-<ts>-p<pid>.log`
+   (payload, location, forced backtrace, 30-line ring tail; newest 10
+   kept) for every panicking thread — daemon runtime *and* GUI render.
+   The GUI polls that directory (`scan_crash_reports`, throttled ≥5s off
+   the 2s poll tick, filename-sorted): an unacknowledged previous crash
+   shows as `Previous run crashed — open report` in the popup
+   (ack'd per session on click), and the dashboard Overview errors card
+   gains a `CRASH REPORTS · N — Open folder` row when any exist. No new
+   admin endpoint: same-machine data-dir contract.
 
 ## 8. Remaining open items
 

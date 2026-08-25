@@ -59,6 +59,9 @@ const SETTINGS_ROW_H: f32 = 26.0;
 const SIDE_MARGIN: f32 = 12.0;
 /// Width reserved for the header's right-anchored actions (px).
 const HEADER_ACTIONS_W: f32 = 64.0;
+/// Directory-listing cadence for crash reports (poll ticks at 2s; the scan
+/// itself is a cheap readdir, so 5s is plenty fresh).
+const CRASH_SCAN_INTERVAL: Duration = Duration::from_secs(5);
 
 /// Popup glance caps — depth lives in the dashboard, not the tray window.
 const POPUP_ATTENTION_ROWS: usize = 2;
@@ -267,6 +270,14 @@ struct DashboardApp {
     dash_tab: dashboard::DashTab,
     /// Latest errors/warnings, newest first (tray strip + dashboard card).
     error_ring: Vec<String>,
+    /// Newest crash report in `{data_dir}/crash`, when that directory has any.
+    last_crash: Option<PathBuf>,
+    /// Crash-report count from the last scan.
+    crash_count: usize,
+    /// Crash row acknowledged for this session (click opens the report).
+    crash_seen: bool,
+    /// Throttle gate for the crash-directory scan (`None` = never scanned).
+    crash_scan_at: Option<Instant>,
     /// Window icon reused by the dashboard viewport builder.
     window_icon: egui::IconData,
 }
@@ -465,6 +476,10 @@ impl DashboardApp {
             dashboard_open: dash_open,
             dash_tab,
             error_ring: Vec::new(),
+            last_crash: None,
+            crash_count: 0,
+            crash_seen: false,
+            crash_scan_at: None,
             window_icon,
         })
     }
@@ -798,8 +813,36 @@ impl DashboardApp {
         )));
     }
 
+    /// Refresh `last_crash`/`crash_count` from `{data_dir}/crash`, at most
+    /// every [`CRASH_SCAN_INTERVAL`] — the daemon writes reports there on
+    /// panic (see `tdmcp_daemon::crashreport`).
+    fn scan_crash_reports(&mut self) {
+        if self
+            .crash_scan_at
+            .is_some_and(|t| t.elapsed() < CRASH_SCAN_INTERVAL)
+        {
+            return;
+        }
+        self.crash_scan_at = Some(Instant::now());
+        let dir = self.data_dir.join("crash");
+        let mut reports: Vec<PathBuf> = Vec::new();
+        if let Ok(entries) = std::fs::read_dir(&dir) {
+            for e in entries.flatten() {
+                let p = e.path();
+                if p.extension().is_some_and(|x| x == "log") {
+                    reports.push(p);
+                }
+            }
+        }
+        self.crash_count = reports.len();
+        // Filename-encoded timestamp: lexicographic max is the newest.
+        reports.sort();
+        self.last_crash = reports.pop();
+    }
+
     fn poll(&mut self) {
         self.ensure_base();
+        self.scan_crash_reports();
         let status_ok = match http_get_blocking(&format!("{}/admin/status", self.admin_base), None)
         {
             Ok(body) => {
@@ -1218,6 +1261,21 @@ impl DashboardApp {
             });
         }
 
+        // Crash from a previous run — one-click reveal; ack'd per session.
+        if !self.crash_seen {
+            if let Some(crash) = self.last_crash.clone() {
+                ui.horizontal(|ui| {
+                    ui.add_space(SIDE_MARGIN);
+                    if ghost_button(ui, "Previous run crashed — open report", WARN, ACCENT)
+                        .clicked()
+                    {
+                        self.crash_seen = true;
+                        let _ = reveal_in_file_manager(&crash, &self.data_dir);
+                    }
+                });
+            }
+        }
+
         if !procs.is_empty() {
             section_caption(ui, &format!("TOUCHDESIGNER · {}", procs.len()));
             for p in procs.iter().take(POPUP_FLEET_ROWS) {
@@ -1272,39 +1330,20 @@ impl DashboardApp {
             });
         }
 
-        if self.share_applicable() {
-            ui.horizontal(|ui| {
-                ui.add_space(SIDE_MARGIN);
-                if ghost_button(ui, "Share this daemon", TEXT_DIM, ACCENT).clicked() {
-                    self.open_settings();
-                    self.dash_tab = dashboard::DashTab::Settings;
-                    self.dashboard_open = true;
-                }
-            });
-        }
-        ui.add_space(theme::sp::XS);
-    }
-
-    /// Fleet-view nudge toward federation for a not-yet-shared daemon — today
-    /// nothing on the main screen hints the feature exists until Settings is opened.
-    fn share_applicable(&self) -> bool {
-        match &self.status {
-            Some(status) => {
-                (status.role.is_empty() || status.role == "standalone")
-                    && cfgfile::is_loopback_bind(&status.bind_address)
+        ui.horizontal(|ui| {
+            ui.add_space(SIDE_MARGIN);
+            if ghost_button(ui, "Locate .tox", TEXT_DIM, ACCENT).clicked() {
+                self.reveal_tox();
             }
-            None => false,
-        }
+        });
+        ui.add_space(theme::sp::XS);
     }
 
     fn draw_mcp_section(&self, ui: &mut egui::Ui) {
         let sessions = serde_json::from_str::<SessionsView>(&self.sessions_json)
             .map(|v| v.sessions)
             .unwrap_or_default();
-        section_caption(
-            ui,
-            &format!("MCP CLIENTS · {}", sessions.len()),
-        );
+        section_caption(ui, &format!("MCP CLIENTS · {}", sessions.len()));
         if sessions.is_empty() {
             ui.vertical_centered(|ui| {
                 ui.add_space(theme::sp::SM);
@@ -2496,10 +2535,8 @@ fn push_error_ring(ring: &mut Vec<String>, msg: String) {
 /// Quiet section caption — dim meta text, no strip, no rule. Replaces the old
 /// full-width header bars.
 fn section_caption(ui: &mut egui::Ui, title: &str) {
-    let (rect, _) = ui.allocate_exact_size(
-        egui::vec2(ui.available_width(), 20.0),
-        egui::Sense::hover(),
-    );
+    let (rect, _) =
+        ui.allocate_exact_size(egui::vec2(ui.available_width(), 20.0), egui::Sense::hover());
     ui.painter().text(
         egui::pos2(rect.left() + SIDE_MARGIN, rect.center().y),
         egui::Align2::LEFT_CENTER,
@@ -2515,8 +2552,7 @@ fn attention_row(ui: &mut egui::Ui, msg: &str) {
     let (rect, response) =
         ui.allocate_exact_size(egui::vec2(full, theme::ROW_H), egui::Sense::hover());
     if response.hovered() {
-        ui.painter()
-            .rect_filled(rect, RADIUS_SM, BG_HOVER);
+        ui.painter().rect_filled(rect, RADIUS_SM, BG_HOVER);
     }
     let center = egui::pos2(rect.left() + SIDE_MARGIN + 3.0, rect.center().y);
     ui.painter().circle_filled(center, 3.0, ERR);
@@ -2775,7 +2811,11 @@ fn fleet_row(ui: &mut egui::Ui, p: &FleetProc) {
     let full = ui.available_width();
     let (rect, response) =
         ui.allocate_exact_size(egui::vec2(full, theme::ROW_H), egui::Sense::hover());
-    let fill = if response.hovered() { BG_HOVER } else { egui::Color32::TRANSPARENT };
+    let fill = if response.hovered() {
+        BG_HOVER
+    } else {
+        egui::Color32::TRANSPARENT
+    };
     ui.painter().rect_filled(rect, RADIUS_SM, fill);
 
     let mut child = ui.new_child(
