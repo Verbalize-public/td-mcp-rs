@@ -13,11 +13,27 @@ use crate::task_queue::{QueueError, TaskInfo, TaskMode, TaskQueue, TaskResult};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum BridgeStatus {
+    /// Spawned by us, not yet handshaken — visible pre-handshake so fleet rows
+    /// and startup-dialog watching exist from t=0 (v2 lifecycle keystone).
+    Starting,
     /// IPC connected — usable.
     Connected,
     /// IPC down — temporary grace for resurrection / cancelled-task traces;
     /// evicted from the registry after TTL or when any other handshake succeeds.
     Disconnected,
+}
+
+/// Provenance of a spawned TD process. Kept across the Starting→Connected
+/// transition; cleared when a pid is reused onto a different fingerprint.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpawnRecord {
+    /// When the process was spawned by us.
+    pub started_at: DateTime<Utc>,
+    /// Resolved TouchDesigner.exe path used for the spawn.
+    pub exe_path: String,
+    /// Project file passed at spawn, when known.
+    pub expected_project: Option<String>,
 }
 
 /// Process attributes for discovery.
@@ -52,6 +68,8 @@ pub struct PidEntry {
     pub resurrection: ResurrectionState,
     /// Protocol version from last handshake.
     pub protocol_version: Option<String>,
+    /// Spawn provenance when this pid was launched via `spawn_td`.
+    pub spawn: Option<SpawnRecord>,
 }
 
 /// Ground-truth map: OS pid → entry.
@@ -92,25 +110,34 @@ impl PidRegistry {
     pub fn handshake(&mut self, pid: u32, process: ProcessAttrs, protocol_version: Option<String>) {
         match self.entries.get_mut(&pid) {
             Some(entry) => {
-                let same = entry.process.fingerprint.matches(&process.fingerprint);
-                if !same {
-                    // Pid reuse onto a different process — clear state only.
-                    entry.queue = TaskQueue::new();
-                    entry.resurrection.clear();
+                if entry.bridge == BridgeStatus::Starting {
+                    // Spawned process finally connected — keep provenance.
                     entry.process = process;
                     entry.protocol_version = protocol_version;
                     entry.bridge = BridgeStatus::Connected;
-                    tracing::info!(pid, "pid handshake — reused onto a different process");
+                    tracing::info!(pid, "pid handshake — spawned process connected");
                 } else {
-                    let was_disconnected = entry.bridge == BridgeStatus::Disconnected;
-                    entry.process = process;
-                    entry.protocol_version = protocol_version;
-                    entry.bridge = BridgeStatus::Connected;
-                    if was_disconnected {
-                        entry.resurrection.on_resurrect();
-                        tracing::info!(pid, "pid handshake — resurrected");
+                    let same = entry.process.fingerprint.matches(&process.fingerprint);
+                    if !same {
+                        // Pid reuse onto a different process — clear state only.
+                        entry.queue = TaskQueue::new();
+                        entry.resurrection.clear();
+                        entry.spawn = None;
+                        entry.process = process;
+                        entry.protocol_version = protocol_version;
+                        entry.bridge = BridgeStatus::Connected;
+                        tracing::info!(pid, "pid handshake — reused onto a different process");
                     } else {
-                        tracing::info!(pid, "pid handshake — already connected");
+                        let was_disconnected = entry.bridge == BridgeStatus::Disconnected;
+                        entry.process = process;
+                        entry.protocol_version = protocol_version;
+                        entry.bridge = BridgeStatus::Connected;
+                        if was_disconnected {
+                            entry.resurrection.on_resurrect();
+                            tracing::info!(pid, "pid handshake — resurrected");
+                        } else {
+                            tracing::info!(pid, "pid handshake — already connected");
+                        }
                     }
                 }
             }
@@ -124,12 +151,54 @@ impl PidRegistry {
                         queue: TaskQueue::new(),
                         resurrection: ResurrectionState::default(),
                         protocol_version,
+                        spawn: None,
                     },
                 );
                 tracing::info!(pid, "pid handshake — new registration");
             }
         }
         self.evict_all_disconnected(Some(pid));
+    }
+
+    /// Register a freshly spawned process pre-handshake.
+    ///
+    /// Refuses to clobber a live Connected row (true pid collision); replacing
+    /// a stale Starting/Disconnected row is fine — the old process is provably
+    /// not usable. Returns whether the row was inserted.
+    pub fn register_starting(&mut self, pid: u32, record: SpawnRecord) -> bool {
+        match self.entries.get(&pid) {
+            Some(entry) if entry.bridge == BridgeStatus::Connected => {
+                tracing::warn!(pid, "refusing starting registration over connected row");
+                false
+            }
+            _ => {
+                self.entries.insert(
+                    pid,
+                    PidEntry {
+                        pid,
+                        bridge: BridgeStatus::Starting,
+                        process: ProcessAttrs::default(),
+                        queue: TaskQueue::new(),
+                        resurrection: ResurrectionState::default(),
+                        protocol_version: None,
+                        spawn: Some(record),
+                    },
+                );
+                true
+            }
+        }
+    }
+
+    /// Remove a Starting row (spawn waiter terminal-failure cleanup). Never
+    /// touches Connected rows; returns whether anything was removed.
+    pub fn remove_starting(&mut self, pid: u32) -> bool {
+        match self.entries.get(&pid) {
+            Some(entry) if entry.bridge == BridgeStatus::Starting => {
+                self.entries.remove(&pid);
+                true
+            }
+            _ => false,
+        }
     }
 
     /// Mark IPC lost: disconnect, cancel waits, stack traces.
@@ -374,5 +443,88 @@ mod tests {
         r.on_bridge_lost(10, now);
         assert!(r.evict_if_disconnected(10));
         assert!(r.get(10).is_none());
+    }
+
+    fn spawn_record(exe: &str) -> SpawnRecord {
+        SpawnRecord {
+            started_at: Utc::now(),
+            exe_path: exe.into(),
+            expected_project: Some("C:/proj/x.toe".into()),
+        }
+    }
+
+    #[test]
+    fn starting_to_connected_preserves_spawn_record() {
+        let mut r = PidRegistry::new();
+        assert!(r.register_starting(7, spawn_record("C:/TD/TouchDesigner.exe")));
+        assert_eq!(r.get(7).unwrap().bridge, BridgeStatus::Starting);
+        r.handshake(7, attrs("proj"), Some("1".into()));
+        let e = r.get(7).unwrap();
+        assert_eq!(e.bridge, BridgeStatus::Connected);
+        assert_eq!(
+            e.spawn.as_ref().unwrap().exe_path,
+            "C:/TD/TouchDesigner.exe"
+        );
+        assert_eq!(e.process.title.as_deref(), Some("proj"));
+    }
+
+    #[test]
+    fn remove_starting_only_touches_starting_rows() {
+        let mut r = PidRegistry::new();
+        assert!(r.register_starting(7, spawn_record("e")));
+        r.handshake(9, attrs("b"), Some("1".into()));
+        assert!(!r.remove_starting(9), "connected row must survive");
+        assert!(r.remove_starting(7));
+        assert!(r.get(7).is_none());
+        assert!(r.get(9).is_some());
+    }
+
+    #[test]
+    fn register_starting_refuses_connected_pid() {
+        let mut r = PidRegistry::new();
+        r.handshake(5, attrs("live"), Some("1".into()));
+        assert!(!r.register_starting(5, spawn_record("other")));
+        assert_eq!(r.get(5).unwrap().bridge, BridgeStatus::Connected);
+        // Stale Starting row is replaceable.
+        assert!(r.register_starting(6, spawn_record("first")));
+        assert!(r.register_starting(6, spawn_record("second")));
+        assert_eq!(r.get(6).unwrap().spawn.as_ref().unwrap().exe_path, "second");
+    }
+
+    #[test]
+    fn ghost_eviction_ignores_starting_rows() {
+        let mut r = PidRegistry::new();
+        r.handshake(1, attrs("a"), Some("1".into()));
+        r.on_bridge_lost(1, Utc::now()); // disconnected ghost
+        assert!(r.register_starting(2, spawn_record("e")));
+        assert!(r.register_starting(3, spawn_record("e")));
+        r.handshake(4, attrs("c"), Some("1".into())); // triggers eviction
+        assert!(r.get(1).is_none(), "disconnected ghost evicted");
+        assert_eq!(r.get(2).unwrap().bridge, BridgeStatus::Starting);
+        assert_eq!(r.get(3).unwrap().bridge, BridgeStatus::Starting);
+    }
+
+    #[test]
+    fn enqueue_rejects_starting_row() {
+        let mut r = PidRegistry::new();
+        r.register_starting(8, spawn_record("e"));
+        let err = r.enqueue(8, "PythonEval", TaskMode::Shared).unwrap_err();
+        assert!(matches!(err, EnqueueError::BridgeDisconnected { pid: 8 }));
+    }
+
+    #[test]
+    fn pid_reuse_clears_spawn_record() {
+        let mut r = PidRegistry::new();
+        r.register_starting(11, spawn_record("old-exe"));
+        r.handshake(11, attrs("proj"), Some("1".into()));
+        // Same numeric pid, different fingerprint → fresh process.
+        let mut fresh = attrs("other");
+        fresh.fingerprint.title = Some("other".into());
+        fresh.fingerprint.start_time = Some("t9".into());
+        r.handshake(11, fresh, Some("1".into()));
+        assert!(
+            r.get(11).unwrap().spawn.is_none(),
+            "reuse clears provenance"
+        );
     }
 }

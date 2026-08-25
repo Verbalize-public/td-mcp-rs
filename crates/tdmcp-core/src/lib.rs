@@ -24,6 +24,6 @@ pub use federation::{
 };
 pub use fingerprint::ProcessFingerprint;
 pub use ids::{OpPath, Pid};
-pub use registry::{BridgeStatus, EnqueueError, PidEntry, PidRegistry, ProcessAttrs};
+pub use registry::{BridgeStatus, EnqueueError, PidEntry, PidRegistry, ProcessAttrs, SpawnRecord};
 pub use resurrection::{CancelReason, CancelledTask, ResurrectionState};
 pub use task_queue::{QueueError, TaskInfo, TaskMode, TaskQueue, TaskResult};

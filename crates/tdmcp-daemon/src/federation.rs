@@ -247,6 +247,7 @@ async fn federation_fleet_push(
             toe_path: p.toe_path,
             bridge: match p.bridge.as_deref() {
                 Some("disconnected") => BridgeStatus::Disconnected,
+                Some("starting") => BridgeStatus::Starting,
                 _ => BridgeStatus::Connected,
             },
         })
@@ -569,6 +570,7 @@ pub fn spawn_slave_loop(
                             "title": p.title,
                             "toePath": p.toe_path,
                             "bridge": match p.bridge {
+                                BridgeStatus::Starting => "starting",
                                 BridgeStatus::Connected => "connected",
                                 BridgeStatus::Disconnected => "disconnected",
                             },
