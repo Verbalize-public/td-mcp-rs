@@ -3,8 +3,8 @@
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
-use std::time::Duration;
+use std::sync::{Arc, OnceLock};
+use std::time::{Duration, Instant};
 
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
@@ -55,6 +55,10 @@ struct AdminState {
     logs_dir: PathBuf,
 }
 
+/// Process start instant for the `/admin/status` uptime field.
+/// The GUI runs in-process, so router build time ≈ process start.
+static START: OnceLock<Instant> = OnceLock::new();
+
 /// Admin router.
 #[allow(clippy::too_many_arguments, reason = "router wiring")]
 pub fn build_admin_router(
@@ -66,6 +70,7 @@ pub fn build_admin_router(
     logs: LogSink,
     logs_dir: PathBuf,
 ) -> Router {
+    let _ = START.set(Instant::now());
     let state = AdminState {
         app: state,
         restart,
@@ -110,6 +115,8 @@ struct StatusBody {
     /// Registered slave count when `role = master`.
     #[serde(skip_serializing_if = "Option::is_none")]
     slave_count: Option<usize>,
+    /// Seconds since this daemon process started.
+    uptime_secs: u64,
 }
 
 async fn status(State(state): State<AdminState>) -> Json<StatusBody> {
@@ -143,6 +150,10 @@ async fn status(State(state): State<AdminState>) -> Json<StatusBody> {
         daemon_id: state.federation.daemon_id.as_str().to_owned(),
         hostname: state.federation.hostname.clone(),
         slave_count,
+        uptime_secs: START
+            .get()
+            .map(|t| t.elapsed().as_secs())
+            .unwrap_or_default(),
     })
 }
 

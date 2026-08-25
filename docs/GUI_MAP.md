@@ -1,8 +1,10 @@
 # GUI Map — td-mcp-rs
 
 Curated, hand-written map of the GUI. **Refactor complete** (iterations 1–4
-shipped): tray popup + second-viewport dashboard. Last verified live:
-2026-08 (debug daemon, real TD bridge attached).
+shipped, then the 2026-08 overhaul: Overview+Fleet merged into one Overview
+page, monolith split into modules, design-system v2 — spec in
+`docs/GUI_OVERHAUL_PLAN.md`). Last verified live: 2026-08
+(preview-harness screenshots + real daemon smoke).
 
 ---
 
@@ -10,33 +12,46 @@ shipped): tray popup + second-viewport dashboard. Last verified live:
 
 Two surfaces in one process:
 
-- **Dashboard window** (`src/dashboard.rs`, secondary egui viewport,
-  980×660 resizable, decorated): sidebar nav Overview / Fleet / Logs /
-  Settings. Everything lives here — status cards + latest errors, fleet
-  sections with federation modals (`egui::Modal`), full log stream with
-  filters/search/follow/pause, wide settings cards with sticky
-  restart-needed bar.
-- **Tray popup** (`lib.rs`, 380×320 frameless): launcher + compact
-  summary — header actions (Stop/Restart/.tox/⤢ dashboard/≡ logs/⚙
-  settings all open the dashboard), ATTENTION error strip (latest 3 from
-  the error ring), share banner, MCP CLIENTS + TOUCHDESIGNER mini lists.
+- **Dashboard window** (`src/dashboard.rs` + `src/dashboard/*`, secondary
+  egui viewport, 960×640 resizable): sidebar nav **Overview / Logs /
+  Settings** (Fleet was merged into Overview). Overview = daemon strip,
+  stat tiles, TOUCHDESIGNER fleet card (groups by machine, master actions,
+  slave self-view), MCP CLIENTS card, ACTIVITY/errors card, federation
+  modals on top.
+- **Tray popup** (`src/popup.rs`, frameless glance card): launcher +
+  compact summary — `⛶` dashboard / `⚙` settings / Locate .tox, ATTENTION
+  strip, TOUCHDESIGNER mini list, MCP client names. Read-only by design.
 - Stack: `eframe`/`egui 0.35` + `tray-icon` + `notify-rust` + `reqwest`
-  (blocking calls over throwaway current-thread tokio runtimes — known
-  smell, unchanged).
+  (blocking calls with 2 s/3 s timeouts over throwaway current-thread tokio
+  runtimes).
 - Process: lives inside `tdmcp-daemon`; disabled with `--no-gui` /
-  `TDMCP_NO_GUI`. Dev/test hook: `TDMCP_OPEN_DASH=1|logs|fleet|settings`
-  opens the dashboard on launch.
+  `TDMCP_NO_GUI`. Dev/test hook: `TDMCP_OPEN_DASH=1|logs|settings`
+  (`fleet` kept as a legacy alias for Overview) opens the dashboard.
 - Closing the popup or losing focus only **hides** it; the dashboard has
-  a real close button. Real exit is Stop / `/admin/shutdown`.
+  a real close button. Real exit is Stop (two-step confirm) /
+  `/admin/shutdown`.
 
 ## 2. File inventory
 
 | Path | Role |
 | --- | --- |
-| `crates/tdmcp-gui/Cargo.toml` | crate manifest; lib `tdmcp_gui` consumed by daemon under `gui` feature |
-| `crates/tdmcp-gui/src/lib.rs` | **everything else — 3498 lines in one file**: app struct, all views, tray, polling, scans, federation flows, wire types, platform shims, unit tests |
-| `crates/tdmcp-gui/src/theme.rs` | 239 lines: Ableton-dark tokens, egui `Visuals`, shared widgets (`status_led`, `section_header`, `filled_button`, `ghost_button`) |
-| `crates/tdmcp-gui/assets/icon-normal.png` / `icon-attention.png` | tray icons (32px variants + full-res window icon) |
+| `crates/tdmcp-gui/Cargo.toml` | crate manifest; lib `tdmcp_gui` consumed by daemon under `gui` feature; dev-only `preview` feature |
+| `crates/tdmcp-gui/src/lib.rs` | entry point: `run()`, module map; public surface is exactly `run` + `toast` |
+| `crates/tdmcp-gui/src/app.rs` | `DashboardApp` state/logic core: poll loop, fleet-snapshot diffing, settings save/dirty, snackbars, eframe App tick |
+| `crates/tdmcp-gui/src/tray.rs` | tray icon assets/build/click routing, popup positioning near tray |
+| `crates/tdmcp-gui/src/popup.rs` | glance card (header + summary) |
+| `crates/tdmcp-gui/src/wire.rs` | admin-API DTOs + display mappers (level colors/letters, id tails, clip) |
+| `crates/tdmcp-gui/src/http.rs` | blocking HTTP helpers (bounded timeouts), LAN subnet scan, local-IP helpers |
+| `crates/tdmcp-gui/src/platform.rs` | OS toasts, file-manager reveal |
+| `crates/tdmcp-gui/src/federation.rs` | add-slave one-click pipeline, per-slave settings, Go-standalone, scan results UI |
+| `crates/tdmcp-gui/src/theme.rs` + `theme/widgets.rs` | Ableton-dark tokens/fonts/visuals + widget kit (`badge`, `banner`, `segmented`, `empty_state`, LEDs w/ pulse, buttons, cards, chips) |
+| `crates/tdmcp-gui/src/dashboard.rs` + `dashboard/{nav,overview,fleet,logs,settings,widgets}.rs` | dashboard shell (sidebar/topbar/router/snackbars) + pages + shared painted pieces (`stat_card`, `fleet_row`, `card_with_header`) |
+| `crates/tdmcp-gui/src/preview.rs` + `examples/dashboard_preview.rs` | fixture harness for pixel verification (`--features preview`; scenes listed in the plan doc) |
+| `crates/tdmcp-gui/assets/icon-normal.png` / `icon-attention.png` | tray icons |
+
+Daemon-side launch point: `crates/tdmcp-daemon/src/main.rs` spawns the GUI
+thread after the admin listener is up; passes
+`(admin_base, data_dir, quit, config_path)`.
 
 Daemon-side launch point: `crates/tdmcp-daemon/src/main.rs` (~lines 584–623)
 spawns the GUI thread after the admin listener is up; passes
@@ -259,12 +274,30 @@ per-OS `reveal_in_file_manager` (explorer/open/xdg-open),
    (ack'd per session on click), and the dashboard Overview errors card
    gains a `CRASH REPORTS · N — Open folder` row when any exist. No new
    admin endpoint: same-machine data-dir contract.
+9. ✅ Pass 9 — overhaul (spec: `docs/GUI_OVERHAUL_PLAN.md`):
+   **Fleet tab merged into Overview** (sidebar is now Overview/Logs/
+   Settings; `TDMCP_OPEN_DASH=fleet` aliases Overview); monolith split into
+   15 focused modules; design-system v2 (brightened text tiers, BG_CARD,
+   ACCENT_BG/ERR_BG/WARN_BG tints, radius-8 cards, ROW_H 24 / CARD_PAD 10 /
+   GUTTER 16 density, stat/display font sizes); widget kit additions
+   (badge pills, pulsing LEDs, segmented control, banner, empty-state);
+   top bar gained health LED + identity meta incl. daemon uptime
+   (`uptimeSecs` added to `/admin/status`); fleet rows label task counts +
+   colored bridge words + hover summary; empty states got guidance + CTA;
+   Stop is two-step; Add-Slave became one probe→configure pipeline with an
+   embedded network scan; Settings Save/Discard are dirty-gated with
+   per-section `restart` chips and a segmented role picker that auto-enables
+   sharing; snackbars acknowledge async actions; HTTP clients got bounded
+   timeouts (fixes multi-second UI freezes on dead hosts); dev-only
+   `preview` harness renders fixture scenes for pixel verification.
 
 ## 8. Remaining open items
 
 1. macOS/Linux parity unverified (Windows-first development session);
    macOS Accessory policy may affect secondary viewports.
-2. Blocking HTTP on the UI thread per poll (pre-existing smell) — worth
-   moving to a background worker if jank ever shows under load.
-3. Modal visuals verified compile-level + code-path only; one manual
-   glance at Add-Slave/Slave-Settings modals recommended on next use.
+2. Blocking HTTP on the UI thread per poll — now bounded by 2 s/3 s client
+   timeouts so dead hosts can't freeze the GUI; full async worker still
+   available as a future improvement (`http.rs` isolates the seam).
+3. Logs toolbar at narrow widths (< ~900 px) leaves little slack between
+   the chip row and the right-aligned controls — acceptable today; revisit
+   if more toolbar items land.

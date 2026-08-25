@@ -6,15 +6,36 @@
 
 ![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
 ![Rust](https://img.shields.io/badge/Rust-1.92-000000?style=for-the-badge&logo=rust&logoColor=white)
-![Version](https://img.shields.io/badge/version-0.1.1-blue?style=for-the-badge)
+![Version](https://img.shields.io/badge/version-0.1.3-blue?style=for-the-badge)
 ![MCP](https://img.shields.io/badge/MCP-Streamable_HTTP-7C3AED?style=for-the-badge)
 ![Platform](https://img.shields.io/badge/Windows%20%7C%20macOS-9cf?style=for-the-badge)
 
-<!-- TODO: add a screenshot or GIF — an AI editing a TouchDesigner project from the editor -->
+<img src="docs/screens/overview-populated.png" alt="td-mcp-rs dashboard — Overview with a live TouchDesigner fleet" width="820">
 
-[What is it?](#-what-is-td-mcp-rs) · [What you can do](#-what-you-can-do-with-it) · [Quick Start](#-quick-start) · [Tools](#-what-you-can-ask-the-ai-to-do) · [Roadmap](#-roadmap) · [License](#-license)
+[What is it?](#-what-is-td-mcp-rs) · [Screens](#-screens) · [What you can do](#-what-you-can-do-with-it) · [Quick Start](#-quick-start) · [Tools](#-what-you-can-ask-the-ai-to-do) · [Roadmap](#-roadmap) · [License](#-license)
 
 </div>
+
+---
+
+## 🖼️ Screens
+
+**Overview** — one page for everything: daemon health, your TouchDesigner
+fleet grouped by machine, connected MCP clients, and recent activity.
+
+<details>
+<summary><b>More screens</b></summary>
+
+| | |
+| --- | --- |
+| ![Overview empty state](docs/screens/overview-empty.png) | ![Daemon unreachable](docs/screens/overview-offline.png) |
+| *Empty state — with one-click Reveal .tox* | *Offline — clear error, safe actions* |
+| ![Add-slave modal](docs/screens/modal-add-slave.png) | ![Stop confirmation](docs/screens/stop-confirm.png) |
+| *Federation: add-slave with built-in network scan* | *Destructive actions get a two-step confirm* |
+| ![Logs](docs/screens/logs-filtered.png) | ![Settings](docs/screens/settings-dirty.png) |
+| *Logs — filters, search, follow/pause* | *Settings — honest Save gating + restart hints* |
+
+</details>
 
 ---
 
@@ -49,8 +70,8 @@ Your TouchDesigner project (via the tdmcp_rs .tox you drop in)
 | **Sees what you see** | The AI knows which network and operator you're looking at |
 | **Teaches itself TouchDesigner** | A built-in skill pack (primers + references) is served to the assistant automatically |
 | **Everything in one place** | One binary carries the bridge, catalog, bootstrap `.tox`, and skills — no extra installs |
-| **Windows & macOS** | System-tray dashboard by default, headless if you prefer |
-| **One place to see what's happening** | TD prints, bridge/proxy activity, and daemon internals all land in one rotating JSONL log — tail it with `tdmcp-daemon logs`, or watch it live in the tray's Logs view |
+| **Windows & macOS** | System-tray app with a rich dashboard window, headless if you prefer |
+| **One place to see what's happening** | TD prints, bridge/proxy activity, and daemon internals all land in one rotating JSONL log — tail it with `tdmcp-daemon logs`, or watch it live on the dashboard's Logs tab |
 
 ---
 
@@ -126,8 +147,9 @@ You should see your project appear in the `fleet` view with a connected status.
   running in your system tray even if the editor closes.
 - By default it stays resident (`keep_alive = true`); set `keep_alive = false`
   in `config.toml` (or tray Settings) to auto-exit after ~30s idle instead.
-- The tray icon shows a compact dashboard on left-click; **Stop** (right-click
-  or `tdmcp-daemon stop`) ends the process — closing the window only hides it.
+- **Tray:** left-click opens the dashboard window; right-click toggles a
+  compact glance card near the tray. **Stop** lives on the dashboard's DAEMON
+  card (or `tdmcp-daemon stop`) — closing windows only hides them.
 - Headless: `tdmcp-daemon start --port 9860 --no-gui` or `TDMCP_NO_GUI=1`.
 
 | Command | What it does |

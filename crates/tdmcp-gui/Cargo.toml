@@ -10,6 +10,16 @@ description = "td-mcp-rs tray dashboard (egui) — lib consumed by tdmcp-daemon 
 name = "tdmcp_gui"
 path = "src/lib.rs"
 
+[features]
+## Dev-only fixture harness for pixel-verifying dashboard states without a
+## real TouchDesigner (`cargo run -p tdmcp-gui --features preview --example
+## dashboard_preview`). Never enabled by the daemon build.
+preview = []
+
+[[example]]
+name = "dashboard_preview"
+required-features = ["preview"]
+
 [dependencies]
 anyhow = { workspace = true }
 eframe = { workspace = true }
