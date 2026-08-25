@@ -15,7 +15,8 @@ Rev 4: scheduled into the unified v2 roadmap as phase **V2-D** by
 implementation spec, that document owns scope/phasing/interactions. Deltas: watcher predicate
 widens to `{starting, connected}` (pre-handshake spawned pids, resolving limitation §9-1 for
 spawned processes), start-flow dialog policy moves into `spawn_td`
-(`startupDialogPolicy`, proposal §3.6) instead of being a non-goal, and milestones M1–M5 map
+(`spawn_td` startup-dialog surfacing — surface-only, never auto-dismiss; proposal §3.6)
+instead of being a non-goal, and milestones M1–M5 map
 onto V2-A/V2-D/V2-G.
 
 Reserves already in the tree this feature fills:
@@ -359,7 +360,7 @@ poll_ms   = 1000    # watcher cadence
 | Risk | Mitigation |
 | --- | --- |
 | UIPI: elevated TD + non-elevated daemon blocks posted messages | Detect access-denied class of failures (`PostMessage` last-error) → distinct error/help text in catalog entries |
-| Dismissing save-prompts discards unsaved work | Severity surfacing; chrome guard; dismiss requires explicit tool call (agent's choice); doc warning; never auto-dismiss outside start-flow (*rev 4: start-flow policy = `spawn_td.startupDialogPolicy`, which still never auto-answers save-prompts or hard dialogs*) |
+| Dismissing save-prompts discards unsaved work | Severity surfacing; chrome guard; dismiss requires explicit tool call (agent's choice); doc warning; never auto-dismiss outside start-flow (*rev 4: start-flow = `spawn_td` surfacing only — nothing is ever auto-dismissed, save-prompts included*) |
 | hwnd reuse between snapshot and dismiss | Re-verify title/class before acting; stale ⇒ `tdmcp.dialog.not_found` |
 | False positives (named non-dialog top-levels) | Enumerate-time `#32770`/style/owner classification + chrome guard (POC lesson) |
 | Probe cost on hot path | Poll path is user32-only (no COM); UIA content runs once per new popup hwnd and is cached; ops serialized through one worker off the tokio runtime |

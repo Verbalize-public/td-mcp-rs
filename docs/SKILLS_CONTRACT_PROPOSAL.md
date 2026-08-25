@@ -5,6 +5,12 @@ tools and three skills-layer cards, and **absorbs [`DIALOGS.md`](DIALOGS.md)** (
 full implementation annex for the `dialogs` tool; this document owns the unified scope,
 roadmap, and interaction contracts). On acceptance, apply the change-list in §8.
 
+Rev 2 (challenge pass) — simplification cuts applied throughout: `spawn_td` is surface-only
+(no auto-dismiss policy), no round-trip diffing in `project_pack` (targeted byte-verify lives
+in `project_install_bridge`), no installs cache, no `[spawn]` config section, no `env` arg,
+lint checks run all-native+delegation (no subset param). Execution is governed by
+[`V2_IMPLEMENTATION_PLAN.md`](V2_IMPLEMENTATION_PLAN.md).
+
 Author evidence base: full read of the **opendesigner** workspace
 (`C:\Users\corbe\Documents\Derivative\Projects\opendesigner` — especially
 `crates/td-project-io/src/official.rs` and `docs/project-io/README.md`),
@@ -130,9 +136,9 @@ family. Live tools (`spawn_td`, `kill_td`) join the existing queue rules.
 
 List TouchDesigner installations discoverable on this machine.
 
-- Args: none required. Optional `refresh: bool = false` (re-scan, else serve cached scan ≤ 24 h old).
-- Result rows: `{ installId, versionLabel ("2025.32460"), rootPath, exePath, buildProbe?,
-  tools: { toeexpand: path|null, toecollapse: path|null, python: path|null },
+- Args: none. Every call scans Program Files (ms-cost; no cache).
+- Result rows: `{ installId, versionLabel ("2025.32460" — from the directory name), rootPath,
+  exePath, tools: { toeexpand: path|null, toecollapse: path|null, python: path|null },
   complete: bool, default: bool }`.
 - `complete` = all three tool files exist (§1.2 lesson). `default` = highest version with
   complete tools. A stub install (33070) lists with `complete:false` and null tool paths.
@@ -160,16 +166,15 @@ Expand a packed project into a directory tree using `toeexpand`.
 Collapse an expand dir back into a packed project using `toecollapse`.
 
 - Args: `srcDir` (required; must contain `.build` + `.toc`), `outPath` (required),
-  `overwrite: "fail"|"replace" = "fail"`,
-  `verifyRoundTrip: "off"|"structural" = "structural"`.
+  `overwrite: "fail"|"replace" = "fail"`.
 - Behavior: sanity-check srcDir (`.toc` present, no escaped/symlinked paths) → **build-skew
   guard**: read `.build` and compare against the selected install; mismatch ⇒
   `project.build_skew` error unless `allowBuildSkew: true` (repacking with tools of a
   different build is how compat-dialog churn starts — make the agent opt in) → stage →
-  `toecollapse` → validate packed file exists → optional structural round-trip
-  (re-unpack to second staging dir, diff node-path sets + toc; report diffs, don't fail on
-  cosmetic ordering) → atomic rename out.
-- Result: `{ outPath, bytes, roundTrip: { checked, nodeCount, diffs[] } }`.
+  `toecollapse` → validate packed file exists → atomic rename out.
+  No post-pack verification here by design; corruption risk comes from edits, and the only
+  tool that edits (`project_install_bridge`) owns its own targeted re-expand verify.
+- Result: `{ outPath, bytes }`.
 - Guarantees restated in result prose: structural fidelity only; never byte-identical claims.
 - Errors: mirror §3.2 + `project.src_not_expand_dir`, `project.roundtrip_broken`.
 
@@ -197,17 +202,20 @@ Install or override the tdmcp bridge inside a given `.toe`/`.tox`. Closes four-c
 
 - Args: `targetPath` (required), `strategy: "ensure"|"force" = "force"`
   (`ensure` = skip when embedded bootstrap hash already matches; `force` = always rewrite),
-  `backup: bool = true`, `verifyRoundTrip: bool = true`.
+  `backup: bool = true`.
 - Behavior (phase-gated, see §6):
   - **V2-F — update-existing:** backup original (`{data_dir}/backups/<name>.<ts>.<ext>.bak`)
     → unpack to staging → locate existing root `tdmcp_rs` COMP subtree → rewrite the two Text
-    DAT bodies (`bootstrap.text`, `callbacks.text`) with the current embedded sources →
-    refresh `.toc` if needed → pack → structural verify → atomic replace.
-    Missing subtree ⇒ `bridge.subtree_missing` pointing at the P3 carry-over.
+    DAT bodies (`bootstrap.text`, `callbacks.text`) with the current embedded sources
+    (byte-exact writes from the daemon's embedded `bridge/` tree) → pack →
+    **targeted verify**: re-expand to a second staging dir and byte-compare the two rewritten
+    `.text` files + `.toc` equality → atomic replace. Only existing files are rewritten, so
+    `.toc` content never changes in V2-F.
+    Missing subtree ⇒ `project.bridge_subtree_missing` pointing at the P3 carry-over.
   - **P3 — create-from-scratch:** additionally author `.n`/`.parm`/`.network` entries for a
     fresh `tdmcp_rs` COMP (Text DATs `bootstrap`/`callbacks`, Execute DAT `tdmcp_exec`
     pulsing Start/Create/FrameStart/Exit). Gated on the grammar-authoring probe (§7 R3).
-- Result: `{ updated: bool, previousHash, newHash, backupPath?, roundTrip }`.
+- Result: `{ updated: bool, previousHash, newHash, backupPath?, verify }`.
 - Annotations: destructive (rewrites the project file) — mitigated by mandatory backup.
 - Source of truth for contents: the same embedded `bridge/` package the daemon ships
   (single source, no drift by construction; hash reported in result).
@@ -217,9 +225,10 @@ Install or override the tdmcp bridge inside a given `.toe`/`.tox`. Closes four-c
 Spawn a TouchDesigner process and deterministically await **its** bridge handshake.
 
 - Args: `exePath?` XOR `installId?` (exactly one; `both_set` → arg error),
-  `projectPath?` (passed as open argument), `args?: string[]`, `env?: object`,
-  `waitTimeoutMs: int = 60000`,
-  `startupDialogPolicy: "surface"|"dismissSoft" = "surface"`.
+  `projectPath?` (passed as open argument), `args?: string[]`,
+  `waitTimeoutMs: int = 60000`.
+  Surface-only by design: popups are observed and reported, never auto-dismissed — dismissal
+  is always an explicit agent decision via `dialogs`.
 - Semantics — the deterministic-ownership core:
   1. Resolve exe via `td_installs` machinery; refuse stub installs (`spawn.exe_incomplete`);
      if `projectPath` is set, warn when its saved build (from a cheap sniff or a prior
@@ -236,11 +245,9 @@ Spawn a TouchDesigner process and deterministically await **its** bridge handsha
      wait — no "hope it's the right process".
   4. **Startup-dialog watch (merged from [`DIALOGS.md`](DIALOGS.md)):** while waiting, poll
      the spawned pid's popups each tick.
-     - `surface` (default): never auto-dismiss; popups ride along in every failure payload.
-     - `dismissSoft`: soft-severity popups (POC regexes, e.g. "Backwards Compatiblity Issue")
-       are dismissed through the standard dismiss ladder; hard ones ("unexpected node …
-       duplicat", "THREAD CONFLICT") are only surfaced loudly. Save-prompts are always
-       surfaced, never auto-answered.
+     - Never auto-dismiss (surface-only by design): popups ride along in every outcome
+       payload; the agent dismisses explicitly via `dialogs`, and the wait continues
+       (a dismissed blocker lets the handshake land before timeout).
   5. Outcomes:
      - success → `{ pid, installId, handshake: {...}, waitedMs, startupDialogs? }`;
      - timeout with popups present → **`spawn.blocked_by_dialog`** carrying the popup list +
@@ -264,7 +271,9 @@ Kill a known TouchDesigner pid.
   payload includes any open popups of the pid (from the dialogs snapshot cache) so the agent
   can dismiss the prompt first instead of force-killing through it.
   `force`: `TerminateProcess`, unconditional.
-- Refuses pids that are not a known TD process (`kill.not_td_pid`) — protects against fat-fingering.
+- Refuses pids that are not a known TD process (`kill.not_td_pid`) — known = in the registry,
+  or image basename is `TouchDesigner.exe` (via a safe `process_image_name(pid)` facade call).
+  Protects against fat-fingering while still covering human-opened, never-handshaken TDs.
 - Result: `{ pid, exited, how, exitCode? (best-effort) }`. Spawn records cleaned up.
 - Annotations: destructive.
 
@@ -278,8 +287,9 @@ exposes `list | describe | dismiss`; an interception gate fails bridged calls fa
 
 - Watcher predicate widens from `bridge == Connected` to `{ starting, connected }` so spawned
   pids are covered pre-handshake (§3.6 step 2).
-- Start-flow dialog policy is no longer a non-goal: it lives in `spawn_td`
-  (`startupDialogPolicy`, §3.6 step 4), reusing the annex's dismiss ladder unchanged.
+- Start-flow dialog handling is no longer a non-goal: `spawn_td` observes and reports startup
+  popups pre-handshake (§3.6 step 4); dismissal always stays an explicit `dialogs` call
+  (surface-only), reusing the annex's classify/ladder mechanics unchanged.
 - `kill_td` consumes the snapshot cache for graceful-timeout payloads (§3.7).
 
 ---
@@ -318,9 +328,6 @@ td_exe        = ""   # pin one install
 expand_path   = ""
 collapse_path = ""
 
-[spawn]
-default_wait_timeout_ms = 60000
-
 [dialogs]            # per DIALOGS.md §6 (7-touchpoint config pattern)
 enabled   = true     # master switch (watcher + tool)
 intercept = true     # fail-fast gate on bridged tool calls
@@ -330,19 +337,20 @@ poll_ms   = 1000     # watcher cadence
 ### 4.3 Diagnostics additions ([`catalog.yaml`](../crates/tdmcp-diagnostics/catalog.yaml))
 
 New families: `tdmcp.installs.*`, `tdmcp.project.*`, `tdmcp.lint.*`, `tdmcp.spawn.*`,
-`tdmcp.kill.*`, `tdmcp.bridge.*`, plus the annex's `tdmcp.dialog.*`
-(codes already enumerated in [`DIALOGS.md`](DIALOGS.md) §5.5). Codes enumerated in §3; all
+`tdmcp.kill.*`, plus the annex's `tdmcp.dialog.*`
+(codes already enumerated in [`DIALOGS.md`](DIALOGS.md) §5.5; the v1 `tdmcp.bridge.*` family
+already exists and gains no new members in v2). Codes enumerated in §3; all
 follow the uniform envelope, `references[]` support, and `tdmcp.args.*` shape-error rules.
 Notable mappings: `project.tool_missing` carries the scanned search locations
 (config/env/paths tried); `project.build_skew` names both builds and the opt-out flag;
 `spawn.exited_early` carries the child exit code; `spawn.blocked_by_dialog` embeds the popup
-list; `bridge.subtree_missing` references the P3 roadmap card.
+list; `project.bridge_subtree_missing` references the P3 roadmap card.
 
 ### 4.4 Fleet schema extension
 
 Fleet rows gain: `owner: "external"|"spawned"`, a `bridge` state that now includes
 **`"starting"`** (registered pre-handshake, §3.6) beside the v1 states, and for spawned rows
-`spawn: { startedAt, exePath, requestedBy? }`. No addressing changes — pid-only stands.
+`spawn: { startedAt, exePath }`. No addressing changes — pid-only stands.
 Dialogs fields (`windowStatus`, `include=popups`) flow per [`DIALOGS.md`](DIALOGS.md) §5.3.
 
 ### 4.5 Storage additions
@@ -350,13 +358,13 @@ Dialogs fields (`windowStatus`, `include=popups`) flow per [`DIALOGS.md`](DIALOG
 - `{data_dir}/backups/` — pre-replace backups from `project_install_bridge`
   (`<stem>.<yyyymmdd-HHMMSS>.<ext>.bak`).
 - `{data_dir}/tmp/projectio/<uuid>/` — staging trees (best-effort cleanup; swept at daemon start).
-- Install-scan cache: `{data_dir}/installs-cache.json` (24 h TTL, `refresh` bypass).
+  No installs cache — every `td_installs` call scans live.
 
 ### 4.6 Feature interaction matrix
 
 | Interaction | Contract |
 |---|---|
-| `spawn_td` → dialogs watcher | Pre-handshake registration makes startup modals (version/compat/licence popups) visible before any handshake; spawn wait-loop surfaces or dismisses-soft per policy. Resolves [`DIALOGS.md`](DIALOGS.md) §9 limitation #1 for spawned pids. |
+| `spawn_td` → dialogs watcher | Pre-handshake registration makes startup modals (version/compat/licence popups) visible before any handshake; spawn wait-loop surfaces them (surface-only, never auto-dismiss). Resolves [`DIALOGS.md`](DIALOGS.md) §9 limitation #1 for spawned pids. |
 | dialogs gate → offline family | Never applies: interception lives in `enqueue_and_call`, which only bridged tools traverse. Unpack/pack/lint run with TD fully wedged if needed. |
 | `kill_td` → dialogs | Graceful-timeout payload includes open popups; agent dismisses save-prompt via `dialogs` instead of force-killing through it. |
 | build skew chain | `td_installs` records builds; `project_pack` guards `.build` vs install skew; `spawn_td` warns when opening a foreign-build project (compat dialog likely); dialogs classifies whatever pops anyway. |
@@ -394,9 +402,9 @@ project-file, process-management, and dialog-triage tasks.
 | **V2-0** (probes, no shipped tool) | (R1) nested-tox expansion probe; (R2) `TouchDesigner.exe <file.toe>` CLI-open behavior incl. dialog/licence interaction; (R3) grammar-authoring probe (hand-written extra COMP round-trips through real TD) | — |
 | **V2-A** platform crates | `tdmcp-projectio` skeleton + `tdmcp-dialogs` M1 content (sys shim, classify, policy, fake-able source trait) | V2-0 R1 for projectio parts only |
 | **V2-B** registry foundation | Pre-handshake registration (`bridge:"starting"` rows), fleet schema extension, spawn-record side-map. **Keystone**: unblocks both dialogs startup coverage and `spawn_td` | V2-A types |
-| **V2-C** offline I/O tools | `td_installs`, `project_unpack`, `project_pack`; config `[official_tools]`; installs cache | V2-A |
+| **V2-C** offline I/O tools | `td_installs`, `project_unpack`, `project_pack`; config `[official_tools]` | V2-A |
 | **V2-D** dialogs ship | Watcher task (predicate `{starting, connected}`), snapshot cache, `dialogs` tool, interception gate, `[dialogs]` config = DIALOGS.md M2–M4 | V2-B |
-| **V2-E** lifecycle tools | `spawn_td` (startup-dialog watch + outcome taxonomy), `kill_td` (popup-aware graceful timeout) | V2-B; popup payloads richer with V2-D but functional without |
+| **V2-E** lifecycle tools | `spawn_td` (startup-dialog surfacing + outcome taxonomy), `kill_td` (popup-aware graceful timeout) | V2-B; popup payloads richer with V2-D but functional without |
 | **V2-F** quality tools | `project_lint`, `project_install_bridge` (update-existing), backups dir | V2-C |
 | **V2-G** docs & E2E | CONTRACT/README/CONFIG updates, skills cards per §5, E2E checklist incl. DIALOGS.md M5 live-dialog row and a foreign-build-project open (compat-popup e2e) | each feature phase |
 
@@ -442,7 +450,7 @@ and a live smoke against the 2025.32460 install.
 2. `docs/DIALOGS.md` — rev 4: §2 non-goal line (start-flow) and §9 limitation #1 annotated as
    resolved by this proposal; watcher predicate widened (§5.3); milestones M1–M5 mapped onto
    the unified roadmap (§6 here).
-3. `docs/CONFIG.md` — `[official_tools]`, `[spawn]`, `[dialogs]` tables.
+3. `docs/CONFIG.md` — `[official_tools]`, `[dialogs]` tables.
 4. `crates/tdmcp-diagnostics/catalog.yaml` — new families/codes (§4.3) incl. annex dialog codes.
 5. `ARCHITECTURE.md` — add `tdmcp-projectio` + `tdmcp-dialogs` crate boundaries.
 6. `README.md` — capability table rows; dialogs roadmap checkbox retargets to V2-D.
