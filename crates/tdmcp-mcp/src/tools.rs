@@ -1359,6 +1359,53 @@ fn proxy_slave_tool_failed(
     failed_one_with_image_and_data(item, None, Some(body))
 }
 
+/// D3 interception gate: fail fast while an OS modal wedges the pid's main
+/// thread (`[dialogs].intercept`). Fail-open on any probe problem.
+fn dialogs_blocking_gate(
+    catalog: &tdmcp_diagnostics::Catalog,
+    tool: &str,
+    pid: u32,
+) -> Result<(), ToolCallError> {
+    let Some(d) = crate::dialogs::get() else {
+        return Ok(());
+    };
+    if !d.intercept {
+        return Ok(());
+    }
+    let cached = d
+        .snapshots
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .get(&pid)
+        .cloned();
+    // Cache miss -> one bounded refresh (snapshot budget lives in the backend).
+    let snap = match cached {
+        Some(s) => Some(s),
+        None => Some(d.source.snapshot(pid)),
+    };
+    if let Some(snap) = snap {
+        if !snap.popups.is_empty() {
+            let list: Vec<String> = snap
+                .popups
+                .iter()
+                .map(|p| format!("[{:?}] {}", p.severity, p.title))
+                .collect();
+            return Err(coded_failure(
+                catalog,
+                ToolName::from_wire(tool).unwrap_or(ToolName::Fleet),
+                tdmcp_diagnostics::codes::DIALOG_BLOCKING,
+                "pid",
+                format!(
+                    "{} modal popup(s) block TD's main thread: {} — run dialogs {{pid}} action=list, dismiss via action=dismiss",
+                    snap.popups.len(),
+                    list.join("; ")
+                ),
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn begin_session_slot<'a>(
     session: Option<SessionGate<'a>>,
     catalog: &tdmcp_diagnostics::Catalog,
@@ -1366,6 +1413,8 @@ fn begin_session_slot<'a>(
     daemon_scope: &str,
     pid: Pid,
 ) -> Result<Option<BridgeCallSlot<'a>>, ToolCallError> {
+    // Interception first: a modal wedges every main-thread dispatch.
+    dialogs_blocking_gate(catalog, tool, pid.get())?;
     let Some(gate) = session else {
         return Ok(None);
     };
