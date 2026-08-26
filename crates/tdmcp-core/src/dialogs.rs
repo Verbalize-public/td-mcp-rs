@@ -177,6 +177,17 @@ pub trait DialogSource: Send + Sync {
         id: &str,
         button: Option<&str>,
     ) -> Result<DismissOutcome, DialogError>;
+
+    /// Image basename of `pid` (`TouchDesigner.exe`) for kill-pid checks.
+    /// Default: unknown (Null backend).
+    fn process_image_name(&self, _pid: u32) -> Option<String> {
+        None
+    }
+
+    /// Cheap liveness probe. Default: unknown => false.
+    fn process_alive(&self, _pid: u32) -> bool {
+        false
+    }
 }
 
 /// No-op backend: non-Windows targets and tests. Empty snapshots, unsupported

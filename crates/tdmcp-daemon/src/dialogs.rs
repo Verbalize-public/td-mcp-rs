@@ -161,6 +161,7 @@ mod tests {
         let shared = Shared {
             source: Arc::new(FakeSource),
             snapshots: std::sync::Mutex::new(HashMap::new()),
+            intercept: false,
         };
         let n = sweep_once(&reg, &shared).await;
         assert_eq!(n, 2, "starting + connected sampled");

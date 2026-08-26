@@ -222,6 +222,15 @@ impl Default for Win32Source {
 }
 
 impl DialogSource for Win32Source {
+    fn process_image_name(&self, pid: u32) -> Option<String> {
+        // Plain Kernel32 query - safe on any thread (no COM needed).
+        crate::sys::windows::process_image_name(pid)
+    }
+
+    fn process_alive(&self, pid: u32) -> bool {
+        crate::sys::windows::process_alive(pid)
+    }
+
     fn snapshot(&self, pid: u32) -> DialogSnapshot {
         {
             let cache = self.cache.lock().unwrap_or_else(|p| p.into_inner());

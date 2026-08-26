@@ -11,7 +11,8 @@
 
 use windows::Win32::Foundation::{BOOL, HWND, LPARAM};
 use windows::Win32::System::Threading::{
-    OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
+    OpenProcess, QueryFullProcessImageNameW, TerminateProcess, PROCESS_NAME_WIN32,
+    PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE,
 };
 use windows::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId;
 use windows::Win32::UI::WindowsAndMessaging::{
@@ -268,3 +269,59 @@ pub fn process_image_name(pid: u32) -> Option<String> {
 }
 
 use windows::Win32::Foundation::{CloseHandle, WPARAM};
+
+/// Cheap liveness probe: a queryable handle means the process exists.
+pub fn process_alive(pid: u32) -> bool {
+    // SAFETY: query-limited handle, closed immediately.
+    unsafe {
+        match OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) {
+            Ok(handle) => {
+                let _ = CloseHandle(handle);
+                true
+            }
+            Err(_) => false,
+        }
+    }
+}
+
+/// Post WM_CLOSE to every visible top-level window of `pid`.
+/// Returns how many windows received the message (0 => nothing to close).
+pub fn close_pid_windows(pid: u32) -> usize {
+    let mut ctx = WinCtx {
+        pid,
+        out: Vec::new(),
+    };
+    let lparam = LPARAM(&mut ctx as *mut WinCtx as isize);
+    // SAFETY: synchronous enumeration with stack-owned context.
+    unsafe {
+        let _ = EnumWindows(
+            Some(enum_proc as unsafe extern "system" fn(HWND, LPARAM) -> BOOL),
+            lparam,
+        );
+    }
+    let mut sent = 0usize;
+    for w in &ctx.out {
+        if let Some(h) = parse_hwnd(&w.id) {
+            // SAFETY: post-only delivery; non-blocking by design.
+            if unsafe { PostMessageW(h, WM_CLOSE, WPARAM(0), LPARAM(0)).is_ok() } {
+                sent += 1;
+            }
+        }
+    }
+    sent
+}
+
+/// Hard-terminate `pid` (TerminateProcess). Last resort after graceful ladder.
+pub fn terminate_process(pid: u32) -> bool {
+    // SAFETY: PROCESS_TERMINATE handle closed on every path below.
+    unsafe {
+        match OpenProcess(PROCESS_TERMINATE, false, pid) {
+            Ok(handle) => {
+                let ok = TerminateProcess(handle, 1).is_ok();
+                let _ = CloseHandle(handle);
+                ok
+            }
+            Err(_) => false,
+        }
+    }
+}

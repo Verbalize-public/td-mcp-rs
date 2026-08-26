@@ -61,6 +61,24 @@ pub const DIALOG_CHROME_PROTECTED: &str = "tdmcp.dialog.chrome_protected";
 /// Modal popup is blocking the pid's main thread (interception gate).
 pub const DIALOG_BLOCKING: &str = "tdmcp.dialog.blocking";
 
+/// TD process lifecycle family (v2).
+/// Selected install lacks official tools.
+pub const SPAWN_EXE_INCOMPLETE: &str = "tdmcp.spawn.exe_incomplete";
+/// OS spawn of TouchDesigner failed.
+pub const SPAWN_FAILED: &str = "tdmcp.spawn.spawn_failed";
+/// Handshake did not arrive within the wait budget.
+pub const SPAWN_WAIT_TIMEOUT: &str = "tdmcp.spawn.wait_timeout";
+/// Startup popups are blocking the handshake (surfaced, not auto-dismissed).
+pub const SPAWN_BLOCKED_BY_DIALOG: &str = "tdmcp.spawn.blocked_by_dialog";
+/// Process exited before handshaking.
+pub const SPAWN_EXITED_EARLY: &str = "tdmcp.spawn.exited_early";
+/// Pid is neither registered nor a TD image.
+pub const KILL_NOT_TD_PID: &str = "tdmcp.kill.not_td_pid";
+/// Process survived the graceful close window.
+pub const KILL_GRACEFUL_TIMEOUT: &str = "tdmcp.kill.graceful_timeout";
+/// TerminateProcess denied (elevation/UIPI).
+pub const KILL_ACCESS_DENIED: &str = "tdmcp.kill.access_denied";
+
 /// Tool result failed to serialize (internal; never the caller's fault).
 pub const MCP_SERIALIZE_FAILED: &str = "tdmcp.mcp.serialize_failed";
 
@@ -218,6 +236,14 @@ pub const ALL: &[&str] = &[
     DIALOG_DISMISS_FAILED,
     DIALOG_CHROME_PROTECTED,
     DIALOG_BLOCKING,
+    SPAWN_EXE_INCOMPLETE,
+    SPAWN_FAILED,
+    SPAWN_WAIT_TIMEOUT,
+    SPAWN_BLOCKED_BY_DIALOG,
+    SPAWN_EXITED_EARLY,
+    KILL_NOT_TD_PID,
+    KILL_GRACEFUL_TIMEOUT,
+    KILL_ACCESS_DENIED,
     BRIDGE_UNKNOWN_PID,
     BRIDGE_LOST,
     BRIDGE_CANCELLED,

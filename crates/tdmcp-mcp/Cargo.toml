@@ -27,6 +27,7 @@ tracing-subscriber = { workspace = true }
 tdmcp-core = { workspace = true }
 tdmcp-config = { workspace = true }
 tdmcp-diagnostics = { workspace = true }
+tdmcp-dialogs = { workspace = true }
 tdmcp-projectio = { workspace = true }
 
 reqwest = { workspace = true }

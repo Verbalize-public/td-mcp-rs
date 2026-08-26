@@ -780,6 +780,7 @@ async fn run_daemon(
         let shared = Arc::new(tdmcp_daemon::dialogs::Shared {
             source: tdmcp_daemon::dialogs::build_source(),
             snapshots: std::sync::Mutex::new(std::collections::HashMap::new()),
+            intercept: cfg.dialogs.intercept,
         });
         if tdmcp_mcp::dialogs::install(shared.clone()) {
             tokio::spawn(tdmcp_daemon::dialogs::run_dialogs_watcher(

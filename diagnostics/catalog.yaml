@@ -883,3 +883,51 @@ entries:
     message: "Modal popup is blocking this TD's main thread"
     mitigation:
       - "Run dialogs {pid} action=list; dismiss via action=dismiss"
+
+  - code: tdmcp.spawn.exe_incomplete
+    layer: args
+    message: "Selected TouchDesigner install lacks official tools"
+    mitigation:
+      - "Pick another installId from td_installs (complete=true)"
+
+  - code: tdmcp.spawn.spawn_failed
+    layer: args
+    message: "Process spawn failed"
+    mitigation:
+      - "Check exePath exists and is launchable"
+
+  - code: tdmcp.spawn.wait_timeout
+    layer: fleet
+    message: "TD did not handshake within the wait budget"
+    mitigation:
+      - "Check fleet for the pid; inspect dialogs; retry with higher waitTimeoutMs"
+
+  - code: tdmcp.spawn.blocked_by_dialog
+    layer: fleet
+    message: "Startup popups are blocking the handshake"
+    mitigation:
+      - "Run dialogs action=list then dismiss each popup; spawn continues waiting"
+
+  - code: tdmcp.spawn.exited_early
+    layer: fleet
+    message: "TouchDesigner exited before handshake"
+    mitigation:
+      - "Check exitCode; verify project path and licence state"
+
+  - code: tdmcp.kill.not_td_pid
+    layer: args
+    message: "Refusing to kill: pid is not a known TD process"
+    mitigation:
+      - "Verify via fleet or tasklist"
+
+  - code: tdmcp.kill.graceful_timeout
+    layer: args
+    message: "Process survived graceful close window"
+    mitigation:
+      - "Dismiss any listed popup, then retry graceful; use mode=force as last resort"
+
+  - code: tdmcp.kill.access_denied
+    layer: args
+    message: "Terminate failed (permissions/elevation)"
+    mitigation:
+      - "Run daemon elevated if the target is elevated"

@@ -14,7 +14,9 @@ pub mod dialogs;
 pub mod dialogs_tool;
 mod editor_context;
 mod fleet;
+pub mod lifecycle;
 mod outcomes;
+
 pub mod project_pack;
 pub mod project_unpack;
 pub mod resources;

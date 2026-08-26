@@ -134,6 +134,10 @@ pub enum ToolName {
     ProjectPack,
     /// OS popup list/describe/dismiss for a TD pid.
     Dialogs,
+    /// Spawn TouchDesigner + deterministic handshake wait.
+    SpawnTd,
+    /// Kill a known TD pid (graceful→force ladder).
+    KillTd,
 }
 
 impl ToolName {
@@ -153,6 +157,8 @@ impl ToolName {
             Self::ProjectUnpack => "project_unpack",
             Self::ProjectPack => "project_pack",
             Self::Dialogs => "dialogs",
+            Self::SpawnTd => "spawn_td",
+            Self::KillTd => "kill_td",
         }
     }
 
@@ -194,6 +200,12 @@ impl ToolName {
             Self::Dialogs => {
                 "List/describe/dismiss OS popups owned by a TD pid. list returns popups+windowStatus; dismiss runs the ladder (button label/id optional, default button otherwise) and verifies the window is gone. Main chrome is protected."
             }
+            Self::SpawnTd => {
+                "Spawn TouchDesigner and deterministically wait for THAT pid's bridge handshake (never another instance). Registers pre-handshake so fleet shows it immediately. Startup popups are surfaced in the payload, never auto-dismissed; timeout with popups present yields spawn.blocked_by_dialog."
+            }
+            Self::KillTd => {
+                "Kill a known TouchDesigner pid: graceful WM_CLOSE first (graceMs window), then mode=force as explicit opt-in. Refuses pids that are neither registered nor TouchDesigner.exe."
+            }
         }
     }
 
@@ -211,6 +223,8 @@ impl ToolName {
         Self::ProjectUnpack,
         Self::ProjectPack,
         Self::Dialogs,
+        Self::SpawnTd,
+        Self::KillTd,
     ];
 
     /// Parse a wire tool name.
@@ -229,6 +243,8 @@ impl ToolName {
             "project_unpack" => Some(Self::ProjectUnpack),
             "project_pack" => Some(Self::ProjectPack),
             "dialogs" => Some(Self::Dialogs),
+            "spawn_td" => Some(Self::SpawnTd),
+            "kill_td" => Some(Self::KillTd),
             _ => None,
         }
     }
@@ -845,6 +861,51 @@ async fn dispatch_tool_inner(
             let params: crate::dialogs_tool::DialogsParams = parse_args(catalog, tool, args)?;
             crate::dialogs_tool::run(params)
                 .map_err(|e| coded_failure(catalog, tool, e.0, "pid", e.1))
+        }
+        ToolName::SpawnTd => {
+            let params: crate::lifecycle::SpawnTdParams = parse_args(catalog, tool, args.clone())?;
+            let cfg = tdmcp_config::load(&tdmcp_config::default_config_path()).map_err(|e| {
+                coded_failure(
+                    catalog,
+                    tool,
+                    "spawn.spawn_failed",
+                    "exePath",
+                    format!("config load: {e}"),
+                )
+            })?;
+            crate::lifecycle::spawn_td(
+                registry,
+                &cfg,
+                params.exe_path.as_deref(),
+                params.install_id.as_deref(),
+                params.project_path.as_deref(),
+                &params.args,
+                params.wait_timeout_ms,
+            )
+            .await
+            .map_err(|e| {
+                let code = match e.code {
+                    "spawn.exe_incomplete" => tdmcp_diagnostics::codes::SPAWN_EXE_INCOMPLETE,
+                    "spawn.spawn_failed" => tdmcp_diagnostics::codes::SPAWN_FAILED,
+                    "spawn.wait_timeout" => tdmcp_diagnostics::codes::SPAWN_WAIT_TIMEOUT,
+                    _ => tdmcp_diagnostics::codes::SPAWN_WAIT_TIMEOUT,
+                };
+                coded_failure(catalog, tool, code, "exePath", e.message)
+            })
+        }
+        ToolName::KillTd => {
+            let params: crate::lifecycle::KillTdParams = parse_args(catalog, tool, args)?;
+            let source = crate::dialogs::get().map(|d| d.source.as_ref());
+            crate::lifecycle::kill_td(registry, source, params.pid, params.mode, params.grace_ms)
+                .await
+                .map_err(|e| {
+                    let code = match e.code {
+                        "kill.not_td_pid" => tdmcp_diagnostics::codes::KILL_NOT_TD_PID,
+                        "kill.graceful_timeout" => tdmcp_diagnostics::codes::KILL_GRACEFUL_TIMEOUT,
+                        _ => tdmcp_diagnostics::codes::KILL_ACCESS_DENIED,
+                    };
+                    coded_failure(catalog, tool, code, "pid", e.message)
+                })
         }
         ToolName::ExecutePython => {
             let params: ExecutePythonParams = parse_args(catalog, tool, args.clone())?;

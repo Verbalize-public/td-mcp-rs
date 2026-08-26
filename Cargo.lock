@@ -4832,6 +4832,7 @@ dependencies = [
  "tdmcp-config",
  "tdmcp-core",
  "tdmcp-diagnostics",
+ "tdmcp-dialogs",
  "tdmcp-projectio",
  "tdmcp-test-support",
  "tempfile",
