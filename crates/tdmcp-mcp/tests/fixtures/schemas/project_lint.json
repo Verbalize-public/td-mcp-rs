@@ -1,0 +1,14 @@
+{
+  "additionalProperties": false,
+  "description": "Args for `project_lint`.",
+  "properties": {
+    "targetPath": {
+      "description": "Expand directory (or packed `.toe`/`.tox`, which is expanded first).",
+      "type": "string"
+    }
+  },
+  "required": [
+    "targetPath"
+  ],
+  "type": "object"
+}

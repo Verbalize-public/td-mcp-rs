@@ -138,6 +138,8 @@ pub enum ToolName {
     SpawnTd,
     /// Kill a known TD pid (graceful→force ladder).
     KillTd,
+    /// Sanity-check an expand dir / packed project.
+    ProjectLint,
 }
 
 impl ToolName {
@@ -159,6 +161,7 @@ impl ToolName {
             Self::Dialogs => "dialogs",
             Self::SpawnTd => "spawn_td",
             Self::KillTd => "kill_td",
+            Self::ProjectLint => "project_lint",
         }
     }
 
@@ -206,6 +209,9 @@ impl ToolName {
             Self::KillTd => {
                 "Kill a known TouchDesigner pid: graceful WM_CLOSE first (graceMs window), then mode=force as explicit opt-in. Refuses pids that are neither registered nor TouchDesigner.exe."
             }
+            Self::ProjectLint => {
+                "Sanity-check a project: .toc strict-LF parse + filesystem consistency, duplicate entries, and tdmcp_rs bridge DAT presence. Optionally delegates deep checks to td-cli when available."
+            }
         }
     }
 
@@ -225,6 +231,7 @@ impl ToolName {
         Self::Dialogs,
         Self::SpawnTd,
         Self::KillTd,
+        Self::ProjectLint,
     ];
 
     /// Parse a wire tool name.
@@ -245,6 +252,7 @@ impl ToolName {
             "dialogs" => Some(Self::Dialogs),
             "spawn_td" => Some(Self::SpawnTd),
             "kill_td" => Some(Self::KillTd),
+            "project_lint" => Some(Self::ProjectLint),
             _ => None,
         }
     }
@@ -912,6 +920,10 @@ async fn dispatch_tool_inner(
                     };
                     coded_failure(catalog, tool, code, "pid", e.message)
                 })
+        }
+        ToolName::ProjectLint => {
+            let _params: crate::project_lint::ProjectLintParams = parse_args(catalog, tool, args)?;
+            Ok(crate::project_lint::run(&_params, None))
         }
         ToolName::ExecutePython => {
             let params: ExecutePythonParams = parse_args(catalog, tool, args.clone())?;

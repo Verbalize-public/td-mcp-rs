@@ -17,6 +17,7 @@ mod fleet;
 pub mod lifecycle;
 mod outcomes;
 
+pub mod project_lint;
 pub mod project_pack;
 pub mod project_unpack;
 pub mod resources;
