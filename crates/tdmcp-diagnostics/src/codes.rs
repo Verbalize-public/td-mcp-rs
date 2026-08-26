@@ -52,9 +52,13 @@ pub const PROJECT_BRIDGE_SUBTREE_MISSING: &str = "tdmcp.project.bridge_subtree_m
 
 /// OS dialogs family (DIALOGS.md 5.5).
 pub const DIALOG_UNSUPPORTED: &str = "tdmcp.dialog.unsupported";
+/// Popup id not found (stale list / closed window).
 pub const DIALOG_NOT_FOUND: &str = "tdmcp.dialog.not_found";
+/// Popup survived the dismiss ladder verification.
 pub const DIALOG_DISMISS_FAILED: &str = "tdmcp.dialog.dismiss_failed";
+/// Target is TD main chrome — protected.
 pub const DIALOG_CHROME_PROTECTED: &str = "tdmcp.dialog.chrome_protected";
+/// Modal popup is blocking the pid's main thread (interception gate).
 pub const DIALOG_BLOCKING: &str = "tdmcp.dialog.blocking";
 
 /// Tool result failed to serialize (internal; never the caller's fault).
