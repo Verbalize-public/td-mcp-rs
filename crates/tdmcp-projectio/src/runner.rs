@@ -43,12 +43,23 @@ impl CommandRunner for ProcessRunner {
 }
 
 /// Scripted runner for tests/CI: pops queued outputs per call, optionally
-/// simulating spawn failure.
-#[derive(Debug, Default)]
+/// simulating spawn failure and/or running a filesystem side-effect (so
+/// evidence gates can be exercised without real tools).
 pub struct FakeOfficialRunner {
     scripted: std::sync::Mutex<Vec<Result<CommandOutput, std::io::Error>>>,
+    effects: std::sync::Mutex<Vec<Option<Box<dyn FnOnce(&Path, &[String]) + Send>>>>,
     /// Every (program,args) request, in order — assertions read this afterwards.
     pub calls: std::sync::Mutex<Vec<(PathBuf, Vec<String>)>>,
+}
+
+impl Default for FakeOfficialRunner {
+    fn default() -> Self {
+        Self {
+            scripted: std::sync::Mutex::new(Vec::new()),
+            effects: std::sync::Mutex::new(Vec::new()),
+            calls: std::sync::Mutex::new(Vec::new()),
+        }
+    }
 }
 
 impl FakeOfficialRunner {
@@ -61,6 +72,12 @@ impl FakeOfficialRunner {
         self.calls.lock().unwrap_or_else(|p| p.into_inner())
     }
 
+    fn effects_mut(
+        &self,
+    ) -> std::sync::MutexGuard<'_, Vec<Option<Box<dyn FnOnce(&Path, &[String]) + Send>>>> {
+        self.effects.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
     /// Queue one successful output.
     pub fn push_ok(&self, code: i32, stdout: &str, stderr: &str) -> &Self {
         self.queue().push(Ok(CommandOutput {
@@ -68,6 +85,24 @@ impl FakeOfficialRunner {
             stdout: stdout.to_string(),
             stderr: stderr.to_string(),
         }));
+        self
+    }
+
+    /// Queue one successful output that first runs `effect` — lets tests
+    /// materialize the artifacts a real tool would have written so the
+    /// filesystem-evidence gates are exercised end-to-end.
+    pub fn push_ok_with_effect(
+        &self,
+        code: i32,
+        stderr: &str,
+        effect: Box<dyn FnOnce(&Path, &[String]) + Send>,
+    ) -> &Self {
+        self.queue().push(Ok(CommandOutput {
+            code,
+            stdout: String::new(),
+            stderr: stderr.to_string(),
+        }));
+        self.effects_mut().push(Some(effect));
         self
     }
 
@@ -85,16 +120,27 @@ impl FakeOfficialRunner {
             Some(q.remove(0))
         }
     }
+
+    fn next_effect(&self) -> Option<Option<Box<dyn FnOnce(&Path, &[String]) + Send>>> {
+        let mut e = self.effects_mut();
+        if e.is_empty() {
+            None
+        } else {
+            Some(e.remove(0))
+        }
+    }
 }
 
 impl CommandRunner for FakeOfficialRunner {
     fn run(&self, program: &Path, args: &[&std::ffi::OsStr]) -> std::io::Result<CommandOutput> {
-        self.calls_mut().push((
-            program.to_path_buf(),
-            args.iter()
-                .map(|a| a.to_string_lossy().into_owned())
-                .collect(),
-        ));
+        let args_owned: Vec<String> = args
+            .iter()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+        if let Some(Some(effect)) = self.next_effect() {
+            effect(program, &args_owned);
+        }
+        self.calls_mut().push((program.to_path_buf(), args_owned));
         match self.next_scripted() {
             Some(r) => r,
             None => Err(std::io::Error::other(

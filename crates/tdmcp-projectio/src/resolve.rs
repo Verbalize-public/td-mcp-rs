@@ -208,7 +208,10 @@ pub fn default_scan_roots(env: EnvLookup<'_>) -> Vec<PathBuf> {
         if let Some(base) = env(var) {
             let root = PathBuf::from(base).join("Derivative");
             let key = root.to_string_lossy().to_lowercase();
-            if roots.iter().any(|r: &PathBuf| r.to_string_lossy().to_lowercase() == key) {
+            if roots
+                .iter()
+                .any(|r: &PathBuf| r.to_string_lossy().to_lowercase() == key)
+            {
                 continue;
             }
             roots.push(root);

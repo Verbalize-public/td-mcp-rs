@@ -17,9 +17,11 @@
 //! `[official_tools]` config into [`resolve::ToolSource`].
 
 pub mod error;
+pub mod ops;
 pub mod resolve;
 pub mod runner;
 pub mod sniff;
 pub mod stage;
+pub mod toc;
 
 pub use error::ProjectIoError;
