@@ -115,6 +115,13 @@ approach: 2 failures ⇒ different approach; 3rd ⇒ ledger + next slice. Degrad
 defaults pre-agreed: td-cli absent ⇒ lint native-only (`backends` reports it); UIA content gap
 on some Qt dialog ⇒ user32-only detection recorded per class; macOS stays NullDialogSource.
 
+### Live verification records
+
+| Date | Phase | Scenario | Evidence |
+|---|---|---|---|
+| 2026-08-26 | D1–D3 | Forced real modal (ctypes MessageBoxW in TD thread) on dev host pid 14928 | `execute_python` returned `tdmcp.dialog.blocking` naming "GateProbe"; `fleet include=popups` listed `#32770` id=7081234; `dialogs dismiss` → `{dismissed:true, via:"button:OK", stillOpen:[]}`; post-dismiss list = 0; bridged call recovered (result 42). Helper-window false positives (ConsoleWindowClass/MSCTFIME UI/Default IME) found live → denylist `aee72da`. |
+| 2026-08-26 | C1/C2/C3 | `td_installs` dedup rows; unpack 115 entries canonical toc; unpack→pack round-trip 15,770 B, build-skew satisfied | daemon HTTP transcripts in-session; artifacts `fixtures/v2-probes/r0/` |
+
 ### Blocked ledger
 
 | Date | Phase/commit | Blocker | Evidence | Disposition |
