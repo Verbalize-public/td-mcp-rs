@@ -212,3 +212,29 @@ primer/performance:
   description: >-
     Cook cost and FPS evidence habits. Use when diagnosing performance or
     claiming FPS.
+
+project-io:
+  template_path: touchdesigner/reference/project-io.jinja.md
+  output_path: touchdesigner/reference/project-io.md
+  title: Project I/O
+  description: >-
+    Offline .toe/.tox work through official tools: td_installs,
+    project_unpack, project_pack, project_lint, project_install_bridge.
+    Read before expanding/packing projects or touching bridge DATs.
+
+lifecycle:
+  template_path: touchdesigner/reference/lifecycle.jinja.md
+  output_path: touchdesigner/reference/lifecycle.md
+  title: TD lifecycle
+  description: >-
+    spawn_td / kill_td playbook: deterministic pid ownership, spawn outcome
+    taxonomy, graceful-vs-force kill ladder. Read before starting/stopping
+    TouchDesigner.
+
+popups:
+  template_path: touchdesigner/reference/popups.jinja.md
+  output_path: touchdesigner/reference/popups.md
+  title: Popup triage
+  description: >-
+    Detect and clear OS dialogs blocking TouchDesigner (fleet popups +
+    dialogs tool), including startup version/compat warnings after spawn_td.

@@ -224,3 +224,20 @@ idle_dead_secs = 20
 # data_dir = "C:/path/to/tdmcp-rs-data"
 # daemon_bin = "C:/path/to/tdmcp-daemon.exe"
 ```
+
+## Project I/O & dialogs (v2)
+
+```toml
+[official_tools]
+# Pin Derivative's official tools for offline project I/O.
+# td_exe / expand_path / collapse_path (expand+collapse must be set together)
+
+[dialogs]
+enabled   = true   # popup watcher + `dialogs` tool (Windows)
+intercept = true   # fail bridged calls fast while a modal blocks TD
+poll_ms   = 1000
+```
+
+Absence of `[official_tools]` triggers env (`TDMCP_TOEEXPAND`,
+`TDMCP_TOECOLLAPSE`, `TDMCP_TOUCHDESIGNER_EXE`) then a Program Files scan that
+validates actual tool files (stub installs are skipped).

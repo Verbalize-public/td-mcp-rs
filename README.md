@@ -180,6 +180,12 @@ Once connected, the AI has a small, focused toolbox:
 | `api_help` | Look up the TouchDesigner Python API while working |
 | `editor_context` | See what you have selected in the editor |
 | `describe_tools` | List what it can do right now |
+| `td_installs` | Find every TouchDesigner install and whether it's usable |
+| `project_unpack` / `project_pack` | Expand a `.toe`/`.tox` to editable files and pack it back |
+| `project_lint` | Sanity-check a project (toc, external refs, bridge presence) |
+| `project_install_bridge` | Install or refresh the MCP bridge inside any project file |
+| `spawn_td` / `kill_td` | Start TouchDesigner on a project (deterministic pid) and close it |
+| `dialogs` | See and dismiss TouchDesigner popups that block automation |
 
 The AI can also read built-in TouchDesigner guides (OpSketch, Python
 cheatsheet, primers, …) through the connection, so it doesn't have to guess —

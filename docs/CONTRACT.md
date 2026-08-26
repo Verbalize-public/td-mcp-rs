@@ -25,16 +25,15 @@ Crate layout: `[ARCHITECTURE.md](../ARCHITECTURE.md)`. Engineering law: `[CONSTI
 
 ### Non-goals (v1)
 
-
 | Item                                      | Why                                                                                                     |
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------- |
 | Sticky / `select_target` / session peer   | Replaced by per-call `pid` + `fleet`                                                                    |
 | Generated `targetId` / UUID / path-hash   | `**pid` is the only id**                                                                                |
-| Offline ToeDigest / `.toe` write / inject | Separate MCP; v1 adopt path = drop tox                                                                  |
+| ~~Offline ToeDigest / `.toe` write / inject~~ | **Reversed in v2** — offline project I/O ships via official toeexpand/toecollapse (see SKILLS_CONTRACT_PROPOSAL) |
 | Remote / WAN TD control                   | After local contract is boring                                                                          |
 | Multiple bridge protocols                 | One local IPC                                                                                           |
 | Silent auto-reconnect (TD↔daemon IPC)     | Explicit resurrection policy (see Goals §7). Distinct from stdio↔daemon HTTP reconnect-only heal below. |
-| Lifecycle create/start/stop               | **P2+**                                                                                                 |
+| ~~Lifecycle create/start/stop~~           | **Reversed in v2** — `spawn_td` / `kill_td` ship with deterministic pid ownership                       |
 
 
 ---
@@ -221,11 +220,20 @@ safety net only — the daemon owns the real per-method budgets.
 | `mutate_nodes`              | Ordered create / set / delete / connect / disconnect steps; sequential apply, stop on first hard error | **Shipped**           |
 | `api_help`                  | Live TD Python API cards (class / classes index / thin module) — not wiki/help dumps                   | **Shipped**           |
 | `editor_context`            | Live editor panes + per-pane selection (`ownerPath`, `focused`, `selection`)                           | **Shipped**           |
-| `dialogs`                   | List / dismiss OS dialogs                                                                              | **Planned** (P1, Win) |
-| Lifecycle create/start/stop | Return new `pid`                                                                                       | **Planned** (P2)      |
+| `dialogs`†                 | List / dismiss OS dialogs                                                                              | **Shipped** (v2, Win) |
+| `td_installs`†             | TouchDesigner installations on disk + tool availability                                                | **Shipped** (v2)      |
+| `project_unpack`†          | `.toe`/`.tox` → expand dir via official toeexpand                                                      | **Shipped** (v2)      |
+| `project_pack`†            | expand dir → packed file via official toecollapse (build-skew guard)                                   | **Shipped** (v2)      |
+| `project_lint`†            | Native sanity checks over an expand dir (+ optional td-cli delegation)                                 | **Shipped** (v2)      |
+| `project_install_bridge`†  | Install/override tdmcp bridge inside a packed project (backup + targeted verify)                       | **Shipped** (v2)      |
+| `spawn_td`†                | Spawn TD + deterministic pid handshake wait (startup popups surfaced, never auto-dismissed)            | **Shipped** (v2)      |
+| `kill_td`†                 | Graceful→force kill ladder for a known TD pid                                                          | **Shipped** (v2)      |
 
+† Offline/local tools: no bridge dispatch, session-gate exempt. `dialogs`/`spawn_td`/
+`kill_td` require the platform backend (Windows); fleet rows for spawned pids carry
+`spawn` provenance and may show `bridge:"starting"` pre-handshake.
 
-**Not planned (v1):** sticky / `select_target` / `targetId` / ToeDigest / inject / `call_node` (use `execute_python` for other node method calls; connector wiring is `mutate_nodes` `connect` / `disconnect`).
+**Still not planned:** sticky / `select_target` / `targetId` / ToeDigest / inject / `call_node` (use `execute_python` for other node method calls; connector wiring is `mutate_nodes` `connect` / `disconnect`).
 
 ### Three layers
 
@@ -597,8 +605,9 @@ Daemon CLI: `start` (foreground; tray + toast by default, dashboard hidden until
 | **P0**   | Daemon + IPC + bootstrap + Streamable HTTP: `fleet` + script/errors + `capture` (`top`/`preview`) + diagnostics + per-pid queue + exclusive fail + resurrection | Two connected pids; exclusive fails while busy; perception non-black; structured script failure                                                                           | **Shipped** (see `[E2E_CHECKLIST.md](E2E_CHECKLIST.md)`)                                    |
 | **P1**   | `mutate_nodes` (incl. connect/disconnect), `capture` `chop_data`, dialogs (Win), op lint engine                                                                 | `mutate_nodes` sequential apply stops at first bad path with `failedAt`; later steps emit `tdmcp.batch.skipped_dependent`; pure `apply_step` seam unit-covered without TD | Partial (`mutate_nodes` + `capture` `chop_data` **Shipped**; dialogs / op lint **Planned**) |
 | **P1.x** | Universal `capture` via shared OP Viewer; `inspect` explicit `paths[]`; `api_help` live API cards                                                              | Any-family preview; chop_image/pop aliases; inspect batch + partial success; api_help class/classes/module                                                                 | **Shipped** (unit + FakeTdPeer; E2E rows 17–19 for inspect/capture)                         |
-| **P2**   | Lifecycle create/start/stop (tray already shipped)                                                                                                              | Operator create/start/stop; new project by pid                                                                                                                            | Partial (tray **Shipped**; lifecycle **Planned**)                                           |
+| **P2**   | Lifecycle create/start/stop (tray already shipped)                                                                                                              | Operator create/start/stop; new project by pid                                                                                                                            | **Shipped in v2** (`spawn_td`/`kill_td` + dialogs watcher; tray **Shipped**)                                |
 | **P3**   | Streamable HTTP remote + single-level federation (`bind_address`, PSK auth, register/fleet-push, `daemonId` tool proxy)                                           | Automated: `admin_auth` + `federation_registration` + `federation_proxy` (inspect/capture/ambiguous/unreachable); see [`CONFIG.md`](CONFIG.md) § Federation auth & admin surface | **Shipped**                                                                                 |
+| **v2**   | Project I/O (`td_installs`, `project_unpack/pack/lint/install_bridge`), lifecycle (`spawn_td`/`kill_td`), dialogs (`dialogs` + watcher + interception)            | See [`SKILLS_CONTRACT_PROPOSAL.md`](SKILLS_CONTRACT_PROPOSAL.md) + [`V2_IMPLEMENTATION_PLAN.md`](V2_IMPLEMENTATION_PLAN.md); live records in plan §Live verification       | **Shipped** (P3 carry-over: create-from-scratch bridge injection, deeper round-trip diffing) |
 
 
 ---
