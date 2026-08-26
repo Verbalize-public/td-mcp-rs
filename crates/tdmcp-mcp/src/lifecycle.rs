@@ -245,7 +245,7 @@ pub async fn spawn_td(
                     "ok": false,
                     "outcome": "wait_timeout",
                     "pid": pid,
-                    "stillAlive": child.try_wait().is_err(),
+                    "stillAlive": child.try_wait().map(|r| r.is_none()).unwrap_or(true),
                     "startupDialogs": shared_dialogs.as_ref().and_then(|d| {
                         d.snapshots.lock().unwrap_or_else(|p| p.into_inner()).get(&pid).cloned()
                     }),

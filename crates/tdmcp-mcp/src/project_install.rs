@@ -158,7 +158,13 @@ pub fn run(
         }));
     }
 
-    // Stage 4: collapse working dir back over work.toe (same-name staging).
+    // Stage 4a: drop the pre-rewrite packed copy so toecollapse can write it.
+    std::fs::remove_file(&work_packed).map_err(|e| {
+        cleanup(&stage_root);
+        (format!("unstage removal: {e}"), "project.io_failed")
+    })?;
+
+    // Stage 4b: collapse working dir back over work.toe (same-name staging).
     let collapsed = ops::collapse(&expanded, &work_packed, tools, &runner).map_err(|e| {
         cleanup(&stage_root);
         (format!("{e}"), code_for(&e))
@@ -180,7 +186,8 @@ pub fn run(
         cleanup(&stage_root);
         (format!("{e}"), code_for(&e))
     })?;
-    let vsubtree = find_subtree(&vpacked).ok_or_else(|| {
+    let vdir = PathBuf::from(format!("{}.dir", vpacked.display()));
+    let vsubtree = find_subtree(&vdir).ok_or_else(|| {
         cleanup(&stage_root);
         (
             "verification lost subtree".into(),
