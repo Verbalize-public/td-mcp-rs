@@ -5,3 +5,5 @@ fixtures/v2-probes/**/*.bin -text
 # TD packed binaries are opaque - never normalize
 *.toe -text
 *.tox -text
+# Probe backup artifacts (created by project_install_bridge) stay opaque
+fixtures/v2-probes/**/*.bak -text
