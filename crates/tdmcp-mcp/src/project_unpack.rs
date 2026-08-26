@@ -61,7 +61,11 @@ fn load_config() -> Result<ConfigFile, CodedError> {
     })
 }
 
-fn resolve_official_tools(
+/// Resolve official tools for offline operations (shared by unpack/pack/install).
+///
+/// # Errors
+/// [`CodedError`] with `project.tool_missing` when nothing usable resolves.
+pub fn resolve_official_tools(
     cfg: &ConfigFile,
     install_id: Option<&str>,
 ) -> Result<OfficialTools, CodedError> {

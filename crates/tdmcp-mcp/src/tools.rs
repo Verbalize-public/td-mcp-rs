@@ -140,6 +140,8 @@ pub enum ToolName {
     KillTd,
     /// Sanity-check an expand dir / packed project.
     ProjectLint,
+    /// Install/override the tdmcp bridge inside a packed project.
+    ProjectInstallBridge,
 }
 
 impl ToolName {
@@ -162,6 +164,7 @@ impl ToolName {
             Self::SpawnTd => "spawn_td",
             Self::KillTd => "kill_td",
             Self::ProjectLint => "project_lint",
+            Self::ProjectInstallBridge => "project_install_bridge",
         }
     }
 
@@ -212,6 +215,9 @@ impl ToolName {
             Self::ProjectLint => {
                 "Sanity-check a project: .toc strict-LF parse + filesystem consistency, duplicate entries, and tdmcp_rs bridge DAT presence. Optionally delegates deep checks to td-cli when available."
             }
+            Self::ProjectInstallBridge => {
+                "Install/override the tdmcp bridge inside a packed .toe/.tox: backs up the original, rewrites the three bridge DAT bodies (bootstrap/callbacks/tdmcp_exec) with the daemon's embedded sources, verifies by targeted re-expand, then replaces atomically."
+            }
         }
     }
 
@@ -232,6 +238,7 @@ impl ToolName {
         Self::SpawnTd,
         Self::KillTd,
         Self::ProjectLint,
+        Self::ProjectInstallBridge,
     ];
 
     /// Parse a wire tool name.
@@ -253,6 +260,7 @@ impl ToolName {
             "spawn_td" => Some(Self::SpawnTd),
             "kill_td" => Some(Self::KillTd),
             "project_lint" => Some(Self::ProjectLint),
+            "project_install_bridge" => Some(Self::ProjectInstallBridge),
             _ => None,
         }
     }
@@ -924,6 +932,23 @@ async fn dispatch_tool_inner(
         ToolName::ProjectLint => {
             let _params: crate::project_lint::ProjectLintParams = parse_args(catalog, tool, args)?;
             Ok(crate::project_lint::run(&_params, None))
+        }
+        ToolName::ProjectInstallBridge => {
+            let params: crate::project_install::ProjectInstallBridgeParams =
+                parse_args(catalog, tool, args.clone())?;
+            let cfg = tdmcp_config::load(&tdmcp_config::default_config_path()).map_err(|e| {
+                coded_failure(
+                    catalog,
+                    tool,
+                    "project.io_failed",
+                    "targetPath",
+                    format!("config load: {e}"),
+                )
+            })?;
+            let tools = crate::project_unpack::resolve_official_tools(&cfg, None)
+                .map_err(|e| coded_failure(catalog, tool, e.code, "targetPath", e.message))?;
+            crate::project_install::run(&params, &tools)
+                .map_err(|e| coded_failure(catalog, tool, e.1, "targetPath", e.0))
         }
         ToolName::ExecutePython => {
             let params: ExecutePythonParams = parse_args(catalog, tool, args.clone())?;
