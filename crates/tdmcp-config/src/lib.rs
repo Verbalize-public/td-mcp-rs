@@ -45,6 +45,8 @@ pub struct ConfigFile {
     pub advanced: AdvancedSection,
     /// Official `toeexpand`/`toecollapse` pinning (v2 project I/O).
     pub official_tools: OfficialToolsSection,
+    /// OS-dialog detection / interception switches.
+    pub dialogs: DialogsSection,
 }
 
 /// `[server]` table.
@@ -219,7 +221,30 @@ pub struct OfficialToolsSection {
     pub collapse_path: Option<PathBuf>,
 }
 
-/// Field descriptions shared by docs, GUI tooltips, and the default template.#[derive(Debug, Clone, Copy)]
+/// `[dialogs]` table — daemon-side popup watcher + interception gate.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DialogsSection {
+    /// Master switch: popup watcher + `dialogs` tool (Windows).
+    pub enabled: bool,
+    /// Fail bridged tool calls fast while a modal blocks the TD main thread.
+    pub intercept: bool,
+    /// Watcher cadence in milliseconds.
+    pub poll_ms: u64,
+}
+
+impl Default for DialogsSection {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            intercept: true,
+            poll_ms: 1000,
+        }
+    }
+}
+
+/// Field descriptions shared by docs, GUI tooltips, and the default template.
+#[derive(Debug, Clone, Copy)]
 pub struct FieldDesc {
     /// TOML key path (e.g. `server.port`).
     pub key: &'static str,
@@ -240,6 +265,21 @@ pub const FIELD_DESCS: &[FieldDesc] = &[
         key: "official_tools.expand_path",
         label: "toeexpand path",
         help: "Explicit toeexpand binary (must be set together with collapse path).",
+    },
+    FieldDesc {
+        key: "dialogs.enabled",
+        label: "Dialog watcher",
+        help: "Detect TouchDesigner popups daemon-side and fill windowStatus.",
+    },
+    FieldDesc {
+        key: "dialogs.intercept",
+        label: "Popup interception",
+        help: "Fail bridged tool calls fast with tdmcp.dialog.blocking while a modal is open.",
+    },
+    FieldDesc {
+        key: "dialogs.poll_ms",
+        label: "Poll interval (ms)",
+        help: "How often the dialog watcher samples registered pids.",
     },
     FieldDesc {
         key: "official_tools.collapse_path",
@@ -448,6 +488,12 @@ pub fn save(path: &Path, cfg: &ConfigFile) -> Result<()> {
     ensure_table(&mut doc, "bridge");
     ensure_table(&mut doc, "advanced");
     ensure_table(&mut doc, "official_tools");
+    ensure_table(&mut doc, "dialogs");
+
+    doc["dialogs"]["enabled"] = value(cfg.dialogs.enabled);
+    doc["dialogs"]["intercept"] = value(cfg.dialogs.intercept);
+    doc["dialogs"]["poll_ms"] = value(cfg.dialogs.poll_ms as i64);
+    ensure_table(&mut doc, "dialogs");
 
     doc["server"]["port"] = value(i64::from(cfg.server.port));
     doc["server"]["bind_address"] = value(cfg.server.bind_address.as_str());

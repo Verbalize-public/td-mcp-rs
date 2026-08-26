@@ -4745,6 +4745,7 @@ dependencies = [
  "tdmcp-config",
  "tdmcp-core",
  "tdmcp-diagnostics",
+ "tdmcp-dialogs",
  "tdmcp-gui",
  "tdmcp-ipc",
  "tdmcp-mcp",

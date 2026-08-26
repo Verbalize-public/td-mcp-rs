@@ -38,6 +38,7 @@ tdmcp-diagnostics = { path = "crates/tdmcp-diagnostics" }
 tdmcp-ipc = { path = "crates/tdmcp-ipc" }
 tdmcp-mcp = { path = "crates/tdmcp-mcp" }
 tdmcp-projectio = { path = "crates/tdmcp-projectio" }
+tdmcp-dialogs = { path = "crates/tdmcp-dialogs" }
 tdmcp-test-support = { path = "crates/tdmcp-test-support" }
 
 anyhow = "1"

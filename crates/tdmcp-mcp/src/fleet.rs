@@ -1,8 +1,10 @@
 //! `fleet` tool — multi-process discovery (no sticky target).
 
+use std::collections::HashMap;
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use tdmcp_core::{BridgeStatus, Pid, PidRegistry, SpawnRecord};
+use tdmcp_core::{BridgeStatus, DialogSnapshot, Pid, PidRegistry, PopupInfo, SpawnRecord};
 
 /// Optional filters for `fleet`.
 #[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
@@ -54,6 +56,10 @@ pub struct FleetProcess {
     /// human-opened instances (v2 lifecycle ownership).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub spawn: Option<SpawnRecord>,
+    /// Open OS popups when include contains popups and a dialogs backend is
+    /// installed; omitted otherwise/when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub popups: Vec<PopupInfo>,
     /// In-flight / pending tasks when requested; omitted when the snapshot is empty.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tasks: Option<Vec<tdmcp_core::TaskInfo>>,
@@ -89,14 +95,17 @@ pub struct FleetResponse {
 /// Build a fleet summary from the registry.
 ///
 /// `ipc_depths` maps pid → actor-inbox depth when the caller can observe it
-/// (omit / empty when unknown).
+/// (omit / empty when unknown). `popups` carries the daemon dialogs snapshot
+/// map when installed (`None` = feature off / tests).
 #[must_use]
 pub fn fleet_summary(
     registry: &PidRegistry,
     params: &FleetParams,
     ipc_depths: &[(u32, usize)],
+    popups: Option<&HashMap<u32, DialogSnapshot>>,
 ) -> FleetResponse {
     let want_tasks = params.include.contains(&FleetInclude::Tasks);
+    let want_popups = params.include.contains(&FleetInclude::Popups);
     let filter = params.pids.as_ref();
     let mut processes = Vec::new();
     for pid in registry.pids() {
@@ -111,6 +120,10 @@ pub fn fleet_summary(
         let ipc_queue_depth = want_tasks
             .then(|| ipc_depths.iter().find(|(p, _)| *p == pid).map(|(_, d)| *d))
             .flatten();
+        let row_popups = match (want_popups, popups) {
+            (true, Some(map)) => map.get(&pid).map(|s| s.popups.clone()).unwrap_or_default(),
+            _ => Vec::new(),
+        };
         processes.push(FleetProcess {
             pid: Pid::new(pid),
             title: entry.process.title.clone(),
@@ -118,6 +131,7 @@ pub fn fleet_summary(
             toe_path: entry.process.toe_path.clone(),
             bridge: entry.bridge,
             spawn: entry.spawn.clone(),
+            popups: row_popups,
             tasks: want_tasks
                 .then(|| entry.queue.snapshot())
                 .filter(|t| !t.is_empty()),
@@ -136,7 +150,7 @@ pub fn fleet_summary(
 #[allow(clippy::unwrap_used, clippy::expect_used, reason = "unit tests")]
 mod tests {
     use super::*;
-    use tdmcp_core::{ProcessAttrs, ProcessFingerprint, TaskMode};
+    use tdmcp_core::{DialogSeverity, PopupKind, ProcessAttrs, ProcessFingerprint, TaskMode};
 
     fn connected_registry(pid: u32) -> PidRegistry {
         let mut reg = PidRegistry::new();
@@ -163,7 +177,8 @@ mod tests {
             include: vec![FleetInclude::Tasks, FleetInclude::Cancelled],
             ..Default::default()
         };
-        let json = serde_json::to_value(fleet_summary(&reg, &params, &[])).expect("serialize");
+        let json =
+            serde_json::to_value(fleet_summary(&reg, &params, &[], None)).expect("serialize");
         let proc = &json["processes"][0];
         assert_eq!(proc["pid"], 34);
         assert!(proc.get("tasks").is_none(), "idle queue must omit tasks");
@@ -182,8 +197,8 @@ mod tests {
             include: vec![FleetInclude::Tasks],
             ..Default::default()
         };
-        let json =
-            serde_json::to_value(fleet_summary(&reg, &params, &[(34, 2)])).expect("serialize");
+        let json = serde_json::to_value(fleet_summary(&reg, &params, &[(34, 2)], None))
+            .expect("serialize");
         let tasks = json["processes"][0]["tasks"]
             .as_array()
             .expect("tasks present when non-empty");
@@ -205,7 +220,8 @@ mod tests {
         let mut reg = PidRegistry::new();
         reg.register_starting(50, record("C:/TD/TouchDesigner.exe"));
         let params = FleetParams::default();
-        let json = serde_json::to_value(fleet_summary(&reg, &params, &[])).expect("serialize");
+        let json =
+            serde_json::to_value(fleet_summary(&reg, &params, &[], None)).expect("serialize");
         let row = &json["processes"][0];
         assert_eq!(row["pid"], 50);
         assert_eq!(row["bridge"], "starting");
@@ -216,8 +232,8 @@ mod tests {
     #[test]
     fn external_rows_omit_spawn_key() {
         let reg = connected_registry(9);
-        let json =
-            serde_json::to_value(fleet_summary(&reg, &FleetParams::default(), &[])).expect("s");
+        let json = serde_json::to_value(fleet_summary(&reg, &FleetParams::default(), &[], None))
+            .expect("s");
         let row = &json["processes"][0];
         assert_eq!(row["bridge"], "connected");
         assert!(
@@ -243,10 +259,44 @@ mod tests {
             },
             Some("1".into()),
         );
-        let json =
-            serde_json::to_value(fleet_summary(&reg, &FleetParams::default(), &[])).expect("s");
+        let json = serde_json::to_value(fleet_summary(&reg, &FleetParams::default(), &[], None))
+            .expect("s");
         let row = &json["processes"][0];
         assert_eq!(row["bridge"], "connected");
         assert_eq!(row["spawn"]["expectedProject"], "C:/p/x.toe");
+    }
+
+    #[test]
+    fn popups_include_emits_from_snapshots_and_omits_when_absent() {
+        let reg = connected_registry(70);
+        let params = FleetParams {
+            include: vec![FleetInclude::Popups],
+            ..Default::default()
+        };
+        // No dialogs map: field omitted entirely.
+        let none = serde_json::to_value(fleet_summary(&reg, &params, &[], None)).unwrap();
+        assert!(none["processes"][0].get("popups").is_none());
+
+        let mut map = HashMap::new();
+        map.insert(
+            70,
+            DialogSnapshot {
+                popups: vec![PopupInfo {
+                    id: "42".into(),
+                    title: "Backwards Compatiblity Issue".into(),
+                    class: Some("#32770".into()),
+                    kind: PopupKind::MessageBox,
+                    severity: DialogSeverity::Soft,
+                    message: None,
+                    buttons: Vec::new(),
+                    is_main_chrome: false,
+                }],
+                window_status: Some(tdmcp_core::WindowStatus::BlockedByModalWindow),
+            },
+        );
+        let with = serde_json::to_value(fleet_summary(&reg, &params, &[], Some(&map))).unwrap();
+        let pops = &with["processes"][0]["popups"];
+        assert_eq!(pops.as_array().unwrap().len(), 1);
+        assert_eq!(pops[0]["severity"], "soft");
     }
 }

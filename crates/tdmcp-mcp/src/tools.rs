@@ -795,7 +795,9 @@ async fn dispatch_tool_inner(
             }
             let local = {
                 let reg = registry.lock().await;
-                fleet_summary(&reg, &params, &ipc_depths)
+                let dialogs_popups = crate::dialogs::get()
+                    .map(|d| d.snapshots.lock().unwrap_or_else(|p| p.into_inner()));
+                fleet_summary(&reg, &params, &ipc_depths, dialogs_popups.as_deref())
             };
             if let Some(fed) = federation {
                 Ok(
@@ -1149,6 +1151,8 @@ async fn federated_fleet_summary(fed: &FederationCtx, local: FleetResponse) -> F
             bridge: row.bridge,
             // Spawn provenance is daemon-local; remote rows carry none.
             spawn: None,
+            // Popups are daemon-local too.
+            popups: Vec::new(),
             tasks: None,
             ipc_queue_depth: None,
             resurrected: false,

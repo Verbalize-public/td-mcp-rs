@@ -4,6 +4,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
+use tdmcp_config::DialogsSection;
 use tdmcp_config::{self as cfgfile, BridgeSection, ConfigFile};
 
 /// Resolved runtime config.
@@ -54,6 +55,8 @@ pub struct Config {
     /// Path to the installed daemon binary (auto-set by `install`).
     /// When `Some`, spawn / restart / autostart use this path instead of `current_exe()`.
     pub daemon_bin: Option<PathBuf>,
+    /// `[dialogs]` switches (watcher + interception).
+    pub dialogs: DialogsSection,
 }
 
 /// Optional CLI / env overrides passed into [`Config::load`].
@@ -142,6 +145,7 @@ impl Config {
             logging_max_files: file.logging.max_files.max(1),
             logging_retention_days: file.logging.retention_days.max(1),
             daemon_bin: file.advanced.daemon_bin,
+            dialogs: file.dialogs,
         })
     }
 }

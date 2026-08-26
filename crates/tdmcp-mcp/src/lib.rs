@@ -10,6 +10,7 @@ use include_dir::{include_dir, Dir};
 mod args_diag;
 pub mod bridge_rpc;
 mod daemon_link;
+pub mod dialogs;
 mod editor_context;
 mod fleet;
 mod outcomes;

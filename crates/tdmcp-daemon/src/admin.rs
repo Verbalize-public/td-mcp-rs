@@ -126,7 +126,7 @@ async fn status(State(state): State<AdminState>) -> Json<StatusBody> {
             pids: None,
             include: vec![],
         };
-        let fleet = fleet_summary(&registry, &params, &[]);
+        let fleet = fleet_summary(&registry, &params, &[], None);
         fleet
             .processes
             .iter()
@@ -176,7 +176,7 @@ async fn admin_fleet(State(state): State<AdminState>) -> Json<Value> {
     }
     let local = {
         let registry = state.app.registry.lock().await;
-        fleet_summary(&registry, &params, &ipc_depths)
+        fleet_summary(&registry, &params, &ipc_depths, None)
     };
     let mut slaves = state.federation.slaves.lock().await;
     slaves.tick_stale(Utc::now());

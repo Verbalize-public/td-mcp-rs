@@ -560,6 +560,7 @@ pub fn spawn_slave_loop(
                         include: vec![],
                     },
                     &[],
+                    None,
                 );
                 fleet
                     .processes
