@@ -1,0 +1,44 @@
+{
+  "$defs": {
+    "KillMode": {
+      "description": "Kill mode.",
+      "oneOf": [
+        {
+          "const": "graceful",
+          "description": "Post WM_CLOSE and wait; surfaces popups if it lingers.",
+          "type": "string"
+        },
+        {
+          "const": "force",
+          "description": "Terminate unconditionally.",
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "additionalProperties": false,
+  "description": "Args for `kill_td`.",
+  "properties": {
+    "graceMs": {
+      "default": 5000,
+      "description": "Grace window for graceful mode (ms).",
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "mode": {
+      "$ref": "#/$defs/KillMode",
+      "description": "`graceful` (close windows / SIGTERM + grace window) or `force`."
+    },
+    "pid": {
+      "description": "Target pid.",
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "pid"
+  ],
+  "type": "object"
+}

@@ -3,7 +3,7 @@
   "description": "Args for `project_lint`.",
   "properties": {
     "targetPath": {
-      "description": "Expand directory (or packed `.toe`/`.tox`, which is expanded first).",
+      "description": "Expand directory — or a packed `.toe`/`.tox`, which is auto-expanded\ninto a private temp staging dir (cleaned up afterwards; the input file\nand its siblings are never touched).",
       "type": "string"
     }
   },

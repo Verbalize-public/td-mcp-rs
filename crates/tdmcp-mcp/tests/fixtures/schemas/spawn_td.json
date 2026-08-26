@@ -1,0 +1,46 @@
+{
+  "additionalProperties": false,
+  "description": "Args for `spawn_td`.",
+  "properties": {
+    "args": {
+      "default": [],
+      "description": "Extra CLI args passed through.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "exePath": {
+      "default": null,
+      "description": "Explicit TouchDesigner binary (overrides installId/config).",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "installId": {
+      "default": null,
+      "description": "Install id from `td_installs` (default = newest usable).",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "projectPath": {
+      "default": null,
+      "description": "Project file to open at start.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "waitTimeoutMs": {
+      "default": 60000,
+      "description": "Handshake wait budget (ms).",
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "type": "object"
+}

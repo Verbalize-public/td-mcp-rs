@@ -1,0 +1,40 @@
+{
+  "$defs": {
+    "Strategy": {
+      "description": "Install strategy.",
+      "oneOf": [
+        {
+          "const": "ensure",
+          "description": "Rewrite only when payloads differ from embedded sources.",
+          "type": "string"
+        },
+        {
+          "const": "force",
+          "description": "Always rewrite.",
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "additionalProperties": false,
+  "description": "Args for `project_install_bridge`.",
+  "properties": {
+    "backup": {
+      "default": true,
+      "description": "Write `<name>.<ts>.bak` next to the target before replacing.",
+      "type": "boolean"
+    },
+    "strategy": {
+      "$ref": "#/$defs/Strategy",
+      "description": "`ensure` skips when payloads already match; `force` always rewrites."
+    },
+    "targetPath": {
+      "description": "Packed project to modify.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "targetPath"
+  ],
+  "type": "object"
+}

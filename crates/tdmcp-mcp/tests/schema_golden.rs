@@ -41,59 +41,15 @@ fn assert_schema_matches(tool: &str) {
     );
 }
 
+/// Every tool in `ToolName::ALL` must have a golden fixture. Looping the enum
+/// (rather than one hand-written test per tool) is what keeps a newly added
+/// tool from shipping unguarded -- `project_lint` had a fixture with no test,
+/// and `spawn_td` / `kill_td` / `project_install_bridge` had neither.
 #[test]
-fn fleet_schema_matches_golden() {
-    assert_schema_matches("fleet");
-}
-
-#[test]
-fn execute_python_schema_matches_golden() {
-    assert_schema_matches("execute_python");
-}
-
-#[test]
-fn capture_schema_matches_golden() {
-    assert_schema_matches("capture");
-}
-
-#[test]
-fn inspect_schema_matches_golden() {
-    assert_schema_matches("inspect");
-}
-
-#[test]
-fn mutate_nodes_schema_matches_golden() {
-    assert_schema_matches("mutate_nodes");
-}
-
-#[test]
-fn api_help_schema_matches_golden() {
-    assert_schema_matches("api_help");
-}
-
-#[test]
-fn editor_context_schema_matches_golden() {
-    assert_schema_matches("editor_context");
-}
-
-#[test]
-fn td_installs_schema_matches_golden() {
-    assert_schema_matches("td_installs");
-}
-
-#[test]
-fn project_unpack_schema_matches_golden() {
-    assert_schema_matches("project_unpack");
-}
-
-#[test]
-fn project_pack_schema_matches_golden() {
-    assert_schema_matches("project_pack");
-}
-
-#[test]
-fn dialogs_schema_matches_golden() {
-    assert_schema_matches("dialogs");
+fn every_tool_schema_matches_golden() {
+    for tool in ToolName::ALL {
+        assert_schema_matches(tool.wire_str());
+    }
 }
 
 #[test]

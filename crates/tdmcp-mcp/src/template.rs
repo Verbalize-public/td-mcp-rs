@@ -578,6 +578,16 @@ primer/cook-and-families:
             if source.contains("mcp skill") {
                 problems.push(format!("{path}: vague \"mcp skill\" phrase"));
             }
+            // One skeleton: every card ends with `## Related` + a canonical
+            // line. The umbrella routes and needs neither.
+            if !path.ends_with("SKILL.jinja.md") {
+                if !source.contains("## Related") {
+                    problems.push(format!("{path}: missing `## Related` section"));
+                }
+                if !source.contains("**Canonical:**") {
+                    problems.push(format!("{path}: missing `**Canonical:**` line"));
+                }
+            }
             // Every referenced id must resolve.
             for captures in ["skill(", "skill_read("] {
                 let mut rest = source.as_str();
@@ -598,6 +608,52 @@ primer/cook-and-families:
             problems.is_empty(),
             "template cross-reference problems:\n{}",
             problems.join("\n")
+        );
+    }
+
+    /// Every card must be reachable from the `operate` umbrella by following
+    /// `skill()` / `skill_read()` references. A card in the MANIFEST that
+    /// nothing links to is served by `resources/list` but invisible in
+    /// filesystem-export mode, where `SKILL.md` is the only entry point --
+    /// which is exactly how `project-io` / `lifecycle` / `popups` shipped
+    /// orphaned.
+    #[test]
+    fn every_card_is_reachable_from_the_umbrella() {
+        let cat = Catalog::from_manifest_yaml(crate::MANIFEST_YAML).expect("manifest");
+        let mut templates = HashMap::new();
+        collect_templates(&crate::TEMPLATES, &mut templates);
+
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut queue = vec!["operate".to_string()];
+        while let Some(id) = queue.pop() {
+            if !seen.insert(id.clone()) {
+                continue;
+            }
+            let Some(entry) = cat.get(&id) else { continue };
+            let Some(source) = templates.get(&entry.template_path) else {
+                continue;
+            };
+            for captures in ["skill(", "skill_read("] {
+                let mut rest = source.as_str();
+                while let Some(idx) = rest.find(captures) {
+                    let after = &rest[idx + captures.len()..];
+                    let Some(open) = after.find('"') else { break };
+                    let inner = &after[open + 1..];
+                    let Some(close) = inner.find('"') else { break };
+                    queue.push(inner[..close].to_string());
+                    rest = &inner[close..];
+                }
+            }
+        }
+
+        let orphans: Vec<&str> = cat
+            .iter()
+            .map(|e| e.id.as_str())
+            .filter(|id| !seen.contains(*id))
+            .collect();
+        assert!(
+            orphans.is_empty(),
+            "cards unreachable from the `operate` umbrella              (add a routing row or a cross-link): {orphans:?}"
         );
     }
 }
