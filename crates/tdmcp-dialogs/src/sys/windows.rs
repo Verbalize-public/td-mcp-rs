@@ -229,7 +229,10 @@ pub fn is_hung(id: &str, budget_ms: u32) -> bool {
     let mut result = 0usize;
     // SAFETY: benign WM_NULL ping with SMTO_ABORTIFHUNG - cannot hang ourselves.
     unsafe {
-        let r = SendMessageTimeoutW(
+        // Only a failed/timed-out CALL means hung. WM_NULL's processing result
+        // written into `result` is 0 even on success, so `result` must not
+        // participate in the decision.
+        let call = SendMessageTimeoutW(
             hwnd,
             WM_NULL,
             WPARAM(0),
@@ -238,7 +241,7 @@ pub fn is_hung(id: &str, budget_ms: u32) -> bool {
             budget_ms,
             Some(&mut result),
         );
-        r.0 == 0 || result == 0
+        call.0 == 0
     }
 }
 
