@@ -168,18 +168,23 @@ pub fn run(args: Value) -> Result<Value, CodedError> {
     let expand_result = tdmcp_projectio::ops::expand(&source, &tools, &runner);
     match expand_result {
         Ok(outcome) => {
-            if dest_dir != outcome.dir {
+            // Default destination IS what toeexpand wrote — keep canonical
+            // layout (`<name>.toe.toc`). Custom destDir gets both files moved.
+            let (final_dir, final_toc) = if dest_dir == outcome.dir {
+                (outcome.dir.clone(), outcome.toc.clone())
+            } else {
                 std::fs::rename(&outcome.dir, &dest_dir)
                     .and_then(|_| std::fs::rename(&outcome.toc, &dest_toc))
                     .map_err(|e| CodedError {
                         message: format!("publish rename failed: {e}"),
                         code: "project.io_failed",
                     })?;
-            }
+                (dest_dir.clone(), dest_toc.clone())
+            };
             Ok(json!({
                 "ok": true,
-                "expandDir": dest_dir.to_string_lossy(),
-                "tocPath": dest_toc.to_string_lossy(),
+                "expandDir": final_dir.to_string_lossy(),
+                "tocPath": final_toc.to_string_lossy(),
                 "entries": outcome.entries,
                 "exitCode": outcome.exit_code,
                 "warnings": if outcome.exit_code == 0 {
