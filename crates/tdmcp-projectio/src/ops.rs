@@ -64,7 +64,7 @@ pub fn expand(
     // Filesystem-evidence gate (exit code ignored by design).
     let entries = match toc::parse(&toc_path) {
         Ok(entries) => entries,
-        Err(ProjectIoError::Fs { path, .. }) => {
+        Err(ProjectIoError::Fs { path: _, .. }) => {
             // No toc at all == the canonical failure shape.
             cleanup_partials(packed);
             tracing::warn!(exit = output.code, stderr = %output.stderr, "toeexpand wrote no toc - cleaned partials");
@@ -175,7 +175,7 @@ mod tests {
 
     /// Effect mimicking toeexpand: materialize .dir content + strict-LF .toc
     /// beside the input — including the observed exit-1-on-success behavior.
-    fn expand_effect(entries: &'static str) -> Box<dyn FnOnce(&Path, &[String]) + Send> {
+    fn expand_effect(entries: &'static str) -> crate::runner::RunnerEffect {
         Box::new(move |_program, args| {
             let packed = PathBuf::from(&args[0]);
             let dir = sibling_with_ext(&packed, ".dir");

@@ -5,6 +5,9 @@
 //! runner only reports what happened.
 
 use std::path::{Path, PathBuf};
+
+/// Scripted side-effect: materialize artifacts a real tool would have written.
+pub type RunnerEffect = Box<dyn FnOnce(&Path, &[String]) + Send>;
 use std::process::Command;
 
 /// What a tool invocation produced.
@@ -47,7 +50,7 @@ impl CommandRunner for ProcessRunner {
 /// evidence gates can be exercised without real tools).
 pub struct FakeOfficialRunner {
     scripted: std::sync::Mutex<Vec<Result<CommandOutput, std::io::Error>>>,
-    effects: std::sync::Mutex<Vec<Option<Box<dyn FnOnce(&Path, &[String]) + Send>>>>,
+    effects: std::sync::Mutex<Vec<Option<RunnerEffect>>>,
     /// Every (program,args) request, in order — assertions read this afterwards.
     pub calls: std::sync::Mutex<Vec<(PathBuf, Vec<String>)>>,
 }
@@ -72,9 +75,7 @@ impl FakeOfficialRunner {
         self.calls.lock().unwrap_or_else(|p| p.into_inner())
     }
 
-    fn effects_mut(
-        &self,
-    ) -> std::sync::MutexGuard<'_, Vec<Option<Box<dyn FnOnce(&Path, &[String]) + Send>>>> {
+    fn effects_mut(&self) -> std::sync::MutexGuard<'_, Vec<Option<RunnerEffect>>> {
         self.effects.lock().unwrap_or_else(|p| p.into_inner())
     }
 
@@ -91,12 +92,7 @@ impl FakeOfficialRunner {
     /// Queue one successful output that first runs `effect` — lets tests
     /// materialize the artifacts a real tool would have written so the
     /// filesystem-evidence gates are exercised end-to-end.
-    pub fn push_ok_with_effect(
-        &self,
-        code: i32,
-        stderr: &str,
-        effect: Box<dyn FnOnce(&Path, &[String]) + Send>,
-    ) -> &Self {
+    pub fn push_ok_with_effect(&self, code: i32, stderr: &str, effect: RunnerEffect) -> &Self {
         self.queue().push(Ok(CommandOutput {
             code,
             stdout: String::new(),
@@ -121,7 +117,7 @@ impl FakeOfficialRunner {
         }
     }
 
-    fn next_effect(&self) -> Option<Option<Box<dyn FnOnce(&Path, &[String]) + Send>>> {
+    fn next_effect(&self) -> Option<Option<RunnerEffect>> {
         let mut e = self.effects_mut();
         if e.is_empty() {
             None
