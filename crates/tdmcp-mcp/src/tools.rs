@@ -863,6 +863,12 @@ async fn dispatch_tool_inner(
                 .map_err(|e| coded_failure(catalog, tool, e.0, "pid", e.1))
         }
         ToolName::SpawnTd => {
+            // All-optional args: absent arrives as null.
+            let args = if args.is_null() {
+                serde_json::json!({})
+            } else {
+                args
+            };
             let params: crate::lifecycle::SpawnTdParams = parse_args(catalog, tool, args.clone())?;
             let cfg = tdmcp_config::load(&tdmcp_config::default_config_path()).map_err(|e| {
                 coded_failure(
