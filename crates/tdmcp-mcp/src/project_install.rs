@@ -15,10 +15,9 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+use tdmcp_projectio::ops;
 use tdmcp_projectio::resolve::OfficialTools;
 use tdmcp_projectio::runner::ProcessRunner;
-use tdmcp_projectio::ops;
-
 
 /// Embedded source per DAT (the exec DAT mirrors callbacks).
 const SOURCES: [(&str, &str); 3] = [
@@ -81,7 +80,6 @@ fn find_subtree(dir: &Path) -> Option<PathBuf> {
     }
     None
 }
-
 
 /// Execute an install. Returns the wire payload.
 pub fn run(
