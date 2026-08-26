@@ -21,6 +21,7 @@ pub mod ops;
 pub mod resolve;
 pub mod runner;
 pub mod sniff;
+pub mod sidecar;
 pub mod stage;
 pub mod toc;
 
