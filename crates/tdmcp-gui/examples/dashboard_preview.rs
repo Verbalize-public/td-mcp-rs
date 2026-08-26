@@ -6,7 +6,9 @@
 //! ```
 //!
 //! Scenes: overview-empty · overview-populated · overview-offline ·
-//! modal-add-slave · stop-confirm · logs-filtered · settings-dirty.
+//! overview-narrow (800px min width) · overview-many (roster cap) ·
+//! modal-add-slave · stop-confirm · logs-filtered · settings-dirty ·
+//! popup · popup-stop-confirm (tray glance card at its real size).
 
 fn main() {
     let scene = std::env::var("TDMCP_PREVIEW_SCENE").unwrap_or_else(|_| "overview-populated".to_owned());

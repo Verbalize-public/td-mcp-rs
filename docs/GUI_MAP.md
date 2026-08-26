@@ -19,8 +19,10 @@ Two surfaces in one process:
   slave self-view), MCP CLIENTS card, ACTIVITY/errors card, federation
   modals on top.
 - **Tray popup** (`src/popup.rs`, frameless glance card): launcher +
-  compact summary — `⛶` dashboard / `⚙` settings / Locate .tox, ATTENTION
-  strip, TOUCHDESIGNER mini list, MCP client names. Read-only by design.
+  compact summary — `⛶` dashboard / `⚙` settings, ATTENTION strip,
+  TOUCHDESIGNER mini list, MCP client names, plus a pinned **action footer**
+  (Stop / Restart / Reveal .tox) since pass 10. The body stays read-only; the
+  footer is the one mutation surface.
 - Stack: `eframe`/`egui 0.35` + `tray-icon` + `notify-rust` + `reqwest`
   (blocking calls with 2 s/3 s timeouts over throwaway current-thread tokio
   runtimes).
@@ -39,13 +41,13 @@ Two surfaces in one process:
 | `crates/tdmcp-gui/src/lib.rs` | entry point: `run()`, module map; public surface is exactly `run` + `toast` |
 | `crates/tdmcp-gui/src/app.rs` | `DashboardApp` state/logic core: poll loop, fleet-snapshot diffing, settings save/dirty, snackbars, eframe App tick |
 | `crates/tdmcp-gui/src/tray.rs` | tray icon assets/build/click routing, popup positioning near tray |
-| `crates/tdmcp-gui/src/popup.rs` | glance card (header + summary) |
+| `crates/tdmcp-gui/src/popup.rs` | glance card (header + summary + action footer) |
 | `crates/tdmcp-gui/src/wire.rs` | admin-API DTOs + display mappers (level colors/letters, id tails, clip) |
 | `crates/tdmcp-gui/src/http.rs` | blocking HTTP helpers (bounded timeouts), LAN subnet scan, local-IP helpers |
 | `crates/tdmcp-gui/src/platform.rs` | OS toasts, file-manager reveal |
 | `crates/tdmcp-gui/src/federation.rs` | add-slave one-click pipeline, per-slave settings, Go-standalone, scan results UI |
-| `crates/tdmcp-gui/src/theme.rs` + `theme/widgets.rs` | Ableton-dark tokens/fonts/visuals + widget kit (`badge`, `banner`, `segmented`, `empty_state`, LEDs w/ pulse, buttons, cards, chips) |
-| `crates/tdmcp-gui/src/dashboard.rs` + `dashboard/{nav,overview,fleet,logs,settings,widgets}.rs` | dashboard shell (sidebar/topbar/router/snackbars) + pages + shared painted pieces (`stat_card`, `fleet_row`, `card_with_header`) |
+| `crates/tdmcp-gui/src/theme.rs` + `theme/widgets.rs` | Ableton-dark tokens/fonts/visuals + widget kit (`badge`, `banner`, `segmented`, `empty_state`, LEDs w/ pulse, `filled_button`/`action_button`/`ghost_button`, cards, chips) |
+| `crates/tdmcp-gui/src/dashboard.rs` + `dashboard/{nav,overview,fleet,logs,settings,widgets}.rs` | dashboard shell (sidebar/topbar/router/snackbars) + pages + shared painted pieces (`stat_card`, `fleet_row`, `card_with_header`, `daemon_actions`, `capped_rows`) |
 | `crates/tdmcp-gui/src/preview.rs` + `examples/dashboard_preview.rs` | fixture harness for pixel verification (`--features preview`; scenes listed in the plan doc) |
 | `crates/tdmcp-gui/assets/icon-normal.png` / `icon-attention.png` | tray icons |
 
@@ -130,10 +132,15 @@ Wire DTOs (camelCase serde): `StatusView`, `SessionsView`/`SessionRow`,
 
 All views share the top header; body switches on `View`.
 
-### Header (`draw_header`, L1034)
+### Dashboard top bar (`dashboard.rs`)
+Page title left; right (RTL) health LED · `up <t> · v<ver>` meta (tooltip:
+pid + bind) · **daemon actions** (`widgets::daemon_actions`) — Stop / Restart /
+Reveal .tox as bordered `action_button`s. Present on every tab.
+
+### Popup header (`draw_header`)
 Orange LED · "td-mcp-rs · master|slave" · version (tooltip: pid + bind).
-Right-anchored ghost buttons: `■` Stop, `↻` Restart, `.tox` reveal,
-`⚙` Settings, `≡` Logs toggle.
+Right-anchored ghost buttons: `⛶` dashboard, `⚙` Settings. Lifecycle actions
+are in the popup footer, not here.
 
 ### Fleet (default view)
 - Error strip + share banner (`draw_share_banner`).
@@ -290,6 +297,29 @@ per-OS `reveal_in_file_manager` (explorer/open/xdg-open),
    sharing; snackbars acknowledge async actions; HTTP clients got bounded
    timeouts (fixes multi-second UI freezes on dead hosts); dev-only
    `preview` harness renders fixture scenes for pixel verification.
+
+10. ✅ Pass 10 — daemon actions promoted, rosters demoted. Stop/Restart were
+    `ghost_button`s inside the Overview `daemon_card`, so they vanished on the
+    Logs and Settings tabs and carried the faintest styling in the kit. They now
+    live in the **dashboard top bar**, rendered from one shared
+    `dashboard::widgets::daemon_actions` that the **tray popup footer** also
+    calls — which **reverses the pass-8 read-only lock** above at the user's
+    explicit request: the popup body stays a read-only glance, but its footer
+    carries Stop / Restart / Reveal .tox. Stop keeps the two-step confirm in
+    both surfaces (the popup hides on focus loss; a one-click exit there would
+    be too easy to trigger by accident). New `theme::action_button` +
+    `ActionTone {Neutral, Accent, Danger}` fills the gap between `filled_button`
+    and `ghost_button`. The Overview DAEMON card is identity-only, which also
+    deleted a **duplicate `Reveal .tox`** that rendered twice whenever the
+    daemon was online. Fleet/MCP rosters cap at `widgets::ROSTER_CAP` (4) rows
+    with a dim `+N more` line. Two layout fixes found by the preview harness:
+    the top-bar meta dropped `pid`/`bind` into the LED tooltip (three buttons
+    overflowed the 800px minimum width otherwise), and the popup's scroll area
+    now sizes from `ui.available_height() - FOOTER_H` instead of a
+    `WINDOW_MAX_HEIGHT`-derived cap — with `auto_shrink(false)` the old cap made
+    the area fill and pushed the new footer off-screen. Popup default height
+    260 → 304. Preview harness gained `popup`, `popup-stop-confirm`,
+    `overview-narrow` (800px) and `overview-many` (7 procs) scenes.
 
 ## 8. Remaining open items
 

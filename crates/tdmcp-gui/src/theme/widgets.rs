@@ -7,8 +7,8 @@
 use eframe::egui::{self, Color32, CornerRadius, Stroke};
 
 use super::{
-    font_label, font_meta, ACCENT_BG, BG_CARD, BG_HOVER, BORDER, CARD_PAD, ERR, LED_SIZE,
-    RADIUS_MD, RADIUS_SM, TEXT, TEXT_DIM, WARN, sp,
+    font_label, font_meta, sp, ACCENT_BG, BG_CARD, BG_HOVER, BORDER, CARD_PAD, ERR, LED_SIZE,
+    RADIUS_MD, RADIUS_SM, TEXT, TEXT_DIM, WARN,
 };
 
 /// Paint a 6px status LED (Ableton-style colored dot).
@@ -87,6 +87,68 @@ pub fn filled_button(ui: &mut egui::Ui, label: &str) -> egui::Response {
     response
 }
 
+/// Tone of an [`action_button`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ActionTone {
+    /// Ordinary action (Reveal, Cancel).
+    Neutral,
+    /// Primary-ish action (Restart).
+    Accent,
+    /// Destructive action (Stop, Confirm).
+    Danger,
+}
+
+impl ActionTone {
+    /// `(text, hover fill)` for this tone.
+    fn colors(self) -> (Color32, Color32) {
+        match self {
+            ActionTone::Neutral => (super::TEXT, BG_HOVER),
+            ActionTone::Accent => (super::ACCENT, super::ACCENT_BG),
+            ActionTone::Danger => (super::ERR, super::ERR_BG),
+        }
+    }
+}
+
+/// Bordered, tone-colored button — the middle weight between [`filled_button`]
+/// (one solid accent per screen) and [`ghost_button`] (borderless tertiary).
+///
+/// Used for repeated primary actions that must stay findable, i.e. the daemon
+/// lifecycle row in the dashboard top bar and the tray popup footer.
+pub fn action_button(ui: &mut egui::Ui, label: &str, tone: ActionTone) -> egui::Response {
+    let (text_color, hover_fill) = tone.colors();
+    let galley = ui
+        .painter()
+        .layout_no_wrap(label.to_owned(), font_label(), text_color);
+    let pad = egui::vec2(10.0, 3.0);
+    let size = egui::vec2(galley.size().x + pad.x * 2.0, 22.0);
+    let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+
+    let active = response.hovered() || response.is_pointer_button_down_on();
+    let fill = if active { hover_fill } else { super::BG_CARD };
+    let stroke = if active {
+        text_color
+    } else {
+        super::BORDER_STRONG
+    };
+
+    ui.painter().rect_filled(rect, RADIUS_SM, fill);
+    ui.painter().rect_stroke(
+        rect,
+        egui::CornerRadius::same(RADIUS_SM as u8),
+        egui::Stroke::new(1.0, stroke),
+        egui::StrokeKind::Inside,
+    );
+    ui.painter().galley(
+        egui::pos2(
+            rect.center().x - galley.size().x * 0.5,
+            rect.center().y - galley.size().y * 0.5,
+        ),
+        galley,
+        text_color,
+    );
+    response
+}
+
 /// Ghost (borderless) text/icon button — transparent at rest, hover fill only.
 ///
 /// * `rest` — text color at rest
@@ -102,7 +164,11 @@ pub fn ghost_button(ui: &mut egui::Ui, label: &str, rest: Color32, hot: Color32)
     let hovered = response.hovered();
     let pressed = response.is_pointer_button_down_on();
     let active = hovered || pressed;
-    let fill = if active { BG_HOVER } else { Color32::TRANSPARENT };
+    let fill = if active {
+        BG_HOVER
+    } else {
+        Color32::TRANSPARENT
+    };
     let text_color = if active { hot } else { rest };
 
     ui.painter().rect_filled(rect, RADIUS_SM, fill);
@@ -220,7 +286,9 @@ impl BadgeKind {
 /// Small info/count pill (painted rect + text — no glyph dependency).
 pub fn badge(ui: &mut egui::Ui, text: &str, kind: BadgeKind) -> egui::Response {
     let (bg, fg) = kind.colors();
-    let galley = ui.painter().layout_no_wrap(text.to_owned(), font_meta(), fg);
+    let galley = ui
+        .painter()
+        .layout_no_wrap(text.to_owned(), font_meta(), fg);
     let h = 16.0;
     let size = egui::vec2(galley.size().x + 12.0, h);
     let (rect, response) = ui.allocate_exact_size(size, egui::Sense::hover());
@@ -322,12 +390,7 @@ pub enum BannerTone {
 /// Guidance block for empty sections: quiet ring glyph, title, subtitle and
 /// an optional single CTA. Returns true when the CTA was clicked.
 #[must_use]
-pub fn empty_state(
-    ui: &mut egui::Ui,
-    title: &str,
-    subtitle: &str,
-    cta: Option<&str>,
-) -> bool {
+pub fn empty_state(ui: &mut egui::Ui, title: &str, subtitle: &str, cta: Option<&str>) -> bool {
     let mut clicked = false;
     ui.vertical_centered(|ui| {
         ui.add_space(sp::SM);
@@ -340,7 +403,11 @@ pub fn empty_state(
         );
         ui.add_space(sp::XS);
         ui.label(egui::RichText::new(title).font(font_label()).color(TEXT));
-        ui.label(egui::RichText::new(subtitle).font(font_meta()).color(TEXT_DIM));
+        ui.label(
+            egui::RichText::new(subtitle)
+                .font(font_meta())
+                .color(TEXT_DIM),
+        );
         if let Some(cta) = cta {
             ui.add_space(sp::XS);
             if ghost_button(ui, cta, TEXT_DIM, super::ACCENT).clicked() {

@@ -100,17 +100,25 @@ pub fn render(app: &mut DashboardApp, ui: &mut egui::Ui) {
                 .inner_margin(egui::Margin::symmetric(GUTTER as i8, 0)),
         )
         .show(ui, |ui| {
-            // Left: page title. Right (RTL): health LED + identity meta.
+            // Left: page title. Right (RTL, first-added lands rightmost):
+            // health LED → identity meta → daemon lifecycle actions.
             let attention = app.attention;
+            // Trimmed to `up <t> · v<ver>`: the three action buttons need the
+            // width, and at the 800px minimum the old pid+bind form overflowed.
+            // pid / bind live in the LED tooltip below instead.
             let meta = match app.status.as_ref() {
                 Some(s) => {
                     let up = widgets::format_uptime(s.uptime_secs);
                     if up.is_empty() {
-                        format!("pid {} · {} · v{}", s.pid, s.bind_address, s.version)
+                        format!("v{}", s.version)
                     } else {
-                        format!("pid {} · {} · up {} · v{}", s.pid, s.bind_address, up, s.version)
+                        format!("up {} · v{}", up, s.version)
                     }
                 }
+                None => "daemon unreachable".to_owned(),
+            };
+            let led_tip = match app.status.as_ref() {
+                Some(s) => format!("pid {} · {}", s.pid, s.bind_address),
                 None => "daemon unreachable".to_owned(),
             };
             let led_color = if app.error.is_some() || app.status.is_none() {
@@ -128,12 +136,17 @@ pub fn render(app: &mut DashboardApp, ui: &mut egui::Ui) {
                 );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     status_led_pulse(ui, led_color, attention && app.error.is_none());
+                    // `status_led_pulse` paints directly and returns nothing, so
+                    // hang the tooltip on an explicitly allocated hover strip.
                     ui.add_space(crate::theme::sp::XS);
                     ui.label(
                         egui::RichText::new(meta)
                             .font(font_mono())
                             .color(crate::theme::TEXT_FAINT),
-                    );
+                    )
+                    .on_hover_text(led_tip);
+                    ui.add_space(crate::theme::sp::MD);
+                    widgets::daemon_actions(app, ui);
                 });
             });
         });
@@ -181,8 +194,7 @@ fn draw_snacks(app: &mut DashboardApp, ui: &mut egui::Ui) {
                     .painter()
                     .layout_no_wrap(s.msg.clone(), font_mono(), text_color);
                 let size = egui::vec2(galley.size().x + 30.0, 26.0);
-                let (rect, _) =
-                    ui.allocate_exact_size(size, egui::Sense::hover());
+                let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
                 ui.painter()
                     .rect_filled(rect, egui::CornerRadius::same(6), crate::theme::BG_CARD);
                 ui.painter().rect_stroke(
@@ -191,13 +203,13 @@ fn draw_snacks(app: &mut DashboardApp, ui: &mut egui::Ui) {
                     egui::Stroke::new(1.0, BORDER),
                     egui::StrokeKind::Inside,
                 );
-                ui.painter()
-                    .circle_filled(egui::pos2(rect.left() + 12.0, rect.center().y), 3.0, dot);
+                ui.painter().circle_filled(
+                    egui::pos2(rect.left() + 12.0, rect.center().y),
+                    3.0,
+                    dot,
+                );
                 ui.painter().galley(
-                    egui::pos2(
-                        rect.left() + 22.0,
-                        rect.center().y - galley.size().y * 0.5,
-                    ),
+                    egui::pos2(rect.left() + 22.0, rect.center().y - galley.size().y * 0.5),
                     galley,
                     text_color,
                 );

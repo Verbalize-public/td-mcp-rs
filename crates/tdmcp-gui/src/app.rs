@@ -826,8 +826,7 @@ impl DashboardApp {
     }
 
     pub(crate) fn reveal_tox(&self) {
-        if let Err(e) =
-            reveal_in_file_manager(&self.data_dir.join("bootstrap.tox"), &self.data_dir)
+        if let Err(e) = reveal_in_file_manager(&self.data_dir.join("bootstrap.tox"), &self.data_dir)
         {
             warn!(error = %e, "reveal bootstrap.tox failed");
         }
@@ -918,13 +917,19 @@ impl eframe::App for DashboardApp {
             )
             .show(ui, |ui| {
                 self.draw_header(ui);
+                // Footer is pinned chrome: reserve its height out of the
+                // scroll budget and render it after, never inside.
                 eframe::egui::ScrollArea::vertical()
                     .auto_shrink(false)
-                    .max_height(crate::theme::WINDOW_MAX_HEIGHT - crate::popup::HEADER_H - crate::theme::sp::LG)
+                    // Actual remaining space, not a WINDOW_MAX_HEIGHT-derived
+                    // cap: with auto_shrink(false) the area fills max_height,
+                    // which pushed the footer off-screen in short windows.
+                    .max_height((ui.available_height() - crate::popup::FOOTER_H).max(0.0))
                     .show(ui, |ui| {
                         ui.add_space(crate::theme::sp::SM);
                         self.draw_summary(ui);
                     });
+                self.draw_action_footer(ui);
             });
     }
 }

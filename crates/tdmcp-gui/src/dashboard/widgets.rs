@@ -5,13 +5,98 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use eframe::egui::{self, Color32};
 
-use crate::theme::{
-    font_label, font_meta, font_mono, font_stat, row_between, status_led, BG_CARD, BG_HOVER,
-    BORDER, CARD_PAD, OK, RADIUS_MD, RADIUS_SM, ROW_H, SIDE_MARGIN, TEXT, TEXT_DIM, TEXT_FAINT,
-    WARN,
-};
+use crate::app::DashboardApp;
 use crate::theme::sp;
+use crate::theme::{
+    action_button, font_label, font_meta, font_mono, font_stat, row_between, status_led,
+    ActionTone, BG_CARD, BG_HOVER, BORDER, CARD_PAD, OK, RADIUS_MD, RADIUS_SM, ROW_H, SIDE_MARGIN,
+    TEXT, TEXT_DIM, TEXT_FAINT, WARN,
+};
 use crate::wire::{id_tail, FleetProc, SessionRow};
+
+/// Daemon lifecycle actions — the one definition, rendered by both the
+/// dashboard top bar and the tray popup footer.
+///
+/// Laid out for an RTL parent (`row_between`'s right slot / a right-to-left
+/// child), so the first button added lands rightmost. Semantics match the
+/// pre-pass-10 Overview card exactly:
+///
+/// * `Reveal .tox` is always offered, including while the daemon is unreachable.
+/// * Stop / Restart are **omitted** when offline rather than shown dead.
+/// * Stop is two-step: it swaps itself for a Confirm / Cancel pair.
+pub(crate) fn daemon_actions(app: &mut DashboardApp, ui: &mut egui::Ui) {
+    if app.status.is_none() {
+        if action_button(ui, "Reveal .tox", ActionTone::Neutral).clicked() {
+            app.reveal_tox();
+        }
+        return;
+    }
+
+    if app.confirm_stop {
+        if action_button(ui, "Cancel", ActionTone::Neutral).clicked() {
+            app.confirm_stop = false;
+        }
+        ui.add_space(sp::XS);
+        if action_button(ui, "Confirm stop", ActionTone::Danger).clicked() {
+            app.shutdown_daemon();
+        }
+        return;
+    }
+
+    if action_button(ui, "Stop", ActionTone::Danger)
+        .on_hover_text("Shut the daemon down (real exit)")
+        .clicked()
+    {
+        app.confirm_stop = true;
+    }
+    ui.add_space(sp::XS);
+    if action_button(ui, "Restart", ActionTone::Accent)
+        .on_hover_text("Restart the daemon process")
+        .clicked()
+    {
+        app.restart_daemon();
+    }
+    ui.add_space(sp::XS);
+    if action_button(ui, "Reveal .tox", ActionTone::Neutral)
+        .on_hover_text("Show the bootstrap .tox in the file manager")
+        .clicked()
+    {
+        app.reveal_tox();
+    }
+}
+
+/// Overview roster cap — long fleets/client lists are reference detail, not the
+/// point of the page (pass 10). Same shape as the tray popup's own caps.
+pub(crate) const ROSTER_CAP: usize = 4;
+
+/// Render at most [`ROSTER_CAP`] rows, then a dim `+N more` line.
+///
+/// The overflow line is deliberately a plain label, not a button: the full list
+/// is already one scroll away in the same card once the fleet grows, and an
+/// extra click target here would compete with the actions this pass promotes.
+pub(crate) fn capped_rows<T>(
+    ui: &mut egui::Ui,
+    items: &[T],
+    mut row: impl FnMut(&mut egui::Ui, &T),
+) {
+    for item in items.iter().take(ROSTER_CAP) {
+        row(ui, item);
+    }
+    let hidden = items.len().saturating_sub(ROSTER_CAP);
+    if hidden > 0 {
+        let (rect, _) = ui.allocate_exact_size(
+            egui::vec2(ui.available_width(), ROW_H),
+            egui::Sense::hover(),
+        );
+        ui.painter().text(
+            egui::pos2(rect.left() + SIDE_MARGIN, rect.center().y),
+            egui::Align2::LEFT_CENTER,
+            format!("+{hidden} more"),
+            font_meta(),
+            TEXT_FAINT,
+        );
+    }
+}
 
 /// Quiet section caption — dim meta text, no strip, no rule.
 pub(crate) fn section_caption(ui: &mut egui::Ui, title: &str) {
@@ -74,8 +159,7 @@ pub(crate) fn card_with_header(
 /// Hover-only highlight; hover carries a summary tooltip.
 pub(crate) fn fleet_row(ui: &mut egui::Ui, p: &FleetProc) {
     let bridge = p.bridge.as_str().unwrap_or("?");
-    let attention_row =
-        p.resurrected || !p.cancelled_tasks.is_empty() || bridge == "disconnected";
+    let attention_row = p.resurrected || !p.cancelled_tasks.is_empty() || bridge == "disconnected";
     let led = if attention_row {
         WARN
     } else if bridge == "connected" {
@@ -145,11 +229,7 @@ pub(crate) fn fleet_row(ui: &mut egui::Ui, p: &FleetProc) {
         p.pid,
         p.tasks.as_ref().map(|t| t.len()).unwrap_or(0),
         p.cancelled_tasks.len(),
-        if p.resurrected {
-            " · resurrected"
-        } else {
-            ""
-        }
+        if p.resurrected { " · resurrected" } else { "" }
     ));
 }
 

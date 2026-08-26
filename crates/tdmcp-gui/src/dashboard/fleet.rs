@@ -4,11 +4,10 @@
 
 use eframe::egui;
 
-use super::widgets::{card_with_header, fleet_row, mcp_row};
+use super::widgets::{capped_rows, card_with_header, fleet_row, mcp_row};
 use crate::app::{DashboardApp, FleetPanel};
 use crate::theme::{
-    badge, empty_state, font_label, ghost_button, ACCENT, TEXT, TEXT_DIM, TEXT_FAINT,
-    BadgeKind,
+    badge, empty_state, font_label, ghost_button, BadgeKind, ACCENT, TEXT, TEXT_DIM, TEXT_FAINT,
 };
 use crate::wire::{id_tail, parse_slaves, FleetView, SlaveSettingsTarget};
 
@@ -34,9 +33,7 @@ impl DashboardApp {
                         .color(TEXT_DIM),
                     );
                 } else {
-                    for s in &sessions {
-                        mcp_row(ui, s);
-                    }
+                    capped_rows(ui, &sessions, mcp_row);
                 }
             },
         );
@@ -67,7 +64,11 @@ impl DashboardApp {
                     return;
                 }
                 if slaves > 0 {
-                    let _ = badge(ui, &format!("{slaves} slave(s)"), crate::theme::BadgeKind::Neutral);
+                    let _ = badge(
+                        ui,
+                        &format!("{slaves} slave(s)"),
+                        crate::theme::BadgeKind::Neutral,
+                    );
                     ui.add_space(crate::theme::sp::XS);
                 }
                 if ghost_button(ui, "+ Add slave…", TEXT_DIM, ACCENT)
@@ -211,9 +212,7 @@ impl DashboardApp {
                 }
             });
             ui.add_space(2.0);
-            for p in procs.iter() {
-                fleet_row(ui, p);
-            }
+            capped_rows(ui, procs, |ui, p| fleet_row(ui, p));
             ui.add_space(6.0);
         }
         if let Some(target) = pending_settings {
@@ -231,9 +230,7 @@ impl DashboardApp {
             self.draw_empty_fleet(ui);
             return;
         }
-        for p in fleet.processes.iter() {
-            fleet_row(ui, p);
-        }
+        capped_rows(ui, &fleet.processes, fleet_row);
     }
 
     fn draw_empty_fleet(&mut self, ui: &mut egui::Ui) {

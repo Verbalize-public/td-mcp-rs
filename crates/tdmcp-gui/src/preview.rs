@@ -19,10 +19,20 @@ use crate::wire::{LogRecordView, ScanHit, ScanPurpose};
 /// Run one scene in a native window; blocks until closed.
 pub fn run(scene: &str) -> anyhow::Result<()> {
     let app = Box::new(build(scene)?);
+    // `popup-*` scenes render the tray glance card at its real size instead of
+    // the dashboard, so the footer actions can be verified without a daemon.
+    let popup = scene.starts_with("popup");
+    let (title, size) = if popup {
+        ("td-mcp-rs", [crate::theme::WINDOW_WIDTH, 304.0])
+    } else if scene == "overview-narrow" {
+        ("td-mcp-rs — Dashboard", [800.0, 620.0])
+    } else {
+        ("td-mcp-rs — Dashboard", [1040.0, 760.0])
+    };
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_title("td-mcp-rs — Dashboard")
-            .with_inner_size([1040.0, 760.0]),
+            .with_title(title)
+            .with_inner_size(size),
         ..Default::default()
     };
     eframe::run_native(
@@ -30,7 +40,7 @@ pub fn run(scene: &str) -> anyhow::Result<()> {
         options,
         Box::new(move |cc| {
             crate::theme::apply(&cc.egui_ctx);
-            Ok(Box::new(PreviewApp { inner: app }))
+            Ok(Box::new(PreviewApp { inner: app, popup }))
         }),
     )
     .map_err(|e| anyhow::anyhow!("eframe: {e}"))
@@ -38,6 +48,7 @@ pub fn run(scene: &str) -> anyhow::Result<()> {
 
 struct PreviewApp {
     inner: Box<DashboardApp>,
+    popup: bool,
 }
 
 impl eframe::App for PreviewApp {
@@ -45,6 +56,28 @@ impl eframe::App for PreviewApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         ui.ctx()
             .request_repaint_after(std::time::Duration::from_millis(200));
+        if self.popup {
+            let app = self.inner.as_mut();
+            egui::CentralPanel::default()
+                .frame(
+                    egui::Frame::NONE
+                        .fill(crate::theme::BG_WINDOW)
+                        .stroke(egui::Stroke::new(1.0, crate::theme::BORDER))
+                        .inner_margin(0.0),
+                )
+                .show(ui, |ui| {
+                    app.draw_header(ui);
+                    egui::ScrollArea::vertical()
+                        .auto_shrink(false)
+                        .max_height((ui.available_height() - crate::popup::FOOTER_H).max(0.0))
+                        .show(ui, |ui| {
+                            ui.add_space(crate::theme::sp::SM);
+                            app.draw_summary(ui);
+                        });
+                    app.draw_action_footer(ui);
+                });
+            return;
+        }
         crate::dashboard::render(self.inner.as_mut(), ui);
     }
 }
@@ -87,7 +120,8 @@ fn build(scene: &str) -> anyhow::Result<DashboardApp> {
             app.sessions_json = r#"{"sessions":[]}"#.to_owned();
             app.apply_fleet_status();
         }
-        "overview-populated" | "modal-add-slave" | "stop-confirm" => {
+        "overview-populated" | "modal-add-slave" | "stop-confirm" | "popup"
+        | "popup-stop-confirm" | "overview-narrow" | "overview-many" => {
             inject_status(&mut app, "master", 3, 9860);
             app.fleet_json = json!({
                 "processes": [
@@ -101,10 +135,21 @@ fn build(scene: &str) -> anyhow::Result<DashboardApp> {
                 ]
             })
             .to_string();
+            if scene == "overview-many" {
+                let procs: Vec<_> = (0..7)
+                    .map(|i| {
+                        json!({"pid": 13000 + i, "title": format!("tox-{i:02}"),
+                               "bridge": "connected", "tasks": [], "cancelledTasks": []})
+                    })
+                    .collect();
+                app.fleet_json = json!({ "processes": procs }).to_string();
+            }
             app.sessions_json = sessions_fixture();
             app.slaves_json = slaves_fixture();
-            app.error_ring.push("bridge disconnected — pid 12100 lost IPC".to_owned());
-            app.error_ring.push("2 task(s) cancelled on bridge loss".to_owned());
+            app.error_ring
+                .push("bridge disconnected — pid 12100 lost IPC".to_owned());
+            app.error_ring
+                .push("2 task(s) cancelled on bridge loss".to_owned());
             app.crash_count = 1;
             app.apply_fleet_status();
             if scene == "modal-add-slave" {
@@ -115,7 +160,7 @@ fn build(scene: &str) -> anyhow::Result<DashboardApp> {
                 app.scan_results = scan_hits();
                 app.scan_purpose = ScanPurpose::AddSlave;
             }
-            if scene == "stop-confirm" {
+            if scene == "stop-confirm" || scene == "popup-stop-confirm" {
                 app.confirm_stop = true;
             }
         }
@@ -139,7 +184,7 @@ fn build(scene: &str) -> anyhow::Result<DashboardApp> {
             app.needs_restart = true;
         }
         other => anyhow::bail!(
-            "unknown scene `{other}` — expected overview-empty · overview-populated · \
+            "unknown scene `{other}` — expected popup · popup-stop-confirm · overview-narrow · overview-many · overview-empty · overview-populated · \
              overview-offline · modal-add-slave · stop-confirm · logs-filtered · settings-dirty"
         ),
     }
@@ -228,11 +273,36 @@ fn log_records() -> Vec<LogRecordView> {
     let mut v = Vec::new();
     for i in 0..24u64 {
         let (level, src, target, msg) = match i % 6 {
-            0 => ("error", "bridge", "tdmcp_bridge::ipc", "heartbeat pong timeout after 120s"),
-            1 => ("warn", "daemon", "tdmcp_daemon::middleware", "session chill engaged for 250ms"),
-            2 => ("info", "daemon", "tdmcp_daemon", "poll ok · fleet 3 processes"),
-            3 => ("debug", "proxy", "tdmcp_proxy::stdio", "forwarded tools/list"),
-            4 => ("info", "bridge", "tdmcp_bridge", "execute_python ok pid=12045"),
+            0 => (
+                "error",
+                "bridge",
+                "tdmcp_bridge::ipc",
+                "heartbeat pong timeout after 120s",
+            ),
+            1 => (
+                "warn",
+                "daemon",
+                "tdmcp_daemon::middleware",
+                "session chill engaged for 250ms",
+            ),
+            2 => (
+                "info",
+                "daemon",
+                "tdmcp_daemon",
+                "poll ok · fleet 3 processes",
+            ),
+            3 => (
+                "debug",
+                "proxy",
+                "tdmcp_proxy::stdio",
+                "forwarded tools/list",
+            ),
+            4 => (
+                "info",
+                "bridge",
+                "tdmcp_bridge",
+                "execute_python ok pid=12045",
+            ),
             _ => ("trace", "daemon", "tdmcp_daemon::ring", "tick"),
         };
         v.push(LogRecordView {

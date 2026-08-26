@@ -7,11 +7,11 @@ use eframe::egui;
 use super::widgets::{modal_shell, stat_card};
 use crate::app::{DashboardApp, FleetPanel};
 use crate::platform::reveal_in_file_manager;
-use crate::theme::{
-    badge, filled_button, font_label, font_meta, font_mono, ghost_button, row_between, ERR, OK,
-    ROW_H, TEXT, WARN, ACCENT, TEXT_DIM, TEXT_FAINT, BadgeKind,
-};
 use crate::theme::sp;
+use crate::theme::{
+    badge, font_label, font_meta, font_mono, ghost_button, row_between, BadgeKind, ACCENT, ERR, OK,
+    ROW_H, TEXT_DIM, TEXT_FAINT, WARN,
+};
 
 pub(crate) fn overview(app: &mut DashboardApp, ui: &mut egui::Ui) {
     egui::ScrollArea::vertical()
@@ -99,13 +99,17 @@ pub(crate) fn overview(app: &mut DashboardApp, ui: &mut egui::Ui) {
     }
 }
 
-/// Lifecycle strip: identity chips + listening line, actions right
-/// (disabled while the daemon is unreachable).
+/// Identity strip: role/version/bind chips + listening line. Lifecycle actions
+/// live in the dashboard top bar (pass 10), reachable from every tab.
 fn daemon_card(app: &mut DashboardApp, ui: &mut egui::Ui) {
-    let info = app
-        .status
-        .as_ref()
-        .map(|s| (s.role.clone(), s.version.clone(), s.pid, s.bind_address.clone()));
+    let info = app.status.as_ref().map(|s| {
+        (
+            s.role.clone(),
+            s.version.clone(),
+            s.pid,
+            s.bind_address.clone(),
+        )
+    });
     let offline = info.is_none();
     let last_error = app.error.clone();
     let listen_port = crate::http::port_from_base(&app.admin_base);
@@ -119,45 +123,9 @@ fn daemon_card(app: &mut DashboardApp, ui: &mut egui::Ui) {
         ui,
         "DAEMON",
         None,
-        |ui| {
-            // Reveal stays available even while the daemon is unreachable;
-            // Stop/Restart are hidden entirely rather than dead buttons.
-            if ghost_button(ui, "Reveal .tox", TEXT_DIM, ACCENT).clicked() {
-                app.reveal_tox();
-            }
-            if offline {
-                return;
-            }
-            if app.confirm_stop {
-                ui.label(
-                    egui::RichText::new("Stop the daemon?")
-                        .font(font_label())
-                        .color(WARN),
-                );
-                if filled_button(ui, "Confirm").clicked() {
-                    app.shutdown_daemon();
-                }
-                if ghost_button(ui, "Cancel", TEXT_DIM, TEXT).clicked() {
-                    app.confirm_stop = false;
-                }
-                return;
-            }
-            if ghost_button(ui, "Stop", TEXT_DIM, ERR)
-                .on_hover_text("Shut the daemon down (real exit)")
-                .clicked()
-            {
-                app.confirm_stop = true;
-            }
-            if ghost_button(ui, "Restart", TEXT_DIM, ACCENT)
-                .on_hover_text("Restart the daemon process")
-                .clicked()
-            {
-                app.restart_daemon();
-            }
-            if ghost_button(ui, "Reveal .tox", TEXT_DIM, ACCENT).clicked() {
-                app.reveal_tox();
-            }
-        },
+        // Identity only since pass 10 — lifecycle actions live in the top bar,
+        // where they stay reachable from Logs and Settings too.
+        |_ui| {},
         |ui| {
             ui.horizontal(|ui| {
                 let _ = badge(

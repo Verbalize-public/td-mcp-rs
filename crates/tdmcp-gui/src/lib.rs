@@ -59,7 +59,7 @@ pub fn run(
     #[allow(unused_mut)]
     let mut options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([theme::WINDOW_WIDTH, 260.0])
+            .with_inner_size([theme::WINDOW_WIDTH, 304.0])
             .with_min_inner_size([theme::WINDOW_WIDTH, 180.0])
             .with_max_inner_size([theme::WINDOW_WIDTH, theme::WINDOW_MAX_HEIGHT])
             .with_title("td-mcp-rs")

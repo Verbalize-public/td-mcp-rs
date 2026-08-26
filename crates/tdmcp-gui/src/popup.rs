@@ -1,17 +1,19 @@
 //! Tray popup glance card — frameless always-near-tray surface.
 //!
-//! Strictly read-only by design (locked pass-8 decision): its only actions
-//! are navigation (`⛶`/`⚙`), `Locate .tox`, and report links.
+//! The body stays a read-only glance (pass-8): navigation (`⛶`/`⚙`) and report
+//! links only. Pass 10 added a footer carrying the daemon lifecycle actions
+//! (Stop / Restart / Reveal .tox), so the controls a user reaches for most are
+//! one right-click away instead of buried in a dashboard tab.
 
 use eframe::egui;
 
 use crate::app::DashboardApp;
-use crate::dashboard::{self};
 use crate::dashboard::widgets::{fleet_row, section_caption};
+use crate::dashboard::{self};
 use crate::platform::reveal_in_file_manager;
 use crate::theme::{
-    font_meta, font_mono, font_title, ghost_button, status_led, ACCENT, BG_HOVER, BG_PANEL,
-    BORDER, ERR, RADIUS_SM, SIDE_MARGIN, TEXT, TEXT_DIM, TEXT_FAINT, WARN,
+    font_meta, font_mono, font_title, ghost_button, status_led, ACCENT, BG_HOVER, BG_PANEL, BORDER,
+    ERR, RADIUS_SM, SIDE_MARGIN, TEXT, TEXT_DIM, TEXT_FAINT, WARN,
 };
 use crate::wire::{clip_line, FleetView, SessionsView};
 
@@ -19,14 +21,15 @@ use crate::wire::{clip_line, FleetView, SessionsView};
 pub(crate) const HEADER_H: f32 = 34.0;
 /// Width reserved for the header's right-anchored actions (px).
 pub(crate) const HEADER_ACTIONS_W: f32 = 64.0;
+/// Bottom action-footer height (px).
+pub(crate) const FOOTER_H: f32 = 38.0;
 /// Popup glance caps — depth lives in the dashboard, not the tray window.
 const POPUP_ATTENTION_ROWS: usize = 2;
 const POPUP_FLEET_ROWS: usize = 4;
 
 impl DashboardApp {
     /// Top chrome: LED + identity (title · version) left, dashboard/gear right.
-    /// Daemon controls live in the dashboard Overview card — the popup stays a
-    /// glance surface.
+    /// Daemon lifecycle actions sit in the footer ([`Self::draw_action_footer`]).
     pub(crate) fn draw_header(&mut self, ui: &mut egui::Ui) {
         let full = ui.available_width();
         let (rect, _) = ui.allocate_exact_size(egui::vec2(full, HEADER_H), egui::Sense::hover());
@@ -244,13 +247,31 @@ impl DashboardApp {
             });
         }
 
-        ui.horizontal(|ui| {
-            ui.add_space(SIDE_MARGIN);
-            if ghost_button(ui, "Locate .tox", TEXT_DIM, ACCENT).clicked() {
-                self.reveal_tox();
-            }
-        });
         ui.add_space(crate::theme::sp::XS);
+    }
+
+    /// Bottom chrome: daemon lifecycle actions, hairline-separated from the
+    /// glance body so it reads as chrome rather than content.
+    ///
+    /// Rendered by the caller *outside* the scroll area — it is pinned chrome,
+    /// and `draw_summary` returns early on the connecting path where these
+    /// actions are still wanted.
+    ///
+    /// Shares [`dashboard::widgets::daemon_actions`] with the dashboard top bar
+    /// — including the two-step Stop, which matters more here: the popup hides
+    /// on focus loss, so a one-click exit would be easy to trigger by accident.
+    pub(crate) fn draw_action_footer(&mut self, ui: &mut egui::Ui) {
+        ui.add_space(crate::theme::sp::XS);
+        let full = ui.available_width();
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(full, FOOTER_H), egui::Sense::hover());
+        ui.painter()
+            .hline(rect.x_range(), rect.top(), egui::Stroke::new(1.0, BORDER));
+        let mut child = ui.new_child(
+            egui::UiBuilder::new()
+                .max_rect(rect.shrink2(egui::vec2(SIDE_MARGIN, 0.0)))
+                .layout(egui::Layout::right_to_left(egui::Align::Center)),
+        );
+        dashboard::widgets::daemon_actions(self, &mut child);
     }
 }
 
