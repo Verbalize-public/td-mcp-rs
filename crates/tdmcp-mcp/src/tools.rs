@@ -132,6 +132,8 @@ pub enum ToolName {
     ProjectUnpack,
     /// Expand dir -> packed .toe/.tox via official toecollapse.
     ProjectPack,
+    /// OS popup list/describe/dismiss for a TD pid.
+    Dialogs,
 }
 
 impl ToolName {
@@ -150,6 +152,7 @@ impl ToolName {
             Self::TdInstalls => "td_installs",
             Self::ProjectUnpack => "project_unpack",
             Self::ProjectPack => "project_pack",
+            Self::Dialogs => "dialogs",
         }
     }
 
@@ -188,6 +191,9 @@ impl ToolName {
             Self::ProjectPack => {
                 "Collapse an expand directory back into a packed .toe/.tox via official toecollapse (output verified non-empty). Guards against build skew between the source .build and the selected install unless allowBuildSkew=true."
             }
+            Self::Dialogs => {
+                "List/describe/dismiss OS popups owned by a TD pid. list returns popups+windowStatus; dismiss runs the ladder (button label/id optional, default button otherwise) and verifies the window is gone. Main chrome is protected."
+            }
         }
     }
 
@@ -204,6 +210,7 @@ impl ToolName {
         Self::TdInstalls,
         Self::ProjectUnpack,
         Self::ProjectPack,
+        Self::Dialogs,
     ];
 
     /// Parse a wire tool name.
@@ -221,6 +228,7 @@ impl ToolName {
             "td_installs" => Some(Self::TdInstalls),
             "project_unpack" => Some(Self::ProjectUnpack),
             "project_pack" => Some(Self::ProjectPack),
+            "dialogs" => Some(Self::Dialogs),
             _ => None,
         }
     }
@@ -832,6 +840,11 @@ async fn dispatch_tool_inner(
                 parse_args(catalog, tool, args.clone())?;
             crate::project_pack::run(args)
                 .map_err(|e| coded_failure(catalog, tool, e.code, "srcDir", e.message))
+        }
+        ToolName::Dialogs => {
+            let params: crate::dialogs_tool::DialogsParams = parse_args(catalog, tool, args)?;
+            crate::dialogs_tool::run(params)
+                .map_err(|e| coded_failure(catalog, tool, e.0, "pid", e.1))
         }
         ToolName::ExecutePython => {
             let params: ExecutePythonParams = parse_args(catalog, tool, args.clone())?;

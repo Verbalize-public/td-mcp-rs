@@ -4,6 +4,7 @@ use rmcp::model::JsonObject;
 use schemars::schema_for;
 use serde_json::Value;
 
+use crate::dialogs_tool::DialogsParams;
 use crate::editor_context::EditorContextParams;
 use crate::fleet::FleetParams;
 use crate::project_pack::ProjectPackParams;
@@ -35,6 +36,7 @@ pub fn input_schema_for(tool: ToolName) -> JsonObject {
         ToolName::TdInstalls => schema_value::<TdInstallsParams>(),
         ToolName::ProjectUnpack => schema_value::<ProjectUnpackParams>(),
         ToolName::ProjectPack => schema_value::<ProjectPackParams>(),
+        ToolName::Dialogs => schema_value::<DialogsParams>(),
     };
     // schemars may wrap with $schema / definitions — MCP wants a plain object schema.
     flatten_schema(schema)

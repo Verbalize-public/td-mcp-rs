@@ -11,6 +11,7 @@ mod args_diag;
 pub mod bridge_rpc;
 mod daemon_link;
 pub mod dialogs;
+pub mod dialogs_tool;
 mod editor_context;
 mod fleet;
 mod outcomes;

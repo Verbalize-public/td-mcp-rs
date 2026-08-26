@@ -852,3 +852,34 @@ entries:
     message: "No tdmcp_rs COMP subtree found in this project"
     mitigation:
       - "Drop bootstrap.tox into the project once (live), then rerun install"
+
+  - code: tdmcp.dialog.unsupported
+    layer: args
+    message: "Dialogs backend unavailable on this platform/feature-off"
+    mitigation:
+      - "Windows only today; check [dialogs].enabled and daemon build"
+
+  - code: tdmcp.dialog.not_found
+    layer: args
+    message: "Popup id not found (stale list or window closed)"
+    mitigation:
+      - "Re-run dialogs action=list to refresh ids"
+
+  - code: tdmcp.dialog.dismiss_failed
+    layer: args
+      # verify-gone loop exhausted
+    message: "Popup still open after dismiss ladder"
+    mitigation:
+      - "Try an explicit button label; escalate severity to the operator"
+
+  - code: tdmcp.dialog.chrome_protected
+    layer: args
+    message: "Target is TD main chrome - never dismissable"
+    mitigation:
+      - "Pick a popup id from dialogs action=list"
+
+  - code: tdmcp.dialog.blocking
+    layer: fleet
+    message: "Modal popup is blocking this TD's main thread"
+    mitigation:
+      - "Run dialogs {pid} action=list; dismiss via action=dismiss"

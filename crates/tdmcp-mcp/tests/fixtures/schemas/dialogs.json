@@ -1,0 +1,59 @@
+{
+  "$defs": {
+    "DialogsAction": {
+      "description": "Sub-actions.",
+      "oneOf": [
+        {
+          "const": "list",
+          "description": "Snapshot popups + window status.",
+          "type": "string"
+        },
+        {
+          "const": "describe",
+          "description": "Full content for one popup id.",
+          "type": "string"
+        },
+        {
+          "const": "dismiss",
+          "description": "Run the dismiss ladder (verify-gone included).",
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "additionalProperties": false,
+  "description": "Args for `dialogs`.",
+  "properties": {
+    "action": {
+      "$ref": "#/$defs/DialogsAction",
+      "description": "What to do."
+    },
+    "button": {
+      "default": null,
+      "description": "Button label or ctrl id for dismiss; default button when omitted.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "id": {
+      "default": null,
+      "description": "Popup id (from `list`) — required by describe/dismiss.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "pid": {
+      "description": "Target pid.",
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "pid",
+    "action"
+  ],
+  "type": "object"
+}

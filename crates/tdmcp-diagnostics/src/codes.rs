@@ -50,6 +50,13 @@ pub const PROJECT_BACKUP_FAILED: &str = "tdmcp.project.backup_failed";
 /// No tdmcp_rs COMP subtree present in the project.
 pub const PROJECT_BRIDGE_SUBTREE_MISSING: &str = "tdmcp.project.bridge_subtree_missing";
 
+/// OS dialogs family (DIALOGS.md 5.5).
+pub const DIALOG_UNSUPPORTED: &str = "tdmcp.dialog.unsupported";
+pub const DIALOG_NOT_FOUND: &str = "tdmcp.dialog.not_found";
+pub const DIALOG_DISMISS_FAILED: &str = "tdmcp.dialog.dismiss_failed";
+pub const DIALOG_CHROME_PROTECTED: &str = "tdmcp.dialog.chrome_protected";
+pub const DIALOG_BLOCKING: &str = "tdmcp.dialog.blocking";
+
 /// Tool result failed to serialize (internal; never the caller's fault).
 pub const MCP_SERIALIZE_FAILED: &str = "tdmcp.mcp.serialize_failed";
 
@@ -202,6 +209,11 @@ pub const ALL: &[&str] = &[
     PROJECT_ROUNDTRIP_MISMATCH,
     PROJECT_BACKUP_FAILED,
     PROJECT_BRIDGE_SUBTREE_MISSING,
+    DIALOG_UNSUPPORTED,
+    DIALOG_NOT_FOUND,
+    DIALOG_DISMISS_FAILED,
+    DIALOG_CHROME_PROTECTED,
+    DIALOG_BLOCKING,
     BRIDGE_UNKNOWN_PID,
     BRIDGE_LOST,
     BRIDGE_CANCELLED,

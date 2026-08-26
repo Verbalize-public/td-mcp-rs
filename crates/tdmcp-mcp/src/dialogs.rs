@@ -16,6 +16,8 @@ pub struct DialogsShared {
     pub source: Arc<dyn DialogSource>,
     /// Latest snapshot per registered pid.
     pub snapshots: Mutex<HashMap<u32, DialogSnapshot>>,
+    /// `[dialogs].intercept` — fail bridged calls fast while a modal is open.
+    pub intercept: bool,
 }
 
 static DIALOGS: OnceLock<Arc<DialogsShared>> = OnceLock::new();
