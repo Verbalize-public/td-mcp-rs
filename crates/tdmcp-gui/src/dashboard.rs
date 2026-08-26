@@ -65,7 +65,12 @@ pub fn builder(window_icon: &egui::IconData) -> egui::ViewportBuilder {
 /// Render the dashboard into its viewport's root ui. Called every frame while open.
 pub fn render(app: &mut DashboardApp, ui: &mut egui::Ui) {
     if ui.input(|i| i.viewport().close_requested()) {
-        // Honor the OS close; the viewport simply stops being shown.
+        // Hide via visibility — do not destroy the pre-created viewport (reopen
+        // breaks if the native window is allowed to close).
+        let ctx = ui.ctx();
+        let id = viewport_id();
+        ctx.send_viewport_cmd_to(id, egui::ViewportCommand::CancelClose);
+        ctx.send_viewport_cmd_to(id, egui::ViewportCommand::Visible(false));
         app.dashboard_open = false;
     }
 

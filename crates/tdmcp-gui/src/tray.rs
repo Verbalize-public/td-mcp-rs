@@ -11,10 +11,8 @@ use tray_icon::{Icon, MouseButton, MouseButtonState, Rect, TrayIconBuilder, Tray
 use crate::app::DashboardApp;
 use crate::theme::WINDOW_WIDTH;
 
-/// Coalesce tray left-clicks so burst/double events cannot flip twice.
+/// Coalesce tray click bursts so double events cannot flip twice.
 const TRAY_TOGGLE_DEBOUNCE: Duration = Duration::from_millis(250);
-/// Focus-loss hide within this window counts as the close half of a tray toggle.
-const FOCUS_LOSS_CLOSE_GRACE: Duration = Duration::from_millis(400);
 
 pub(crate) struct RgbaIcon {
     pub(crate) rgba: Vec<u8>,
@@ -82,55 +80,73 @@ impl DashboardApp {
         }
     }
 
-    /// Tray right-click: toggle the glance panel — open when closed; close
-    /// when open (or when focus-loss already closed this gesture — avoids
-    /// blink-reopen).
-    fn on_tray_popup_toggle(&mut self, ctx: &egui::Context, tray_rect: Rect) {
+    fn tray_click_debounced(&mut self) -> bool {
         let now = Instant::now();
         if self
             .last_tray_toggle_at
             .is_some_and(|t| now.duration_since(t) < TRAY_TOGGLE_DEBOUNCE)
         {
-            return;
+            return false;
         }
         self.last_tray_toggle_at = Some(now);
+        true
+    }
+
+    /// Tray right-click Down: hide the glance panel when open. Hiding on Down
+    /// (not Up) avoids a focus-loss → Up reopen blink.
+    fn on_tray_popup_down(&mut self, ctx: &egui::Context) {
+        if self.visible {
+            self.hide_window(ctx);
+            self.tray_popup_close_on_up = true;
+        } else {
+            self.tray_popup_close_on_up = false;
+        }
+    }
+
+    /// Tray right-click Up: open the glance panel when closed (unless Down
+    /// just closed it for this gesture).
+    fn on_tray_popup_up(&mut self, ctx: &egui::Context, tray_rect: Rect) {
+        if !self.tray_click_debounced() {
+            return;
+        }
         self.last_tray_rect = Some(tray_rect);
 
-        let recently_closed_by_focus = self
-            .hidden_by_focus_loss_at
-            .is_some_and(|t| now.duration_since(t) < FOCUS_LOSS_CLOSE_GRACE);
-
-        if self.visible || recently_closed_by_focus {
-            if self.visible {
-                self.hide_window(ctx);
-            }
-            // Stay hidden — focus-loss already satisfied the close half.
-            self.hidden_by_focus_loss_at = None;
-        } else {
+        if !self.visible && !self.tray_popup_close_on_up {
             self.show_window(ctx, Some(tray_rect));
         }
+        self.tray_popup_close_on_up = false;
     }
 
     pub(crate) fn handle_tray_events(&mut self, ctx: &egui::Context) {
         while let Ok(event) = TrayIconEvent::receiver().try_recv() {
             match event {
-                // Left click opens the dashboard; DoubleClick ignored.
+                // Left click opens/focuses the dashboard; DoubleClick ignored.
                 TrayIconEvent::Click {
                     button: MouseButton::Left,
                     button_state: MouseButtonState::Up,
                     ..
                 } => {
-                    self.dashboard_open = true;
+                    if self.tray_click_debounced() {
+                        self.open_or_focus_dashboard(ctx);
+                    }
                 }
-                // Right click toggles the glance panel near the tray
-                // (Up only — Down/Up each arrive as separate Click events).
+                // Right click toggles the glance panel near the tray.
+                // Down hides when open; Up opens when closed — split so
+                // focus-loss on Down cannot make Up reopen immediately.
+                TrayIconEvent::Click {
+                    button: MouseButton::Right,
+                    button_state: MouseButtonState::Down,
+                    ..
+                } => {
+                    self.on_tray_popup_down(ctx);
+                }
                 TrayIconEvent::Click {
                     button: MouseButton::Right,
                     button_state: MouseButtonState::Up,
                     rect,
                     ..
                 } => {
-                    self.on_tray_popup_toggle(ctx, rect);
+                    self.on_tray_popup_up(ctx, rect);
                 }
                 _ => {}
             }

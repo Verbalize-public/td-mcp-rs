@@ -90,10 +90,10 @@ pub(crate) struct DashboardApp {
     pub(crate) clear_always_on_top_at: Option<Instant>,
     /// Suppress focus-loss hide briefly after show (tray click focus race).
     pub(crate) ignore_focus_loss_until: Option<Instant>,
-    /// When focus-loss hid the popup (coalesce with tray click close).
-    pub(crate) hidden_by_focus_loss_at: Option<Instant>,
     /// Last tray toggle gesture (debounce burst events).
     pub(crate) last_tray_toggle_at: Option<Instant>,
+    /// Right-click Down hid the popup — suppress Up from reopening (anti-blink).
+    pub(crate) tray_popup_close_on_up: bool,
     /// Last tray icon rect for anchoring.
     pub(crate) last_tray_rect: Option<tray_icon::Rect>,
     /// Shared with the daemon thread — when set, close the event loop for real.
@@ -276,8 +276,8 @@ impl DashboardApp {
             fail_polls: 0,
             clear_always_on_top_at: None,
             ignore_focus_loss_until: None,
-            hidden_by_focus_loss_at: None,
             last_tray_toggle_at: None,
+            tray_popup_close_on_up: false,
             last_tray_rect: None,
             quit,
             show_psk: false,
@@ -542,7 +542,7 @@ impl DashboardApp {
             self.last_tray_rect = Some(r);
         }
         self.visible = true;
-        self.hidden_by_focus_loss_at = None;
+        self.tray_popup_close_on_up = false;
         self.position_near_tray(ctx);
         ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
         // Transient always-on-top to win z-order (Docker-style), then drop.
@@ -581,7 +581,17 @@ impl DashboardApp {
         let focused = ctx.input(|i| i.viewport().focused);
         if focused == Some(false) {
             self.hide_window(ctx);
-            self.hidden_by_focus_loss_at = Some(Instant::now());
+        }
+    }
+
+    /// Tray left-click: open the dashboard or raise/focus it when already open.
+    pub(crate) fn open_or_focus_dashboard(&mut self, ctx: &egui::Context) {
+        let id = dashboard::viewport_id();
+        if self.dashboard_open {
+            ctx.send_viewport_cmd_to(id, egui::ViewportCommand::Visible(true));
+            ctx.send_viewport_cmd_to(id, egui::ViewportCommand::Focus);
+        } else {
+            self.dashboard_open = true;
         }
     }
 
