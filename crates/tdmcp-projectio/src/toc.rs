@@ -43,7 +43,9 @@ pub fn parse(path: &Path) -> Result<Vec<String>, ProjectIoError> {
 /// Portable `.toc` entry → filesystem path under an expand root.
 #[must_use]
 pub fn entry_path(root: &Path, entry: &str) -> PathBuf {
-    entry.split('/').fold(root.to_path_buf(), |acc, seg| acc.join(seg))
+    entry
+        .split('/')
+        .fold(root.to_path_buf(), |acc, seg| acc.join(seg))
 }
 
 /// Validate entries against their expand root: no absolute paths, no `..`

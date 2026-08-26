@@ -44,6 +44,8 @@ pub fn run_with(
     match params.action {
         DialogsAction::List => {
             let snap = shared.source.snapshot(params.pid);
+            // Only the macOS block below mutates this.
+            #[cfg_attr(not(target_os = "macos"), allow(unused_mut))]
             let mut out = json!({
                 "ok": true,
                 "pid": params.pid,
@@ -52,7 +54,8 @@ pub fn run_with(
             });
             #[cfg(target_os = "macos")]
             {
-                out["accessibilityGranted"] = json!(tdmcp_dialogs::sys::macos::accessibility_trusted());
+                out["accessibilityGranted"] =
+                    json!(tdmcp_dialogs::sys::macos::accessibility_trusted());
                 if out["accessibilityGranted"] == json!(false) {
                     out["permissionHint"] = json!(
                         "Grant Accessibility for tdmcp-daemon in System Settings → Privacy & Security → Accessibility"

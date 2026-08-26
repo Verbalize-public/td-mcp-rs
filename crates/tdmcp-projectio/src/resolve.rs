@@ -48,15 +48,16 @@ fn beside(exe: &Path, name: &str) -> Option<PathBuf> {
 /// Versioned install root for a TouchDesigner binary path.
 #[must_use]
 pub fn install_root_from_exe(exe: &Path) -> PathBuf {
-    let path = exe.to_string_lossy();
-    if path.contains(".app/") {
-        let mut current = exe.to_path_buf();
-        while current.parent().is_some() {
-            if current.extension().is_some_and(|e| e == "app") {
-                return current;
-            }
-            current = current.parent().map(Path::to_path_buf).unwrap_or_default();
+    // No `.app/` string pre-check: `Path::join` uses the HOST separator, so a
+    // macOS bundle path built on Windows reads `...app\Contents` and the check
+    // misses. Walking extensions is separator-agnostic, and no non-bundle
+    // install dir is named `*.app`, so the walk simply falls through.
+    let mut current = exe.to_path_buf();
+    while current.parent().is_some() {
+        if current.extension().is_some_and(|e| e == "app") {
+            return current;
         }
+        current = current.parent().map(Path::to_path_buf).unwrap_or_default();
     }
     exe.parent()
         .and_then(Path::parent)
@@ -448,7 +449,10 @@ mod tests {
     #[test]
     fn macos_scan_finds_newest_app_first() {
         let apps = tempfile::tempdir().unwrap();
-        for (name, ver) in [("TouchDesigner.2025.32460.app", "a"), ("TouchDesigner.2025.33070.app", "b")] {
+        for (name, ver) in [
+            ("TouchDesigner.2025.32460.app", "a"),
+            ("TouchDesigner.2025.33070.app", "b"),
+        ] {
             let macos = apps.path().join(name).join("Contents/MacOS");
             fs::create_dir_all(&macos).unwrap();
             fs::write(macos.join("TouchDesigner"), ver.as_bytes()).unwrap();

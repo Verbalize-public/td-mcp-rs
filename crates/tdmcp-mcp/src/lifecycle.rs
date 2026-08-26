@@ -273,13 +273,16 @@ fn process_alive_check(source: Option<&dyn tdmcp_core::DialogSource>, pid: u32) 
     if let Some(s) = source {
         return s.process_alive(pid);
     }
+    // Exactly one cfg block survives per platform and is the tail expression —
+    // an explicit `return` here is `needless_return` on whichever platform
+    // stripped the blocks below it.
     #[cfg(windows)]
     {
-        return tdmcp_dialogs::sys::windows::process_alive(pid);
+        tdmcp_dialogs::sys::windows::process_alive(pid)
     }
     #[cfg(target_os = "macos")]
     {
-        return tdmcp_dialogs::sys::macos::process_alive(pid);
+        tdmcp_dialogs::sys::macos::process_alive(pid)
     }
     #[cfg(all(not(windows), not(target_os = "macos")))]
     {
@@ -294,11 +297,11 @@ fn process_image_check(source: Option<&dyn tdmcp_core::DialogSource>, pid: u32) 
     }
     #[cfg(windows)]
     {
-        return tdmcp_dialogs::sys::windows::process_image_name(pid);
+        tdmcp_dialogs::sys::windows::process_image_name(pid)
     }
     #[cfg(target_os = "macos")]
     {
-        return tdmcp_dialogs::sys::macos::process_image_name(pid);
+        tdmcp_dialogs::sys::macos::process_image_name(pid)
     }
     #[cfg(all(not(windows), not(target_os = "macos")))]
     {
@@ -461,16 +464,14 @@ mod kill_tests {
     #[tokio::test]
     async fn registry_member_skips_image_check() {
         let reg = Arc::new(AsyncMutex::new(tdmcp_core::PidRegistry::new()));
-        reg.lock()
-            .await
-            .register_starting(
-                99,
-                tdmcp_core::SpawnRecord {
-                    started_at: chrono::Utc::now(),
-                    exe_path: "/Applications/TouchDesigner.app/Contents/MacOS/TouchDesigner".into(),
-                    expected_project: None,
-                },
-            );
+        reg.lock().await.register_starting(
+            99,
+            tdmcp_core::SpawnRecord {
+                started_at: chrono::Utc::now(),
+                exe_path: "/Applications/TouchDesigner.app/Contents/MacOS/TouchDesigner".into(),
+                expected_project: None,
+            },
+        );
         let src = MockSource {
             alive: AtomicBool::new(false),
             image: "other".into(),
