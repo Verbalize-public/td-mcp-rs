@@ -82,6 +82,16 @@ fn td_installs_schema_matches_golden() {
 }
 
 #[test]
+fn project_unpack_schema_matches_golden() {
+    assert_schema_matches("project_unpack");
+}
+
+#[test]
+fn project_pack_schema_matches_golden() {
+    assert_schema_matches("project_pack");
+}
+
+#[test]
 fn deny_unknown_fields_rejects_extra() {
     let err = serde_json::from_value::<tdmcp_mcp::ExecutePythonParams>(serde_json::json!({
         "pid": 1,

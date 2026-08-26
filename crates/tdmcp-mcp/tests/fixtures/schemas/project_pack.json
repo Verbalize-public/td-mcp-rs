@@ -1,0 +1,53 @@
+{
+  "$defs": {
+    "Overwrite": {
+      "description": "Output-collision policy.",
+      "oneOf": [
+        {
+          "const": "fail",
+          "description": "Fail when output exists.",
+          "type": "string"
+        },
+        {
+          "const": "replace",
+          "description": "Stash existing output aside; restore on failure.",
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "additionalProperties": false,
+  "description": "Args for `project_pack`.",
+  "properties": {
+    "allowBuildSkew": {
+      "default": false,
+      "description": "Permit repacking with tools of a different build than the source.",
+      "type": "boolean"
+    },
+    "installId": {
+      "default": null,
+      "description": "Pin a specific install id from `td_installs`.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "outPath": {
+      "description": "Absolute output path for the packed file.",
+      "type": "string"
+    },
+    "overwrite": {
+      "$ref": "#/$defs/Overwrite",
+      "description": "What to do when the output file already exists."
+    },
+    "srcDir": {
+      "description": "Expand directory produced by `project_unpack` (must contain `.build` + `.toc`).",
+      "type": "string"
+    }
+  },
+  "required": [
+    "srcDir",
+    "outPath"
+  ],
+  "type": "object"
+}

@@ -130,6 +130,8 @@ pub enum ToolName {
     TdInstalls,
     /// Offline .toe/.tox -> expand dir via official toeexpand.
     ProjectUnpack,
+    /// Expand dir -> packed .toe/.tox via official toecollapse.
+    ProjectPack,
 }
 
 impl ToolName {
@@ -147,6 +149,7 @@ impl ToolName {
             Self::DescribeTools => "describe_tools",
             Self::TdInstalls => "td_installs",
             Self::ProjectUnpack => "project_unpack",
+            Self::ProjectPack => "project_pack",
         }
     }
 
@@ -182,6 +185,9 @@ impl ToolName {
             Self::ProjectUnpack => {
                 "Expand a packed .toe/.tox into a directory tree via the installed official toeexpand. Success verified by filesystem evidence (dir + strict-LF toc), never by exit code. overwrite=replace stashes prior artifacts and restores them on failure. Default destination: <source>.dir beside the input."
             }
+            Self::ProjectPack => {
+                "Collapse an expand directory back into a packed .toe/.tox via official toecollapse (output verified non-empty). Guards against build skew between the source .build and the selected install unless allowBuildSkew=true."
+            }
         }
     }
 
@@ -197,6 +203,7 @@ impl ToolName {
         Self::DescribeTools,
         Self::TdInstalls,
         Self::ProjectUnpack,
+        Self::ProjectPack,
     ];
 
     /// Parse a wire tool name.
@@ -213,6 +220,7 @@ impl ToolName {
             "describe_tools" => Some(Self::DescribeTools),
             "td_installs" => Some(Self::TdInstalls),
             "project_unpack" => Some(Self::ProjectUnpack),
+            "project_pack" => Some(Self::ProjectPack),
             _ => None,
         }
     }
@@ -816,6 +824,12 @@ async fn dispatch_tool_inner(
                 parse_args(catalog, tool, args.clone())?;
             crate::project_unpack::run(args)
                 .map_err(|e| coded_failure(catalog, tool, e.code, "sourcePath", e.message))
+        }
+        ToolName::ProjectPack => {
+            let _params: crate::project_pack::ProjectPackParams =
+                parse_args(catalog, tool, args.clone())?;
+            crate::project_pack::run(args)
+                .map_err(|e| coded_failure(catalog, tool, e.code, "srcDir", e.message))
         }
         ToolName::ExecutePython => {
             let params: ExecutePythonParams = parse_args(catalog, tool, args.clone())?;

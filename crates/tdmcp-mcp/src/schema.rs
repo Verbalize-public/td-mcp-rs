@@ -6,6 +6,7 @@ use serde_json::Value;
 
 use crate::editor_context::EditorContextParams;
 use crate::fleet::FleetParams;
+use crate::project_pack::ProjectPackParams;
 use crate::project_unpack::ProjectUnpackParams;
 use crate::td_installs::TdInstallsParams;
 use crate::tools::{
@@ -33,6 +34,7 @@ pub fn input_schema_for(tool: ToolName) -> JsonObject {
         ToolName::DescribeTools => Value::Object(empty_object_schema()),
         ToolName::TdInstalls => schema_value::<TdInstallsParams>(),
         ToolName::ProjectUnpack => schema_value::<ProjectUnpackParams>(),
+        ToolName::ProjectPack => schema_value::<ProjectPackParams>(),
     };
     // schemars may wrap with $schema / definitions — MCP wants a plain object schema.
     flatten_schema(schema)

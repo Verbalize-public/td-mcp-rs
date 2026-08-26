@@ -91,6 +91,21 @@ pub fn toc_path_for(dir: &Path) -> PathBuf {
     PathBuf::from(s)
 }
 
+/// Read the TD build string from an expand dir's `.build`
+/// (`build <version>` line, e.g. `2025.32460`). None when absent/unparsable.
+#[must_use]
+pub fn read_build(dir: &Path) -> Option<String> {
+    let bytes = std::fs::read(dir.join(".build")).ok()?;
+    let text = String::from_utf8_lossy(&bytes);
+    for line in text.lines() {
+        let line = line.trim();
+        if let Some(rest) = line.strip_prefix("build ") {
+            return Some(rest.trim().to_string());
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, reason = "unit tests")]
 mod tests {

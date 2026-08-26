@@ -36,12 +36,7 @@
       ]
     },
     "overwrite": {
-      "default": "fail",
-      "allOf": [
-        {
-          "$ref": "#/$defs/Overwrite"
-        }
-      ],
+      "$ref": "#/$defs/Overwrite",
       "description": "What to do when destination artifacts already exist."
     },
     "sourcePath": {
