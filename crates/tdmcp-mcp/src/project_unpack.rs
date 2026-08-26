@@ -99,7 +99,7 @@ pub fn resolve_official_tools(
     })
 }
 
-fn code_for(e: &ProjectIoError) -> &'static str {
+pub(crate) fn code_for(e: &ProjectIoError) -> &'static str {
     match e {
         ProjectIoError::Fs { .. } => "project.io_failed",
         ProjectIoError::SourceNotFound(_) => "project.source_not_found",

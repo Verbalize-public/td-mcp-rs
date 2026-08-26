@@ -23,14 +23,12 @@ pub fn parse(bytes: &[u8]) -> Vec<u8> {
     if !matches_envelope(bytes) {
         return bytes.to_vec();
     }
-    let len = u32::from_be_bytes([
-        bytes[23],
-        bytes[24],
-        bytes[25],
-        bytes[26],
-    ]) as usize;
+    let len = u32::from_be_bytes([bytes[23], bytes[24], bytes[25], bytes[26]]) as usize;
     let start = HEADER_LEN;
-    bytes.get(start..start + len).unwrap_or(&bytes[start..]).to_vec()
+    bytes
+        .get(start..start + len)
+        .unwrap_or(&bytes[start..])
+        .to_vec()
 }
 
 /// Encode a payload as an enveloped sidecar (LF-normalized).

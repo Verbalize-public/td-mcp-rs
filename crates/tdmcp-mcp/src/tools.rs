@@ -213,7 +213,7 @@ impl ToolName {
                 "Kill a known TouchDesigner pid: graceful WM_CLOSE first (graceMs window), then mode=force as explicit opt-in. Refuses pids that are neither registered nor TouchDesigner.exe."
             }
             Self::ProjectLint => {
-                "Sanity-check a project: .toc strict-LF parse + filesystem consistency, duplicate entries, and tdmcp_rs bridge DAT presence. Optionally delegates deep checks to td-cli when available."
+                "Sanity-check a project: .toc strict-LF parse + filesystem consistency, duplicate entries, and tdmcp_rs bridge DAT presence. A packed .toe/.tox is auto-expanded into a private temp staging dir (cleaned up; the input is never touched). Optionally delegates deep checks to td-cli when available."
             }
             Self::ProjectInstallBridge => {
                 "Install/override the tdmcp bridge inside a packed .toe/.tox: backs up the original, rewrites the three bridge DAT bodies (bootstrap/callbacks/tdmcp_exec) with the daemon's embedded sources, verifies by targeted re-expand, then replaces atomically."
@@ -930,8 +930,31 @@ async fn dispatch_tool_inner(
                 })
         }
         ToolName::ProjectLint => {
-            let _params: crate::project_lint::ProjectLintParams = parse_args(catalog, tool, args)?;
-            Ok(crate::project_lint::run(&_params, None))
+            let params: crate::project_lint::ProjectLintParams = parse_args(catalog, tool, args)?;
+            let target = std::path::PathBuf::from(&params.target_path);
+            // Only pay the config+tool-scan cost when the target is packed.
+            let looks_packed =
+                !target.is_dir() && tdmcp_projectio::sniff::sniff_packed(&target).is_ok();
+            let tools = if looks_packed {
+                let cfg =
+                    tdmcp_config::load(&tdmcp_config::default_config_path()).map_err(|e| {
+                        coded_failure(
+                            catalog,
+                            tool,
+                            "project.io_failed",
+                            "targetPath",
+                            format!("config load: {e}"),
+                        )
+                    })?;
+                Some(
+                    crate::project_unpack::resolve_official_tools(&cfg, None).map_err(|e| {
+                        coded_failure(catalog, tool, e.code, "targetPath", e.message)
+                    })?,
+                )
+            } else {
+                None
+            };
+            Ok(crate::project_lint::run(&params, None, tools.as_ref()))
         }
         ToolName::ProjectInstallBridge => {
             let params: crate::project_install::ProjectInstallBridgeParams =

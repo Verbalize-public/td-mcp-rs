@@ -12,12 +12,15 @@ use std::path::{Path, PathBuf};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::{json, Value};
+use tdmcp_projectio::resolve::OfficialTools;
 
 /// Args for `project_lint`.
 #[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProjectLintParams {
-    /// Expand directory (or packed `.toe`/`.tox`, which is expanded first).
+    /// Expand directory — or a packed `.toe`/`.tox`, which is auto-expanded
+    /// into a private temp staging dir (cleaned up afterwards; the input file
+    /// and its siblings are never touched).
     pub target_path: String,
 }
 
@@ -148,15 +151,83 @@ fn collect_files(root: &Path, dir: &Path, f: &mut impl FnMut(&str)) {
     }
 }
 
-/// Entry point used by dispatch.
+/// Stage a packed file into a private temp dir, expand it there via the
+/// official tool, lint, then remove the staging dir.
+///
+/// `ops::expand` writes beside its input — so staging keeps the user's file
+/// and its siblings untouched (spec §3.4: "auto-unpacks to a temp staging
+/// dir"). Cleanup is best-effort; failure to clean is not reported as a lint
+/// diagnostic.
+fn lint_packed_staged(
+    packed: &Path,
+    tools: &OfficialTools,
+    runner: &dyn tdmcp_projectio::runner::CommandRunner,
+) -> Vec<LintDiag> {
+    let fail = |code: &'static str, msg: String| vec![diag(code, "error", packed.display(), msg)];
+    let stage = std::env::temp_dir().join(format!("tdmcp-lint-{}", uuid::Uuid::new_v4().simple()));
+    if let Err(e) = std::fs::create_dir_all(&stage) {
+        return fail("project.io_failed", format!("staging mkdir failed: {e}"));
+    }
+    let mut name = std::ffi::OsString::from("packed");
+    if let Some(ext) = packed.extension() {
+        name.push(".");
+        name.push(ext);
+    }
+    let staged = stage.join(name);
+    if let Err(e) = std::fs::copy(packed, &staged) {
+        let _ = std::fs::remove_dir_all(&stage);
+        return fail("project.io_failed", format!("staging copy failed: {e}"));
+    }
+    match tdmcp_projectio::ops::expand(&staged, tools, runner) {
+        Ok(outcome) => {
+            let diags = lint_expand_dir(&outcome.dir);
+            let _ = std::fs::remove_dir_all(&stage);
+            diags
+        }
+        Err(e) => {
+            let _ = std::fs::remove_dir_all(&stage);
+            fail(crate::project_unpack::code_for(&e), format!("{e}"))
+        }
+    }
+}
+
+/// Entry point used by dispatch. `packed_tools` is resolved by the caller only
+/// when the target sniffs as a packed file (plain dirs never pay the scan).
 #[must_use]
-pub fn run(params: &ProjectLintParams, td_cli_json: Option<Value>) -> Value {
-    let dir = PathBuf::from(&params.target_path);
-    let diags = lint_expand_dir(&dir);
+pub fn run(
+    params: &ProjectLintParams,
+    td_cli_json: Option<Value>,
+    packed_tools: Option<&OfficialTools>,
+) -> Value {
+    let target = PathBuf::from(&params.target_path);
+    let looks_packed = !target.is_dir() && tdmcp_projectio::sniff::sniff_packed(&target).is_ok();
+    let (diags, target_kind) = if looks_packed {
+        match packed_tools {
+            Some(tools) => {
+                let runner = tdmcp_projectio::runner::ProcessRunner;
+                (
+                    lint_packed_staged(&target, tools, &runner),
+                    "packed",
+                )
+            }
+            None => (
+                vec![diag(
+                    "project.tool_missing",
+                    "error",
+                    target.display(),
+                    "packed target requires official toeexpand — configure [official_tools] or install TouchDesigner",
+                )],
+                "packed",
+            ),
+        }
+    } else {
+        (lint_expand_dir(&target), "dir")
+    };
     let errors = diags.iter().filter(|d| d.severity == "error").count();
     json!({
         "ok": errors == 0,
-        "target": dir.to_string_lossy(),
+        "target": target.to_string_lossy(),
+        "targetKind": target_kind,
         "diagnostics": diags.iter().map(|d| json!({
             "code": d.code, "severity": d.severity, "path": d.path, "message": d.message,
         })).collect::<Vec<_>>(),
@@ -210,5 +281,97 @@ mod tests {
         .unwrap();
         let diags = lint_expand_dir(&ed);
         assert!(!diags.iter().any(|d| d.severity == "error"), "{diags:?}");
+    }
+
+    fn sibling(p: &Path, ext: &str) -> PathBuf {
+        let mut s = p.as_os_str().to_os_string();
+        s.push(ext);
+        PathBuf::from(s)
+    }
+
+    fn tools_pair() -> OfficialTools {
+        OfficialTools {
+            expand: PathBuf::from("C:/fake/toeexpand.exe"),
+            collapse: PathBuf::from("C:/fake/toecollapse.exe"),
+        }
+    }
+
+    /// Effect mimicking toeexpand beside its input, producing a tree that
+    /// passes every native check (toc lists all files, bridge present).
+    fn staged_project_effect() -> tdmcp_projectio::runner::RunnerEffect {
+        Box::new(move |_program, args| {
+            let packed = PathBuf::from(&args[0]);
+            let dir = sibling(&packed, ".dir");
+            fs::create_dir_all(dir.join("project1").join("tdmcp_rs")).unwrap();
+            fs::write(dir.join(".build"), b"version 099\n").unwrap();
+            fs::write(dir.join("project1.n"), b"COMP:container\nend\n").unwrap();
+            for dat in ["bootstrap.text", "callbacks.text", "tdmcp_exec.text"] {
+                fs::write(dir.join("project1").join("tdmcp_rs").join(dat), b"# x\n").unwrap();
+            }
+            fs::write(
+                sibling(&packed, ".toc"),
+                b".build\nproject1.n\nproject1/tdmcp_rs/bootstrap.text\n\
+                  project1/tdmcp_rs/callbacks.text\nproject1/tdmcp_rs/tdmcp_exec.text\n",
+            )
+            .unwrap();
+        })
+    }
+
+    fn packed_fixture(dir: &Path) -> PathBuf {
+        let p = dir.join("proj.toe");
+        fs::write(&p, [b'1', b'0', 0, 0, 0, 9]).unwrap();
+        p
+    }
+
+    #[test]
+    fn packed_staging_lints_without_touching_source_siblings() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = packed_fixture(dir.path());
+        let runner = tdmcp_projectio::runner::FakeOfficialRunner::default();
+        runner.push_ok_with_effect(1, "exit-1 noise", staged_project_effect());
+        let diags = lint_packed_staged(&src, &tools_pair(), &runner);
+        assert!(!diags.iter().any(|d| d.severity == "error"), "{diags:?}");
+        // Staging never polluted the source location.
+        assert!(!sibling(&src, ".dir").exists());
+        assert!(!sibling(&src, ".toc").exists());
+        // Exactly one tool call, against the staged copy — then cleaned up.
+        let calls = runner
+            .calls
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone();
+        assert_eq!(calls.len(), 1);
+        let invoked = PathBuf::from(&calls[0].1[0]);
+        assert_ne!(invoked, src);
+        assert!(!invoked.parent().is_some_and(Path::exists));
+    }
+
+    #[test]
+    fn packed_target_without_tools_reports_tool_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = packed_fixture(dir.path());
+        let params = ProjectLintParams {
+            target_path: src.to_string_lossy().into_owned(),
+        };
+        let v = run(&params, None, None);
+        assert_eq!(v["ok"], json!(false));
+        assert_eq!(v["targetKind"], "packed");
+        assert!(v["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|d| d["code"] == "project.tool_missing"));
+    }
+
+    #[test]
+    fn dir_target_reports_target_kind_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let ed = dir.path().join("p.toe.dir");
+        fs::create_dir_all(ed.join("project1")).unwrap();
+        let params = ProjectLintParams {
+            target_path: ed.to_string_lossy().into_owned(),
+        };
+        let v = run(&params, None, None);
+        assert_eq!(v["targetKind"], "dir");
     }
 }

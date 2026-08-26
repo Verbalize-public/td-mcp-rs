@@ -20,8 +20,8 @@ pub mod error;
 pub mod ops;
 pub mod resolve;
 pub mod runner;
-pub mod sniff;
 pub mod sidecar;
+pub mod sniff;
 pub mod stage;
 pub mod toc;
 
