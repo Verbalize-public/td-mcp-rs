@@ -1,0 +1,56 @@
+{
+  "$defs": {
+    "Overwrite": {
+      "description": "Destination-collision policy.",
+      "oneOf": [
+        {
+          "const": "fail",
+          "description": "Fail when destination exists.",
+          "type": "string"
+        },
+        {
+          "const": "replace",
+          "description": "Stash existing artifacts aside, unpack fresh; restore on failure.",
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "additionalProperties": false,
+  "description": "Args for `project_unpack`.",
+  "properties": {
+    "destDir": {
+      "default": null,
+      "description": "Destination expand-dir path. Default: `<source>.dir` beside the input.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "installId": {
+      "default": null,
+      "description": "Pin a specific install id from `td_installs` (default = newest usable).",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "overwrite": {
+      "default": "fail",
+      "allOf": [
+        {
+          "$ref": "#/$defs/Overwrite"
+        }
+      ],
+      "description": "What to do when destination artifacts already exist."
+    },
+    "sourcePath": {
+      "description": "Absolute path to the packed `.toe`/`.tox`.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "sourcePath"
+  ],
+  "type": "object"
+}

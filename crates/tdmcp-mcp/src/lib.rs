@@ -13,6 +13,7 @@ mod daemon_link;
 mod editor_context;
 mod fleet;
 mod outcomes;
+pub mod project_unpack;
 pub mod resources;
 mod rmcp_handler;
 mod schema;

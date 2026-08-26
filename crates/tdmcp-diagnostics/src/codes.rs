@@ -19,6 +19,37 @@ pub const MCP_SESSION_BUSY: &str = "tdmcp.mcp.session_busy";
 /// Official-tools scan could not enumerate any location.
 pub const INSTALLS_SCAN_FAILED: &str = "tdmcp.installs.scan_failed";
 
+/// Offline project I/O family (v2).
+pub const PROJECT_IO_FAILED: &str = "tdmcp.project.io_failed";
+/// Packed source path does not exist.
+pub const PROJECT_SOURCE_NOT_FOUND: &str = "tdmcp.project.source_not_found";
+/// Packed magic check failed.
+pub const PROJECT_NOT_PACKED_FORMAT: &str = "tdmcp.project.not_packed_format";
+/// Official tools not found after full resolution.
+pub const PROJECT_TOOL_MISSING: &str = "tdmcp.project.tool_missing";
+/// Only one of expand/collapse paths configured.
+pub const PROJECT_TOOL_PAIR_PARTIAL: &str = "tdmcp.project.tool_pair_partial";
+/// toeexpand produced no usable artifacts.
+pub const PROJECT_EXPAND_FAILED: &str = "tdmcp.project.expand_failed";
+/// toecollapse produced no packed output.
+pub const PROJECT_COLLAPSE_FAILED: &str = "tdmcp.project.collapse_failed";
+/// Destination exists while overwrite=fail.
+pub const PROJECT_DEST_EXISTS: &str = "tdmcp.project.dest_exists";
+/// Source is not a valid expand directory.
+pub const PROJECT_SRC_NOT_EXPAND_DIR: &str = "tdmcp.project.src_not_expand_dir";
+/// Toc has BOM/CR or failed to parse.
+pub const PROJECT_TOC_INVALID: &str = "tdmcp.project.toc_invalid";
+/// Toc entry escapes its root.
+pub const PROJECT_TOC_ESCAPE: &str = "tdmcp.project.toc_escape";
+/// Project build differs from selected install build.
+pub const PROJECT_BUILD_SKEW: &str = "tdmcp.project.build_skew";
+/// Targeted re-expand verification found differences.
+pub const PROJECT_ROUNDTRIP_MISMATCH: &str = "tdmcp.project.roundtrip_mismatch";
+/// Pre-replace backup creation failed.
+pub const PROJECT_BACKUP_FAILED: &str = "tdmcp.project.backup_failed";
+/// No tdmcp_rs COMP subtree present in the project.
+pub const PROJECT_BRIDGE_SUBTREE_MISSING: &str = "tdmcp.project.bridge_subtree_missing";
+
 /// Tool result failed to serialize (internal; never the caller's fault).
 pub const MCP_SERIALIZE_FAILED: &str = "tdmcp.mcp.serialize_failed";
 
@@ -156,6 +187,21 @@ pub const PERCEPTION_MAX_SIZE_TOO_LARGE: &str = "tdmcp.perception.max_size_too_l
 /// All codes that must exist in the catalog (compile-time enumeration).
 pub const ALL: &[&str] = &[
     INSTALLS_SCAN_FAILED,
+    PROJECT_IO_FAILED,
+    PROJECT_SOURCE_NOT_FOUND,
+    PROJECT_NOT_PACKED_FORMAT,
+    PROJECT_TOOL_MISSING,
+    PROJECT_TOOL_PAIR_PARTIAL,
+    PROJECT_EXPAND_FAILED,
+    PROJECT_COLLAPSE_FAILED,
+    PROJECT_DEST_EXISTS,
+    PROJECT_SRC_NOT_EXPAND_DIR,
+    PROJECT_TOC_INVALID,
+    PROJECT_TOC_ESCAPE,
+    PROJECT_BUILD_SKEW,
+    PROJECT_ROUNDTRIP_MISMATCH,
+    PROJECT_BACKUP_FAILED,
+    PROJECT_BRIDGE_SUBTREE_MISSING,
     BRIDGE_UNKNOWN_PID,
     BRIDGE_LOST,
     BRIDGE_CANCELLED,

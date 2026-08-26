@@ -69,4 +69,27 @@ pub enum ProjectIoError {
         /// Parse failure description.
         reason: String,
     },
+    /// Structural round-trip verification found differences.
+    #[error("round-trip mismatch: {detail}")]
+    RoundtripMismatch {
+        /// What differed.
+        detail: String,
+    },
+    /// Pre-replace backup could not be created.
+    #[error("backup failed at {path}: {source}")]
+    BackupFailed {
+        /// Backup target path.
+        path: PathBuf,
+        /// Wrapped OS error.
+        #[source]
+        source: std::io::Error,
+    },
+    /// Source `.build` version differs from the selected install's tools.
+    #[error("build skew: project built with {source_build}, tools are {tool_build} (allowBuildSkew to override)")]
+    BuildSkew {
+        /// Build string from the expand dir.
+        source_build: String,
+        /// Build implied by the selected install.
+        tool_build: String,
+    },
 }

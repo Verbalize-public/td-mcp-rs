@@ -128,6 +128,8 @@ pub enum ToolName {
     DescribeTools,
     /// TouchDesigner installations on disk (offline discovery).
     TdInstalls,
+    /// Offline .toe/.tox -> expand dir via official toeexpand.
+    ProjectUnpack,
 }
 
 impl ToolName {
@@ -144,6 +146,7 @@ impl ToolName {
             Self::EditorContext => "editor_context",
             Self::DescribeTools => "describe_tools",
             Self::TdInstalls => "td_installs",
+            Self::ProjectUnpack => "project_unpack",
         }
     }
 
@@ -176,6 +179,9 @@ impl ToolName {
             Self::TdInstalls => {
                 "List TouchDesigner installations on disk (version dirs, exe path, which official tools exist). Offline; complete=false marks stub installs. default=true on the newest usable install."
             }
+            Self::ProjectUnpack => {
+                "Expand a packed .toe/.tox into a directory tree via the installed official toeexpand. Success verified by filesystem evidence (dir + strict-LF toc), never by exit code. overwrite=replace stashes prior artifacts and restores them on failure. Default destination: <source>.dir beside the input."
+            }
         }
     }
 
@@ -190,6 +196,7 @@ impl ToolName {
         Self::EditorContext,
         Self::DescribeTools,
         Self::TdInstalls,
+        Self::ProjectUnpack,
     ];
 
     /// Parse a wire tool name.
@@ -205,6 +212,7 @@ impl ToolName {
             "editor_context" => Some(Self::EditorContext),
             "describe_tools" => Some(Self::DescribeTools),
             "td_installs" => Some(Self::TdInstalls),
+            "project_unpack" => Some(Self::ProjectUnpack),
             _ => None,
         }
     }
@@ -801,6 +809,13 @@ async fn dispatch_tool_inner(
             };
             let _params: crate::td_installs::TdInstallsParams = parse_args(catalog, tool, args)?;
             Ok(crate::td_installs::run(&tdmcp_projectio::resolve::std_env))
+        }
+        ToolName::ProjectUnpack => {
+            // Typed parse for arg-shape errors; run() re-parses the same value.
+            let _params: crate::project_unpack::ProjectUnpackParams =
+                parse_args(catalog, tool, args.clone())?;
+            crate::project_unpack::run(args)
+                .map_err(|e| coded_failure(catalog, tool, e.code, "sourcePath", e.message))
         }
         ToolName::ExecutePython => {
             let params: ExecutePythonParams = parse_args(catalog, tool, args.clone())?;

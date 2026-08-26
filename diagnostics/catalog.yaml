@@ -763,3 +763,92 @@ entries:
     references:
       - kind: tool
         id: td_installs
+  - code: tdmcp.project.io_failed
+    layer: args
+    message: "Project I/O filesystem operation failed"
+    mitigation:
+      - "Check paths and permissions; staging partials are cleaned automatically"
+
+  - code: tdmcp.project.source_not_found
+    layer: args
+    message: "Packed source file not found"
+    mitigation:
+      - "Verify the absolute path to the .toe/.tox"
+
+  - code: tdmcp.project.not_packed_format
+    layer: args
+    message: "File does not look like a packed TD project (bad magic)"
+    mitigation:
+      - "Pass a real .toe/.tox; use td_installs + project_unpack for expand dirs"
+
+  - code: tdmcp.project.tool_missing
+    layer: args
+    message: "Official toeexpand/toecollapse tools not found"
+    mitigation:
+      - "Install TouchDesigner, or pin official_tools.td_exe / TDMCP_TOEEXPAND env"
+
+  - code: tdmcp.project.tool_pair_partial
+    layer: args
+    message: "Only one of expand_path/collapse_path is configured"
+    mitigation:
+      - "Set both official_tools paths together, or neither"
+
+  - code: tdmcp.project.expand_failed
+    layer: args
+    message: "toeexpand produced no usable artifacts"
+    mitigation:
+      - "Retry once (transient FS errors happen); then verify source integrity"
+
+  - code: tdmcp.project.collapse_failed
+    layer: args
+    message: "toecollapse produced no packed output"
+    mitigation:
+      - "Check the .toc is strict-LF and matches the directory contents"
+
+  - code: tdmcp.project.dest_exists
+    layer: args
+    message: "Destination already exists"
+    mitigation:
+      - "Choose overwrite=replace, or clear the destination first"
+
+  - code: tdmcp.project.src_not_expand_dir
+    layer: args
+    message: "Source is not a valid expand directory"
+    mitigation:
+      - "Point at the <name>.dir produced by project_unpack"
+
+  - code: tdmcp.project.toc_invalid
+    layer: args
+    message: ".toc is invalid (BOM/CR/parse failure)"
+    mitigation:
+      - "Regenerate via project_unpack from the packed original"
+
+  - code: tdmcp.project.toc_escape
+    layer: args
+    message: ".toc entry escapes its expand root"
+    mitigation:
+      - "Remove or fix the offending entry before packing"
+
+  - code: tdmcp.project.build_skew
+    layer: args
+    message: "Project build differs from selected install build"
+    mitigation:
+      - "Pick matching installId, or pass allowBuildSkew=true deliberately"
+
+  - code: tdmcp.project.roundtrip_mismatch
+    layer: args
+    message: "Targeted re-expand verification found differences"
+    mitigation:
+      - "Restore the backup written next to the target and investigate"
+
+  - code: tdmcp.project.backup_failed
+    layer: args
+    message: "Could not create pre-replace backup"
+    mitigation:
+      - "Check data-dir backups/ permissions; nothing was modified"
+
+  - code: tdmcp.project.bridge_subtree_missing
+    layer: args
+    message: "No tdmcp_rs COMP subtree found in this project"
+    mitigation:
+      - "Drop bootstrap.tox into the project once (live), then rerun install"
