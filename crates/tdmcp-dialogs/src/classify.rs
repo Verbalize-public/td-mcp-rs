@@ -58,6 +58,20 @@ pub fn is_chrome_title(title: &str) -> bool {
     trimmed == "touchdesigner" || trimmed.starts_with("touchdesigner ")
 }
 
+/// System helper windows that are always visible on some setups and must
+/// never count as popups (live-recorded 2026-08-26: ConsoleWindowClass +
+/// IME helpers tripped the interception gate as three phantom "modals").
+pub const SYSTEM_HELPER_CLASSES: [&str; 4] =
+    ["MSCTFIME UI", "Default IME", "IME", "ConsoleWindowClass"];
+
+/// True when the class is a known system helper window.
+#[must_use]
+pub fn is_system_helper(class: &str) -> bool {
+    SYSTEM_HELPER_CLASSES
+        .iter()
+        .any(|c| class.eq_ignore_ascii_case(c))
+}
+
 /// Main-window candidate heuristic: visible chrome window (hang probes).
 #[must_use]
 pub fn is_main_candidate(win: &SysWindow) -> bool {
@@ -178,6 +192,14 @@ mod tests {
         assert!(!is_chrome_title("Backwards Compatiblity Issue"));
     }
 
+    #[test]
+    fn system_helper_classes_filtered() {
+        assert!(is_system_helper("MSCTFIME UI"));
+        assert!(is_system_helper("default ime"));
+        assert!(is_system_helper("ConsoleWindowClass"));
+        assert!(!is_system_helper("#32770"));
+        assert!(!is_system_helper("Qt5152QWindowIcon"));
+    }
     #[test]
     fn fill_content_picks_longest_static_and_buttons() {
         let base = popup_from_stub("1");

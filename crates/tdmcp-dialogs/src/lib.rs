@@ -147,6 +147,7 @@ impl Win32Source {
         let popups = windows
             .iter()
             .filter(|w| !classify::is_chrome_title(&w.title))
+            .filter(|w| !classify::is_system_helper(&w.class))
             .map(classify::popup_from_window)
             .collect::<Vec<_>>();
         let window_status = if !popups.is_empty() {
@@ -188,6 +189,7 @@ impl Win32Source {
         windows
             .iter()
             .filter(|w| !classify::is_chrome_title(&w.title))
+            .filter(|w| !classify::is_system_helper(&w.class))
             .map(classify::popup_from_window)
             .collect()
     }
