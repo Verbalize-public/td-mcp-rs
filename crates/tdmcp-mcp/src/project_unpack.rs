@@ -138,7 +138,7 @@ pub fn run(args: Value) -> Result<Value, CodedError> {
         .as_ref()
         .map(PathBuf::from)
         .unwrap_or_else(|| default_dest.clone());
-    let dest_toc = sibling_ext(&dest_dir, ".toc");
+    let dest_toc = tdmcp_projectio::toc::toc_path_for(&dest_dir);
 
     // Collision policy BEFORE running anything.
     let mut stash: Vec<(PathBuf, PathBuf)> = Vec::new();

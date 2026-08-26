@@ -83,12 +83,13 @@ pub fn check_expand_dir(dir: &Path) -> Result<Vec<String>, ProjectIoError> {
     Ok(entries)
 }
 
-/// Sibling `.toc` path for an expand dir (`<name>.toe.dir` → `<name>.toe.toc`).
+/// Sibling `.toc` path for an expand dir — official layout strips `.dir`:
+/// `<name>.toe.dir` → `<name>.toe.toc` (V2-0 probe evidence).
 #[must_use]
 pub fn toc_path_for(dir: &Path) -> PathBuf {
-    let mut s = dir.as_os_str().to_os_string();
-    s.push(".toc");
-    PathBuf::from(s)
+    let s = dir.as_os_str().to_string_lossy();
+    let base = s.strip_suffix(".dir").unwrap_or(&s);
+    PathBuf::from(format!("{base}.toc"))
 }
 
 /// Read the TD build string from an expand dir's `.build`
