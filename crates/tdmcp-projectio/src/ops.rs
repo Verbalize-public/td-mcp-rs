@@ -99,10 +99,10 @@ pub fn expand(
 
 /// Collapse `src_dir` into `out` via `tools.collapse`, evidence-checked.
 ///
-/// # Errors
-/// [`ProjectIoError::SrcNotExpandDir`] / toc validation failures on the source;
-/// [`ProjectIoError::DestExists`] when `out` exists; [`ProjectIoError::CollapseOutputMissing`]
-/// when evidence fails (empty/missing output removed).
+/// Naming law: `toecollapse <out>` reads siblings `<out>.dir` / `<out>.toc`,
+/// so when `src_dir` is not already named after `out`, it is COPIED there
+/// first and the staged copies are always removed afterwards (the caller's
+/// `src_dir` never moves).
 pub fn collapse(
     src_dir: &Path,
     out: &Path,
@@ -113,12 +113,32 @@ pub fn collapse(
     if out.exists() {
         return Err(ProjectIoError::DestExists(out.to_path_buf()));
     }
+    let expected_dir = sibling_with_ext(out, ".dir");
+    let expected_toc = sibling_with_ext(out, ".toc");
+    let staged = src_dir != expected_dir || !expected_toc.exists();
+    if staged {
+        // Fresh staging tree named after the output.
+        let _ = std::fs::remove_dir_all(&expected_dir);
+        let _ = std::fs::remove_file(&expected_toc);
+        copy_recursive(src_dir, &expected_dir)?;
+        std::fs::copy(toc::toc_path_for(src_dir), &expected_toc).map_err(|source| {
+            ProjectIoError::Fs {
+                path: expected_toc.clone(),
+                source,
+            }
+        })?;
+    }
     let output = runner
         .run(&tools.collapse, &[out.as_os_str()])
         .map_err(|source| ProjectIoError::Fs {
             path: tools.collapse.clone(),
             source,
-        })?;
+        });
+    if staged {
+        let _ = std::fs::remove_dir_all(&expected_dir);
+        let _ = std::fs::remove_file(&expected_toc);
+    }
+    let output = output?;
     let bytes = out
         .is_file()
         .then(|| std::fs::metadata(out).map(|m| m.len()).unwrap_or(0));
@@ -139,6 +159,33 @@ pub fn collapse(
                 out: out.to_path_buf(),
             })
         }
+    }
+}
+
+fn copy_recursive(src: &Path, dest: &Path) -> Result<(), ProjectIoError> {
+    if src.is_dir() {
+        std::fs::create_dir_all(dest).map_err(|source| ProjectIoError::Fs {
+            path: dest.to_path_buf(),
+            source,
+        })?;
+        for entry in std::fs::read_dir(src).map_err(|source| ProjectIoError::Fs {
+            path: src.to_path_buf(),
+            source,
+        })? {
+            let entry = entry.map_err(|source| ProjectIoError::Fs {
+                path: src.to_path_buf(),
+                source,
+            })?;
+            copy_recursive(&entry.path(), &dest.join(entry.file_name()))?;
+        }
+        Ok(())
+    } else {
+        std::fs::copy(src, dest)
+            .map(|_| ())
+            .map_err(|source| ProjectIoError::Fs {
+                path: dest.to_path_buf(),
+                source,
+            })
     }
 }
 
