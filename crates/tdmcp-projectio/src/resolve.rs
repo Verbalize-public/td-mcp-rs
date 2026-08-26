@@ -45,17 +45,31 @@ fn beside(exe: &Path, name: &str) -> Option<PathBuf> {
     None
 }
 
+/// Versioned install root for a TouchDesigner binary path.
+#[must_use]
+pub fn install_root_from_exe(exe: &Path) -> PathBuf {
+    let path = exe.to_string_lossy();
+    if path.contains(".app/") {
+        let mut current = exe.to_path_buf();
+        while current.parent().is_some() {
+            if current.extension().is_some_and(|e| e == "app") {
+                return current;
+            }
+            current = current.parent().map(Path::to_path_buf).unwrap_or_default();
+        }
+    }
+    exe.parent()
+        .and_then(Path::parent)
+        .map(Path::to_path_buf)
+        .unwrap_or_default()
+}
+
 /// Inspect one candidate exe: which official tools actually exist beside it.
 #[must_use]
 pub fn inspect_install(exe: &Path) -> InstallInfo {
-    let root = exe
-        .parent()
-        .and_then(Path::parent)
-        .map(Path::to_path_buf)
-        .unwrap_or_default();
     InstallInfo {
         exe: exe.to_path_buf(),
-        root,
+        root: install_root_from_exe(exe),
         toeexpand: beside(exe, TOOL_NAMES[0]),
         toecollapse: beside(exe, TOOL_NAMES[1]),
         python: beside(exe, "python"),
@@ -198,11 +212,26 @@ pub fn resolve_tools(
     })
 }
 
-/// Default Program Files scan roots (`%ProgramFiles%\Derivative`, x86 variant).
-///
-/// Deduplicated case-insensitively — on x64, `ProgramW6432` aliases
-/// `ProgramFiles` and would otherwise yield duplicate installs.
+/// Default scan roots for TouchDesigner installs on this platform.
 pub fn default_scan_roots(env: EnvLookup<'_>) -> Vec<PathBuf> {
+    #[cfg(windows)]
+    {
+        windows_scan_roots(env)
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = env;
+        macos_scan_roots()
+    }
+    #[cfg(all(not(windows), not(target_os = "macos")))]
+    {
+        let _ = env;
+        Vec::new()
+    }
+}
+
+#[cfg(windows)]
+fn windows_scan_roots(env: EnvLookup<'_>) -> Vec<PathBuf> {
     let mut roots = Vec::new();
     for var in ["ProgramFiles", "ProgramFiles(x86)", "ProgramW6432"] {
         if let Some(base) = env(var) {
@@ -220,12 +249,34 @@ pub fn default_scan_roots(env: EnvLookup<'_>) -> Vec<PathBuf> {
     roots
 }
 
-/// Enumerate `<root>/TouchDesigner*/bin/TouchDesigner.exe`, newest-version-dir first.
-///
-/// Version ordering heuristic (matches Derivative naming): child directory names
-/// sorted descending lexicographically — `TouchDesigner.2025.33070` before
-/// `TouchDesigner.2025.32460`.
+#[cfg(target_os = "macos")]
+fn macos_scan_roots() -> Vec<PathBuf> {
+    let mut roots = vec![PathBuf::from("/Applications")];
+    if let Some(home) = std::env::var_os("HOME") {
+        roots.push(PathBuf::from(home).join("Applications"));
+    }
+    roots
+}
+
+/// Enumerate TouchDesigner executables under `root`, newest install first.
 pub fn scan_install_exes(root: &Path) -> Vec<PathBuf> {
+    #[cfg(windows)]
+    {
+        windows_scan_install_exes(root)
+    }
+    #[cfg(target_os = "macos")]
+    {
+        macos_scan_install_exes(root)
+    }
+    #[cfg(all(not(windows), not(target_os = "macos")))]
+    {
+        let _ = root;
+        Vec::new()
+    }
+}
+
+#[cfg(windows)]
+fn windows_scan_install_exes(root: &Path) -> Vec<PathBuf> {
     let Ok(entries) = std::fs::read_dir(root) else {
         return Vec::new();
     };
@@ -245,6 +296,28 @@ pub fn scan_install_exes(root: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
+#[cfg(target_os = "macos")]
+fn macos_scan_install_exes(root: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return Vec::new();
+    };
+    let mut apps: Vec<PathBuf> = entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+            p.is_dir()
+                && p.extension().is_some_and(|e| e == "app")
+                && p.file_stem()
+                    .and_then(|n| n.to_str())
+                    .is_some_and(|n| n.starts_with("TouchDesigner"))
+        })
+        .collect();
+    apps.sort_unstable_by(|a, b| b.cmp(a));
+    apps.into_iter()
+        .map(|app| app.join("Contents/MacOS/TouchDesigner"))
+        .collect()
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, reason = "unit tests")]
 mod tests {
@@ -255,6 +328,7 @@ mod tests {
         None
     }
 
+    #[cfg(windows)]
     fn env_map<'a>(map: &'a [(&'a str, &'a str)]) -> impl Fn(&str) -> Option<String> + 'a {
         move |name: &str| {
             map.iter()
@@ -263,6 +337,7 @@ mod tests {
         }
     }
 
+    #[cfg(windows)]
     fn fake_install(root: &Path, version: &str, with_tools: bool) -> PathBuf {
         // Layout mirrors reality: <ProgramFiles>/Derivative/TouchDesigner.<v>/bin
         let dir = root
@@ -308,6 +383,7 @@ mod tests {
         ));
     }
 
+    #[cfg(windows)]
     #[test]
     fn env_pair_beats_scan() {
         let tmp = tempfile::tempdir().unwrap();
@@ -326,6 +402,7 @@ mod tests {
         assert_eq!(t.expand, e);
     }
 
+    #[cfg(windows)]
     #[test]
     fn scan_skips_stub_installs_and_prefers_newest_complete() {
         let pf = tempfile::tempdir().unwrap();
@@ -338,6 +415,7 @@ mod tests {
         assert_ne!(t.expand.parent().unwrap(), stub.parent().unwrap());
     }
 
+    #[cfg(windows)]
     #[test]
     fn missing_everywhere_is_typed_tool_missing() {
         let empty = tempfile::tempdir().unwrap();
@@ -347,6 +425,7 @@ mod tests {
         assert!(matches!(err, ProjectIoError::ToolMissing { .. }));
     }
 
+    #[cfg(windows)]
     #[test]
     fn scan_roots_dedup_aliasing_program_files() {
         let pf = tempfile::tempdir().unwrap();
@@ -356,5 +435,34 @@ mod tests {
         ];
         let envf = env_map(&binding);
         assert_eq!(default_scan_roots(&envf).len(), 1);
+    }
+
+    #[test]
+    fn install_root_from_app_bundle() {
+        let app = PathBuf::from("/Applications/TouchDesigner.2025.32460.app");
+        let exe = app.join("Contents/MacOS/TouchDesigner");
+        assert_eq!(install_root_from_exe(&exe), app);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_scan_finds_newest_app_first() {
+        let apps = tempfile::tempdir().unwrap();
+        for (name, ver) in [("TouchDesigner.2025.32460.app", "a"), ("TouchDesigner.2025.33070.app", "b")] {
+            let macos = apps.path().join(name).join("Contents/MacOS");
+            fs::create_dir_all(&macos).unwrap();
+            fs::write(macos.join("TouchDesigner"), ver.as_bytes()).unwrap();
+            fs::write(macos.join("toeexpand"), b"e").unwrap();
+            fs::write(macos.join("toecollapse"), b"c").unwrap();
+        }
+        let exes = macos_scan_install_exes(apps.path());
+        assert_eq!(exes.len(), 2);
+        assert!(exes[0].to_string_lossy().contains("33070"));
+        let info = inspect_install(&exes[0]);
+        assert_eq!(
+            info.root.file_name().and_then(|n| n.to_str()),
+            Some("TouchDesigner.2025.33070.app")
+        );
+        assert!(info.toeexpand.is_some());
     }
 }

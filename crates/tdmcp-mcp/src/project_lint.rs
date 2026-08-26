@@ -79,7 +79,7 @@ pub fn lint_expand_dir(dir: &Path) -> Vec<LintDiag> {
     let mut listed: BTreeSet<String> = BTreeSet::new();
     for entry in &entries {
         listed.insert(entry.clone());
-        if !dir.join(entry.replace('/', "\\")).exists() {
+        if !tdmcp_projectio::toc::entry_path(dir, entry).exists() {
             out.push(diag(
                 "project.toc_invalid",
                 "error",

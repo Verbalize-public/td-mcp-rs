@@ -60,6 +60,8 @@ pub const DIALOG_DISMISS_FAILED: &str = "tdmcp.dialog.dismiss_failed";
 pub const DIALOG_CHROME_PROTECTED: &str = "tdmcp.dialog.chrome_protected";
 /// Modal popup is blocking the pid's main thread (interception gate).
 pub const DIALOG_BLOCKING: &str = "tdmcp.dialog.blocking";
+/// macOS Accessibility (TCC) not granted for AX automation.
+pub const DIALOG_PERMISSION_DENIED: &str = "tdmcp.dialog.permission_denied";
 
 /// TD process lifecycle family (v2).
 /// Selected install lacks official tools.
@@ -236,6 +238,7 @@ pub const ALL: &[&str] = &[
     DIALOG_DISMISS_FAILED,
     DIALOG_CHROME_PROTECTED,
     DIALOG_BLOCKING,
+    DIALOG_PERMISSION_DENIED,
     SPAWN_EXE_INCOMPLETE,
     SPAWN_FAILED,
     SPAWN_WAIT_TIMEOUT,

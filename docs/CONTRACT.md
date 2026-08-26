@@ -220,7 +220,7 @@ safety net only — the daemon owns the real per-method budgets.
 | `mutate_nodes`              | Ordered create / set / delete / connect / disconnect steps; sequential apply, stop on first hard error | **Shipped**           |
 | `api_help`                  | Live TD Python API cards (class / classes index / thin module) — not wiki/help dumps                   | **Shipped**           |
 | `editor_context`            | Live editor panes + per-pane selection (`ownerPath`, `focused`, `selection`)                           | **Shipped**           |
-| `dialogs`†                 | List / dismiss OS dialogs                                                                              | **Shipped** (v2, Win) |
+| `dialogs`†                 | List / dismiss OS dialogs                                                                              | **Shipped** (v2, Win + macOS) |
 | `td_installs`†             | TouchDesigner installations on disk + tool availability                                                | **Shipped** (v2)      |
 | `project_unpack`†          | `.toe`/`.tox` → expand dir via official toeexpand                                                      | **Shipped** (v2)      |
 | `project_pack`†            | expand dir → packed file via official toecollapse (build-skew guard)                                   | **Shipped** (v2)      |
@@ -230,7 +230,7 @@ safety net only — the daemon owns the real per-method budgets.
 | `kill_td`†                 | Graceful→force kill ladder for a known TD pid                                                          | **Shipped** (v2)      |
 
 † Offline/local tools: no bridge dispatch, session-gate exempt. `dialogs`/`spawn_td`/
-`kill_td` require the platform backend (Windows); fleet rows for spawned pids carry
+`kill_td` use platform backends on Windows and macOS; fleet rows for spawned pids carry
 `spawn` provenance and may show `bridge:"starting"` pre-handshake.
 
 **Still not planned:** sticky / `select_target` / `targetId` / ToeDigest / inject / `call_node` (use `execute_python` for other node method calls; connector wiring is `mutate_nodes` `connect` / `disconnect`).

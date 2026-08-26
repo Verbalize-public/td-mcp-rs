@@ -3,10 +3,12 @@
 //! Backends implement ONLY the functions below; all domain logic lives above
 //! (classify/policy/lib). Adding macOS = implementing this surface there.
 
-#[cfg(not(windows))]
-pub mod macos;
 #[cfg(windows)]
 pub mod windows;
+#[cfg(target_os = "macos")]
+pub mod macos;
+#[cfg(all(not(windows), not(target_os = "macos")))]
+pub mod stub;
 
 /// One visible top-level window of a pid (snapshot-level data).
 #[derive(Debug, Clone, PartialEq, Eq)]

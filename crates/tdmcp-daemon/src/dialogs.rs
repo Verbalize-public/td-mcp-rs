@@ -14,14 +14,18 @@ use tokio::sync::Mutex as AsyncMutex;
 /// Shared state installed into `tdmcp_mcp::dialogs` by the daemon.
 pub type Shared = tdmcp_mcp::dialogs::DialogsShared;
 
-/// Build the platform source: Win32 on Windows, Null elsewhere.
+/// Build the platform source: Win32 on Windows, MacDialogSource on macOS.
 #[must_use]
 pub fn build_source() -> Arc<dyn DialogSource> {
     #[cfg(windows)]
     {
         Arc::new(tdmcp_dialogs::Win32Source::new())
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        Arc::new(tdmcp_dialogs::MacDialogSource::new())
+    }
+    #[cfg(all(not(windows), not(target_os = "macos")))]
     {
         Arc::new(tdmcp_core::NullDialogSource)
     }

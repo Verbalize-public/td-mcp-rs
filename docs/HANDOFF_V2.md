@@ -103,9 +103,10 @@ running; copy the fresh one into place.
 - Deeper round-trip diffing than structural byte-compare re-expand verify —
   de-scoped on purpose ("no round-trip diff engine").
 - td-cli delegation backend discovery/wiring for `project_lint`.
-- macOS dialogs backend (current implementation is Windows-only; policy/
-  classification layers are portable).
 - No caches anywhere in the offline path (user directive).
+
+macOS dialogs backend shipped 2026-08-26 (`MacDialogSource`: CGWindowList +
+Accessibility). Grant TCC Accessibility for describe/dismiss.
 
 ## Where things live
 

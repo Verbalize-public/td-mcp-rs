@@ -19,7 +19,7 @@ use serde_json::{json, Value};
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SpawnTdParams {
-    /// Explicit TouchDesigner.exe (overrides installId/config).
+    /// Explicit TouchDesigner binary (overrides installId/config).
     #[serde(default)]
     pub exe_path: Option<String>,
     /// Install id from `td_installs` (default = newest usable).
@@ -46,7 +46,7 @@ fn default_wait() -> u64 {
 pub struct KillTdParams {
     /// Target pid.
     pub pid: u32,
-    /// `graceful` (WM_CLOSE + grace window) or `force` (TerminateProcess).
+    /// `graceful` (close windows / SIGTERM + grace window) or `force`.
     #[serde(default)]
     pub mode: KillMode,
     /// Grace window for graceful mode (ms).
@@ -76,7 +76,7 @@ use tdmcp_projectio::resolve;
 
 /// Resolved install for a spawn/pack operation.
 pub struct ResolvedInstall {
-    /// TouchDesigner.exe to launch.
+    /// TouchDesigner binary to launch.
     pub exe: PathBuf,
     /// Versioned install dir name (TouchDesigner.<build>).
     pub root_name: Option<String>,
@@ -131,10 +131,9 @@ fn resolve_install(
         message: "no complete TouchDesigner installation found".into(),
         code: "spawn.exe_incomplete",
     })?;
-    let root_name = exe
-        .parent()
-        .and_then(Path::parent)
-        .and_then(|r| r.file_name())
+    let root_name = resolve::inspect_install(&exe)
+        .root
+        .file_name()
         .and_then(std::ffi::OsStr::to_str)
         .map(str::to_string);
     Ok(ResolvedInstall { exe, root_name })
@@ -265,7 +264,50 @@ pub async fn spawn_td(
     }
 }
 
-/// Graceful-then-force kill of a known TD pid. Returns the wire payload.
+/// True when the process image basename is TouchDesigner (any platform).
+fn is_touchdesigner_image(name: &str) -> bool {
+    name.eq_ignore_ascii_case("TouchDesigner.exe") || name.eq_ignore_ascii_case("TouchDesigner")
+}
+
+fn process_alive_check(source: Option<&dyn tdmcp_core::DialogSource>, pid: u32) -> bool {
+    if let Some(s) = source {
+        return s.process_alive(pid);
+    }
+    #[cfg(windows)]
+    {
+        return tdmcp_dialogs::sys::windows::process_alive(pid);
+    }
+    #[cfg(target_os = "macos")]
+    {
+        return tdmcp_dialogs::sys::macos::process_alive(pid);
+    }
+    #[cfg(all(not(windows), not(target_os = "macos")))]
+    {
+        let _ = pid;
+        false
+    }
+}
+
+fn process_image_check(source: Option<&dyn tdmcp_core::DialogSource>, pid: u32) -> Option<String> {
+    if let Some(s) = source {
+        return s.process_image_name(pid);
+    }
+    #[cfg(windows)]
+    {
+        return tdmcp_dialogs::sys::windows::process_image_name(pid);
+    }
+    #[cfg(target_os = "macos")]
+    {
+        return tdmcp_dialogs::sys::macos::process_image_name(pid);
+    }
+    #[cfg(all(not(windows), not(target_os = "macos")))]
+    {
+        let _ = pid;
+        None
+    }
+}
+
+/// Graceful or force kill for a known TouchDesigner pid.
 pub async fn kill_td(
     registry: &Arc<AsyncMutex<PidRegistry>>,
     source: Option<&dyn tdmcp_core::DialogSource>,
@@ -276,9 +318,7 @@ pub async fn kill_td(
     // Known-pid check: registry membership OR image basename is TD.
     let in_registry = registry.lock().await.get(pid).is_some();
     if !in_registry {
-        let is_td = source
-            .and_then(|s| s.process_image_name(pid))
-            .is_some_and(|n| n.eq_ignore_ascii_case("TouchDesigner.exe"));
+        let is_td = process_image_check(source, pid).is_some_and(|n| is_touchdesigner_image(&n));
         if !is_td {
             return Err(CodedError {
                 message: format!("pid {pid} is not a known TD process"),
@@ -289,11 +329,13 @@ pub async fn kill_td(
     if mode == KillMode::Graceful {
         #[cfg(windows)]
         let posted = tdmcp_dialogs::sys::windows::close_pid_windows(pid);
-        #[cfg(not(windows))]
-        let posted = 0;
+        #[cfg(target_os = "macos")]
+        let posted = tdmcp_dialogs::sys::macos::close_pid_windows(pid);
+        #[cfg(all(not(windows), not(target_os = "macos")))]
+        let posted = 0usize;
         let deadline = Instant::now() + Duration::from_millis(grace_ms.max(500));
         loop {
-            let alive = source.is_some_and(|s| s.process_alive(pid));
+            let alive = process_alive_check(source, pid);
             if !alive {
                 return Ok(json!({ "ok": true, "pid": pid, "how": "graceful" }));
             }
@@ -320,10 +362,20 @@ pub async fn kill_td(
             code: "kill.access_denied",
         })
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        if tdmcp_dialogs::sys::macos::terminate_process(pid) {
+            return Ok(json!({ "ok": true, "pid": pid, "how": "force" }));
+        }
+        Err(CodedError {
+            message: format!("SIGKILL failed for {pid}"),
+            code: "kill.access_denied",
+        })
+    }
+    #[cfg(all(not(windows), not(target_os = "macos")))]
     {
         Err(CodedError {
-            message: "force kill unsupported here",
+            message: "force kill unsupported here".into(),
             code: "kill.access_denied",
         })
     }
@@ -336,5 +388,96 @@ impl KillTdParams {
             KillMode::Graceful => "graceful",
             KillMode::Force => "force",
         }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, reason = "unit tests")]
+mod kill_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+    use tdmcp_core::{DialogError, DialogSnapshot, DialogSource, DismissOutcome, PopupInfo};
+    use tokio::sync::Mutex as AsyncMutex;
+
+    struct MockSource {
+        alive: AtomicBool,
+        image: String,
+    }
+
+    impl DialogSource for MockSource {
+        fn snapshot(&self, _pid: u32) -> DialogSnapshot {
+            DialogSnapshot::default()
+        }
+
+        fn describe(&self, _pid: u32, _id: &str) -> Result<PopupInfo, DialogError> {
+            Err(DialogError::Unsupported)
+        }
+
+        fn dismiss(
+            &self,
+            _pid: u32,
+            _id: &str,
+            _button: Option<&str>,
+        ) -> Result<DismissOutcome, DialogError> {
+            Err(DialogError::Unsupported)
+        }
+
+        fn process_image_name(&self, _pid: u32) -> Option<String> {
+            Some(self.image.clone())
+        }
+
+        fn process_alive(&self, _pid: u32) -> bool {
+            self.alive.load(Ordering::SeqCst)
+        }
+    }
+
+    #[tokio::test]
+    async fn rejects_non_td_pid() {
+        let reg = Arc::new(AsyncMutex::new(tdmcp_core::PidRegistry::new()));
+        let src = MockSource {
+            alive: AtomicBool::new(true),
+            image: "Safari".into(),
+        };
+        let err = kill_td(&reg, Some(&src), 42, KillMode::Graceful, 500)
+            .await
+            .unwrap_err();
+        assert_eq!(err.code, "kill.not_td_pid");
+    }
+
+    #[tokio::test]
+    async fn accepts_touchdesigner_basename_without_exe_suffix() {
+        let reg = Arc::new(AsyncMutex::new(tdmcp_core::PidRegistry::new()));
+        let src = MockSource {
+            alive: AtomicBool::new(false),
+            image: "TouchDesigner".into(),
+        };
+        let out = kill_td(&reg, Some(&src), 42, KillMode::Graceful, 500)
+            .await
+            .unwrap();
+        assert_eq!(out["how"], "graceful");
+    }
+
+    #[tokio::test]
+    async fn registry_member_skips_image_check() {
+        let reg = Arc::new(AsyncMutex::new(tdmcp_core::PidRegistry::new()));
+        reg.lock()
+            .await
+            .register_starting(
+                99,
+                tdmcp_core::SpawnRecord {
+                    started_at: chrono::Utc::now(),
+                    exe_path: "/Applications/TouchDesigner.app/Contents/MacOS/TouchDesigner".into(),
+                    expected_project: None,
+                },
+            );
+        let src = MockSource {
+            alive: AtomicBool::new(false),
+            image: "other".into(),
+        };
+        let out = kill_td(&reg, Some(&src), 99, KillMode::Graceful, 500)
+            .await
+            .unwrap();
+        assert_eq!(out["ok"], true);
     }
 }

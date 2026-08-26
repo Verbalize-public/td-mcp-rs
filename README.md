@@ -207,7 +207,7 @@ or ask you to explain your setup.
 
 ## 🗺️ Roadmap
 
-**Shipped (v1)**
+**Shipped (v1 + v2 on Windows and macOS)**
 
 - [x] Multiple TouchDesigner instances, addressed by OS `pid`
 - [x] One shared service for multiple editors (survives editor restarts)
@@ -216,14 +216,13 @@ or ask you to explain your setup.
 - [x] Self-contained delivery — one binary + one drop-in `.tox`
 - [x] Built-in operate skills (served over MCP, or rendered to files)
 - [x] Windows & macOS — tray dashboard / headless modes
+- [x] `dialogs` — list / dismiss OS dialogs (CGWindowList + Accessibility on macOS)
+- [x] Lifecycle — `spawn_td` / `kill_td` with deterministic pid ownership
+- [x] Offline `.toe` / `.tox` editing via official toeexpand/toecollapse
 
 **Planned**
 
-- [ ] `dialogs` — list / dismiss OS dialogs (P1)
-- [ ] Lifecycle — create / start / stop TD projects (P2)
 - [ ] Remote / multi-machine master–slave control (reserved, not v1)
-- [ ] Offline `.toe` / `.tox` editing (out of scope for v1; the adopt path is
-      the drop-in tox)
 
 ---
 

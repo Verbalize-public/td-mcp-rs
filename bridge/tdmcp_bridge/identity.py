@@ -40,6 +40,10 @@ def _process_image() -> str | None:
             n = ctypes.windll.kernel32.GetModuleFileNameW(None, buf, len(buf))
             if n:
                 return buf.value or None
+        elif sys.platform == "darwin":
+            exe = getattr(sys, "executable", None)
+            if exe:
+                return os.path.abspath(exe)
     except Exception:  # noqa: BLE001 — best-effort fingerprint
         pass
     return None
@@ -73,6 +77,55 @@ def _process_start_time() -> str | None:
                     creation.dwLowDateTime
                 )
                 return str(val)
+        elif sys.platform == "darwin":
+            # macOS: sysctl KERN_PROC_PID start time (seconds since epoch).
+            pid = os.getpid()
+            mib = (ctypes.c_int * 4)(
+                1,  # CTL_KERN
+                14,  # KERN_PROC
+                7,  # KERN_PROC_PID
+                pid,
+            )
+            class ProcBsdInfo(ctypes.Structure):
+                _fields_ = [
+                    ("pbi_flags", ctypes.c_uint32),
+                    ("pbi_status", ctypes.c_uint32),
+                    ("pbi_xstatus", ctypes.c_uint32),
+                    ("pbi_pid", ctypes.c_uint32),
+                    ("pbi_ppid", ctypes.c_uint32),
+                    ("pbi_uid", ctypes.c_uint32),
+                    ("pbi_gid", ctypes.c_uint32),
+                    ("pbi_ruid", ctypes.c_uint32),
+                    ("pbi_rgid", ctypes.c_uint32),
+                    ("pbi_svuid", ctypes.c_uint32),
+                    ("pbi_svgid", ctypes.c_uint32),
+                    ("rfu_1", ctypes.c_uint32),
+                    ("pbi_comm", ctypes.c_char * 17),
+                    ("pbi_name", ctypes.c_char * 32),
+                    ("pbi_nfiles", ctypes.c_uint32),
+                    ("pbi_pgid", ctypes.c_uint32),
+                    ("pbi_pjobc", ctypes.c_uint32),
+                    ("e_tdev", ctypes.c_uint32),
+                    ("e_tpgid", ctypes.c_uint32),
+                    ("pbi_nice", ctypes.c_int32),
+                    ("pbi_start_tvsec", ctypes.c_uint64),
+                    ("pbi_start_tvusec", ctypes.c_uint64),
+                ]
+
+            info = ProcBsdInfo()
+            size = ctypes.c_size_t(ctypes.sizeof(info))
+            if (
+                ctypes.CDLL(None).sysctl(
+                    mib,
+                    4,
+                    ctypes.byref(info),
+                    ctypes.byref(size),
+                    None,
+                    0,
+                )
+                == 0
+            ):
+                return str(int(info.pbi_start_tvsec))
         else:
             # Linux /proc; macOS has no /proc — leave None on failure.
             st = os.stat("/proc/self")
@@ -107,7 +160,7 @@ def _identity_snapshot() -> IdentitySnapshot:
         )
     except Exception:  # noqa: BLE001 — outside TD or project unavailable
         pass
-    image = _process_image() or "TouchDesigner.exe"
+    image = _process_image() or ("TouchDesigner.exe" if sys.platform.startswith("win") else "TouchDesigner")
     return {
         "title": title,
         "toe_path": toe_path,
@@ -129,7 +182,7 @@ def handshake(
         "protocolVersion": __protocol_version__,
         "title": title,
         "toePath": toe_path,
-        "image": image if image is not None else "TouchDesigner.exe",
+        "image": image if image is not None else ("TouchDesigner.exe" if sys.platform.startswith("win") else "TouchDesigner"),
         "startTime": start_time,
     }
     _write_frame(stream, req)

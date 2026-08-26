@@ -858,7 +858,14 @@ entries:
     layer: args
     message: "Dialogs backend unavailable on this platform/feature-off"
     mitigation:
-      - "Windows only today; check [dialogs].enabled and daemon build"
+      - "Check [dialogs].enabled and daemon build; Windows and macOS ship backends"
+
+  - code: tdmcp.dialog.permission_denied
+    layer: args
+    message: "macOS Accessibility permission not granted for AX automation"
+    mitigation:
+      - "System Settings → Privacy & Security → Accessibility → enable tdmcp-daemon"
+      - "Window listing via CGWindowList still works; describe/dismiss need AX"
 
   - code: tdmcp.dialog.not_found
     layer: args

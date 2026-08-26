@@ -40,6 +40,12 @@ pub fn parse(path: &Path) -> Result<Vec<String>, ProjectIoError> {
     Ok(entries)
 }
 
+/// Portable `.toc` entry → filesystem path under an expand root.
+#[must_use]
+pub fn entry_path(root: &Path, entry: &str) -> PathBuf {
+    entry.split('/').fold(root.to_path_buf(), |acc, seg| acc.join(seg))
+}
+
 /// Validate entries against their expand root: no absolute paths, no `..`
 /// climbs, no backslashes. Returns [`ProjectIoError::TocEscape`] on violation.
 pub fn validate_entries(root: &Path, entries: &[String]) -> Result<(), ProjectIoError> {
@@ -54,7 +60,7 @@ pub fn validate_entries(root: &Path, entries: &[String]) -> Result<(), ProjectIo
                 entry: entry.clone(),
             });
         }
-        let joined = root.join(entry.replace('/', "\\"));
+        let joined = entry_path(root, entry);
         // Path must stay inside root (redundant after the checks above; belt+braces).
         if !joined.starts_with(root) {
             return Err(ProjectIoError::TocEscape {
@@ -157,6 +163,16 @@ mod tests {
             Err(ProjectIoError::TocEscape { .. })
         ));
         assert!(validate_entries(root.path(), &["ok.n".into(), "sub/dir/x.text".into()]).is_ok());
+    }
+
+    #[test]
+    fn entry_path_joins_nested_segments_portably() {
+        let root = PathBuf::from("/tmp/expand");
+        let joined = entry_path(&root, "project1/tdmcp_rs/bootstrap.text");
+        assert_eq!(
+            joined,
+            PathBuf::from("/tmp/expand/project1/tdmcp_rs/bootstrap.text")
+        );
     }
 
     #[test]

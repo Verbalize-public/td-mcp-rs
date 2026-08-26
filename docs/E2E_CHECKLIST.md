@@ -247,3 +247,21 @@ in `bridge/tdmcp_bridge/__init__.py` and covered by `bridge/tests/test_bridge_qu
 Evidence transcripts: session log 2026-08-26; artifacts under
 `fixtures/v2-probes/r0/`. Known degraded subsets recorded in the blocked ledger
 of [`V2_IMPLEMENTATION_PLAN.md`](V2_IMPLEMENTATION_PLAN.md) — none open.
+
+## macOS — Project I/O / Lifecycle / Dialogs (port 2026-08-26)
+
+Shell probes: [`scripts/probes/v2-macos/`](../scripts/probes/v2-macos/). Run
+`run-smoke.sh` with daemon up; full V1–V10 need local TouchDesigner + sample `.toe`.
+
+| # | Check | Result |
+| --- | --- | --- |
+| V1 | `td_installs` — discovers `/Applications/TouchDesigner*.app` with tool files | unit + probe |
+| V2 | `project_unpack` sample `.toe` → canonical toc | probe (manual) |
+| V3 | `project_pack` dir → packed; build-skew guard | probe (manual) |
+| V4 | `project_install_bridge` force on copy | probe (manual) |
+| V5 | `project_lint` on packed `.toe` (staged expand) | probe (manual) |
+| V6 | `spawn_td` → handshake + fleet provenance | probe (manual) |
+| V7 | `kill_td graceful` / force | probe (manual) |
+| V8 | `dialogs list` returns popups + `accessibilityGranted` | probe (manual) |
+| V9 | Intercept `tdmcp.dialog.blocking` during modal + dismiss recovery | probe (manual, TCC) |
+| V10 | `fleet` + `describe_tools` lists 16 tools | probe |

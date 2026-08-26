@@ -44,12 +44,22 @@ pub fn run_with(
     match params.action {
         DialogsAction::List => {
             let snap = shared.source.snapshot(params.pid);
-            Ok(json!({
+            let mut out = json!({
                 "ok": true,
                 "pid": params.pid,
                 "windowStatus": snap.window_status,
                 "popups": snap.popups,
-            }))
+            });
+            #[cfg(target_os = "macos")]
+            {
+                out["accessibilityGranted"] = json!(tdmcp_dialogs::sys::macos::accessibility_trusted());
+                if out["accessibilityGranted"] == json!(false) {
+                    out["permissionHint"] = json!(
+                        "Grant Accessibility for tdmcp-daemon in System Settings → Privacy & Security → Accessibility"
+                    );
+                }
+            }
+            Ok(out)
         }
         DialogsAction::Describe => {
             let id = params
@@ -102,6 +112,10 @@ fn dialog_err(e: tdmcp_core::DialogError) -> (&'static str, String) {
         ChromeProtected { id } => (
             "tdmcp.dialog.chrome_protected",
             format!("{id} is protected main chrome"),
+        ),
+        PermissionDenied => (
+            "tdmcp.dialog.permission_denied",
+            "macOS Accessibility permission required for describe/dismiss (System Settings → Privacy & Security → Accessibility)".into(),
         ),
     }
 }

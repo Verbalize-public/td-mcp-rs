@@ -776,7 +776,7 @@ async fn run_daemon(
     let bridge: Arc<dyn tdmcp_mcp::BridgeRpc> = Arc::new(sessions.clone());
 
     // Dialogs watcher (v2 D1): daemon-side popup sampling + window_status fill.
-    if cfg.dialogs.enabled && cfg!(windows) {
+    if cfg.dialogs.enabled {
         let shared = Arc::new(tdmcp_daemon::dialogs::Shared {
             source: tdmcp_daemon::dialogs::build_source(),
             snapshots: std::sync::Mutex::new(std::collections::HashMap::new()),

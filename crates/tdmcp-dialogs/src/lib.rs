@@ -3,11 +3,11 @@
 //! Platform backends behind one narrow `sys` facade; everything above the
 //! facade (classification, dismiss ladder, budgets) is portable and
 //! unit-tested without an OS. Windows ships first (user32 now, UIA content
-//! fill-in next); macOS implements the same facade later.
+//! fill-in next); macOS implements the same facade via CGWindowList + AX.
 //!
 //! # Unsafe policy (constitution carve-out)
 //!
-//! ALL `unsafe` lives under [`sys`] (Windows FFI shim). The public API of this
+//! ALL `unsafe` lives under [`sys`] (platform FFI shim). The public API of this
 //! crate is 100% safe. Every unsafe block carries a `// SAFETY:` comment.
 
 pub mod classify;
@@ -19,10 +19,12 @@ use std::time::{Duration, Instant};
 
 use tdmcp_core::{DialogError, DialogSnapshot, DialogSource, DismissOutcome, PopupInfo};
 
-#[cfg(not(windows))]
-use crate::sys::macos as platform;
 #[cfg(windows)]
 use crate::sys::windows as platform;
+#[cfg(target_os = "macos")]
+use crate::sys::macos as platform;
+#[cfg(all(not(windows), not(target_os = "macos")))]
+use crate::sys::stub as platform;
 
 /// Budgets (DIALOGS.md §5.2): snapshot is on the watcher hot path.
 pub const SNAPSHOT_BUDGET: Duration = Duration::from_millis(150);
@@ -116,16 +118,24 @@ fn ask<T>(
     rx.recv_timeout(budget).ok()
 }
 
-/// Windows backend source: cached snapshots through the serialized worker.
+/// Platform backend source: cached snapshots through the serialized worker.
 ///
 /// Fail-open everywhere: probe timeouts degrade to empty snapshots / typed
 /// errors, never block or worsen a healthy call (DIALOGS.md §7).
-pub struct Win32Source {
+pub struct PlatformDialogSource {
     worker: mpsc::Sender<Job>,
     cache: std::sync::Mutex<std::collections::HashMap<u32, (Instant, DialogSnapshot)>>,
 }
 
-impl Win32Source {
+/// Windows alias (public API stability).
+#[cfg(windows)]
+pub type Win32Source = PlatformDialogSource;
+
+/// macOS alias.
+#[cfg(target_os = "macos")]
+pub type MacDialogSource = PlatformDialogSource;
+
+impl PlatformDialogSource {
     /// Create the source and its dedicated worker thread.
     pub fn new() -> Self {
         Self {
@@ -213,22 +223,47 @@ impl Win32Source {
         )
         .unwrap_or_default()
     }
+
+    /// Verify-gone loop (POC lesson: never fire-and-forget). Errors carry the
+    /// still-open id when the window survives the whole ladder.
+    fn verify_gone(&self, pid: u32, id: &str, deadline: Instant) -> Result<(), DialogError> {
+        while Instant::now() < deadline {
+            std::thread::sleep(VERIFY_DELAY);
+            if !self.snapshot_popups_only(pid).iter().any(|p| p.id == id) {
+                self.cache
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .remove(&pid);
+                return Ok(());
+            }
+        }
+        Err(DialogError::DismissFailed { id: id.to_string() })
+    }
+
+    /// Safe image-name query used by `kill_td` pid verification.
+    pub fn process_image_name(&self, pid: u32) -> Option<String> {
+        ask(
+            &self.worker,
+            |r| Job::ImageName { pid, resp: r },
+            DESCRIBE_BUDGET,
+        )
+        .flatten()
+    }
 }
 
-impl Default for Win32Source {
+impl Default for PlatformDialogSource {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl DialogSource for Win32Source {
+impl DialogSource for PlatformDialogSource {
     fn process_image_name(&self, pid: u32) -> Option<String> {
-        // Plain Kernel32 query - safe on any thread (no COM needed).
-        crate::sys::windows::process_image_name(pid)
+        platform::process_image_name(pid)
     }
 
     fn process_alive(&self, pid: u32) -> bool {
-        crate::sys::windows::process_alive(pid)
+        platform::process_alive(pid)
     }
 
     fn snapshot(&self, pid: u32) -> DialogSnapshot {
@@ -249,6 +284,10 @@ impl DialogSource for Win32Source {
     }
 
     fn describe(&self, _pid: u32, id: &str) -> Result<PopupInfo, DialogError> {
+        #[cfg(target_os = "macos")]
+        if !platform::accessibility_trusted() {
+            return Err(DialogError::PermissionDenied);
+        }
         let children = self.children_of(id);
         Ok(classify::fill_content(
             classify::popup_from_stub(id),
@@ -262,6 +301,10 @@ impl DialogSource for Win32Source {
         id: &str,
         button: Option<&str>,
     ) -> Result<DismissOutcome, DialogError> {
+        #[cfg(target_os = "macos")]
+        if !platform::accessibility_trusted() {
+            return Err(DialogError::PermissionDenied);
+        }
         let deadline = Instant::now() + DISMISS_BUDGET;
         let popup = self.find_popup(pid, id)?;
         if popup.is_main_chrome {
@@ -311,33 +354,5 @@ impl DialogSource for Win32Source {
                 })
             }
         }
-    }
-}
-
-impl Win32Source {
-    /// Verify-gone loop (POC lesson: never fire-and-forget). Errors carry the
-    /// still-open id when the window survives the whole ladder.
-    fn verify_gone(&self, pid: u32, id: &str, deadline: Instant) -> Result<(), DialogError> {
-        while Instant::now() < deadline {
-            std::thread::sleep(VERIFY_DELAY);
-            if !self.snapshot_popups_only(pid).iter().any(|p| p.id == id) {
-                self.cache
-                    .lock()
-                    .unwrap_or_else(|p| p.into_inner())
-                    .remove(&pid);
-                return Ok(());
-            }
-        }
-        Err(DialogError::DismissFailed { id: id.to_string() })
-    }
-
-    /// Safe image-name query used by `kill_td` pid verification (plan K5).
-    pub fn process_image_name(&self, pid: u32) -> Option<String> {
-        ask(
-            &self.worker,
-            |r| Job::ImageName { pid, resp: r },
-            DESCRIBE_BUDGET,
-        )
-        .flatten()
     }
 }

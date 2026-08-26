@@ -225,7 +225,7 @@ pub struct OfficialToolsSection {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct DialogsSection {
-    /// Master switch: popup watcher + `dialogs` tool (Windows).
+    /// Master switch: popup watcher + `dialogs` tool (Windows and macOS).
     pub enabled: bool,
     /// Fail bridged tool calls fast while a modal blocks the TD main thread.
     pub intercept: bool,

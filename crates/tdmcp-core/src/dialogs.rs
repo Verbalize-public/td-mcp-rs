@@ -121,6 +121,8 @@ pub enum DialogError {
         /// Protected target id.
         id: String,
     },
+    /// macOS Accessibility permission missing (TCC).
+    PermissionDenied,
 }
 
 impl core::fmt::Display for DialogError {
@@ -131,6 +133,9 @@ impl core::fmt::Display for DialogError {
             DialogError::DismissFailed { id } => write!(f, "dismiss failed, still open: {id}"),
             DialogError::ChromeProtected { id } => {
                 write!(f, "target is protected main chrome: {id}")
+            }
+            DialogError::PermissionDenied => {
+                write!(f, "accessibility permission denied (macOS TCC)")
             }
         }
     }

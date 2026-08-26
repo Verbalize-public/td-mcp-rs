@@ -62,6 +62,7 @@ mod tests {
     use super::*;
     use std::fs;
 
+    #[cfg(windows)]
     fn fake_install(pf: &std::path::Path, version: &str, tools: bool) {
         let bin = pf
             .join("Derivative")
@@ -76,6 +77,7 @@ mod tests {
         }
     }
 
+    #[cfg(windows)]
     #[test]
     fn scan_marks_stub_incomplete_and_newest_complete_default() {
         let pf = tempfile::tempdir().unwrap();
@@ -106,6 +108,7 @@ mod tests {
         assert_eq!(full["default"], true);
     }
 
+    #[cfg(windows)]
     #[test]
     fn empty_scan_yields_empty_installs() {
         let pf = tempfile::tempdir().unwrap();
@@ -118,5 +121,28 @@ mod tests {
         };
         let out = run(&envf);
         assert!(out["installs"].as_array().unwrap().is_empty());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_app_scan_marks_complete_and_default() {
+        let apps = tempfile::tempdir().unwrap();
+        let macos = apps
+            .path()
+            .join("TouchDesigner.2025.32460.app")
+            .join("Contents/MacOS");
+        fs::create_dir_all(&macos).unwrap();
+        fs::write(macos.join("TouchDesigner"), b"x").unwrap();
+        fs::write(macos.join("toeexpand"), b"e").unwrap();
+        fs::write(macos.join("toecollapse"), b"c").unwrap();
+
+        let exes = resolve::scan_install_exes(apps.path());
+        assert_eq!(exes.len(), 1);
+        let info = resolve::inspect_install(&exes[0]);
+        assert!(info.toeexpand.is_some());
+        assert_eq!(
+            info.root.file_name().and_then(|n| n.to_str()),
+            Some("TouchDesigner.2025.32460.app")
+        );
     }
 }

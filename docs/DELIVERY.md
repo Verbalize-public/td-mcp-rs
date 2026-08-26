@@ -99,7 +99,7 @@ uninstalls.
 | Workflow | Trigger | What |
 | --- | --- | --- |
 | `ci.yml` | every push (any branch) | Windows gate: fmt/clippy/tests/pytest |
-| `ci.yml` | daily cron + dispatch + main pushes | macOS clippy/tests/pytest (minutes ≈10× Linux — kept off per-branch pushes) |
+| `ci.yml` | daily cron + dispatch + main pushes | macOS `cargo test --workspace` (includes `tdmcp-dialogs` compile) + pytest |
 | `ci.yml` | dispatch | MSRV 1.88 check |
 | `ci.yml` | daily cron | `cargo deny check` + `cargo audit` |
 | `release.yml` | tag `v*` | full pipeline above |

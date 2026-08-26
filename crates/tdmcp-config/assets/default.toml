@@ -105,8 +105,9 @@ idle_dead_secs = 20
 # collapse_path = "C:/Program Files/Derivative/TouchDesigner.2025.32460/bin/toecollapse.exe"
 
 [dialogs]
-# Daemon-side popup detection (Windows): fail bridged calls fast while a
-# modal blocks TD's main thread, and expose the `dialogs` tool for triage.
+# Daemon-side popup detection: fail bridged calls fast while a modal blocks
+# TD's main thread, and expose the `dialogs` tool for triage.
+# macOS: grant Accessibility for tdmcp-daemon (System Settings) for describe/dismiss.
 enabled = true
 # Fail-fast interception of bridged tool calls while a popup is open.
 intercept = true

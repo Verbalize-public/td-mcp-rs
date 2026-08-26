@@ -176,6 +176,46 @@ pub(crate) fn settings(app: &mut DashboardApp, ui: &mut egui::Ui) {
                 );
             });
 
+            section_card(ui, "DIALOGS", false, |ui| {
+                row_wide(
+                    ui,
+                    "Enabled",
+                    DashboardApp::field_help("dialogs.enabled"),
+                    |ui| {
+                        ui.checkbox(&mut app.draft.dialogs.enabled, "");
+                    },
+                );
+                row_wide(
+                    ui,
+                    "Intercept bridged calls",
+                    DashboardApp::field_help("dialogs.intercept"),
+                    |ui| {
+                        ui.checkbox(&mut app.draft.dialogs.intercept, "");
+                    },
+                );
+                row_wide(
+                    ui,
+                    "Poll interval (ms)",
+                    DashboardApp::field_help("dialogs.poll_ms"),
+                    |ui| {
+                        ui.add(
+                            egui::DragValue::new(&mut app.draft.dialogs.poll_ms)
+                                .range(250..=10_000)
+                                .speed(50),
+                        );
+                    },
+                );
+                #[cfg(target_os = "macos")]
+                if app.draft.dialogs.enabled {
+                    ui.add_space(6.0);
+                    banner(
+                        ui,
+                        BannerTone::Warn,
+                        "macOS: enable Accessibility for tdmcp-daemon in System Settings → Privacy & Security → Accessibility (required for describe/dismiss; list still works via CGWindowList)",
+                    );
+                }
+            });
+
             section_card(ui, "ADVANCED", false, |ui| {
                 row_wide(
                     ui,

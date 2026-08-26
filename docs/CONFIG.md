@@ -233,11 +233,22 @@ idle_dead_secs = 20
 # td_exe / expand_path / collapse_path (expand+collapse must be set together)
 
 [dialogs]
-enabled   = true   # popup watcher + `dialogs` tool (Windows)
+enabled   = true   # popup watcher + `dialogs` tool (Windows + macOS)
 intercept = true   # fail bridged calls fast while a modal blocks TD
 poll_ms   = 1000
 ```
 
+**macOS Accessibility:** describe/dismiss need TCC permission. Open System Settings →
+Privacy & Security → Accessibility and enable `tdmcp-daemon`. Window listing works
+without it (CGWindowList); the `dialogs list` response includes
+`accessibilityGranted`.
+
 Absence of `[official_tools]` triggers env (`TDMCP_TOEEXPAND`,
-`TDMCP_TOECOLLAPSE`, `TDMCP_TOUCHDESIGNER_EXE`) then a Program Files scan that
-validates actual tool files (stub installs are skipped).
+`TDMCP_TOECOLLAPSE`, `TDMCP_TOUCHDESIGNER_EXE`) then a platform scan:
+
+| OS | Scan roots | Layout |
+| --- | --- | --- |
+| Windows | `%ProgramFiles%/Derivative/TouchDesigner.*` | `.../bin/TouchDesigner.exe` + tools |
+| macOS | `/Applications`, `~/Applications` | `TouchDesigner.*.app/Contents/MacOS/TouchDesigner` + tools |
+
+Stub installs (missing toeexpand/toecollapse files) are skipped.
