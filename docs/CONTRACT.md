@@ -115,7 +115,7 @@ Handshake returns a local FS path to the bridge package directory. TD reloads fr
 | Discovery       | `fleet` lists by `pid` + **title** (`project.name`) + **toePath** (`folder`+`name`), bridge, tasks, traces                          |
 | Identity source | Filled at bridge handshake from a main-thread snapshot; stale until reconnect (no mid-session refresh)                              |
 | Fingerprint     | Best-effort `image` + `startTime`; when **both** sides omit `startTime`, require a shared `title` or `image` (empty/empty ≠ match) |
-| Deferred        | `windowStatus` and `fleet` `popups` — empty until P1 `dialogs` (Win)                                                                |
+| Popups          | `windowStatus` and `fleet` `popups` ship (v2, Windows + macOS); empty when the dialogs backend is disabled or unsupported |
 | Usable          | `bridge: "connected"` ⇒ any caller may address that `pid`                                                                           |
 | Addressing      | Process-scoped tools require `pid`                                                                                                  |
 | IPC loss        | Mark disconnected; cancel waits; stack cancelled-task trace; remove from fleet after **15s** TTL or when **any** handshake succeeds |
@@ -263,6 +263,14 @@ Structured success is **flat tool fields** with a single outer `ok` (bridge may 
 | `capture`        | Image modes: `{ ok: true, path, bytes, mimeType, imageBase64?, maxSize?, mode?, family? }` + MCP image content when PNG present (`imageBase64` stripped from structured after promotion). `chop_data`: `{ ok: true, path, mode, family, numChans, numSamples, rate?, channels:[{name, samples}], truncation? }` (structured only; no image) |
 | `fleet`          | tool-specific fleet object (no shared shell)                                                                                                                                                                                                                                                                                     |
 | `describe_tools` | tool-specific catalog object (no shared shell)                                                                                                                                                                                                                                                                                   |
+| `td_installs` | `{ ok: true, installs: [{ installId, versionLabel, rootPath, exePath, tools: { toeexpand, toecollapse, python }, complete, default? }] }` |
+| `project_unpack` | `{ ok: true, expandDir, tocPath, entries, exitCode, warnings? }` — `warnings` notes a non-zero exit whose artifacts still verified |
+| `project_pack` | `{ ok: true, outPath, bytes, exitCode, sourceBuild, toolBuild }` |
+| `project_lint` | `{ ok, target, targetKind, diagnostics: [{ code, severity, path, message }], counts: { errors, warnings }, backends: { native, tdCli } }` — `ok` is `errors == 0`, not "the call worked" |
+| `project_install_bridge` | `{ ok: true, updated: true, created, rewritten, bytes }`, or `{ ok: true, updated: false, message }` when `strategy=ensure` already matched |
+| `dialogs` | `list`: `{ ok: true, pid, windowStatus, popups, accessibilityGranted?, permissionHint? }` (last two macOS only) · `describe`: `{ ok: true, pid, popup }` · `dismiss`: `{ ok: true, pid, dismissed, via, stillOpen }` |
+| `spawn_td` | `{ ok: true, pid, handshake: { title, toePath }, startupDialogs? }`, or a **successful result with `ok: false`** carrying `outcome: "wait_timeout"` (+ `stillAlive`, `startupDialogs`) / `"exited_early"` (+ `exitCode`) |
+| `kill_td` | `{ ok: true, pid, how: "graceful" or "force" }` |
 
 
 Failures (all bridge-backed tools): `{ ok: false, summary, items, … }` via diagnostics flatten. Mutate soft-fail splices `applied` / `failedAt` / `steps` **flat** (not under `data`). Soft perception fails (black/uniform frame) use `isError` + diagnostics + image content — that path is separate from success nesting.
@@ -279,7 +287,7 @@ Failures (all bridge-backed tools): `{ ok: false, summary, items, … }` via dia
 | default / omit | identity (`pid`, `title?`, `toePath?`) + `bridge`; also `cancelledTasks` / `resurrected` / `lastDisconnectAt` only when non-default |
 | `tasks`        | queue snapshot; **omitted when empty**                                                                                              |
 | `cancelled`    | accepted for forward-compat; cancelled stack still emits whenever non-empty (not gated today)                                       |
-| `popups`       | deferred / empty until P1                                                                                                           |
+| `popups`       | per-pid popup list + `windowStatus` from the daemon dialogs snapshot; **omitted** when no snapshot exists for that pid |
 
 
 Unknown `include` values are **rejected** at arg validation — structured failure with `tdmcp.args.unknown_variant` listing allowed values (not a protocol error).

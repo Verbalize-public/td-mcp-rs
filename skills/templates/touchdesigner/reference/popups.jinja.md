@@ -21,6 +21,15 @@ daemon-side and fails calls fast instead of letting them time out blind.
 | soft | "Backwards Compatiblity Issue" (TD's own typo) | usually safe after reading; still explicit |
 | unknown | unclassified | treat as soft-until-read |
 
+## macOS
+
+Window listing works unprivileged (CGWindowList), but **describe and dismiss
+need Accessibility (TCC)**. The `list` response carries
+`accessibilityGranted`; when false it also carries `permissionHint`. Ungranted
+means you can see that TD is blocked and by what window title, but cannot read
+buttons or click them — hand that to the user rather than looping.
+`tdmcp.dialog.permission_denied` is the code you get if you try anyway.
+
 ## Safety rails
 
 - Main chrome is protected (`tdmcp.dialog.chrome_protected`).
@@ -29,3 +38,13 @@ daemon-side and fails calls fast instead of letting them time out blind.
   costs milliseconds, not budget timeouts.
 - Spawned processes are watched from t=0 — startup modals (version/compat/
   licence) are visible even before any handshake.
+
+## Related
+
+- Startup modals after spawn: {{ skill("lifecycle") }}
+- Busy vs blocked bridged calls: {{ skill("tooling-concurrency") }}
+- Stalled cooking that is *not* a popup: {{ skill("play-state") }}
+
+---
+
+**Canonical:** {{ skill("popups") }}

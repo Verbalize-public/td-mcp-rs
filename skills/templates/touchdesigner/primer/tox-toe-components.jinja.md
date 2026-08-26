@@ -7,6 +7,11 @@
 | `.toe` | Project file |
 | `.tox` | Component package (reusable network) |
 
+Both are opaque TD binaries. Nothing outside TouchDesigner can read or patch
+them by hand — go through the official tools, which td-mcp-rs wraps as
+`project_unpack` / `project_pack` / `project_lint` / `project_install_bridge`
+(offline, no running TD). Depth: {{ skill("project-io") }}.
+
 Clone Master / External Tox reload are project packaging features — see Derivative
 docs when cloning or externalizing. Agents operating live should still follow
 In/Out + relative-ref rules inside reusable COMPs.
@@ -24,6 +29,8 @@ Full checklist: {{ skill("component-checklist") }}.
 
 - {{ skill("component-checklist") }}
 - {{ skill("network-design") }}
+- Offline unpack / pack / bridge install: {{ skill("project-io") }}
+- Opening a `.toe` to verify it: {{ skill("lifecycle") }}
 - Wiki: https://docs.derivative.ca/ (search Tox / Component)
 
 ---

@@ -105,6 +105,25 @@ running; copy the fresh one into place.
 - td-cli delegation backend discovery/wiring for `project_lint`.
 - No caches anywhere in the offline path (user directive).
 
+## Known spec deviations (audited 2026-08-26 — decide, don't rediscover)
+
+These are places the shipped code does **not** match
+`SKILLS_CONTRACT_PROPOSAL.md`. Docs and skill cards now describe the *shipped*
+behavior; the spec still describes the intent. Close the gap or amend the spec.
+
+- **`tdmcp.spawn.blocked_by_dialog` is never emitted.** Spec §3.6.5 wants
+  timeout-with-popups to be its own coded failure. Reality: `spawn_td` returns
+  `Ok({ok:false, outcome:"wait_timeout", stillAlive, startupDialogs})` — the
+  agent discriminates on `startupDialogs` being non-empty. The code constant
+  exists in `codes.rs` + `catalog.yaml` with zero call sites.
+  `tdmcp.spawn.exited_early` is dead the same way (`outcome:"exited_early"`
+  instead). Changing this flips a soft result into a hard error — a wire-shape
+  change that needs a live probe, so it was left alone.
+- **Fleet `owner: "external"|"spawned"` (spec §4.4) is not implemented.**
+  Spawned rows carry `spawn: {startedAt, exePath}`; `owner` is absent. Only a
+  permissive assertion in `fleet.rs` tests references it.
+- **`spawn_td` success payload omits `installId` and `waitedMs`** (spec §3.6.5).
+
 macOS dialogs backend shipped 2026-08-26 (`MacDialogSource`: CGWindowList +
 Accessibility). Grant TCC Accessibility for describe/dismiss.
 
@@ -122,7 +141,7 @@ Accessibility). Grant TCC Accessibility for describe/dismiss.
 | Sidecar codec (27-byte envelope) | `crates/tdmcp-projectio/src/sidecar.rs` |
 | Tool dispatch entries | `crates/tdmcp-mcp/src/tools.rs` |
 | Spawn/kill services | `crates/tdmcp-mcp/src/lifecycle.rs` |
-| Dialog watcher sweep | `crates/tdmcp-daemon/src/watcher.rs` |
+| Dialog watcher sweep | `crates/tdmcp-daemon/src/dialogs.rs` (`run_dialogs_watcher`) |
 
 ## Four-copies bootstrap warning still applies
 

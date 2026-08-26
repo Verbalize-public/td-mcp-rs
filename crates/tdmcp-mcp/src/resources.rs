@@ -24,6 +24,10 @@ Before OpSketch / multi-node mutate: resources/read tdmcp://docs/opsketch-notati
 Before execute_python or expressions: resources/read tdmcp://docs/python-api. \
 DoD / look: tdmcp://docs/definition-of-done , tdmcp://docs/look-grade. \
 Paused / stale: tdmcp://docs/play-state. \
+No connected pid? `spawn_td` / `kill_td` — tdmcp://docs/lifecycle. \
+Calls stalling or a modal popup? `dialogs` — tdmcp://docs/popups. \
+Offline .toe/.tox, installs, bridge install: `td_installs` / `project_unpack` / \
+`project_pack` / `project_lint` / `project_install_bridge` — tdmcp://docs/project-io. \
 Operate umbrella: tdmcp://docs/operate. \
 List all cards via resources/list.";
 
@@ -36,6 +40,9 @@ Never parallel bridged calls on the same pid (tdmcp://docs/tooling-concurrency).
 Prefer `inspect` over Python walks. \
 Before OpSketch: resources/read tdmcp://docs/opsketch-notation. \
 Before Python: resources/read tdmcp://docs/python-api. \
+No connected pid? `spawn_td` / `kill_td` — tdmcp://docs/lifecycle. \
+Calls stalling or a modal popup? `dialogs` — tdmcp://docs/popups. \
+Offline .toe/.tox, installs, bridge install: tdmcp://docs/project-io. \
 Operate pack: tdmcp://docs/operate ; full catalog: resources/list. \
 Tool calls forward to the HTTP daemon; operate docs are served locally from the embed. \
 If the daemon restarts, the proxy reconnects (never auto-spawns) and returns \

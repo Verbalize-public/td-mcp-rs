@@ -68,6 +68,12 @@ make it pass.
 | Tool-call arg-error diagnostics (`tdmcp.args.*`) | [`docs/TOOL_ERROR_PLAN.md`](docs/TOOL_ERROR_PLAN.md) |
 | GUI overhaul plan (active work spec) | [`docs/GUI_OVERHAUL_PLAN.md`](docs/GUI_OVERHAUL_PLAN.md) |
 | Payload limits audit / artifact-spool plan (base64 → file delivery) | [`docs/LIMITS_AUDIT.md`](docs/LIMITS_AUDIT.md) + [`docs/PAYLOAD_SPOOL_PLAN.md`](docs/PAYLOAD_SPOOL_PLAN.md) |
+| **Start here after a handoff** | [`docs/HANDOFF_V2.md`](docs/HANDOFF_V2.md) |
+| v2 tools spec (project I/O, lifecycle, dialogs) | [`docs/SKILLS_CONTRACT_PROPOSAL.md`](docs/SKILLS_CONTRACT_PROPOSAL.md) + [`docs/V2_IMPLEMENTATION_PLAN.md`](docs/V2_IMPLEMENTATION_PLAN.md) |
+| Dialogs design / dismiss ladder | [`docs/DIALOGS.md`](docs/DIALOGS.md) |
+| Agent skill cards (authoring contract) | [`skills/README.md`](skills/README.md) |
+| Test layout / what runs where | [`docs/TESTING.md`](docs/TESTING.md) |
+| E2E acceptance rows | [`docs/E2E_CHECKLIST.md`](docs/E2E_CHECKLIST.md) |
 
 ### Build / check
 

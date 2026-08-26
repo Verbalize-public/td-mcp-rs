@@ -207,7 +207,7 @@ impl ToolName {
                 "List/describe/dismiss OS popups owned by a TD pid. list returns popups+windowStatus; dismiss runs the ladder (button label/id optional, default button otherwise) and verifies the window is gone. Main chrome is protected."
             }
             Self::SpawnTd => {
-                "Spawn TouchDesigner and deterministically wait for THAT pid's bridge handshake (never another instance). Registers pre-handshake so fleet shows it immediately. Startup popups are surfaced in the payload, never auto-dismissed; timeout with popups present yields spawn.blocked_by_dialog."
+                "Spawn TouchDesigner and deterministically wait for THAT pid's bridge handshake (never another instance). Registers pre-handshake so fleet shows it immediately. Non-handshake outcomes return ok:false with an `outcome` field (`wait_timeout` + stillAlive, or `exited_early` + exitCode) — not a diagnostic code. Startup popups ride along as `startupDialogs`, surfaced and never auto-dismissed: a wait_timeout carrying startupDialogs means a modal is blocking the handshake — dismiss via `dialogs`, then poll fleet for that pid rather than spawning again."
             }
             Self::KillTd => {
                 "Kill a known TouchDesigner pid: graceful WM_CLOSE first (graceMs window), then mode=force as explicit opt-in. Refuses pids that are neither registered nor TouchDesigner.exe."
@@ -216,7 +216,7 @@ impl ToolName {
                 "Sanity-check a project: .toc strict-LF parse + filesystem consistency, duplicate entries, and tdmcp_rs bridge DAT presence. A packed .toe/.tox is auto-expanded into a private temp staging dir (cleaned up; the input is never touched). Optionally delegates deep checks to td-cli when available."
             }
             Self::ProjectInstallBridge => {
-                "Install/override the tdmcp bridge inside a packed .toe/.tox: backs up the original, rewrites the three bridge DAT bodies (bootstrap/callbacks/tdmcp_exec) with the daemon's embedded sources, verifies by targeted re-expand, then replaces atomically."
+                "Install/override the tdmcp bridge inside a packed .toe/.tox: backs up the original, rewrites the three bridge DAT bodies (bootstrap/callbacks/tdmcp_exec) with the daemon's embedded sources, verifies by targeted re-expand, then replaces atomically. When the project has no bridge, one is created from the shipped bootstrap.tox under an unambiguous host COMP (returns created:true); an ambiguous project fails tdmcp.project.bridge_subtree_missing instead of guessing. strategy defaults to force; ensure skips when payloads already match."
             }
         }
     }

@@ -68,7 +68,15 @@ editing a card, hold these:
   `skill_read("id")` — never a literal `.md` path or a vague "mcp skill"
   phrase. The lint test
   (`cargo test -p tdmcp-mcp template_pack_cross_references_are_well_formed`)
-  enforces this and that every id exists in the MANIFEST.
+  enforces this, that every id exists in the MANIFEST, and that every card
+  carries `## Related` + a `**Canonical:**` line.
+- **Reachable from the umbrella.** A new card is not shipped until something
+  links to it — a routing row in `SKILL.jinja.md`, or a cross-link from a card
+  that already is reachable. In MCP mode an orphan is merely buried in
+  `resources/list`; in filesystem-export mode `SKILL.md` is the *only* entry
+  point, so an orphan is a dead file no agent will ever open.
+  `every_card_is_reachable_from_the_umbrella` walks `skill()` /
+  `skill_read()` from `operate` and fails on anything it cannot reach.
 - **One skeleton.** Every card: `# <H1 matching the MANIFEST title>` → one-line
   orientation sentence naming the handle/tool → body → `## Related` → canonical
   line at the bottom. Non-trivial cards carry a Definition of Done checklist

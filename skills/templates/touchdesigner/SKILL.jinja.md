@@ -25,6 +25,9 @@ Also available as {{ skill("operate") }}.
 | Perception / look claims | `capture` |
 | TD Python / opType cards | `api_help` |
 | Tool manifest | `describe_tools` |
+| No TD running / start or stop one | `spawn_td` / `kill_td` — {{ skill("lifecycle") }} |
+| Calls stalling, TD wedged, startup modal | `dialogs` — {{ skill("popups") }} |
+| Offline `.toe`/`.tox`, installs, bridge install | `td_installs` / `project_unpack` / `project_pack` / `project_lint` / `project_install_bridge` — {{ skill("project-io") }} |
 | On-demand operate cards | {% if _mode == "filesystem" %}open the card's `.md` file (Resource index below){% else %}MCP `resources/read` `tdmcp://docs/<id>`{% endif %} |
 
 Lookup routing: exact opType/class → `api_help`; parameter **names** on an
@@ -35,6 +38,8 @@ first.
 ## Target identification
 
 1. `fleet` → pick a connected `pid` (and `daemonId` when the fleet shows multiple daemons). Pass `pid` on every call; pass `daemonId` when federated / ambiguous.
+   No connected pid? Start one with `spawn_td` — never wait for a human.
+   Depth: {{ skill("lifecycle") }}.
 2. Resolve a mutation zone: prefer a self-created named COMP over polluting an
    existing network; user-named subtree; or `editor_context` `ownerPath` as a
    **hint only** — confirm with `inspect` before mutating. Depth:
@@ -184,3 +189,6 @@ Look claims: {{ skill("look-grade") }}.
 | tox / toe | {{ skill("primer/tox-toe-components") }} |
 | GLSL / render chain | {{ skill("primer/glsl-and-render") }} |
 | Performance | {{ skill("primer/performance") }} |
+| Spawn / kill TD | {{ skill("lifecycle") }} |
+| Popup triage | {{ skill("popups") }} |
+| Offline project I/O | {{ skill("project-io") }} |
