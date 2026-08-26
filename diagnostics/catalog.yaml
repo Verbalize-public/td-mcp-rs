@@ -849,9 +849,10 @@ entries:
 
   - code: tdmcp.project.bridge_subtree_missing
     layer: args
-    message: "No tdmcp_rs COMP subtree found in this project"
+    message: "No tdmcp_rs COMP subtree, and no host COMP to create one in"
     mitigation:
-      - "Drop bootstrap.tox into the project once (live), then rerun install"
+      - "project_install_bridge creates the subtree automatically when the expand root has a project1 (.toe) or a single root COMP (.tox)"
+      - "Otherwise drop bootstrap.tox into the project once (live), then rerun install"
 
   - code: tdmcp.dialog.unsupported
     layer: args

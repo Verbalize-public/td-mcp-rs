@@ -242,6 +242,7 @@ in `bridge/tdmcp_bridge/__init__.py` and covered by `bridge/tests/test_bridge_qu
 | V7 | Real modal forced via ctypes thread → `execute_python` fails fast `tdmcp.dialog.blocking`; `dialogs dismiss` OK clears it; bridged call recovers (result 42) | PASS |
 | V8 | Helper-window false positives (ConsoleWindowClass/IME/MSCTFIME UI) filtered after live observation (`aee72da`) | PASS |
 | V9 | Final handoff smokes over `POST /mcp/rpc`: all 8 v2 tools listed; `td_installs` 3-row dedup; `dialogs list` per-pid on a non-TD process returns popups + `windowStatus`; `project_lint` on packed `.toe` — exposed missing auto-unpack wiring, fixed (staged temp-dir expand) and re-verified: `ok:true, targetKind:"packed"`, staging cleaned | PASS |
+| V10 | `project_install_bridge` create-from-scratch: bridge-less `.toe` (4,970 B) → `created:true`, 15,498 B, lint clean, real TD spawn handshakes, `inspect /project1/tdmcp_rs` shows all 10 children with correct opTypes; same loop green for `.tox` (update + create) after fixing `.toe`-hardcoded staging names; half-present bridge (`tdmcp_rs.n` listed, subtree gone) repaired to the same 15,498 B with no duplicate `.toc` entries, spawn + inspect green | PASS |
 
 Evidence transcripts: session log 2026-08-26; artifacts under
 `fixtures/v2-probes/r0/`. Known degraded subsets recorded in the blocked ledger

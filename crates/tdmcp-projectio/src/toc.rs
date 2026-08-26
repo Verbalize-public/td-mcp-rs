@@ -30,7 +30,9 @@ pub fn parse(path: &Path) -> Result<Vec<String>, ProjectIoError> {
     let mut entries = Vec::new();
     for line in text.split('\n') {
         let line = line.strip_suffix('\n').unwrap_or(line);
-        if line.is_empty() {
+        // `.tox` tocs open with a `# <n> ...` header line; it is metadata,
+        // not an entry, and must never be treated as a path.
+        if line.is_empty() || line.starts_with('#') {
             continue;
         }
         entries.push(line.to_string());
@@ -117,7 +119,7 @@ mod tests {
     fn parses_strict_lf_entries() {
         let dir = tempfile::tempdir().unwrap();
         let p = dir.path().join("x.toc");
-        fs::write(&p, b".build\nproject1.n\nlocal/maps.n\n").unwrap();
+        fs::write(&p, b"# 4 0 0 0 1\n.build\nproject1.n\nlocal/maps.n\n").unwrap();
         let e = parse(&p).unwrap();
         assert_eq!(e, vec![".build", "project1.n", "local/maps.n"]);
     }

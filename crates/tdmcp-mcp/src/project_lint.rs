@@ -114,15 +114,7 @@ pub fn lint_expand_dir(dir: &Path) -> Vec<LintDiag> {
 
     // Bridge subtree presence: the three DAT bodies must exist. Payload
     // identity vs embedded sources is checked by project_install_bridge.
-    let bridge_dir = dir.join("project1").join("tdmcp_rs");
-    if !bridge_dir.is_dir() {
-        out.push(diag(
-            "project.bridge_subtree_missing",
-            "error",
-            bridge_dir.display(),
-            "no tdmcp_rs COMP subtree",
-        ));
-    } else {
+    if let Some(bridge_dir) = crate::project_install::find_subtree(dir) {
         for dat in ["bootstrap.text", "callbacks.text", "tdmcp_exec.text"] {
             let p = bridge_dir.join(dat);
             if !p.exists() {
@@ -134,6 +126,13 @@ pub fn lint_expand_dir(dir: &Path) -> Vec<LintDiag> {
                 ));
             }
         }
+    } else {
+        out.push(diag(
+            "project.bridge_subtree_missing",
+            "error",
+            dir.display(),
+            "no tdmcp_rs COMP subtree",
+        ));
     }
     out
 }

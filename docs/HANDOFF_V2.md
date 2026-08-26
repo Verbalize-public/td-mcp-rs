@@ -100,7 +100,6 @@ running; copy the fresh one into place.
 
 ## Deliberately NOT done (P3/backlog, agreed de-scopes)
 
-- Create-from-scratch bridge injection (needs grammar-authoring probe, plan §7 R3).
 - Deeper round-trip diffing than structural byte-compare re-expand verify —
   de-scoped on purpose ("no round-trip diff engine").
 - td-cli delegation backend discovery/wiring for `project_lint`.

@@ -211,10 +211,15 @@ Install or override the tdmcp bridge inside a given `.toe`/`.tox`. Closes four-c
     **targeted verify**: re-expand to a second staging dir and byte-compare the two rewritten
     `.text` files + `.toc` equality → atomic replace. Only existing files are rewritten, so
     `.toc` content never changes in V2-F.
-    Missing subtree ⇒ `project.bridge_subtree_missing` pointing at the P3 carry-over.
-  - **P3 — create-from-scratch:** additionally author `.n`/`.parm`/`.network` entries for a
-    fresh `tdmcp_rs` COMP (Text DATs `bootstrap`/`callbacks`, Execute DAT `tdmcp_exec`
-    pulsing Start/Create/FrameStart/Exit). Gated on the grammar-authoring probe (§7 R3).
+  - **P3 — create-from-scratch (shipped):** a missing subtree is materialized instead of
+    refused. The shipped `bootstrap.tox` is expanded in staging and TD's own grammar files
+    are copied into the host COMP dir (`project1` for a `.toe`, the single root COMP for a
+    `.tox`), with their `.toc` lines appended (strict LF, position-free per §6.1 R3). **No
+    `.n`/`.parm` text is hand-authored** — TouchDesigner stays the author of its own grammar,
+    which retires the R3 authoring risk rather than accepting it. The three DAT bodies are
+    then rewritten and verified on the normal path, so `created:true` installs get the same
+    re-expand byte-compare as updates. `project.bridge_subtree_missing` now fires only when
+    the expand root has no unambiguous host COMP.
 - Result: `{ updated: bool, previousHash, newHash, backupPath?, verify }`.
 - Annotations: destructive (rewrites the project file) — mitigated by mandatory backup.
 - Source of truth for contents: the same embedded `bridge/` package the daemon ships
@@ -344,7 +349,7 @@ follow the uniform envelope, `references[]` support, and `tdmcp.args.*` shape-er
 Notable mappings: `project.tool_missing` carries the scanned search locations
 (config/env/paths tried); `project.build_skew` names both builds and the opt-out flag;
 `spawn.exited_early` carries the child exit code; `spawn.blocked_by_dialog` embeds the popup
-list; `project.bridge_subtree_missing` references the P3 roadmap card.
+list; `project.bridge_subtree_missing` now means "no unambiguous host COMP to install into".
 
 ### 4.4 Fleet schema extension
 
@@ -405,12 +410,11 @@ project-file, process-management, and dialog-triage tasks.
 | **V2-C** offline I/O tools | `td_installs`, `project_unpack`, `project_pack`; config `[official_tools]` | V2-A |
 | **V2-D** dialogs ship | Watcher task (predicate `{starting, connected}`), snapshot cache, `dialogs` tool, interception gate, `[dialogs]` config = DIALOGS.md M2–M4 | V2-B |
 | **V2-E** lifecycle tools | `spawn_td` (startup-dialog surfacing + outcome taxonomy), `kill_td` (popup-aware graceful timeout) | V2-B; popup payloads richer with V2-D but functional without |
-| **V2-F** quality tools | `project_lint`, `project_install_bridge` (update-existing), backups dir | V2-C |
+| **V2-F** quality tools | `project_lint`, `project_install_bridge` (update-existing + create-from-scratch), backups dir | V2-C |
 | **V2-G** docs & E2E | CONTRACT/README/CONFIG updates, skills cards per §5, E2E checklist incl. DIALOGS.md M5 live-dialog row and a foreign-build-project open (compat-popup e2e) | each feature phase |
 
 C/D run in parallel; E may land before D (degrades to plain timeouts, never wrong ones).
-P3 carry-over unchanged: bridge create-from-scratch injection (gated on V2-0 R3), deeper
-round-trip diffing. Each phase lands with catalog codes, docs, tests
+P3 carry-over: deeper round-trip diffing (create-from-scratch injection shipped — §3.5). Each phase lands with catalog codes, docs, tests
 (`FakeOfficialRunner`-style injectable runner for CI, fake `DialogSource` for watcher tests),
 and a live smoke against the 2025.32460 install.
 
@@ -458,9 +462,10 @@ Evidence: `fixtures/v2-probes/` + reusable scripts under `scripts/probes/v2/`.
   startup dialogs are surfaced, never auto-dismissed; DIALOGS.md §7 risk table (UIPI, hwnd
   reuse, save-prompt loss) applies unchanged to the shared watcher.
 - **R3 — grammar authoring risk.** Creating brand-new nodes from text templates is easy to get
-  subtly wrong (flags, defaults). **V2-0 R3 round-trip PASSED** for a minimal COMP (§6.1);
-  V2-F stays update-existing; P3 create-from-scratch is unblocked but still lands behind its
-  own live-TD validation suite.
+  subtly wrong (flags, defaults). **V2-0 R3 round-trip PASSED** for a minimal COMP (§6.1),
+  but create-from-scratch shipped by *sidestepping* authoring entirely: it expands the shipped
+  `bootstrap.tox` and copies TD's own files (§3.5). The risk is retired, not mitigated — there
+  is no template to drift. Live-validated end to end (E2E V10).
 - **R4 — version skew.** Expand grammar may shift between TD builds; record
   `toolVersion`/build in every result; pin per-operation via `installId`; never mix installs
   within one unpack→pack cycle (enforced in `tdmcp-projectio`).
