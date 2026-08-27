@@ -92,8 +92,13 @@ pub(crate) struct DashboardApp {
     pub(crate) ignore_focus_loss_until: Option<Instant>,
     /// Last tray toggle gesture (debounce burst events).
     pub(crate) last_tray_toggle_at: Option<Instant>,
-    /// Right-click Down hid the popup — suppress Up from reopening (anti-blink).
+    /// Left-click Down hid the popup — suppress Up from reopening (anti-blink).
     pub(crate) tray_popup_close_on_up: bool,
+    /// A pending single left-click opens the glance popup at this instant,
+    /// unless a DoubleClick lands first and claims the gesture.
+    pub(crate) tray_popup_open_at: Option<Instant>,
+    /// DoubleClick consumed the gesture — swallow the trailing Click Up.
+    pub(crate) tray_swallow_left_up: bool,
     /// Last tray icon rect for anchoring.
     pub(crate) last_tray_rect: Option<tray_icon::Rect>,
     /// Shared with the daemon thread — when set, close the event loop for real.
@@ -278,6 +283,8 @@ impl DashboardApp {
             ignore_focus_loss_until: None,
             last_tray_toggle_at: None,
             tray_popup_close_on_up: false,
+            tray_popup_open_at: None,
+            tray_swallow_left_up: false,
             last_tray_rect: None,
             quit,
             show_psk: false,
@@ -584,7 +591,8 @@ impl DashboardApp {
         }
     }
 
-    /// Tray left-click: open the dashboard or raise/focus it when already open.
+    /// Tray double-click / menu: open the dashboard or raise/focus it when
+    /// already open.
     pub(crate) fn open_or_focus_dashboard(&mut self, ctx: &egui::Context) {
         let id = dashboard::viewport_id();
         if self.dashboard_open {
@@ -865,6 +873,7 @@ impl eframe::App for DashboardApp {
         }
         self.handle_close_request(ctx);
         self.handle_tray_events(ctx);
+        self.flush_pending_tray_popup(ctx);
         self.handle_focus_loss(ctx);
         let due = self
             .last_poll
@@ -924,7 +933,7 @@ impl eframe::App for DashboardApp {
                     // Actual remaining space, not a WINDOW_MAX_HEIGHT-derived
                     // cap: with auto_shrink(false) the area fills max_height,
                     // which pushed the footer off-screen in short windows.
-                    .max_height((ui.available_height() - crate::popup::FOOTER_H).max(0.0))
+                    .max_height((ui.available_height() - crate::popup::FOOTER_BLOCK_H).max(0.0))
                     .show(ui, |ui| {
                         ui.add_space(crate::theme::sp::SM);
                         self.draw_summary(ui);

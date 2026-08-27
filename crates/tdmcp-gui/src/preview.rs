@@ -69,7 +69,7 @@ impl eframe::App for PreviewApp {
                     app.draw_header(ui);
                     egui::ScrollArea::vertical()
                         .auto_shrink(false)
-                        .max_height((ui.available_height() - crate::popup::FOOTER_H).max(0.0))
+                        .max_height((ui.available_height() - crate::popup::FOOTER_BLOCK_H).max(0.0))
                         .show(ui, |ui| {
                             ui.add_space(crate::theme::sp::SM);
                             app.draw_summary(ui);

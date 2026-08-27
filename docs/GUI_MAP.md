@@ -263,7 +263,7 @@ per-OS `reveal_in_file_manager` (explorer/open/xdg-open),
    **left click opens the dashboard**, **right click toggles the glance
    panel** near the tray (`on_tray_popup_toggle`, Up-event filtered).
    Daemon Stop/Restart live in the dashboard DAEMON card; no MenuItem /
-   MenuEvent plumbing remains. Verification gotcha: at >100% display scale a non-DPI-aware PrintWindow captures
+   MenuEvent plumbing remains. *(Superseded by pass 11.)* Verification gotcha: at >100% display scale a non-DPI-aware PrintWindow captures
    only the top-left logical crop of the physical window — size the
    bitmap from a DPI-aware GetWindowRect before trusting "missing UI".
 8. ✅ Pass 8 glance-card read-only + crash reports: the popup's last
@@ -320,6 +320,21 @@ per-OS `reveal_in_file_manager` (explorer/open/xdg-open),
     the area fill and pushed the new footer off-screen. Popup default height
     260 → 304. Preview harness gained `popup`, `popup-stop-confirm`,
     `overview-narrow` (800px) and `overview-many` (7 procs) scenes.
+
+11. ✅ Pass 11 — tray gestures reshuffled to the platform norm: **single left
+    click opens the glance popup**, **double left click opens the dashboard**,
+    and **right click opens a real context menu** (Dashboard · Stop · Restart)
+    — reinstating the MenuItem/MenuEvent plumbing pass 7 removed. Windows
+    sends `Down, Up, DoubleClick, Up` for a double click, so the single-click
+    open is armed on Up and fires `TRAY_DOUBLE_CLICK_GRACE` (300 ms) later
+    unless a `DoubleClick` claims the gesture; the trailing `Up` is swallowed
+    so it cannot re-arm the popup behind the dashboard. macOS emits no
+    `DoubleClick` for status items — there the popup's `⛶` or the menu is the
+    way into the dashboard. Three unit tests in `tray.rs` cover the sequence.
+    Footer fix: the popup reserved only `FOOTER_H` out of the scroll budget
+    while `draw_action_footer` also drew a leading gap, so the action row sat
+    flush against the window edge — `FOOTER_BLOCK_H` now reserves the gap and
+    the trailing `sp::SM` breathing room too.
 
 ## 8. Remaining open items
 

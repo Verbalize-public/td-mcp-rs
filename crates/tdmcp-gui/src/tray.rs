@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use eframe::egui;
 use tracing::{info, warn};
+use tray_icon::menu::{Menu, MenuEvent, MenuItem};
 use tray_icon::{Icon, MouseButton, MouseButtonState, Rect, TrayIconBuilder, TrayIconEvent};
 
 use crate::app::DashboardApp;
@@ -13,6 +14,17 @@ use crate::theme::WINDOW_WIDTH;
 
 /// Coalesce tray click bursts so double events cannot flip twice.
 const TRAY_TOGGLE_DEBOUNCE: Duration = Duration::from_millis(250);
+/// Hold a single left click this long before opening the glance popup, so the
+/// second half of a double click can claim the gesture for the dashboard
+/// instead. Windows' own double-click time defaults to 500ms; a shorter grace
+/// keeps the popup snappy, and a late DoubleClick still hides the popup and
+/// opens the dashboard.
+const TRAY_DOUBLE_CLICK_GRACE: Duration = Duration::from_millis(300);
+
+/// Context-menu item ids (`MenuEvent` carries only the id).
+const MENU_DASHBOARD: &str = "tray.dashboard";
+const MENU_STOP: &str = "tray.stop";
+const MENU_RESTART: &str = "tray.restart";
 
 pub(crate) struct RgbaIcon {
     pub(crate) rgba: Vec<u8>,
@@ -54,9 +66,19 @@ impl DashboardApp {
             return;
         }
         self.pending_tray = false;
-        // No context menu: left click = dashboard, right click = glance panel
-        // (see `handle_tray_events`). Daemon Stop/Restart live in the
-        // dashboard's DAEMON card.
+        // Right click = context menu (below); left click = glance popup,
+        // double click = dashboard (see `handle_tray_events`).
+        let menu = Menu::new();
+        let items = [
+            MenuItem::with_id(MENU_DASHBOARD, "Dashboard", true, None),
+            MenuItem::with_id(MENU_STOP, "Stop", true, None),
+            MenuItem::with_id(MENU_RESTART, "Restart", true, None),
+        ];
+        for item in &items {
+            if let Err(e) = menu.append(item) {
+                warn!(error = %e, "tray menu append failed");
+            }
+        }
         let icon = match tray_icon_from(&self.icon_normal) {
             Ok(i) => i,
             Err(e) => {
@@ -67,6 +89,10 @@ impl DashboardApp {
         match TrayIconBuilder::new()
             .with_tooltip("td-mcp-rs")
             .with_icon(icon)
+            .with_menu(Box::new(menu))
+            // Left click stays ours (popup / dashboard); the menu is right-click
+            // only.
+            .with_menu_on_left_click(false)
             // Do not set template mode: our PNGs are full-color opaque RGB.
             // macOS template icons need black+alpha shapes; template+opaque
             // color assets often render as an invisible menu-bar item.
@@ -92,7 +118,7 @@ impl DashboardApp {
         true
     }
 
-    /// Tray right-click Down: hide the glance panel when open. Hiding on Down
+    /// Tray left-click Down: hide the glance panel when open. Hiding on Down
     /// (not Up) avoids a focus-loss → Up reopen blink.
     fn on_tray_popup_down(&mut self, ctx: &egui::Context) {
         if self.visible {
@@ -101,10 +127,11 @@ impl DashboardApp {
         } else {
             self.tray_popup_close_on_up = false;
         }
+        self.tray_popup_open_at = None;
     }
 
-    /// Tray right-click Up: open the glance panel when closed (unless Down
-    /// just closed it for this gesture).
+    /// Tray left-click Up: arm the glance panel to open after the double-click
+    /// grace (unless Down just closed it for this gesture).
     fn on_tray_popup_up(&mut self, ctx: &egui::Context, tray_rect: Rect) {
         if !self.tray_click_debounced() {
             return;
@@ -112,43 +139,84 @@ impl DashboardApp {
         self.last_tray_rect = Some(tray_rect);
 
         if !self.visible && !self.tray_popup_close_on_up {
-            self.show_window(ctx, Some(tray_rect));
+            let at = Instant::now() + TRAY_DOUBLE_CLICK_GRACE;
+            self.tray_popup_open_at = Some(at);
+            ctx.request_repaint_after(TRAY_DOUBLE_CLICK_GRACE);
         }
         self.tray_popup_close_on_up = false;
+    }
+
+    /// Tray left double-click: cancel the armed popup and open the dashboard.
+    fn on_tray_double_click(&mut self, ctx: &egui::Context) {
+        self.tray_popup_open_at = None;
+        self.tray_swallow_left_up = true;
+        if self.visible {
+            self.hide_window(ctx);
+        }
+        self.open_or_focus_dashboard(ctx);
+    }
+
+    /// Open the glance popup once the double-click grace has elapsed with no
+    /// DoubleClick. Called every tick from the app loop.
+    pub(crate) fn flush_pending_tray_popup(&mut self, ctx: &egui::Context) {
+        if self
+            .tray_popup_open_at
+            .is_some_and(|at| Instant::now() >= at)
+        {
+            self.tray_popup_open_at = None;
+            if !self.visible {
+                self.show_window(ctx, None);
+            }
+        }
     }
 
     pub(crate) fn handle_tray_events(&mut self, ctx: &egui::Context) {
         while let Ok(event) = TrayIconEvent::receiver().try_recv() {
             match event {
-                // Left click opens/focuses the dashboard; DoubleClick ignored.
+                // Left click toggles the glance panel near the tray. Down hides
+                // when open; Up arms the open — split so focus-loss on Down
+                // cannot make Up reopen immediately.
                 TrayIconEvent::Click {
                     button: MouseButton::Left,
-                    button_state: MouseButtonState::Up,
-                    ..
-                } => {
-                    if self.tray_click_debounced() {
-                        self.open_or_focus_dashboard(ctx);
-                    }
-                }
-                // Right click toggles the glance panel near the tray.
-                // Down hides when open; Up opens when closed — split so
-                // focus-loss on Down cannot make Up reopen immediately.
-                TrayIconEvent::Click {
-                    button: MouseButton::Right,
                     button_state: MouseButtonState::Down,
                     ..
                 } => {
                     self.on_tray_popup_down(ctx);
                 }
                 TrayIconEvent::Click {
-                    button: MouseButton::Right,
+                    button: MouseButton::Left,
                     button_state: MouseButtonState::Up,
                     rect,
                     ..
                 } => {
+                    // Windows sends Down, Up, DoubleClick, Up for a double
+                    // click — the trailing Up must not re-arm the popup.
+                    if std::mem::take(&mut self.tray_swallow_left_up) {
+                        continue;
+                    }
                     self.on_tray_popup_up(ctx, rect);
                 }
+                // Double click opens the full dashboard and cancels the popup.
+                // macOS never emits DoubleClick for status items; there the
+                // popup's ⛶ button (or the menu) is the way in.
+                TrayIconEvent::DoubleClick {
+                    button: MouseButton::Left,
+                    ..
+                } => {
+                    self.on_tray_double_click(ctx);
+                }
                 _ => {}
+            }
+        }
+
+        // Right click shows the context menu (tray-icon handles the popup
+        // itself); we only act on the chosen item.
+        while let Ok(event) = MenuEvent::receiver().try_recv() {
+            match event.id.0.as_str() {
+                MENU_DASHBOARD => self.open_or_focus_dashboard(ctx),
+                MENU_STOP => self.shutdown_daemon(),
+                MENU_RESTART => self.restart_daemon(),
+                other => warn!(id = other, "unknown tray menu id"),
             }
         }
     }
@@ -214,5 +282,104 @@ impl DashboardApp {
         ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(
             x as f32, y as f32,
         )));
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, reason = "unit tests")]
+mod tests {
+    use std::sync::atomic::AtomicBool;
+    use std::sync::Arc;
+
+    use super::*;
+    use crate::app::DashboardApp;
+
+    fn app() -> DashboardApp {
+        let tmp = std::env::temp_dir();
+        let icon = || RgbaIcon {
+            rgba: vec![0, 0, 0, 255],
+            width: 1,
+            height: 1,
+        };
+        let mut app = DashboardApp::new(
+            "http://127.0.0.1:9860".to_owned(),
+            tmp.clone(),
+            icon(),
+            icon(),
+            Arc::new(AtomicBool::new(false)),
+            tmp.join("tdmcp-tray-test-config.toml"),
+            egui::IconData {
+                width: 1,
+                height: 1,
+                rgba: vec![0, 0, 0, 255],
+            },
+        )
+        .expect("build app");
+        app.pending_tray = false;
+        app.pending_initial_hide = false;
+        app
+    }
+
+    fn rect() -> Rect {
+        Rect::default()
+    }
+
+    /// Force the armed popup due without sleeping through the grace.
+    fn expire_grace(app: &mut DashboardApp) {
+        if app.tray_popup_open_at.is_some() {
+            app.tray_popup_open_at = Some(Instant::now());
+        }
+    }
+
+    #[test]
+    fn single_left_click_opens_popup_after_grace() {
+        let ctx = egui::Context::default();
+        let mut app = app();
+
+        app.on_tray_popup_down(&ctx);
+        app.on_tray_popup_up(&ctx, rect());
+        // Armed, not open — the double-click grace has not elapsed.
+        assert!(app.tray_popup_open_at.is_some());
+        assert!(!app.visible);
+
+        expire_grace(&mut app);
+        app.flush_pending_tray_popup(&ctx);
+        assert!(app.visible);
+        assert!(!app.dashboard_open);
+    }
+
+    #[test]
+    fn double_click_opens_dashboard_and_never_the_popup() {
+        let ctx = egui::Context::default();
+        let mut app = app();
+
+        // Windows order: Down, Up, DoubleClick, Up.
+        app.on_tray_popup_down(&ctx);
+        app.on_tray_popup_up(&ctx, rect());
+        app.on_tray_double_click(&ctx);
+        assert!(
+            std::mem::take(&mut app.tray_swallow_left_up),
+            "trailing Up is swallowed"
+        );
+
+        expire_grace(&mut app);
+        app.flush_pending_tray_popup(&ctx);
+        assert!(!app.visible, "popup must not open behind the dashboard");
+        assert!(app.dashboard_open);
+    }
+
+    #[test]
+    fn left_click_on_open_popup_closes_without_rearming() {
+        let ctx = egui::Context::default();
+        let mut app = app();
+        app.visible = true;
+
+        app.on_tray_popup_down(&ctx);
+        assert!(!app.visible);
+        app.on_tray_popup_up(&ctx, rect());
+
+        expire_grace(&mut app);
+        app.flush_pending_tray_popup(&ctx);
+        assert!(!app.visible, "Up must not reopen what Down just closed");
     }
 }

@@ -147,9 +147,11 @@ You should see your project appear in the `fleet` view with a connected status.
   running in your system tray even if the editor closes.
 - By default it stays resident (`keep_alive = true`); set `keep_alive = false`
   in `config.toml` (or tray Settings) to auto-exit after ~30s idle instead.
-- **Tray:** left-click opens the dashboard window; right-click toggles a
-  compact glance card near the tray. **Stop** lives on the dashboard's DAEMON
-  card (or `tdmcp-daemon stop`) — closing windows only hides them.
+- **Tray:** left-click toggles a compact glance card near the tray;
+  double-click opens the dashboard window; right-click opens a context menu
+  (Dashboard · Stop · Restart). **Stop** also lives on the glance card footer
+  and the dashboard's DAEMON card (or `tdmcp-daemon stop`) — closing windows
+  only hides them.
 - Headless: `tdmcp-daemon start --port 9860 --no-gui` or `TDMCP_NO_GUI=1`.
 
 | Command | What it does |

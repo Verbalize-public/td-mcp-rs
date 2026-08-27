@@ -3,7 +3,7 @@
 //! The body stays a read-only glance (pass-8): navigation (`⛶`/`⚙`) and report
 //! links only. Pass 10 added a footer carrying the daemon lifecycle actions
 //! (Stop / Restart / Reveal .tox), so the controls a user reaches for most are
-//! one right-click away instead of buried in a dashboard tab.
+//! one tray click away instead of buried in a dashboard tab.
 
 use eframe::egui;
 
@@ -23,6 +23,12 @@ pub(crate) const HEADER_H: f32 = 34.0;
 pub(crate) const HEADER_ACTIONS_W: f32 = 64.0;
 /// Bottom action-footer height (px).
 pub(crate) const FOOTER_H: f32 = 38.0;
+/// What the pinned footer actually costs the column: the layout's
+/// `item_spacing.y` gap above it (`sp::XS`, see [`crate::theme::apply`]), the
+/// footer row, and the breathing room below. Callers reserve this — not bare
+/// [`FOOTER_H`] — out of the scroll budget, or the actions sit flush against
+/// the window edge.
+pub(crate) const FOOTER_BLOCK_H: f32 = crate::theme::sp::XS + FOOTER_H + crate::theme::sp::SM;
 /// Popup glance caps — depth lives in the dashboard, not the tray window.
 const POPUP_ATTENTION_ROWS: usize = 2;
 const POPUP_FLEET_ROWS: usize = 4;
@@ -261,7 +267,6 @@ impl DashboardApp {
     /// — including the two-step Stop, which matters more here: the popup hides
     /// on focus loss, so a one-click exit would be easy to trigger by accident.
     pub(crate) fn draw_action_footer(&mut self, ui: &mut egui::Ui) {
-        ui.add_space(crate::theme::sp::XS);
         let full = ui.available_width();
         let (rect, _) = ui.allocate_exact_size(egui::vec2(full, FOOTER_H), egui::Sense::hover());
         ui.painter()
@@ -272,6 +277,7 @@ impl DashboardApp {
                 .layout(egui::Layout::right_to_left(egui::Align::Center)),
         );
         dashboard::widgets::daemon_actions(self, &mut child);
+        ui.add_space(crate::theme::sp::SM);
     }
 }
 
