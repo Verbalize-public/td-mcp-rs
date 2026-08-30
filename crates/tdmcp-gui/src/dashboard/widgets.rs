@@ -9,8 +9,8 @@ use crate::app::DashboardApp;
 use crate::theme::sp;
 use crate::theme::{
     action_button, font_label, font_meta, font_mono, font_stat, row_between, status_led,
-    ActionTone, BG_CARD, BG_HOVER, BORDER, CARD_PAD, OK, RADIUS_MD, RADIUS_SM, ROW_H, SIDE_MARGIN,
-    TEXT, TEXT_DIM, TEXT_FAINT, WARN,
+    ActionTone, ACCENT, BG_CARD, BG_HOVER, BORDER, CARD_PAD, OK, RADIUS_MD, RADIUS_SM, ROW_H,
+    SIDE_MARGIN, TEXT, TEXT_DIM, TEXT_FAINT, WARN,
 };
 use crate::wire::{id_tail, FleetProc, SessionRow};
 
@@ -25,10 +25,23 @@ use crate::wire::{id_tail, FleetProc, SessionRow};
 /// * Stop / Restart are **omitted** when offline rather than shown dead.
 /// * Stop is two-step: it swaps itself for a Confirm / Cancel pair.
 pub(crate) fn daemon_actions(app: &mut DashboardApp, ui: &mut egui::Ui) {
+    // Shared Open/Create are always visible when daemon is reachable; Reveal stays even offline.
     if app.status.is_none() {
         if action_button(ui, "Reveal .tox", ActionTone::Neutral).clicked() {
             app.reveal_tox();
         }
+        // Still allow browsing when offline (spawn will fail with snack, but not hidden).
+        ui.add_space(sp::XS);
+        ui.add_enabled_ui(!app.spawn_busy, |ui| {
+            if action_button(ui, "New", ActionTone::Neutral)
+                .on_hover_text("Create a new project from template")
+                .clicked()
+            {
+                app.create_project_dialog();
+            }
+        });
+        ui.add_space(sp::XS);
+        draw_open_split(app, ui);
         return;
     }
 
@@ -62,6 +75,251 @@ pub(crate) fn daemon_actions(app: &mut DashboardApp, ui: &mut egui::Ui) {
         .clicked()
     {
         app.reveal_tox();
+    }
+    ui.add_space(sp::XS);
+    ui.add_enabled_ui(!app.spawn_busy, |ui| {
+        if action_button(ui, "New", ActionTone::Neutral)
+            .on_hover_text("Create a new project from template")
+            .clicked()
+        {
+            app.create_project_dialog();
+        }
+    });
+    ui.add_space(sp::XS);
+    draw_open_split(app, ui);
+    if app.spawn_busy {
+        ui.add_space(sp::XS);
+        ui.spinner();
+    }
+    // Render dropdown if open (foreground area anchored to last arrow rect).
+    draw_recent_menu(app, ui.ctx());
+}
+
+/// Split button: main "Open" opens file picker, arrow "▾" toggles recent menu.
+fn draw_open_split(app: &mut DashboardApp, ui: &mut egui::Ui) {
+    let enabled = !app.spawn_busy;
+    let id = ui.id().with("open_split");
+    let total_w = 68.0_f32;
+    let arrow_w = 22.0_f32;
+    let h = 22.0_f32;
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(total_w, h), egui::Sense::hover());
+
+    let main_rect = egui::Rect::from_min_size(rect.min, egui::vec2(rect.width() - arrow_w, h));
+    let arrow_rect = egui::Rect::from_min_size(
+        egui::pos2(main_rect.right(), rect.top()),
+        egui::vec2(arrow_w, h),
+    );
+
+    let main_resp = ui.interact(main_rect, id.with("main"), egui::Sense::click());
+    let arrow_resp = ui.interact(arrow_rect, id.with("arrow"), egui::Sense::click());
+
+    let main_hover = main_resp.hovered() || main_resp.is_pointer_button_down_on();
+    let arrow_hover = arrow_resp.hovered() || arrow_resp.is_pointer_button_down_on();
+    let any_hover = main_hover || arrow_hover || app.show_recent_menu;
+
+    let stroke = if any_hover { TEXT } else { crate::theme::BORDER_STRONG };
+    let fill_main = if main_hover { BG_HOVER } else { BG_CARD };
+    let fill_arrow = if arrow_hover || app.show_recent_menu {
+        BG_HOVER
+    } else {
+        BG_CARD
+    };
+    let text_color = if enabled { TEXT } else { TEXT_DIM };
+
+    // Paint split background (two rects sharing edge, rounded outer corners only).
+    let main_corner = egui::CornerRadius {
+        nw: RADIUS_SM as u8,
+        sw: RADIUS_SM as u8,
+        ne: 0,
+        se: 0,
+    };
+    let arrow_corner = egui::CornerRadius {
+        nw: 0,
+        sw: 0,
+        ne: RADIUS_SM as u8,
+        se: RADIUS_SM as u8,
+    };
+    ui.painter().rect_filled(main_rect, main_corner, fill_main);
+    ui.painter().rect_stroke(
+        main_rect,
+        main_corner,
+        egui::Stroke::new(1.0, stroke),
+        egui::StrokeKind::Inside,
+    );
+    ui.painter().rect_filled(arrow_rect, arrow_corner, fill_arrow);
+    ui.painter().rect_stroke(
+        arrow_rect,
+        arrow_corner,
+        egui::Stroke::new(1.0, stroke),
+        egui::StrokeKind::Inside,
+    );
+    // Divider line between halves.
+    ui.painter().vline(
+        main_rect.right(),
+        main_rect.y_range(),
+        egui::Stroke::new(1.0, crate::theme::BORDER),
+    );
+    // Centered labels.
+    let main_galley = ui.painter().layout_no_wrap("Open".to_owned(), font_label(), text_color);
+    ui.painter().galley(
+        egui::pos2(
+            main_rect.center().x - main_galley.size().x * 0.5,
+            main_rect.center().y - main_galley.size().y * 0.5,
+        ),
+        main_galley,
+        text_color,
+    );
+    let arrow_galley = ui
+        .painter()
+        .layout_no_wrap("▾".to_owned(), font_label(), text_color);
+    ui.painter().galley(
+        egui::pos2(
+            arrow_rect.center().x - arrow_galley.size().x * 0.5,
+            arrow_rect.center().y - arrow_galley.size().y * 0.5 + 1.0,
+        ),
+        arrow_galley,
+        text_color,
+    );
+
+    if enabled && main_resp.clicked() {
+        app.show_recent_menu = false;
+        app.recent_menu_anchor = None;
+        app.open_project_dialog();
+    }
+    if enabled && arrow_resp.clicked() {
+        app.show_recent_menu = !app.show_recent_menu;
+        if app.show_recent_menu {
+            // Anchor right-aligned under the split so the 260px menu stays inside the
+            // window even when the split sits at the far right (RTL top bar / popup).
+            app.recent_menu_anchor = Some(egui::pos2(rect.right() - 260.0, rect.bottom() + 4.0));
+        } else {
+            app.recent_menu_anchor = None;
+        }
+    }
+    // Close on Esc or click outside (handled in draw_recent_menu as well).
+    if app.show_recent_menu && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+        app.show_recent_menu = false;
+        app.recent_menu_anchor = None;
+    }
+    main_resp.on_hover_text("Open an existing .toe/.tox");
+    arrow_resp.on_hover_text("Recent projects");
+}
+
+fn draw_recent_menu(app: &mut DashboardApp, ctx: &egui::Context) {
+    let Some(anchor) = app.recent_menu_anchor else {
+        return;
+    };
+    if !app.show_recent_menu {
+        return;
+    }
+    let pointer = ctx.input(|i| i.pointer.interact_pos());
+    let recents = app.recent_projects.clone();
+    let mut chosen: Option<std::path::PathBuf> = None;
+    let mut close = false;
+    egui::Area::new(egui::Id::new("recent_projects_menu"))
+        .order(egui::Order::Foreground)
+        .fixed_pos(anchor)
+        .show(ctx, |ui| {
+            let frame = egui::Frame::NONE
+                .fill(BG_CARD)
+                .stroke(egui::Stroke::new(1.0, crate::theme::BORDER))
+                .corner_radius(egui::CornerRadius::same(RADIUS_SM as u8))
+                .inner_margin(egui::Margin::same(6));
+            frame.show(ui, |ui| {
+                ui.set_min_width(260.0);
+                ui.set_max_width(360.0);
+                if recents.is_empty() {
+                    ui.label(
+                        egui::RichText::new("No recent projects — open a .toe/.tox to populate this list")
+                            .font(font_meta())
+                            .color(TEXT_DIM),
+                    );
+                    ui.add_space(sp::XS);
+                    if ui
+                        .add(egui::Button::new(
+                            egui::RichText::new("Browse…").font(font_label()).color(ACCENT),
+                        ))
+                        .clicked()
+                    {
+                        close = true;
+                        chosen = None;
+                        // Signal browse: spawn dialog after close.
+                        // We use a sentinel empty path to mean "browse".
+                    }
+                } else {
+                    ui.label(
+                        egui::RichText::new("RECENT PROJECTS")
+                            .font(font_meta())
+                            .color(TEXT_FAINT),
+                    );
+                    ui.add_space(sp::XS);
+                    egui::ScrollArea::vertical()
+                        .max_height(220.0)
+                        .show(ui, |ui| {
+                            for p in recents.iter().take(16) {
+                                let name = p
+                                    .file_name()
+                                    .map(|n| n.to_string_lossy().to_string())
+                                    .unwrap_or_else(|| p.display().to_string());
+                                let dir = p
+                                    .parent()
+                                    .map(|d| d.display().to_string())
+                                    .unwrap_or_default();
+                                let resp = ui.add(
+                                    egui::Button::new(
+                                        egui::RichText::new(format!("{name}  ·  {dir}"))
+                                            .font(font_meta())
+                                            .color(TEXT),
+                                    )
+                                    .fill(egui::Color32::TRANSPARENT),
+                                );
+                                if resp.clicked() {
+                                    chosen = Some(p.clone());
+                                }
+                                resp.on_hover_text(p.display().to_string());
+                            }
+                        });
+                    ui.add_space(sp::XS);
+                    if ui
+                        .add(egui::Button::new(
+                            egui::RichText::new("Browse for more…")
+                                .font(font_label())
+                                .color(TEXT_DIM),
+                        ))
+                        .clicked()
+                    {
+                        close = true;
+                    }
+                }
+            });
+        });
+    // Handle outside-click dismiss via global pointer check + hover.
+    if ctx.input(|i| i.pointer.any_pressed()) {
+        if let Some(pos) = pointer {
+            // Approximate menu rect: anchor + width 360 + height up to 300.
+            let menu_rect = egui::Rect::from_min_size(anchor, egui::vec2(360.0, 300.0));
+            if !menu_rect.contains(pos) {
+                // Check if the click was on the split button itself — don't treat as outside.
+                // That case is already toggled above. Here we just close.
+                app.show_recent_menu = false;
+                app.recent_menu_anchor = None;
+                return;
+            }
+        }
+    }
+    if let Some(path) = chosen {
+        app.show_recent_menu = false;
+        app.recent_menu_anchor = None;
+        app.spawn_project(path, false);
+    } else if close {
+        app.show_recent_menu = false;
+        app.recent_menu_anchor = None;
+        app.open_project_dialog();
+    }
+    // Esc already handled in draw_open_split; also handle here.
+    if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+        app.show_recent_menu = false;
+        app.recent_menu_anchor = None;
     }
 }
 

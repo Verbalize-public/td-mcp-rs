@@ -84,7 +84,7 @@ pub fn render(app: &mut DashboardApp, ui: &mut egui::Ui) {
                     left: 0,
                     right: 0,
                     top: 14,
-                    bottom: 12,
+                    bottom: 14,
                 }),
         )
         .show(ui, |ui| {

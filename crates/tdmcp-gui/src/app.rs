@@ -178,6 +178,15 @@ pub(crate) struct DashboardApp {
     pub(crate) snacks: Vec<Snack>,
     /// Window icon reused by the dashboard viewport builder.
     pub(crate) window_icon: egui::IconData,
+    /// LRU recent projects (≤16, deduped) persisted beside `data_dir`.
+    pub(crate) recent_projects: Vec<PathBuf>,
+    /// True while a `spawn_td` is in flight (poll via `spawn_rx`).
+    pub(crate) spawn_busy: bool,
+    pub(crate) spawn_rx: Option<std::sync::mpsc::Receiver<Result<serde_json::Value, String>>>,
+    /// Whether the Open-project dropdown menu is visible.
+    pub(crate) show_recent_menu: bool,
+    /// Anchor for the dropdown popup (screen pos).
+    pub(crate) recent_menu_anchor: Option<egui::Pos2>,
 }
 
 /// Tray Logs view state (T4.2). Polling only runs while this view is the
@@ -257,6 +266,18 @@ impl DashboardApp {
         let (data_dir_edit, bridge_dir_edit, catalog_path_edit, daemon_bin_edit, template_path_edit) =
             path_edits_from(&draft);
         let settings_loaded_snapshot = draft.clone();
+        // Load recents from sidecar (outside config) — do after data_dir is known.
+        // Use a temp data_dir for the load; the real one is `data_dir` param below
+        // but we haven't moved it yet, so load after Self is built via helper.
+        // Instead load inline here:
+        let recent_projects = {
+            let p = data_dir.join("recent_projects.json");
+            std::fs::read_to_string(&p)
+                .ok()
+                .and_then(|t| serde_json::from_str::<Vec<String>>(&t).ok())
+                .map(|v| v.into_iter().map(PathBuf::from).collect())
+                .unwrap_or_default()
+        };
 
         Ok(Self {
             admin_base,
@@ -339,6 +360,11 @@ impl DashboardApp {
             confirm_stop: false,
             snacks: Vec::new(),
             window_icon,
+            recent_projects,
+            spawn_busy: false,
+            spawn_rx: None,
+            show_recent_menu: false,
+            recent_menu_anchor: None,
         })
     }
 
@@ -937,6 +963,145 @@ impl DashboardApp {
             .map(|f| f.help)
             .unwrap_or("")
     }
+
+    // ---- Recent projects + spawn helpers (F1/F2) ----
+
+    pub(crate) fn save_recent(&self) {
+        crate::recent::save(&self.data_dir, &self.recent_projects);
+    }
+
+    pub(crate) fn push_recent(&mut self, path: PathBuf) {
+        crate::recent::push(&mut self.recent_projects, path);
+        self.save_recent();
+    }
+
+    /// Fire an async `spawn_td` via the daemon JSON fallback (`POST /mcp/tools/call`).
+    /// De-duplicates into recents on success.
+    pub(crate) fn spawn_project(&mut self, path: PathBuf, create_if_missing: bool) {
+        if self.spawn_busy {
+            self.snack("Spawn already in flight", SnackTone::Warn);
+            return;
+        }
+        self.spawn_busy = true;
+        self.snack(
+            &format!(
+                "{} {}",
+                if create_if_missing { "Creating" } else { "Opening" },
+                path.file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| path.display().to_string())
+            ),
+            SnackTone::Info,
+        );
+        let admin_base = self.admin_base.clone();
+        let draft = self.draft.clone();
+        let path_clone = path.clone();
+        let (tx, rx) = std::sync::mpsc::channel::<Result<serde_json::Value, String>>();
+        self.spawn_rx = Some(rx);
+        std::thread::spawn(move || {
+            let res = spawn_via_mcp(&admin_base, &draft, &path_clone, create_if_missing);
+            let _ = tx.send(res);
+        });
+        // Optimistically push to recents (visible immediately); dedup handles reorder.
+        self.push_recent(path);
+    }
+
+    pub(crate) fn poll_spawn(&mut self) {
+        let Some(rx) = self.spawn_rx.as_ref() else {
+            return;
+        };
+        if let Ok(res) = rx.try_recv() {
+            self.spawn_busy = false;
+            self.spawn_rx = None;
+            match res {
+                Ok(v) => {
+                    let ok = v.get("ok").and_then(|x| x.as_bool()).unwrap_or(false);
+                    if ok {
+                        self.snack("TouchDesigner spawned", SnackTone::Ok);
+                    } else {
+                        let msg = v
+                            .get("summary")
+                            .and_then(|x| x.as_str())
+                            .or_else(|| {
+                                v.get("data")
+                                    .and_then(|d| d.get("summary"))
+                                    .and_then(|x| x.as_str())
+                            })
+                            .unwrap_or("spawn returned ok:false");
+                        self.snack(&format!("Spawn failed: {msg}"), SnackTone::Error);
+                        push_error_ring(&mut self.error_ring, format!("spawn failed: {msg}"));
+                    }
+                }
+                Err(e) => {
+                    self.snack(&format!("Spawn failed: {e}"), SnackTone::Error);
+                    push_error_ring(&mut self.error_ring, format!("spawn failed: {e}"));
+                }
+            }
+        }
+    }
+
+    pub(crate) fn open_project_dialog(&mut self) {
+        let start = self
+            .recent_projects
+            .first()
+            .and_then(|p| p.parent().map(PathBuf::from))
+            .or_else(|| {
+                self.effective_template_path()
+                    .parent()
+                    .map(PathBuf::from)
+            })
+            .unwrap_or_else(|| self.data_dir.clone());
+        if let Some(path) = rfd::FileDialog::new()
+            .set_directory(&start)
+            .add_filter("TouchDesigner", &["toe", "tox"])
+            .pick_file()
+        {
+            self.spawn_project(path, false);
+        }
+    }
+
+    pub(crate) fn create_project_dialog(&mut self) {
+        let start = self
+            .recent_projects
+            .first()
+            .and_then(|p| p.parent().map(PathBuf::from))
+            .or_else(|| {
+                self.effective_template_path()
+                    .parent()
+                    .map(PathBuf::from)
+            })
+            .unwrap_or_else(|| self.data_dir.clone());
+        if let Some(path) = rfd::FileDialog::new()
+            .set_directory(&start)
+            .add_filter("TouchDesigner", &["toe", "tox"])
+            .set_file_name("Untitled.toe")
+            .save_file()
+        {
+            self.spawn_project(path, true);
+        }
+    }
+}
+
+fn spawn_via_mcp(
+    admin_base: &str,
+    draft: &ConfigFile,
+    path: &std::path::Path,
+    create_if_missing: bool,
+) -> Result<serde_json::Value, String> {
+    let url = format!("{}/mcp/tools/call", admin_base.trim_end_matches('/'));
+    let body = serde_json::json!({
+        "name": "spawn_td",
+        "arguments": {
+            "projectPath": path.display().to_string(),
+            "createIfMissing": create_if_missing
+        }
+    });
+    let bearer = if draft.auth.mode == "psk" && !draft.auth.psk.is_empty() {
+        Some(draft.auth.psk.clone())
+    } else {
+        None
+    };
+    http_post_blocking(&url, bearer.as_deref(), Some(&body))
 }
 
 impl eframe::App for DashboardApp {
@@ -980,6 +1145,7 @@ impl eframe::App for DashboardApp {
             self.scan_rx = None;
             self.snack(&format!("Scan finished · {n} found"), SnackTone::Info);
         }
+        self.poll_spawn();
         // Keep the dashboard viewport alive from the very first tick and only
         // toggle its visibility: when the root window is hidden, eframe drives
         // its repaints outside the winit event-loop guard, and an immediate

@@ -352,30 +352,34 @@ pub fn segmented(ui: &mut egui::Ui, options: &[&str], selected: usize) -> Option
     clicked
 }
 
-/// Full-width notice strip with a tone-colored left edge.
-// Pending phase-4 wiring (restart-needed banner).
-#[allow(dead_code)]
+/// Full-width notice strip with a tone-colored left edge — wraps to multiple
+/// lines so long hints (e.g. macOS Accessibility note) never clip.
 pub fn banner(ui: &mut egui::Ui, tone: BannerTone, text: &str) -> egui::Response {
-    let full = ui.available_width();
-    let h = 32.0;
-    let (rect, response) = ui.allocate_exact_size(egui::vec2(full, h), egui::Sense::hover());
     let (bg, fg, edge) = match tone {
         BannerTone::Warn => (super::WARN_BG, Color32::from_rgb(0xf5, 0xc4, 0x6b), WARN),
         BannerTone::Error => (super::ERR_BG, Color32::from_rgb(0xf0, 0x93, 0x93), ERR),
     };
+    let pad_x = 12.0;
+    let pad_y = 8.0;
+    // Width available for wrapped text (full - edge strip - horizontal padding).
+    let avail_w = (ui.available_width() - pad_x * 2.0 - 8.0).max(80.0);
+    let galley = ui.painter().layout(
+        text.to_owned(),
+        font_label(),
+        fg,
+        avail_w,
+    );
+    let h = (galley.size().y + pad_y * 2.0).max(32.0);
+    let full = ui.available_width();
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(full, h), egui::Sense::hover());
     ui.painter().rect_filled(rect, RADIUS_SM, bg);
     ui.painter().rect_filled(
         egui::Rect::from_min_size(rect.left_top(), egui::vec2(3.0, h)),
         2.0,
         edge,
     );
-    let pad_x = 12.0;
-    let mut child = ui.new_child(
-        egui::UiBuilder::new()
-            .max_rect(rect.shrink2(egui::vec2(pad_x, 0.0)))
-            .layout(egui::Layout::left_to_right(egui::Align::Center)),
-    );
-    child.label(egui::RichText::new(text).font(font_label()).color(fg));
+    let text_pos = egui::pos2(rect.left() + pad_x + 6.0, rect.top() + pad_y);
+    ui.painter().galley(text_pos, galley, fg);
     response
 }
 

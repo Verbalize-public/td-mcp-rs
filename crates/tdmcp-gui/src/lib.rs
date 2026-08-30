@@ -15,6 +15,7 @@ mod federation;
 mod http;
 mod platform;
 mod popup;
+mod recent;
 mod theme;
 mod tray;
 mod wire;

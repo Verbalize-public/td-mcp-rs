@@ -63,9 +63,8 @@ pub(crate) fn sidebar(app: &mut DashboardApp, ui: &mut egui::Ui) {
     }
 
     ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
-        ui.add_space(8.0);
-        ui.separator();
-        ui.add_space(8.0);
+        // Status sticks to bottom with symmetric 12px breathing room — no separator line.
+        ui.add_space(12.0);
         ui.horizontal(|ui| {
             ui.add_space(14.0);
             let (color, word) = if offline {
@@ -83,6 +82,7 @@ pub(crate) fn sidebar(app: &mut DashboardApp, ui: &mut egui::Ui) {
                     snap.disconnected, snap.resurrected, snap.cancelled
                 ));
         });
+        ui.add_space(4.0);
     });
 }
 
