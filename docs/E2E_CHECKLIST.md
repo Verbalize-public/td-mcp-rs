@@ -169,9 +169,32 @@ Shell probes: [`scripts/probes/v2-macos/`](../scripts/probes/v2-macos/). Run
 | V5 | `project_lint` on packed `.toe` (staged expand) | probe (manual) |
 | V6 | `spawn_td` → handshake + fleet provenance | probe (manual) |
 | V7 | `kill_td graceful` / force | probe (manual) |
-| V8 | `dialogs list` returns popups + `accessibilityGranted` | probe (manual) |
-| V9 | Intercept `tdmcp.dialog.blocking` during modal + dismiss recovery | probe (manual, TCC) |
+| V8 | `dialogs list` returns popups + `accessibilityGranted` | **PASS** (2026-08-30) |
+| V9 | Intercept `tdmcp.dialog.blocking` during modal + dismiss recovery | **PASS** (2026-08-30, see D1-D7) |
 | V10 | `fleet` + `describe_tools` lists the full tool set (palette tools included) | probe |
+
+### macOS dialogs — live records (2026-08-30, TD 2025.33070, macOS 26.1)
+
+Run from a terminal holding the Accessibility TCC grant; the grant follows the
+terminal (the responsible process), so rebuilt test binaries inherit it and no
+per-binary grant is needed. Screen Recording is **not** required.
+
+| # | Check | Result |
+| --- | --- | --- |
+| D1 | AX enumeration returns the real window title with **no** Screen Recording grant; id is a `CGWindowID`; editor window classifies `is_dialog=Some(false)` | PASS — `crates/tdmcp-dialogs/tests/live_permissions.rs` |
+| D2 | Idle TD yields zero popups (interception gate stays quiet) and `windowStatus=responsive` | PASS |
+| D3 | Snapshot cost inside budget | PASS — worst uncached 10.4 ms vs 150 ms `SNAPSHOT_BUDGET` |
+| D4 | Full round trip on an AX-exposing dialog: real labels, `AXDefaultButton` honored, dismissal via an explicit **non-default** button reports `via="button:Cancel"` | PASS — `tests/live_native_dialog.rs` (self-contained, spawns its own `osascript` dialog; no TD needed) |
+| D5 | Genuine TD `THREAD CONFLICT` dialogs classify `severity=Hard`, `kind=MessageBox`, `windowStatus=blocked_by_modal_window` | PASS — 10 real dialogs, `tests/live_td_thread_conflict.rs` |
+| D6 | Wedged TD (main thread deadlocked, AX unresponsive) still detected via the CGWindowList fallback | PASS — `popups=0/windowStatus=None` before the fallback became `popups=3/blocked_by_modal_window` after |
+| D7 | TD-drawn dialogs expose no readable buttons; `THREAD CONFLICT` cannot be dismissed and returns `tdmcp.dialog.dismiss_failed` rather than faking success | PASS (recorded limitation — `tests/live_td_thread_conflict.rs`) |
+
+Caution recorded with D5/D6: the trigger used to produce those dialogs
+(`ui.messageBox` from a non-main Python thread) **deadlocks TouchDesigner and
+stacks dialogs that cannot be dismissed programmatically**. It required a TD
+restart. Do not re-run it; the evidence above is the record. A plain `op(...)`
+access from a worker thread raises a clean `tdError` and is the safe way to
+demonstrate the guard.
 
 ## Palette awareness
 

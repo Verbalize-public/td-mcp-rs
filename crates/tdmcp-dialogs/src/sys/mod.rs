@@ -33,8 +33,7 @@ pub struct SysWindow {
     /// (filtered before it can reach the interception gate), `None` = the
     /// backend has no verdict and the portable heuristics decide alone.
     /// macOS fills this from AX role/subrole/modal; the Windows backend still
-    /// reports `None` (its `#32770`/style classification is unimplemented -
-    /// DIALOGS.md 5.2).
+    /// reports `None` (its `#32770`/style classification is unimplemented).
     pub is_dialog: Option<bool>,
 }
 

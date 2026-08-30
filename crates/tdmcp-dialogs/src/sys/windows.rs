@@ -63,7 +63,7 @@ unsafe extern "system" fn enum_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
         styles,
         ex_styles,
         // No enumerate-time verdict on Windows yet: classification still runs
-        // on title/class heuristics above the facade (DIALOGS.md 5.2).
+        // on title/class heuristics above the facade.
         is_dialog: None,
     });
     BOOL(1)
