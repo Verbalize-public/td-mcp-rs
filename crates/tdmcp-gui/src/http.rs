@@ -35,13 +35,22 @@ pub(crate) fn http_post_blocking(
     bearer: Option<&str>,
     body: Option<&serde_json::Value>,
 ) -> Result<serde_json::Value, String> {
+    http_post_blocking_with_timeout(url, bearer, body, Duration::from_secs(3))
+}
+
+pub(crate) fn http_post_blocking_with_timeout(
+    url: &str,
+    bearer: Option<&str>,
+    body: Option<&serde_json::Value>,
+    timeout: Duration,
+) -> Result<serde_json::Value, String> {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .map_err(|e| e.to_string())?;
     rt.block_on(async {
         let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(3))
+            .timeout(timeout)
             .build()
             .map_err(|e| e.to_string())?;
         let mut req = client.post(url);

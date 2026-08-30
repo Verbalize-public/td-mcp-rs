@@ -1015,26 +1015,67 @@ impl DashboardApp {
             self.spawn_rx = None;
             match res {
                 Ok(v) => {
-                    let ok = v.get("ok").and_then(|x| x.as_bool()).unwrap_or(false);
-                    if ok {
+                    // HTTP layer wraps tool result as {ok: bool, data?: {...}, summary?: ...}.
+                    // For spawn, success is {ok:true, data:{ok:true, pid...}} and a
+                    // wait_timeout is {ok:true, data:{ok:false, outcome:"wait_timeout",...}}.
+                    // Unwrap the inner `data` when present.
+                    let outer_ok = v.get("ok").and_then(|x| x.as_bool()).unwrap_or(false);
+                    let inner = v.get("data").unwrap_or(&v);
+                    let inner_ok = inner.get("ok").and_then(|x| x.as_bool());
+                    let effective_ok = match inner_ok {
+                        Some(b) if v.get("data").is_some() => b && outer_ok,
+                        _ => outer_ok,
+                    };
+                    if effective_ok {
                         self.snack("TouchDesigner spawned", SnackTone::Ok);
                     } else {
-                        let msg = v
+                        let outcome = inner.get("outcome").and_then(|x| x.as_str()).unwrap_or("");
+                        let msg = inner
                             .get("summary")
                             .and_then(|x| x.as_str())
+                            .or_else(|| v.get("summary").and_then(|x| x.as_str()))
                             .or_else(|| {
-                                v.get("data")
-                                    .and_then(|d| d.get("summary"))
-                                    .and_then(|x| x.as_str())
+                                if outcome == "wait_timeout" {
+                                    Some("handshake timed out — still starting? check fleet")
+                                } else if !outcome.is_empty() {
+                                    Some(outcome)
+                                } else {
+                                    None
+                                }
                             })
                             .unwrap_or("spawn returned ok:false");
-                        self.snack(&format!("Spawn failed: {msg}"), SnackTone::Error);
-                        push_error_ring(&mut self.error_ring, format!("spawn failed: {msg}"));
+                        // Distinguish a real failure from a timeout where the
+                        // process is still alive — the fleet will show it
+                        // shortly and the next poll recovers, so keep tone Info
+                        // and avoid polluting the error ring with a transient
+                        // transport message like "error sending request for url…".
+                        let tone = if outcome == "wait_timeout" {
+                            SnackTone::Warn
+                        } else {
+                            SnackTone::Error
+                        };
+                        self.snack(&format!("Spawn: {msg}"), tone);
+                        if tone == SnackTone::Error {
+                            push_error_ring(&mut self.error_ring, format!("spawn failed: {msg}"));
+                        }
                     }
                 }
                 Err(e) => {
-                    self.snack(&format!("Spawn failed: {e}"), SnackTone::Error);
-                    push_error_ring(&mut self.error_ring, format!("spawn failed: {e}"));
+                    // Transport error (daemon unreachable, not a spawn payload).
+                    // The project was already created on disk from the template
+                    // before the HTTP round-trip, so a short "error sending
+                    // request" no longer means the .toe was lost — the next fleet
+                    // poll will show the new pid. Keep the snack but don't spam
+                    // the ring with reqwest internals.
+                    if e.contains("error sending request") || e.contains("timed out") {
+                        self.snack(
+                            "Spawn issued — waiting for TouchDesigner (fleet will update shortly)",
+                            SnackTone::Info,
+                        );
+                    } else {
+                        self.snack(&format!("Spawn failed: {e}"), SnackTone::Error);
+                        push_error_ring(&mut self.error_ring, format!("spawn failed: {e}"));
+                    }
                 }
             }
         }
@@ -1089,11 +1130,19 @@ fn spawn_via_mcp(
     create_if_missing: bool,
 ) -> Result<serde_json::Value, String> {
     let url = format!("{}/mcp/tools/call", admin_base.trim_end_matches('/'));
+    // Give TouchDesigner time to cold-start, show any startup dialogs,
+    // and complete the bridge handshake. Default wait is 60s (see
+    // `crates/tdmcp-mcp/src/lifecycle.rs::default_wait`); the GUI's 3s
+    // generic POST timeout is far too short — seen as
+    // `error sending request for url (.../mcp/tools/call)` even though
+    // the spawn succeeded and fleet later shows the pid.
+    let wait_ms: u64 = 65_000;
     let body = serde_json::json!({
         "name": "spawn_td",
         "arguments": {
             "projectPath": path.display().to_string(),
-            "createIfMissing": create_if_missing
+            "createIfMissing": create_if_missing,
+            "waitTimeoutMs": wait_ms
         }
     });
     let bearer = if draft.auth.mode == "psk" && !draft.auth.psk.is_empty() {
@@ -1101,7 +1150,12 @@ fn spawn_via_mcp(
     } else {
         None
     };
-    http_post_blocking(&url, bearer.as_deref(), Some(&body))
+    crate::http::http_post_blocking_with_timeout(
+        &url,
+        bearer.as_deref(),
+        Some(&body),
+        Duration::from_millis(wait_ms + 10_000),
+    )
 }
 
 impl eframe::App for DashboardApp {
