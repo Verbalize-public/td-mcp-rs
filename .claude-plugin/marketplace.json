@@ -1,9 +1,15 @@
 {
+  "name": "td-mcp-rs",
+  "owner": {
+    "name": "Verbalize-public",
+    "url": "https://github.com/Verbalize-public"
+  },
+  "version": "0.1.3",
+  "source": ".",
   "plugins": [
     {
       "name": "td-mcp-rs",
-      "source": ".",
-      "version": "0.1.3"
+      "source": "."
     }
   ]
 }
