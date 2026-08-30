@@ -27,6 +27,15 @@ pub struct SysWindow {
     pub styles: isize,
     /// Raw GWL_EXSTYLE value.
     pub ex_styles: isize,
+    /// Backend's enumerate-time dialog verdict.
+    ///
+    /// `Some(true)` = a real dialog/modal, `Some(false)` = definitely not one
+    /// (filtered before it can reach the interception gate), `None` = the
+    /// backend has no verdict and the portable heuristics decide alone.
+    /// macOS fills this from AX role/subrole/modal; the Windows backend still
+    /// reports `None` (its `#32770`/style classification is unimplemented -
+    /// DIALOGS.md 5.2).
+    pub is_dialog: Option<bool>,
 }
 
 /// One child control of a dialog (content-level data).

@@ -72,6 +72,23 @@ pub fn is_system_helper(class: &str) -> bool {
         .any(|c| class.eq_ignore_ascii_case(c))
 }
 
+/// True when the window is the application's own main chrome and must never be
+/// dismissed. Backed by the backend verdict where there is one (macOS AX
+/// reports `Some(false)` for `AXStandardWindow`), else by the title guard.
+///
+/// This is the second line of defence behind the snapshot-time title filter;
+/// it is what makes `tdmcp.dialog.chrome_protected` reachable.
+#[must_use]
+pub fn is_main_chrome(win: &SysWindow) -> bool {
+    match win.is_dialog {
+        // Backend positively identified a dialog - never chrome, whatever the
+        // title says (untitled dialogs are common on macOS).
+        Some(true) => false,
+        Some(false) => true,
+        None => is_chrome_title(&win.title),
+    }
+}
+
 /// Main-window candidate heuristic: visible chrome window (hang probes).
 #[must_use]
 pub fn is_main_candidate(win: &SysWindow) -> bool {
@@ -82,7 +99,8 @@ pub fn is_main_candidate(win: &SysWindow) -> bool {
 #[must_use]
 pub fn kind_for_class(class: &str) -> PopupKind {
     match class {
-        "#32770" => PopupKind::MessageBox,
+        // Win32 dialog class; macOS AX sheet/dialog normalization.
+        "#32770" | "AXDialog" | "AXSheet" | "AXSystemDialog" => PopupKind::MessageBox,
         "" => PopupKind::Unknown,
         _ => PopupKind::Custom,
     }
@@ -99,7 +117,7 @@ pub fn popup_from_window(win: &SysWindow) -> PopupInfo {
         severity: severity(&win.title, None),
         message: None,
         buttons: Vec::new(),
-        is_main_chrome: false,
+        is_main_chrome: is_main_chrome(win),
     }
 }
 
@@ -200,6 +218,43 @@ mod tests {
         assert!(!is_system_helper("#32770"));
         assert!(!is_system_helper("Qt5152QWindowIcon"));
     }
+    fn win(title: &str, is_dialog: Option<bool>) -> SysWindow {
+        SysWindow {
+            pid: 1,
+            id: "1".into(),
+            class: "AXDialog".into(),
+            title: title.into(),
+            visible: true,
+            styles: 0,
+            ex_styles: 0,
+            is_dialog,
+        }
+    }
+
+    #[test]
+    fn positive_dialog_verdict_outranks_the_title_guard() {
+        // Regression: a real macOS dialog often has no window title. The chrome
+        // guard calls an empty title "chrome", which both filtered the popup out
+        // of every snapshot and made dismiss refuse it as protected chrome.
+        assert!(
+            is_chrome_title(""),
+            "precondition: empty title reads as chrome"
+        );
+        assert!(!is_main_chrome(&win("", Some(true))));
+        assert!(!popup_from_window(&win("", Some(true))).is_main_chrome);
+    }
+
+    #[test]
+    fn standard_window_verdict_is_always_chrome() {
+        assert!(is_main_chrome(&win("Some Editor", Some(false))));
+    }
+
+    #[test]
+    fn without_a_verdict_the_title_guard_still_decides() {
+        assert!(is_main_chrome(&win("TouchDesigner 2025: x.toe", None)));
+        assert!(!is_main_chrome(&win("Backwards Compatiblity Issue", None)));
+    }
+
     #[test]
     fn fill_content_picks_longest_static_and_buttons() {
         let base = popup_from_stub("1");
