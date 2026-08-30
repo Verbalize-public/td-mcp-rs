@@ -1,0 +1,9 @@
+{
+  "plugins": [
+    {
+      "name": "td-mcp-rs",
+      "source": ".",
+      "version": "0.1.3"
+    }
+  ]
+}
