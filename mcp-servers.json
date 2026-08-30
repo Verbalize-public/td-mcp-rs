@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "tdmcp-rs": {
+      "command": "${user_config.daemon_path}",
+      "args": ["mcp"]
+    }
+  }
+}

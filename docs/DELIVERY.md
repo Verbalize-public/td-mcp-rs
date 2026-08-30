@@ -9,6 +9,7 @@
 | `diagnostics/catalog.yaml` | Diagnostic catalog |
 | `skills/` | Agent operate pack (Jinja templates under `templates/touchdesigner/`); served as MCP `tdmcp://docs/*` resources and exported via `tdmcp-daemon skills render` |
 | bootstrap `.tox` | Tiny TD dialer COMP `tdmcp_rs` (handshake → FS load of `bridge/`). Embedded in the daemon; extracted to `{dataDir}/bootstrap.tox`. Rebuild recipe: [`scripts/pack_bootstrap_tox.md`](../scripts/pack_bootstrap_tox.md) |
+| `.claude-plugin/` + `claude-skills/` | Claude Code plugin: MCP server registration + a checked-in filesystem-mode render of `skills/`. See [`CLAUDE_CODE_PLUGIN.md`](CLAUDE_CODE_PLUGIN.md) |
 
 The tray dashboard lives in the `tdmcp-gui` **library** crate, linked into
 `tdmcp-daemon` when the default `gui` Cargo feature is enabled. There is no

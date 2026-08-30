@@ -1,0 +1,23 @@
+{
+  "name": "td-mcp-rs",
+  "displayName": "td-mcp-rs — TouchDesigner Copilot",
+  "description": "Connects Claude Code to a running TouchDesigner via td-mcp-rs: registers the local MCP server (fleet/inspect/mutate_nodes/execute_python/capture/...) and bundles the TouchDesigner operate skill so Claude reaches for the right tool without being told.",
+  "author": {
+    "name": "asyade",
+    "url": "https://github.com/Verbalize-public/td-mcp-rs"
+  },
+  "homepage": "https://github.com/Verbalize-public/td-mcp-rs",
+  "repository": "https://github.com/Verbalize-public/td-mcp-rs",
+  "license": "MIT",
+  "mcpServers": "./mcp-servers.json",
+  "skills": ["./claude-skills/"],
+  "userConfig": {
+    "daemon_path": {
+      "type": "file",
+      "title": "tdmcp-daemon binary",
+      "description": "Path to the tdmcp-daemon executable. Run `tdmcp-daemon install` first (see the repo README), then point this at the installed binary — e.g. ~/Library/Application Support/tdmcp-rs/bin/tdmcp-daemon or /Applications/tdmcp.app/Contents/MacOS/tdmcp-daemon on macOS, %LOCALAPPDATA%\\tdmcp-rs\\bin\\tdmcp-daemon.exe or %LOCALAPPDATA%\\Programs\\tdmcp-rs\\tdmcp-daemon.exe on Windows. Leave the default if tdmcp-daemon is already on your PATH.",
+      "default": "tdmcp-daemon",
+      "required": true
+    }
+  }
+}

@@ -64,6 +64,7 @@ make it pass.
 | Local quality gate | `scripts/check.ps1` / `scripts/check.sh` |
 | Config file | [`docs/CONFIG.md`](docs/CONFIG.md) |
 | Packaging | [`docs/DELIVERY.md`](docs/DELIVERY.md) |
+| Claude Code plugin (`.claude-plugin/`, `claude-skills/`) | [`docs/CLAUDE_CODE_PLUGIN.md`](docs/CLAUDE_CODE_PLUGIN.md) |
 | Logging / central sink / observability | [`docs/OBSERVABILITY.md`](docs/OBSERVABILITY.md) (spec) + [`docs/OBSERVABILITY_PLAN.md`](docs/OBSERVABILITY_PLAN.md) (execution plan) |
 | Tool-call arg-error diagnostics (`tdmcp.args.*`) | [`docs/TOOL_ERROR_PLAN.md`](docs/TOOL_ERROR_PLAN.md) |
 | GUI overhaul plan (active work spec) | [`docs/GUI_OVERHAUL_PLAN.md`](docs/GUI_OVERHAUL_PLAN.md) |

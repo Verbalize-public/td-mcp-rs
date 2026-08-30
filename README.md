@@ -108,7 +108,20 @@ target/release/tdmcp-daemon install
 This copies the app to a permanent folder and prepares the TouchDesigner
 bridge file for you. Run it once and forget it.
 
-### 3. Add it to your editor (Cursor example)
+### 3. Add it to your editor
+
+**Claude Code:**
+
+```text
+/plugin marketplace add Verbalize-public/td-mcp-rs
+/plugin install td-mcp-rs@td-mcp-rs
+```
+
+You'll be prompted once for the path to your `tdmcp-daemon` binary (leave the
+default if it's on `PATH`). This registers the MCP server *and* installs the
+TouchDesigner operate skill — see [`docs/CLAUDE_CODE_PLUGIN.md`](docs/CLAUDE_CODE_PLUGIN.md).
+
+**Cursor (or any other MCP-compatible editor):**
 
 Copy this into your MCP settings (also in
 [`mcp.tdmcp.example.json`](mcp.tdmcp.example.json)), replacing `<you>` with
@@ -258,6 +271,8 @@ td-mcp-rs/
 │   └── tdmcp-test-support  # shared test helpers
 ├── bridge/                 # Python package embedded into the daemon
 ├── skills/                 # Jinja skill templates + MANIFEST.yaml
+├── claude-skills/          # Rendered skill pack for the Claude Code plugin (generated, checked in)
+├── .claude-plugin/         # Claude Code plugin manifest
 ├── diagnostics/            # catalog.yaml
 ├── scripts/                # check.ps1 / check.sh quality gate
 ├── docs/                   # contract, config, delivery, testing, …
@@ -274,6 +289,7 @@ td-mcp-rs/
 | [`docs/TESTING.md`](docs/TESTING.md) | Test strategy |
 | [`docs/E2E_CHECKLIST.md`](docs/E2E_CHECKLIST.md) | Live TouchDesigner verification |
 | [`docs/DEV_ENV.md`](docs/DEV_ENV.md) | Interactive dual-MCP dev harness |
+| [`docs/CLAUDE_CODE_PLUGIN.md`](docs/CLAUDE_CODE_PLUGIN.md) | Claude Code plugin — layout, `userConfig`, skill-render drift guard |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | Crate boundaries and topology |
 | [`CONSTITUTION.md`](CONSTITUTION.md) | Rust engineering law (never-panic, lints) |
 | [`RISKS.md`](RISKS.md) | Accepted panic/unsafe exceptions |

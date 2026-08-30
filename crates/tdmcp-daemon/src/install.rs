@@ -504,4 +504,72 @@ mod tests {
             fs::read_to_string(dest.join("touchdesigner/SKILL.md")).expect("read SKILL.md");
         assert!(!skill_body.contains("tdmcp://docs/"));
     }
+
+    /// The Claude Code plugin (`.claude-plugin/plugin.json`) ships a
+    /// pre-rendered copy of the skill pack at repo-root `claude-skills/` —
+    /// plugin installs are a git checkout with no build step, so the
+    /// rendered Markdown must already be sitting in the tree. That makes it
+    /// a checked-in artifact of `skills/templates/**/*.jinja.md` +
+    /// `skills/MANIFEST.yaml`, exactly like `bootstrap.tox` is a checked-in
+    /// artifact of `bridge/*.py` (see `bootstrap_tox_matches_packed_source_hash`
+    /// above) — nothing enforces they stay in sync except this test. Failing
+    /// here means a skill card changed without re-running
+    /// `cargo run -p tdmcp-daemon -- skills render --dest claude-skills`
+    /// and committing the result.
+    #[test]
+    fn claude_plugin_skills_match_rendered_output() {
+        let checked_in = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../claude-skills")
+            .canonicalize()
+            .expect("claude-skills/ exists at repo root");
+
+        let dir = tempdir().expect("tempdir");
+        let fresh = dir.path().join("claude-skills");
+        render_skills_to(&fresh).expect("render");
+
+        let mut checked_in_files = list_files_relative(&checked_in);
+        let mut fresh_files = list_files_relative(&fresh);
+        checked_in_files.sort();
+        fresh_files.sort();
+        assert_eq!(
+            checked_in_files, fresh_files,
+            "claude-skills/ file list is stale — re-render with \
+             `cargo run -p tdmcp-daemon -- skills render --dest claude-skills` and commit"
+        );
+
+        for rel in &fresh_files {
+            let checked_in_content = fs::read_to_string(checked_in.join(rel))
+                .unwrap_or_else(|_| panic!("read checked-in claude-skills/{}", rel.display()));
+            let fresh_content = fs::read_to_string(fresh.join(rel))
+                .unwrap_or_else(|_| panic!("read freshly rendered {}", rel.display()));
+            assert_eq!(
+                checked_in_content,
+                fresh_content,
+                "claude-skills/{} is stale — re-render with \
+                 `cargo run -p tdmcp-daemon -- skills render --dest claude-skills` and commit",
+                rel.display()
+            );
+        }
+    }
+
+    /// Relative paths (from `root`) of every file under `root`, recursively.
+    fn list_files_relative(root: &Path) -> Vec<PathBuf> {
+        fn walk(dir: &Path, root: &Path, out: &mut Vec<PathBuf>) {
+            for entry in fs::read_dir(dir).expect("read_dir").flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    walk(&path, root, out);
+                } else {
+                    out.push(
+                        path.strip_prefix(root)
+                            .expect("path under root")
+                            .to_path_buf(),
+                    );
+                }
+            }
+        }
+        let mut out = Vec::new();
+        walk(root, root, &mut out);
+        out
+    }
 }
