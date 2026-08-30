@@ -45,12 +45,33 @@ exactly which command re-syncs each one, including `cargo run -p xtask --
 stamp-tox` to close the drift check. Do not silence or delete that test to
 make it pass.
 
+### Editing `skills/` (templates or `MANIFEST.yaml`)?
+
+`claude-skills/` is a **checked-in render** of `skills/`, and it is what the
+Claude Code plugin actually ships to users — a plugin install is a plain git
+checkout, so nothing regenerates it at install time. Editing a `.jinja.md`
+card or `MANIFEST.yaml` without re-rendering ships stale skills to every
+plugin user while the repo source looks correct. Always finish the edit with:
+
+```text
+cargo run -p tdmcp-daemon -- skills render --dest claude-skills
+git add claude-skills
+```
+
+`claude_plugin_skills_match_rendered_output` (in
+`crates/tdmcp-daemon/src/install.rs`) fails the build on any byte-for-byte
+drift. Do not silence or delete that test to make it pass. Authoring contract:
+[`skills/README.md`](skills/README.md); plugin layout:
+[`docs/CLAUDE_CODE_PLUGIN.md`](docs/CLAUDE_CODE_PLUGIN.md).
+
 ### Hard Rules
 
 - **MCP-first** for live claims — never claim success from code alone.
 - **pid only** — never invent sticky targets.
 - **Never-panic** — no `unwrap`/`expect`/`panic!` in lib release paths without `RISKS.md`.
 - **Stop after 3 failed probes** with no new evidence.
+- **Re-render `claude-skills/`** in the same commit as any `skills/` edit —
+  `cargo run -p tdmcp-daemon -- skills render --dest claude-skills`.
 
 ### Documentation Reference
 
