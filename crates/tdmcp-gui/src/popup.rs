@@ -23,9 +23,11 @@ pub(crate) const HEADER_H: f32 = 34.0;
 pub(crate) const HEADER_ACTIONS_W: f32 = 64.0;
 /// Bottom action-footer height (px).
 pub(crate) const FOOTER_H: f32 = 38.0;
-/// What the pinned footer actually costs the column: `sp::SM` gap above
-/// the footer row. No bottom gap — the toolbar hugs the window edge.
-pub(crate) const FOOTER_BLOCK_H: f32 = crate::theme::sp::SM + FOOTER_H;
+/// What the pinned footer actually costs the column. Single `FOOTER_H`
+/// rectangle hugs the window edge; the buttons are centered inside it so
+/// the distance from the hairline to the buttons equals the distance from
+/// the buttons to the window bottom — perfectly even.
+pub(crate) const FOOTER_BLOCK_H: f32 = FOOTER_H;
 /// Popup glance caps — depth lives in the dashboard, not the tray window.
 const POPUP_ATTENTION_ROWS: usize = 2;
 const POPUP_FLEET_ROWS: usize = 4;
@@ -264,8 +266,10 @@ impl DashboardApp {
     /// — including the two-step Stop, which matters more here: the popup hides
     /// on focus loss, so a one-click exit would be easy to trigger by accident.
     pub(crate) fn draw_action_footer(&mut self, ui: &mut egui::Ui) {
-        // Top breathing room only — footer hugs bottom edge (no gap).
-        ui.add_space(crate::theme::sp::SM);
+        // Cancel the default item_spacing gap so the hairline sits flush
+        // against the scroll content — the 8px top/bottom *inside* FOOTER_H
+        // is the only padding, so the buttons are perfectly centered.
+        ui.add_space(-crate::theme::sp::XS);
         let full = ui.available_width();
         let (rect, _) = ui.allocate_exact_size(egui::vec2(full, FOOTER_H), egui::Sense::hover());
         ui.painter().rect_filled(rect, 0.0, BG_PANEL);
