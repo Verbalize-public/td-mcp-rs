@@ -274,6 +274,26 @@ def _apply_text(node: Any, text: str) -> dict[str, Any] | None:
     return None
 
 
+def _apply_comment(node: Any, comment: str) -> dict[str, Any] | None:
+    """Write ``node.comment`` (OP-level annotation). Error step dict, or None.
+
+    ``OP.comment`` is a plain read/write ``str`` on every operator family — not
+    a ``.par`` and not a flag — so it gets its own step field rather than
+    riding in ``values``/``flags``. An empty string clears the comment.
+    """
+    try:
+        node.comment = comment
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "ok": False,
+            "code": "tdmcp.mutate.step_failed",
+            "path": getattr(node, "path", None),
+            "message": str(exc),
+            "field": "comment",
+        }
+    return None
+
+
 def _attach_shader_lint(
     out: dict[str, Any], ctx: "MutateContext", dat_path: str, context_path: str | None
 ) -> None:
@@ -504,6 +524,15 @@ def _step_create(
             err["path"] = created_path
             _rollback_create(created)
             return err
+    comment = step.get("comment")
+    if comment is not None:
+        err = _apply_comment(created, str(comment))
+        if err is not None:
+            err["path"] = created_path
+            if text is not None:
+                _attach_shader_lint(err, ctx, created_path, context_path)
+            _rollback_create(created)
+            return err
     values = step.get("values")
     if values:
         err = _apply_values(created, values)
@@ -529,6 +558,8 @@ def _step_create(
     if detail_level == "detailed":
         if text is not None:
             out["textLength"] = len(str(text))
+        if comment is not None:
+            out["comment"] = str(comment)
         if values:
             out["values"] = values
         if flags:
@@ -576,6 +607,13 @@ def _step_set(
         err = _apply_text(node, str(text))
         if err is not None:
             return err
+    comment = step.get("comment")
+    if comment is not None:
+        err = _apply_comment(node, str(comment))
+        if err is not None:
+            if text is not None:
+                _attach_shader_lint(err, ctx, node_path, context_path)
+            return err
     values = step.get("values")
     expressions = step.get("expressions")
     pulse = step.get("pulse")
@@ -610,6 +648,8 @@ def _step_set(
     if detail_level == "detailed":
         if text is not None:
             out["textLength"] = len(str(text))
+        if comment is not None:
+            out["comment"] = str(comment)
         if values:
             out["values"] = values
         if expressions:

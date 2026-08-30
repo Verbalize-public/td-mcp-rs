@@ -4,9 +4,9 @@ OpSketch is the **primary language** for thinking about, discussing, and returni
 TouchDesigner networks. SoT: {{ skill("opsketch-notation") }} (+ gating / examples).
 
 **Evidence split:** node roster / opTypes / params / errors / **positional wires**
-come from default `inspect`. Positional `<- a, b` uses each consumer's
-`inputs[].path` leaf (or known `mutate_nodes` connect results). Empty `inputs: []`
-= unwired. See {{ skill("python-api") }} → Wiring.
+/ **comments** come from default `inspect`. Positional `<- a, b` uses each
+consumer's `inputs[].path` leaf (or known `mutate_nodes` connect results). Empty
+`inputs: []` = unwired. See {{ skill("python-api") }} → Wiring.
 
 ## Header
 
@@ -26,7 +26,7 @@ scope: <path>  [(<family>:<opType>[, pars: <name>,...])]  nodes=<N> wires=<E> [e
 ## Node line
 
 ```text
-<leaf> <opType> [<- <input>[, <input>...]] [{<par>:<value>[, ...]}] [[<annotation>[, ...]]]
+<leaf> <opType> [<- <input>[, <input>...]] [{<par>:<value>[, ...]}] [[<annotation>[, ...]]] [# <comment>]
 ```
 
 - `<leaf>` — sibling-unique name, no path prefix. If a referenced node lives outside `scope`
@@ -43,6 +43,13 @@ scope: <path>  [(<family>:<opType>[, pars: <name>,...])]  nodes=<N> wires=<E> [e
   has authored script), `[ext]` (COMP has a promoted Python Extension), `[err]` (node has a
   live error — cross-check `inspect` errors before writing this), `[custom]` (custom
   OP/palette entry, not a stock TD type).
+- `# <comment>` — **last on the line**, the operator's own `OP.comment` as `inspect`
+  returned it (first line only; trim to fit). Everything after `#` is free text, so no
+  other block may follow it. Transcribe it, never invent it: a `#` in a sketch is a claim
+  that the live node carries that comment. When you are sketching a network you are about
+  to *build*, the `#` text is the comment you will write in the `mutate_nodes` create —
+  which is the point: design the intent with the topology, not after.
+  Depth: {{ skill("node-comments") }}.
 
 ## Value prefixes (parameter values only)
 
@@ -74,10 +81,10 @@ header per sketch call — do not repeat it per nesting level.
 ```text
 scope: /project1  nodes=4 wires=2
 
-fx1 baseCOMP {Speed:1.5, Seed:7} [ext]
-  noise1  noiseTOP        {seed:=parent().par.Seed}
+fx1 baseCOMP {Speed:1.5, Seed:7} [ext]  # displacement hub — In TOP source, Out TOP result
+  noise1  noiseTOP        {seed:=parent().par.Seed}  # base plate; seed bound so clones differ
   xform1  transformTOP  <- noise1
-out1 outTOP <- fx1/xform1
+out1 outTOP <- fx1/xform1  # terminal out — every Select in the project reads this path
 ```
 
 ## Depth / radius
@@ -106,6 +113,7 @@ higher depth.
 |------|-------|
 | {{ skill("opsketch-importance-gating") }} | Gating rule + trivial types |
 | {{ skill("opsketch-examples") }} | Worked transcriptions |
+| {{ skill("node-comments") }} | Writing and reading the `#` text on the live node |
 
 ## Definition of Done
 
@@ -113,6 +121,8 @@ higher depth.
 - [ ] Every shown param passes the importance gate
 - [ ] Wires shown incident-per-node
 - [ ] Family/opType/wire-kind matches live `inspect` / family tables — no invented synonyms
+- [ ] Every `#` comment is transcribed from live `inspect`, or is the comment about to be
+      written in the build that follows — never decoration
 - [ ] Network-map style returns use this notation
 
 

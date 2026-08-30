@@ -24,7 +24,9 @@ Treat as insufficient (→ **FAIL**) when evidence is any of:
 - Stale (pre-mutation capture/inspect reused after a mutate that could change it)
 - Unreadable (timeout, truncated beyond use, corrupt payload)
 - Black / empty when a look surface was claimed (see look-grade)
-- Inferred only from authored code, default params, memory, or docs
+- Inferred only from authored code, default params, memory, docs, or an
+  operator's own `comment` (a comment is a previous author's claim, not
+  runtime evidence — {{ skill("node-comments") }})
 
 `SKIP` is only for claims with **no** runtime surface, or an explicit
 cost-reduction decision already made. `BLOCKED` is for unreachable surfaces —
@@ -56,6 +58,9 @@ glance, with zero overlapping operators. Depth:
       {{ skill("python-api") }}
 - [ ] Relative refs + In/Out rules held ({{ skill("network-design") }},
       {{ skill("component-checklist") }})
+- [ ] Every non-self-evident node created this session carries a `comment`, and
+      no surviving comment is contradicted by the final `inspect`
+      ({{ skill("node-comments") }})
 - [ ] Final grid pass: touched subtree reorganized — readable flow, zero
       overlapping nodes — one pass at the end, not iteratively
       ({{ skill("network-design") }} layout section)
@@ -71,6 +76,7 @@ glance, with zero overlapping operators. Depth:
 - Wiring notes: {{ skill("python-api") }}
 - Look / FPS grading: {{ skill("look-grade") }}
 - Layout conventions: {{ skill("network-design") }}
+- Operator comments: {{ skill("node-comments") }}
 
 ---
 

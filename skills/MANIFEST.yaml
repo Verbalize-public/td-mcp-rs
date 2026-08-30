@@ -75,6 +75,14 @@ network-design:
     relative references. Use when building or reorganizing a network or a
     reusable COMP.
 
+node-comments:
+  template_path: touchdesigner/reference/node-comments.jinja.md
+  output_path: touchdesigner/reference/node-comments.md
+  title: Operator comments
+  description: >-
+    Write and read OP.comment so a network explains itself. Use when creating
+    or restructuring any node, or when reading an unfamiliar network.
+
 component-checklist:
   template_path: touchdesigner/reference/component-checklist.jinja.md
   output_path: touchdesigner/reference/component-checklist.md

@@ -165,7 +165,7 @@ n.cloneImmune, n.python
 n.nodeX, n.nodeY, n.nodeWidth, n.nodeHeight
 n.nodeCenterX, n.nodeCenterY
 n.color           # (r, g, b) tuple
-n.comment
+n.comment         # R/W str, every family, '' by default — prefer mutate_nodes `comment`
 
 # Cook
 n.cpuCookTime, n.gpuCookTime, n.totalCooks

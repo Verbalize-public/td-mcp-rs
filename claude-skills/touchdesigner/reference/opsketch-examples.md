@@ -17,6 +17,7 @@ Raw (`inspect`, abbreviated):
   {"opType": "transformTOP", "name": "xform1", "path": "/project1/fx/xform1",
    "properties": {"tx": {"mode": "expression", "expr": "parent().par.Speed"}, "ty": 0, "sx": 1.0}},
   {"opType": "outTOP", "name": "out1", "path": "/project1/fx/out1",
+   "comment": "terminal out — the project's Selects read this path; do not rename",
    "properties": {}}
 ]
 ```
@@ -30,8 +31,11 @@ moviein1 moviefileinTOP {file:media/loop.mov, repeat:cycle}
 level1   levelTOP       <- moviein1
 blur1    blurTOP        <- level1  {size:12.0}
 xform1   transformTOP   <- blur1   {tx:=parent().par.Speed}
-out1     outTOP         <- xform1
+out1     outTOP         <- xform1  # terminal out — the project's Selects read this path; do not rename
 ```
+
+Only `out1` carries a `#`: the other four nodes returned no `comment`, and a `#` is a
+claim that the live node has one ([`node-comments`](./node-comments.md)).
 
 ## Example B — wire summary from `inspect`
 

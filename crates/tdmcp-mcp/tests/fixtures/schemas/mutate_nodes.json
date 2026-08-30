@@ -37,6 +37,13 @@
           "additionalProperties": false,
           "description": "Create a node at `path` with the given `opType`.",
           "properties": {
+            "comment": {
+              "description": "Operator comment (`OP.comment`) — the node's own one-line account of what it does and why. Any family; `\"\"` clears it. Set one on every non-obvious node you create.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "flags": {
               "additionalProperties": true,
               "description": "Direct OP attribute writes (`node.<name> = val`); allowlist = TD Common Flags subset, see CONTRACT.md.",
@@ -82,8 +89,15 @@
         },
         {
           "additionalProperties": false,
-          "description": "Set text / values / expressions / pulse / flags on an existing node.",
+          "description": "Set text / comment / values / expressions / pulse / flags on an existing node.",
           "properties": {
+            "comment": {
+              "description": "Operator comment (`OP.comment`) — the node's own one-line account of what it does and why. Any family; `\"\"` clears it. Set one on every non-obvious node you create.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "expressions": {
               "additionalProperties": true,
               "description": "Expression strings; mode is set to expression before assign.",

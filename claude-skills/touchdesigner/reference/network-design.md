@@ -81,8 +81,12 @@ deliberately. Keep module DAT names short (`mod.` access reads better).
   - **Backdrop + Annotate grouping** — wrap each subsystem in a labeled
     Backdrop; group boundaries must not overlap neighboring groups' backdrops
     (treat a Backdrop's box like any other node box for overlap-avoidance).
-- **Document in-network** — Annotate COMPs for regions; Text COMPs/DATs for purpose,
-  Ins/Outs, and key pars. Docs travel with the COMP.
+- **Document in-network** — three layers, all travelling with the COMP:
+  **operator comments** (`OP.comment`, per node — why this node exists; set it in
+  the same `mutate_nodes` create that makes the node, [`node-comments`](./node-comments.md));
+  **Annotate COMPs** for regions; **Text COMPs/DATs** for purpose, Ins/Outs, and
+  key pars. Comments are the cheapest layer and the only one `inspect` hands back
+  automatically — use them first, and keep them true when the node's role changes.
 - **Cleanup as you go** — remove unused/deprecated nodes you introduced; do not delete
   unrelated user work. Errors and warnings on finished work are not acceptable
   (probe `warnings()` on file/device nodes — [`python-api`](./python-api.md)).
@@ -132,6 +136,7 @@ Rules of thumb:
 - [`primer/editor-and-layout`](../primer/editor-and-layout.md) — layout hygiene depth
 - [`operator-families`](./operator-families.md) — moving values around
 - [`mutation-zones`](./mutation-zones.md) — where to build
+- [`node-comments`](./node-comments.md) — per-node intent that survives the session
 
 
 ---

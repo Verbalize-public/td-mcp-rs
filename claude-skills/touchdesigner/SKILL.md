@@ -21,6 +21,7 @@ Also available as [`operate`](./SKILL.md).
 | Structure / params / errors / network | `inspect` (**default** — `paths[]` required) |
 | DAT text/table bodies / GLSL sources | `inspect` with `include: ["content"]` (opt-in; follows GLSL DAT refs; reports shader compile status) |
 | Create / set / delete / wire / **write DAT text** | `mutate_nodes` (`text` on create/set auto-lints consuming shaders in the return) |
+| Describe *why* a node exists / read that back | `mutate_nodes` `comment` on create/set; `inspect` returns it — [`node-comments`](./reference/node-comments.md) |
 | Arbitrary Python (not network walks) | `execute_python` — see hard rules |
 | Perception / look claims | `capture` |
 | TD Python / opType cards | `api_help` |
@@ -95,6 +96,16 @@ shader DAT refs + `compileResult`; DAT content also reports shader
 `consumers[]` compile status) over hand-rolled Python reads. After any
 mutation pass, a **final `inspect` on the touched network parent** is mandatory
 before claiming done.
+
+### Comment what you build — HARD RULE
+
+Every operator you create that is not self-evident gets a `comment` in the
+**same `mutate_nodes` batch that creates it** — COMP hubs, terminal nulls that
+other nodes reference, feedback loops, magic constants, GLSL ops, DAT
+callbacks. `opType` and node name say what a node *is*; the comment is the only
+place *why* survives the end of this session. `inspect` returns comments on
+every node and on each child-roster entry, so reading an unfamiliar network
+starts there. Depth: [`node-comments`](./reference/node-comments.md).
 
 ### Python cheatsheet before Python — HARD RULE
 
@@ -172,6 +183,7 @@ Look claims: [`look-grade`](./reference/look-grade.md).
 | Custom pars | [`custom-parameters`](./reference/custom-parameters.md) |
 | Mutation zones | [`mutation-zones`](./reference/mutation-zones.md) |
 | Network / relative refs | [`network-design`](./reference/network-design.md) |
+| Operator comments | [`node-comments`](./reference/node-comments.md) |
 | Components | [`component-checklist`](./reference/component-checklist.md) |
 | Families | [`operator-families`](./reference/operator-families.md) |
 | POP | [`pops`](./reference/pops.md) |

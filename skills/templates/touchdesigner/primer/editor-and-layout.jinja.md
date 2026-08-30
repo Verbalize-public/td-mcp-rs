@@ -20,12 +20,16 @@ Agents must not leave overlapping spaghetti. After a mutation pass:
 2. Keep left-to-right / top-to-bottom data flow readable.
 3. Reorganize as a last step; verify with `inspect` (and visual check if needed).
 
+A readable layout says what flows where; it never says *why*. That belongs on the
+node as an `OP.comment` — {{ skill("node-comments") }}.
+
 Operate conventions: {{ skill("network-design") }}.
 
 ## Related
 
 - {{ skill("mutation-zones") }}
 - {{ skill("network-design") }}
+- {{ skill("node-comments") }}
 - Wiki: https://docs.derivative.ca/Network_Editor
 
 ---

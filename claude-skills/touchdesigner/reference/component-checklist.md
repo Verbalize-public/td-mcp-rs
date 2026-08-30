@@ -123,10 +123,15 @@ document a hard instance budget on a Text/Annotate inside the COMP.
 
 Minimum to ship inside the component (not only in chat):
 
+- **Operator comments** (`OP.comment`) on the root COMP and every non-obvious child —
+  the root's comment states the component's job and its In/Out contract; children's
+  state why they exist. This is the layer `inspect` returns for free, so it is the one
+  a future agent actually reads. Depth: [`node-comments`](./node-comments.md).
 - **Annotate COMP**(s) labeling stages: Inputs → Process → Output (or equivalent).
 - **Text COMP** or short Text DAT summarizing: purpose, In/Out list, important pars,
   performance notes.
 - Keep docs next to the network they describe; update or remove when the network changes.
+  A comment the network has outgrown is a defect, not neutral clutter.
 
 ## Network hygiene (while building)
 
@@ -151,6 +156,7 @@ Stop and simplify if you notice:
 
 - [`custom-parameters`](./custom-parameters.md) — control API (live-verified snippets)
 - [`network-design`](./network-design.md) — relative refs and layout
+- [`node-comments`](./node-comments.md) — per-node intent (`OP.comment`)
 - [`definition-of-done`](./definition-of-done.md) — structural verdicts
 - [`look-grade`](./look-grade.md) — capture-based look claims
 

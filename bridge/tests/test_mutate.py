@@ -1158,5 +1158,98 @@ class MutateTextWriteTest(unittest.TestCase):
         self.assertNotIn("text", step)
 
 
+class MutateCommentTest(unittest.TestCase):
+    """`comment` is a first-class step field on create/set (OP.comment)."""
+
+    def test_create_sets_comment(self) -> None:
+        ctx = FakeCtx()
+        parent = ctx.enable_create_tracking()
+        self.assertIs(parent, ctx.nodes["/project1"])
+        out = tdmcp_bridge.apply_step(
+            ctx,
+            {
+                "op": "create",
+                "path": "/project1/noise1",
+                "opType": "noiseTOP",
+                "comment": "base plate noise for the displacement chain",
+            },
+        )
+        self.assertTrue(out["ok"])
+        node = ctx.nodes["/project1/noise1"]
+        self.assertEqual(
+            node.comment, "base plate noise for the displacement chain"
+        )
+
+    def test_set_sets_and_clears_comment(self) -> None:
+        ctx = FakeCtx()
+        node = ctx.track(FakeNode("/project1/noise1"))
+        out = tdmcp_bridge.apply_step(
+            ctx,
+            {"op": "set", "path": "/project1/noise1", "comment": "why this exists"},
+        )
+        self.assertTrue(out["ok"])
+        self.assertEqual(node.comment, "why this exists")
+        # Empty string clears — distinct from omitting the field.
+        out = tdmcp_bridge.apply_step(
+            ctx, {"op": "set", "path": "/project1/noise1", "comment": ""}
+        )
+        self.assertTrue(out["ok"])
+        self.assertEqual(node.comment, "")
+
+    def test_set_without_comment_leaves_existing(self) -> None:
+        ctx = FakeCtx()
+        node = ctx.track(FakeNode("/project1/noise1"))
+        node.comment = "keep me"
+        out = tdmcp_bridge.apply_step(
+            ctx, {"op": "set", "path": "/project1/noise1", "values": {}}
+        )
+        self.assertTrue(out["ok"])
+        self.assertEqual(node.comment, "keep me")
+
+    def test_create_rolls_back_when_comment_write_fails(self) -> None:
+        ctx = FakeCtx()
+        parent = ctx.nodes["/project1"]
+        created = FakeNode("/project1/nz")
+
+        class _NoComment(FakeNode):
+            @property
+            def comment(self) -> str:
+                return ""
+
+        created = _NoComment("/project1/nz")  # read-only property → setattr raises
+        parent.create = lambda op_cls, name: created
+        out = tdmcp_bridge.apply_step(
+            ctx,
+            {
+                "op": "create",
+                "path": "/project1/nz",
+                "opType": "noiseTOP",
+                "comment": "boom",
+            },
+        )
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["code"], "tdmcp.mutate.step_failed")
+        self.assertEqual(out["field"], "comment")
+        self.assertTrue(created._destroyed, "rollback must destroy the node")
+
+    def test_detailed_echoes_comment(self) -> None:
+        ctx = FakeCtx()
+        ctx.track(FakeNode("/project1/noise1"))
+        out = tdmcp_bridge.apply_step(
+            ctx,
+            {"op": "set", "path": "/project1/noise1", "comment": "echoed"},
+            detail_level="detailed",
+        )
+        self.assertEqual(out["comment"], "echoed")
+
+    def test_summary_does_not_echo_comment(self) -> None:
+        ctx = FakeCtx()
+        ctx.track(FakeNode("/project1/noise1"))
+        out = tdmcp_bridge.apply_step(
+            ctx, {"op": "set", "path": "/project1/noise1", "comment": "quiet"}
+        )
+        self.assertNotIn("comment", out)
+
+
 if __name__ == "__main__":
     unittest.main()

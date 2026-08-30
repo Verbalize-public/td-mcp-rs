@@ -7,9 +7,12 @@ from typing import Any
 
 from .constants import (
     CHILDREN_ROSTER_LIMIT,
+    COMMENT_MAX_CHARS,
+    COMMENT_ROSTER_MAX_CHARS,
     ENABLE_EXPR_EVAL_LIMIT,
     ENABLE_PARM_WARN_MARKERS,
     INSPECT_PATHS_LIMIT,
+    _COMMENT_TRUNC_MARK,
     _ENABLE_EXPR_FAILED_CODE,
     _ENABLE_EXPR_MITIGATION,
 )
@@ -22,6 +25,27 @@ from .shader_lint import (
     classify_compile_result,
     lint_dat_consumers,
 )
+
+def _op_comment(op: Any, limit: int) -> tuple[str, bool] | None:
+    """Operator comment capped at ``limit``; ``None`` when empty/unreadable.
+
+    Returns ``(text, truncated)``. ``OP.comment`` is an unbounded str, so long
+    bodies are cut and marked rather than shipped whole into a 256-entry
+    roster. Never raises — comment is orientation metadata, not a claim.
+    """
+    try:
+        raw = getattr(op, "comment", None)
+    except Exception:  # noqa: BLE001 — comment must never fail inspect
+        return None
+    if raw is None:
+        return None
+    text = str(raw)
+    if not text.strip():
+        return None
+    if len(text) > limit:
+        return text[:limit] + _COMMENT_TRUNC_MARK, True
+    return text, False
+
 
 def _child_name(child: Any) -> str:
     """Best-effort operator name; fall back to last path segment."""
@@ -324,22 +348,34 @@ def build_inspect_node(
         detailed = detail_level == "detailed"
         for child in raw_children[:CHILDREN_ROSTER_LIMIT]:
             if detailed:
-                children.append({
+                entry: dict[str, Any] = {
                     "path": getattr(child, "path", None),
                     "family": getattr(child, "family", None),
                     "opType": getattr(child, "opType", None),
-                })
+                }
             else:
-                children.append({
+                entry = {
                     "name": _child_name(child),
                     "opType": getattr(child, "opType", None),
-                })
+                }
+            # Roster comments are the cheap "what is this subtree for" surface.
+            child_comment = _op_comment(child, COMMENT_ROSTER_MAX_CHARS)
+            if child_comment is not None:
+                entry["comment"] = child_comment[0]
+            children.append(entry)
 
     out: dict[str, Any] = {
         "path": getattr(n, "path", None),
         "family": getattr(n, "family", None),
         "opType": getattr(n, "opType", None),
     }
+    # Identity metadata, not a section: emitted whenever non-empty, regardless
+    # of `include` — the operator's own account of what it is for.
+    comment = _op_comment(n, COMMENT_MAX_CHARS)
+    if comment is not None:
+        out["comment"] = comment[0]
+        if comment[1]:
+            out["commentTruncated"] = True
     if want_nodes:
         out["childCount"] = child_count
         out["childrenReturned"] = len(children)

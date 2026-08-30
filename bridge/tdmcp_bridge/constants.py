@@ -33,6 +33,14 @@ BRIDGE_METHODS: tuple[str, ...] = (
 INSPECT_PATHS_LIMIT = 256
 CHILDREN_ROSTER_LIMIT = 256
 
+# Operator comment echo caps (inspect). `OP.comment` is an unbounded str — a
+# 5000-char comment is accepted by TD — so the read surface truncates rather
+# than letting a roster of 256 children blow the payload. Truncated values end
+# in `_COMMENT_TRUNC_MARK`; the node's own field also sets `commentTruncated`.
+COMMENT_MAX_CHARS = 1024
+COMMENT_ROSTER_MAX_CHARS = 160
+_COMMENT_TRUNC_MARK = "…"
+
 # Shader lint caps (docs/SHADER_LINT.md §3).
 SHADER_SCAN_LIMIT = 2048
 SHADER_CONSUMER_LIMIT = 64

@@ -179,10 +179,10 @@ impl ToolName {
                 "Run Python in TD; failures return structured exception (type/frames/syntax); default diagnosticLevel detailed; formatMode debug adds capped locals; prints tee to Debug DAT / logs."
             }
             Self::Inspect => {
-                "Structural read for an explicit paths[] batch (required, non-empty; soft-capped at 256). No auto-recursion — caller chooses nodes. Empty include defaults to nodes+errors+warnings; params and content opt-in; non-empty include is an allowlist. When nodes is included, each ok node includes positional inputs/outputs peer lists ({path, name, opType} or null per connector; [] when empty). Params entries are {name, mode, val, expr?} (expr only when mode is EXPRESSION; val is evaluated and JSON-safe). Content (opt-in) returns DAT .text bodies (text+table) and GLSL shader stages by following DAT refs plus compileResult — no size cap; omit content key on non-eligible ops. DAT content also carries shader consumers[] diagnostics ({severity note|error, code tdmcp.shader.*, consumer, role, lines[]}; caps 2048 ops scanned / 64 consumers — see consumersTruncated); GLSL content carries classified compileState compiled|error. Reading compileResult forces a synchronous recompile of that consumer. Per-node summary includes a direct-child roster ({name, opType}); detailed adds path+family. Roster capped at 256 — when truncated see node.truncation. Bad paths return ok:false inline; siblings still succeed."
+                "Structural read for an explicit paths[] batch (required, non-empty; soft-capped at 256). No auto-recursion — caller chooses nodes. Empty include defaults to nodes+errors+warnings; params and content opt-in; non-empty include is an allowlist. When nodes is included, each ok node includes positional inputs/outputs peer lists ({path, name, opType} or null per connector; [] when empty). Params entries are {name, mode, val, expr?} (expr only when mode is EXPRESSION; val is evaluated and JSON-safe). Content (opt-in) returns DAT .text bodies (text+table) and GLSL shader stages by following DAT refs plus compileResult — no size cap; omit content key on non-eligible ops. DAT content also carries shader consumers[] diagnostics ({severity note|error, code tdmcp.shader.*, consumer, role, lines[]}; caps 2048 ops scanned / 64 consumers — see consumersTruncated); GLSL content carries classified compileState compiled|error. Reading compileResult forces a synchronous recompile of that consumer. Every node also returns comment (OP.comment) when non-empty — read it first, it is the operator's own account of its role (capped 1024 chars, commentTruncated when cut). Per-node summary includes a direct-child roster ({name, opType}, plus each child's comment when set — capped 160 chars); detailed adds path+family. Roster capped at 256 — when truncated see node.truncation. Bad paths return ok:false inline; siblings still succeed."
             }
             Self::MutateNodes => {
-                "Ordered create/set/delete/connect/disconnect steps; sequential apply, stop on first hard error; later steps skipped (tdmcp.batch.skipped_dependent). Fix from failedAt only. create/set accept text: DAT body write (applied first; non-DAT target = hard error tdmcp.mutate.not_dat; create rolls back). After each successful text write the tool lints consuming GLSL ops and attaches per-step shaderDiagnostics[] ({severity note|error, code tdmcp.shader.*, consumer, consumerOpType, role, message, lines[]} for errors); summary adds shaderNotes/shaderErrors counts. Lint reads compileResult, forcing a synchronous recompile of each consumer; never flips ok."
+                "Ordered create/set/delete/connect/disconnect steps; sequential apply, stop on first hard error; later steps skipped (tdmcp.batch.skipped_dependent). Fix from failedAt only. create/set accept text: DAT body write (applied first; non-DAT target = hard error tdmcp.mutate.not_dat; create rolls back). create/set also accept comment: OP.comment, the node's own account of what it does and why — any family, an empty string clears it, and inspect returns it. Comment every non-obvious node you create: it is how the next agent (and the user) reads the network. After each successful text write the tool lints consuming GLSL ops and attaches per-step shaderDiagnostics[] ({severity note|error, code tdmcp.shader.*, consumer, consumerOpType, role, message, lines[]} for errors); summary adds shaderNotes/shaderErrors counts. Lint reads compileResult, forcing a synchronous recompile of each consumer; never flips ok."
             }
             Self::Capture => {
                 "Perception capture. top=native TOP JPEG; preview=any family via shared bridge OP Viewer TOP; chop_data=CHOP JSON; chop_image/pop=aliases of preview; auto=TOP→top, CHOP→chop_data, else preview. maxSize is hard-capped at 1536px longer side (tdmcp.perception.max_size_too_large); null (native) is only honored when native resolution is already under the cap."
@@ -584,6 +584,9 @@ pub enum MutateStep {
         /// DAT body write (applied before `values`; target must be a DAT, else hard error `tdmcp.mutate.not_dat`). Attaches shader-consumer diagnostics (`shaderDiagnostics`) on success.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         text: Option<String>,
+        /// Operator comment (`OP.comment`) — the node's own one-line account of what it does and why. Any family; `""` clears it. Set one on every non-obvious node you create.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        comment: Option<String>,
         /// Plain parameter values (`.par.*` only — direct OP attributes like `display`/`viewer` go in `flags`, not here).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         values: Option<Map<String, Value>>,
@@ -591,13 +594,16 @@ pub enum MutateStep {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         flags: Option<Map<String, Value>>,
     },
-    /// Set text / values / expressions / pulse / flags on an existing node.
+    /// Set text / comment / values / expressions / pulse / flags on an existing node.
     Set {
         /// Target node path.
         path: OpPath,
         /// DAT body write (applied before `values`; target must be a DAT, else hard error `tdmcp.mutate.not_dat`). Attaches shader-consumer diagnostics (`shaderDiagnostics`) on success.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         text: Option<String>,
+        /// Operator comment (`OP.comment`) — the node's own one-line account of what it does and why. Any family; `""` clears it. Set one on every non-obvious node you create.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        comment: Option<String>,
         /// Plain parameter values (`.par.*` only — direct OP attributes like `display`/`viewer` go in `flags`, not here).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         values: Option<Map<String, Value>>,

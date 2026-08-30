@@ -1006,5 +1006,81 @@ class InspectShaderLintContentTest(unittest.TestCase):
         self.assertNotIn("compileState", out["content"])
 
 
+class InspectCommentTest(unittest.TestCase):
+    """`OP.comment` rides every node payload and the child roster."""
+
+    def test_comment_omitted_when_absent_or_blank(self) -> None:
+        node = _fake_node([])
+        self.assertNotIn("comment", tdmcp_bridge.build_inspect_node(node))
+        node.comment = "   \n  "
+        self.assertNotIn("comment", tdmcp_bridge.build_inspect_node(node))
+
+    def test_comment_returned_regardless_of_include(self) -> None:
+        node = _fake_node([])
+        node.comment = "audio-reactive displacement hub"
+        out = tdmcp_bridge.build_inspect_node(node, want_nodes=False, want_params=True)
+        self.assertEqual(out["comment"], "audio-reactive displacement hub")
+        self.assertNotIn("commentTruncated", out)
+
+    def test_long_comment_truncated_and_flagged(self) -> None:
+        node = _fake_node([])
+        node.comment = "x" * (tdmcp_bridge.COMMENT_MAX_CHARS + 50)
+        out = tdmcp_bridge.build_inspect_node(node)
+        self.assertTrue(out["commentTruncated"])
+        self.assertEqual(
+            len(out["comment"]), tdmcp_bridge.COMMENT_MAX_CHARS + len("\u2026")
+        )
+        self.assertTrue(out["comment"].endswith("\u2026"))
+
+    def test_child_roster_carries_comments(self) -> None:
+        a = _fake_child("noise1")
+        a.comment = "base plate noise"
+        b = _fake_child("null1")
+        node = _fake_node([a, b])
+        summary = tdmcp_bridge.build_inspect_node(node)["children"]
+        self.assertEqual(summary[0]["comment"], "base plate noise")
+        self.assertNotIn("comment", summary[1])
+        detailed = tdmcp_bridge.build_inspect_node(node, detail_level="detailed")[
+            "children"
+        ]
+        self.assertEqual(detailed[0]["comment"], "base plate noise")
+        self.assertEqual(detailed[0]["path"], "/project1/noise1")
+
+    def test_roster_comment_uses_tighter_cap(self) -> None:
+        child = _fake_child("noise1")
+        child.comment = "y" * (tdmcp_bridge.COMMENT_ROSTER_MAX_CHARS + 10)
+        out = tdmcp_bridge.build_inspect_node(_fake_node([child]))
+        self.assertEqual(
+            len(out["children"][0]["comment"]),
+            tdmcp_bridge.COMMENT_ROSTER_MAX_CHARS + len("\u2026"),
+        )
+
+    def test_unreadable_comment_never_fails_inspect(self) -> None:
+        class _BoomComment:
+            path = "/project1/x"
+            family = "TOP"
+            opType = "nullTOP"
+            children: list[Any] = []
+            inputs: list[Any] = []
+            outputs: list[Any] = []
+
+            @property
+            def comment(self) -> str:
+                raise RuntimeError("comment boom")
+
+            def pars(self) -> list[Any]:
+                return []
+
+            def errors(self) -> str:
+                return ""
+
+            def warnings(self) -> str:
+                return ""
+
+        out = tdmcp_bridge.build_inspect_node(_BoomComment())
+        self.assertNotIn("comment", out)
+        self.assertEqual(out["path"], "/project1/x")
+
+
 if __name__ == "__main__":
     unittest.main()
