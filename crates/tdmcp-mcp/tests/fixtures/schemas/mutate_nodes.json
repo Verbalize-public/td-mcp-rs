@@ -30,6 +30,20 @@
         }
       ]
     },
+    "LenientU32": {
+      "anyOf": [
+        {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "pattern": "^\\s*[0-9]+\\s*$",
+          "type": "string"
+        }
+      ],
+      "description": "Unsigned 32-bit integer; accepts a JSON number or a decimal numeric string."
+    },
     "MutateStep": {
       "description": "One ordered mutate step (`create` / `set` / `delete` / `connect` / `disconnect`).",
       "oneOf": [
@@ -182,11 +196,9 @@
               "description": "Destination operator path."
             },
             "dstInput": {
+              "$ref": "#/$defs/LenientU32",
               "default": 0,
-              "description": "Destination input connector index (default 0).",
-              "format": "uint32",
-              "minimum": 0,
-              "type": "integer"
+              "description": "Destination input connector index (default 0)."
             },
             "op": {
               "const": "connect",
@@ -197,11 +209,9 @@
               "description": "Source operator path."
             },
             "srcOutput": {
+              "$ref": "#/$defs/LenientU32",
               "default": 0,
-              "description": "Source output connector index (default 0).",
-              "format": "uint32",
-              "minimum": 0,
-              "type": "integer"
+              "description": "Source output connector index (default 0)."
             }
           },
           "required": [
@@ -216,11 +226,9 @@
           "description": "Clear an input connector on `path`.",
           "properties": {
             "input": {
+              "$ref": "#/$defs/LenientU32",
               "default": 0,
-              "description": "Input connector index to clear (default 0).",
-              "format": "uint32",
-              "minimum": 0,
-              "type": "integer"
+              "description": "Input connector index to clear (default 0)."
             },
             "op": {
               "const": "disconnect",
@@ -244,10 +252,18 @@
       "type": "string"
     },
     "Pid": {
-      "description": "OS process id — sole address for tools and queues.",
-      "format": "uint32",
-      "minimum": 0,
-      "type": "integer"
+      "anyOf": [
+        {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "pattern": "^\\s*[0-9]+\\s*$",
+          "type": "string"
+        }
+      ],
+      "description": "OS process id — sole address for tools and queues."
     }
   },
   "additionalProperties": false,

@@ -14,6 +14,7 @@ use std::time::{Duration, Instant};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::{json, Value};
+use tdmcp_core::{LenientU64, Pid};
 
 /// Args for `spawn_td`.
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
@@ -28,16 +29,22 @@ pub struct SpawnTdParams {
     /// Project file to open at start.
     #[serde(default)]
     pub project_path: Option<String>,
+    /// When true, copy the template toe to `projectPath` if the target does not yet exist before spawning.
+    #[serde(default)]
+    pub create_if_missing: bool,
+    /// Optional per-call template override (absolute path to a `.toe`/`.tox` to copy when creating).
+    #[serde(default)]
+    pub template_path: Option<String>,
     /// Extra CLI args passed through.
     #[serde(default)]
     pub args: Vec<String>,
     /// Handshake wait budget (ms).
     #[serde(default = "default_wait")]
-    pub wait_timeout_ms: u64,
+    pub wait_timeout_ms: LenientU64,
 }
 
-fn default_wait() -> u64 {
-    60_000
+fn default_wait() -> LenientU64 {
+    LenientU64(60_000)
 }
 
 /// Args for `kill_td`.
@@ -45,17 +52,17 @@ fn default_wait() -> u64 {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct KillTdParams {
     /// Target pid.
-    pub pid: u32,
+    pub pid: Pid,
     /// `graceful` (close windows / SIGTERM + grace window) or `force`.
     #[serde(default)]
     pub mode: KillMode,
     /// Grace window for graceful mode (ms).
     #[serde(default = "default_grace")]
-    pub grace_ms: u64,
+    pub grace_ms: LenientU64,
 }
 
-fn default_grace() -> u64 {
-    5_000
+fn default_grace() -> LenientU64 {
+    LenientU64(5_000)
 }
 
 /// Kill mode.
@@ -139,8 +146,123 @@ fn resolve_install(
     Ok(ResolvedInstall { exe, root_name })
 }
 
+fn resolve_template_path(cfg: &ConfigFile, override_path: Option<&str>) -> PathBuf {
+    if let Some(p) = override_path {
+        let t = p.trim();
+        if !t.is_empty() {
+            return PathBuf::from(t);
+        }
+    }
+    if let Some(p) = &cfg.project.template_path {
+        return p.clone();
+    }
+    // Default: {data_dir}/template.toe, respecting [advanced].data_dir override.
+    let base = cfg
+        .advanced
+        .data_dir
+        .clone()
+        .unwrap_or_else(|| {
+            dirs::data_local_dir()
+                .unwrap_or_else(|| PathBuf::from("."))
+                .join(tdmcp_config::APP_DIR_NAME)
+        });
+    base.join("template.toe")
+}
+
+fn ensure_project_from_template(
+    target: &str,
+    cfg: &ConfigFile,
+    template_override: Option<&str>,
+    create_if_missing: bool,
+) -> Result<(), CodedError> {
+    let target_path = Path::new(target);
+    if target_path.is_file() {
+        return Ok(());
+    }
+    // Target missing — decide based on flag.
+    if target.trim().is_empty() {
+        return Ok(());
+    }
+    if !create_if_missing {
+        return Err(CodedError {
+            message: format!(
+                "project target {} does not exist — pass createIfMissing:true to create from template",
+                target_path.display()
+            ),
+            code: "spawn.target_not_found",
+        });
+    }
+    // Need to materialize from template.
+    let template = resolve_template_path(cfg, template_override);
+    if !template.is_file() {
+        // Try embedded fallback extraction on-demand (data_dir may have been cleaned).
+        // If advanced.data_dir is set, template above already points there; still try to materialize.
+        // Fallback: try default data_dir as well.
+        let still_missing = !template.is_file();
+        if still_missing {
+            return Err(CodedError {
+                message: format!(
+                    "template not found at {} — set [project].template_path or reinstall",
+                    template.display()
+                ),
+                code: "spawn.template_not_found",
+            });
+        }
+    }
+    // Validate template looks like a packed project (quick check: file size > 512).
+    let meta = std::fs::metadata(&template).map_err(|e| CodedError {
+        message: format!("read template {}: {e}", template.display()),
+        code: "spawn.template_not_found",
+    })?;
+    if meta.len() < 512 {
+        return Err(CodedError {
+            message: format!("template {} looks invalid (too small)", template.display()),
+            code: "spawn.template_invalid",
+        });
+    }
+    if let Some(parent) = target_path.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent).map_err(|e| CodedError {
+                message: format!("create parent {}: {e}", parent.display()),
+                code: "spawn.create_failed",
+            })?;
+        }
+    }
+    // Atomic copy: tmp file then rename to avoid partial .toe on crash.
+    let tmp = target_path.with_extension(format!(
+        "tmp-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    ));
+    std::fs::copy(&template, &tmp).map_err(|e| CodedError {
+        message: format!("copy template -> {}: {e}", target_path.display()),
+        code: "spawn.create_failed",
+    })?;
+    // Best-effort atomic publish.
+    if let Err(e) = std::fs::rename(&tmp, target_path) {
+        // Cross-device rename may fail — fall back to copy+remove.
+        let _ = std::fs::copy(&tmp, target_path);
+        let _ = std::fs::remove_file(&tmp);
+        if !target_path.is_file() {
+            return Err(CodedError {
+                message: format!("publish template to {}: {e}", target_path.display()),
+                code: "spawn.create_failed",
+            });
+        }
+    }
+    tracing::info!(
+        template = %template.display(),
+        target = %target_path.display(),
+        "spawn_td: created new project from template"
+    );
+    Ok(())
+}
+
 /// Spawn + register + wait for THAT pid's handshake. Detached waiter owns the
 /// registry row until terminal state; caller awaits the final payload.
+#[allow(clippy::too_many_arguments)]
 pub async fn spawn_td(
     registry: &Arc<AsyncMutex<PidRegistry>>,
     cfg: &ConfigFile,
@@ -149,7 +271,17 @@ pub async fn spawn_td(
     project_path: Option<&str>,
     extra_args: &[String],
     wait_timeout_ms: u64,
+    create_if_missing: bool,
+    template_path: Option<&str>,
 ) -> Result<Value, CodedError> {
+    if let Some(pp) = project_path {
+        ensure_project_from_template(pp, cfg, template_path, create_if_missing)?;
+    } else if create_if_missing {
+        return Err(CodedError {
+            message: "createIfMissing requires projectPath".into(),
+            code: "spawn.create_failed",
+        });
+    }
     let install = resolve_install(cfg, exe_path, install_id)?;
     // Refuse stub installs (probe lesson): require toeexpand beside exe.
     let info = resolve::inspect_install(&install.exe);

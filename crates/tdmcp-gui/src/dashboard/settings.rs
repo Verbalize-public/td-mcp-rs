@@ -216,6 +216,46 @@ pub(crate) fn settings(app: &mut DashboardApp, ui: &mut egui::Ui) {
                 }
             });
 
+            section_card(ui, "PROJECT", false, |ui| {
+                ui.label(
+                    egui::RichText::new("Template for spawn_td createIfMissing — copied when the target does not yet exist. Per-call templatePath can override this.")
+                        .font(font_meta())
+                        .color(TEXT_DIM),
+                );
+                ui.add_space(4.0);
+                row_wide(
+                    ui,
+                    "Template .toe",
+                    DashboardApp::field_help("project.template_path"),
+                    |ui| {
+                        path_edit_wide(ui, &mut app.template_path_edit, false);
+                    },
+                );
+                ui.horizontal(|ui| {
+                    if ghost_button(ui, "Locate…", TEXT_DIM, TEXT).clicked() {
+                        app.locate_template();
+                    }
+                    if ghost_button(ui, "Reveal", TEXT_DIM, TEXT).clicked() {
+                        app.reveal_template();
+                    }
+                    if ghost_button(ui, "Open", TEXT_DIM, TEXT)
+                        .on_hover_text("Open the template with its default app (TD) — accept any build upgrade prompt then Save over it")
+                        .clicked()
+                    {
+                        app.open_template();
+                    }
+                });
+                // Show effective path hint when empty (falls back to {data_dir}/template.toe).
+                if app.template_path_edit.trim().is_empty() {
+                    let effective = app.effective_template_path();
+                    ui.label(
+                        egui::RichText::new(format!("effective: {}", effective.display()))
+                            .font(font_mono())
+                            .color(TEXT_FAINT),
+                    );
+                }
+            });
+
             section_card(ui, "ADVANCED", false, |ui| {
                 row_wide(
                     ui,

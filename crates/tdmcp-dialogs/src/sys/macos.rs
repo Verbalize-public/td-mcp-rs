@@ -187,9 +187,7 @@ fn ax_window_for_id(window_number: &str) -> Option<CFRetained<AXUIElement>> {
     let (pid, title) = lookup_cg_window(window_number)?;
     // SAFETY: pid is a live process id from CGWindowList.
     let app = unsafe { AXUIElement::new_application(pid as i32) };
-    let Some(value) = ax_copy_value(&app, AX_ATTR_WINDOWS) else {
-        return None;
-    };
+    let value = ax_copy_value(&app, AX_ATTR_WINDOWS)?;
     let Ok(arr) = value.downcast::<ObjCFArray>() else {
         return None;
     };
@@ -342,10 +340,46 @@ pub fn process_image_name(pid: u32) -> Option<String> {
         .map(str::to_string)
 }
 
-/// Cheap liveness probe via signal 0.
+/// True when `pid` is a zombie: exited, but not yet reaped by its parent.
+///
+/// A zombie keeps its PID table entry, so `kill(pid, 0)` still succeeds for it.
+/// TouchDesigner spawned by the daemon is our own child, so a clean exit parks
+/// it in this state until reaped — without this check a graceful `kill_td`
+/// reports `graceful_timeout` for a TD that actually shut down correctly.
+/// The kernel drops a zombie's BSD info while keeping its PID entry, so
+/// `proc_pidinfo` fails with `ESRCH` for it and succeeds for every live process
+/// — including ones we do not own (verified against root-owned `launchd`).
+/// `p_stat`/`SZOMB` is never actually observable this way: the call fails first.
+fn process_zombie(pid: u32) -> bool {
+    let mut info: libc::proc_bsdshortinfo = unsafe { std::mem::zeroed() };
+    let size = std::mem::size_of::<libc::proc_bsdshortinfo>() as c_int;
+    // SAFETY: `info` is a correctly-sized, owned buffer for PROC_PIDT_SHORTBSDINFO.
+    let rc = unsafe {
+        *libc::__error() = 0;
+        libc::proc_pidinfo(
+            pid as c_int,
+            libc::PROC_PIDT_SHORTBSDINFO,
+            0,
+            std::ptr::addr_of_mut!(info).cast(),
+            size,
+        )
+    };
+    if rc == size {
+        return false; // full BSD info -> a live process
+    }
+    // Only ESRCH means "no such live process". Any other failure (short read,
+    // an unexpected errno) fails open: never report a running TD as gone.
+    // SAFETY: reading thread-local errno set by the call above.
+    unsafe { *libc::__error() == libc::ESRCH }
+}
+
+/// Cheap liveness probe via signal 0, excluding unreaped zombies.
 pub fn process_alive(pid: u32) -> bool {
     // SAFETY: kill(pid, 0) does not send a signal; checks existence.
-    unsafe { kill(pid as i32, 0) == 0 }
+    if unsafe { kill(pid as i32, 0) != 0 } {
+        return false;
+    }
+    !process_zombie(pid)
 }
 
 /// Post close to every visible top-level window of `pid` (graceful kill helper).
@@ -376,7 +410,7 @@ pub fn terminate_process(pid: u32) -> bool {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, reason = "unit tests")]
+#[allow(clippy::unwrap_used, clippy::expect_used, reason = "unit tests")]
 mod tests {
     use super::*;
 
@@ -388,5 +422,35 @@ mod tests {
     #[test]
     fn process_alive_dead_pid() {
         assert!(!process_alive(999_999_999));
+    }
+
+    /// Regression: an exited-but-unreaped child must read as dead.
+    ///
+    /// `kill(pid, 0)` succeeds for a zombie, so the old probe reported a
+    /// cleanly-exited TouchDesigner as still alive and `kill_td` graceful
+    /// answered `graceful_timeout` instead of success.
+    #[test]
+    fn process_alive_false_for_unreaped_zombie() {
+        let mut child = std::process::Command::new("/usr/bin/true")
+            .spawn()
+            .expect("spawn /usr/bin/true");
+        let pid = child.id();
+
+        // Wait for it to exit without reaping it (no wait()/try_wait()).
+        let mut zombie = false;
+        for _ in 0..200 {
+            if process_zombie(pid) {
+                zombie = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(zombie, "child never became an unreaped zombie");
+
+        // kill(pid, 0) still succeeds here — that is exactly the trap.
+        assert!(unsafe { kill(pid as i32, 0) } == 0);
+        assert!(!process_alive(pid), "zombie must not count as alive");
+
+        let _ = child.wait(); // reap
     }
 }

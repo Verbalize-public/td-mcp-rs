@@ -65,10 +65,18 @@
       "type": "string"
     },
     "Pid": {
-      "description": "OS process id — sole address for tools and queues.",
-      "format": "uint32",
-      "minimum": 0,
-      "type": "integer"
+      "anyOf": [
+        {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "pattern": "^\\s*[0-9]+\\s*$",
+          "type": "string"
+        }
+      ],
+      "description": "OS process id — sole address for tools and queues."
     }
   },
   "additionalProperties": false,

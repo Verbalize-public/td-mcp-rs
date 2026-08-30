@@ -142,6 +142,37 @@ async fn null_arguments_are_curated_not_protocol_errors() {
 }
 
 #[tokio::test]
+async fn numeric_string_pid_is_accepted_end_to_end() {
+    // Some MCP clients stringify numeric params (`"pid": "34"`); the lenient
+    // numeric wire types must accept them so the call proceeds normally.
+    let app = app_with(Arc::new(FakeBridgeRpc::responding(json!({}))));
+    let (status, v) = call_tool(
+        app,
+        "execute_python",
+        json!({"pid": "34", "script": "print(1)"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(v["ok"], json!(true), "string pid must parse: {v}");
+    assert!(
+        v.get("items").is_none(),
+        "success must not carry diagnostics: {v}"
+    );
+}
+
+#[tokio::test]
+async fn garbage_string_pid_is_curated_wrong_type() {
+    let app = app_with(Arc::new(FakeBridgeRpc::responding(json!({}))));
+    let (status, v) = call_tool(app, "capture", json!({"pid": "abc", "path": "/project1/x"})).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_curated(&v, "tdmcp.args.wrong_type");
+    assert_eq!(v["items"][0]["span"]["field"], "pid", "{v}");
+    let msg = v["items"][0]["message"].as_str().unwrap();
+    assert!(msg.contains("pid"), "{msg}");
+    assert!(!msg.contains("line "), "serde position leaked: {msg}");
+}
+
+#[tokio::test]
 async fn inspect_empty_paths_reuses_bridge_catalog_code() {
     let app = app_with(Arc::new(FakeBridgeRpc::responding(json!({}))));
     let (_, v) = call_tool(app, "inspect", json!({"pid": 34, "paths": []})).await;

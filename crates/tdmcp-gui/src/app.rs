@@ -64,6 +64,7 @@ pub(crate) struct DashboardApp {
     pub(crate) bridge_dir_edit: String,
     pub(crate) catalog_path_edit: String,
     pub(crate) daemon_bin_edit: String,
+    pub(crate) template_path_edit: String,
     pub(crate) status: Option<StatusView>,
     pub(crate) fleet_json: String,
     pub(crate) sessions_json: String,
@@ -253,7 +254,7 @@ impl DashboardApp {
             _ => dashboard::DashTab::default(),
         };
         let dash_open = !dash_env.is_empty() && dash_env != "0";
-        let (data_dir_edit, bridge_dir_edit, catalog_path_edit, daemon_bin_edit) =
+        let (data_dir_edit, bridge_dir_edit, catalog_path_edit, daemon_bin_edit, template_path_edit) =
             path_edits_from(&draft);
         let settings_loaded_snapshot = draft.clone();
 
@@ -267,6 +268,7 @@ impl DashboardApp {
             bridge_dir_edit,
             catalog_path_edit,
             daemon_bin_edit,
+            template_path_edit,
             status: None,
             fleet_json: String::new(),
             sessions_json: String::new(),
@@ -368,11 +370,12 @@ impl DashboardApp {
                 self.settings_error = Some(format!("load failed: {e}"));
             }
         }
-        let (d, b, c, bin) = path_edits_from(&self.draft);
+        let (d, b, c, bin, tmpl) = path_edits_from(&self.draft);
         self.data_dir_edit = d;
         self.bridge_dir_edit = b;
         self.catalog_path_edit = c;
         self.daemon_bin_edit = bin;
+        self.template_path_edit = tmpl;
         self.settings_loaded_snapshot = self.draft.clone();
         self.confirm_turn_off_sharing = false;
     }
@@ -494,6 +497,7 @@ impl DashboardApp {
         self.draft.advanced.bridge_dir = nonempty_path(&self.bridge_dir_edit);
         self.draft.advanced.catalog_path = nonempty_path(&self.catalog_path_edit);
         self.draft.advanced.daemon_bin = nonempty_path(&self.daemon_bin_edit);
+        self.draft.project.template_path = nonempty_path(&self.template_path_edit);
     }
 
     pub(crate) fn save_settings(&mut self) {
@@ -850,6 +854,82 @@ impl DashboardApp {
         }
     }
 
+    pub(crate) fn effective_template_path(&self) -> PathBuf {
+        if let Some(p) = &self.draft.project.template_path {
+            return p.clone();
+        }
+        if let Some(p) = nonempty_path(&self.template_path_edit) {
+            return p;
+        }
+        // Respect [advanced].data_dir override.
+        let base = self
+            .draft
+            .advanced
+            .data_dir
+            .clone()
+            .unwrap_or_else(|| self.data_dir.clone());
+        base.join("template.toe")
+    }
+
+    pub(crate) fn reveal_template(&self) {
+        let tmpl = self.effective_template_path();
+        let fallback = tmpl.parent().map(PathBuf::from).unwrap_or_else(|| self.data_dir.clone());
+        if let Err(e) = reveal_in_file_manager(&tmpl, &fallback) {
+            warn!(error = %e, "reveal template.toe failed");
+        }
+    }
+
+    pub(crate) fn locate_template(&mut self) {
+        let start = self
+            .effective_template_path()
+            .parent()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| self.data_dir.clone());
+        if let Some(path) = rfd::FileDialog::new()
+            .set_directory(&start)
+            .add_filter("TouchDesigner Project", &["toe", "tox"])
+            .pick_file()
+        {
+            self.template_path_edit = path.display().to_string();
+            self.draft.project.template_path = nonempty_path(&self.template_path_edit);
+        }
+    }
+
+    pub(crate) fn open_template(&self) {
+        let tmpl = self.effective_template_path();
+        if !tmpl.is_file() {
+            warn!(path = %tmpl.display(), "open template: file not found");
+            return;
+        }
+        // Use OS default association: `open` / `explorer` / `xdg-open`.
+        let res = {
+            #[cfg(target_os = "windows")]
+            {
+                std::process::Command::new("explorer")
+                    .arg(tmpl.as_os_str())
+                    .spawn()
+                    .map(|_| ())
+            }
+            #[cfg(target_os = "macos")]
+            {
+                std::process::Command::new("open")
+                    .arg(tmpl.as_os_str())
+                    .spawn()
+                    .map(|_| ())
+            }
+            #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+            {
+                std::process::Command::new("xdg-open")
+                    .arg(tmpl.as_os_str())
+                    .spawn()
+                    .map(|_| ())
+            }
+        };
+        if let Err(e) = res {
+            warn!(error = %e, path = %tmpl.display(), "open template failed");
+        }
+    }
+
     pub(crate) fn field_help(key: &str) -> &'static str {
         FIELD_DESCS
             .iter()
@@ -953,7 +1033,7 @@ impl eframe::App for DashboardApp {
     }
 }
 
-fn path_edits_from(cfg: &ConfigFile) -> (String, String, String, String) {
+fn path_edits_from(cfg: &ConfigFile) -> (String, String, String, String, String) {
     (
         cfg.advanced
             .data_dir
@@ -972,6 +1052,11 @@ fn path_edits_from(cfg: &ConfigFile) -> (String, String, String, String) {
             .unwrap_or_default(),
         cfg.advanced
             .daemon_bin
+            .as_ref()
+            .map(|p| p.display().to_string())
+            .unwrap_or_default(),
+        cfg.project
+            .template_path
             .as_ref()
             .map(|p| p.display().to_string())
             .unwrap_or_default(),

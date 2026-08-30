@@ -20,6 +20,9 @@ const CATALOG_YAML: &str = include_str!("../../../diagnostics/catalog.yaml");
 /// Shipped bootstrap tox (thin dialer — handshake → FS load of `bridge/`).
 const BOOTSTRAP_TOX: &[u8] = include_bytes!("../embedded/bootstrap.tox");
 
+/// Shipped template toe for `spawn_td` `createIfMissing`.
+const TEMPLATE_TOE: &[u8] = include_bytes!("../embedded/template.toe");
+
 /// FNV-1a hash of `bridge/bootstrap.py` + `bridge/tox_callbacks.py` as of the
 /// last live-TD pack of `BOOTSTRAP_TOX` — see `stamp_tox_source_hash` test
 /// below and `xtask stamp-tox`.
@@ -68,6 +71,7 @@ fn assets_current(data_dir: &Path, stamp_path: &Path, version: &str) -> bool {
     data_dir.join("bridge").join("manifest.json").is_file()
         && data_dir.join("diagnostics").join("catalog.yaml").is_file()
         && data_dir.join("bootstrap.tox").is_file()
+        && data_dir.join("template.toe").is_file()
         && data_dir
             .join("skills")
             .join("touchdesigner")
@@ -104,6 +108,12 @@ fn extract_all(data_dir: &Path) -> Result<()> {
     let tox_path = data_dir.join("bootstrap.tox");
     fs::write(&tox_path, BOOTSTRAP_TOX)
         .with_context(|| format!("write bootstrap tox {}", tox_path.display()))?;
+
+    // Shipped template toe for create-new (do not overwrite user-replaced file
+    // on AlreadyCurrent fast-path; force=true still overwrites via extract_all).
+    let template_path = data_dir.join("template.toe");
+    fs::write(&template_path, TEMPLATE_TOE)
+        .with_context(|| format!("write template toe {}", template_path.display()))?;
 
     // Also ship bootstrap.py next to the tox for the interim dialer path.
     if let Some(entry) = BRIDGE.get_file("bootstrap.py") {
@@ -324,7 +334,12 @@ pub fn render_skills_to(dest: &Path) -> Result<Vec<(String, PathBuf)>> {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, reason = "unit tests")]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    reason = "unit tests"
+)]
 mod tests {
     use super::*;
     use tempfile::tempdir;
@@ -399,6 +414,7 @@ mod tests {
         assert!(data.join("bridge/manifest.json").is_file());
         assert!(data.join("diagnostics/catalog.yaml").is_file());
         assert!(data.join("bootstrap.tox").is_file());
+        assert!(data.join("template.toe").is_file());
         assert!(data.join("skills/touchdesigner/SKILL.md").is_file());
         assert!(data
             .join("skills/touchdesigner/reference/opsketch-notation.md")
@@ -412,6 +428,15 @@ mod tests {
         // Second call is a no-op.
         let again = ensure_installed(data, false).expect("reinstall");
         assert_eq!(again, InstallOutcome::AlreadyCurrent);
+    }
+
+    #[test]
+    fn template_toe_present_after_install() {
+        let dir = tempdir().expect("tempdir");
+        let data = dir.path();
+        ensure_installed(data, false).expect("install");
+        assert!(data.join("template.toe").is_file());
+        assert!(fs::read(data.join("template.toe")).expect("read").len() > 512);
     }
 
     #[test]

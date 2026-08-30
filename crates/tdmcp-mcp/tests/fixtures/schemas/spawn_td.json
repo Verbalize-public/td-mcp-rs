@@ -1,4 +1,20 @@
 {
+  "$defs": {
+    "LenientU64": {
+      "anyOf": [
+        {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "pattern": "^\\s*[0-9]+\\s*$",
+          "type": "string"
+        }
+      ],
+      "description": "Unsigned 64-bit integer; accepts a JSON number or a decimal numeric string."
+    }
+  },
   "additionalProperties": false,
   "description": "Args for `spawn_td`.",
   "properties": {
@@ -9,6 +25,11 @@
         "type": "string"
       },
       "type": "array"
+    },
+    "createIfMissing": {
+      "default": false,
+      "description": "When true, copy the template toe to `projectPath` if the target does not yet exist before spawning.",
+      "type": "boolean"
     },
     "exePath": {
       "default": null,
@@ -34,12 +55,18 @@
         "null"
       ]
     },
+    "templatePath": {
+      "default": null,
+      "description": "Optional per-call template override (absolute path to a `.toe`/`.tox` to copy when creating).",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "waitTimeoutMs": {
+      "$ref": "#/$defs/LenientU64",
       "default": 60000,
-      "description": "Handshake wait budget (ms).",
-      "format": "uint64",
-      "minimum": 0,
-      "type": "integer"
+      "description": "Handshake wait budget (ms)."
     }
   },
   "type": "object"

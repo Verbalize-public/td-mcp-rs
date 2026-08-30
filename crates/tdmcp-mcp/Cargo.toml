@@ -30,6 +30,7 @@ tdmcp-diagnostics = { workspace = true }
 tdmcp-dialogs = { workspace = true }
 tdmcp-projectio = { workspace = true }
 
+dirs = { workspace = true }
 reqwest = { workspace = true }
 
 [dev-dependencies]

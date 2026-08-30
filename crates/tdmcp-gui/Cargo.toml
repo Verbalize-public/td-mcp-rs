@@ -27,6 +27,7 @@ egui = { workspace = true }
 image = { workspace = true }
 notify-rust = { workspace = true }
 reqwest = { workspace = true }
+rfd = "0.14"
 serde = { workspace = true }
 serde_json = { workspace = true }
 tdmcp-config = { workspace = true }

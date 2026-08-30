@@ -9,6 +9,7 @@ mod dialogs;
 mod federation;
 mod fingerprint;
 mod ids;
+mod numeric;
 mod registry;
 mod resurrection;
 mod task_queue;
@@ -24,6 +25,7 @@ pub use federation::{
 };
 pub use fingerprint::ProcessFingerprint;
 pub use ids::{OpPath, Pid};
+pub use numeric::{LenientU32, LenientU64};
 pub use registry::{BridgeStatus, EnqueueError, PidEntry, PidRegistry, ProcessAttrs, SpawnRecord};
 pub use resurrection::{CancelReason, CancelledTask, ResurrectionState};
 pub use task_queue::{QueueError, TaskInfo, TaskMode, TaskQueue, TaskResult};

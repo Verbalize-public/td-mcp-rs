@@ -7,13 +7,14 @@
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::{json, Value};
+use tdmcp_core::Pid;
 
 /// Args for `dialogs`.
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DialogsParams {
     /// Target pid.
-    pub pid: u32,
+    pub pid: Pid,
     /// What to do.
     pub action: DialogsAction,
     /// Popup id (from `list`) — required by describe/dismiss.
@@ -43,7 +44,7 @@ pub fn run_with(
 ) -> Result<Value, (&'static str, String)> {
     match params.action {
         DialogsAction::List => {
-            let snap = shared.source.snapshot(params.pid);
+            let snap = shared.source.snapshot(params.pid.get());
             // Only the macOS block below mutates this.
             #[cfg_attr(not(target_os = "macos"), allow(unused_mut))]
             let mut out = json!({
@@ -69,7 +70,10 @@ pub fn run_with(
                 .id
                 .as_deref()
                 .ok_or(("tdmcp.args.missing_field", "describe requires `id`".into()))?;
-            let popup = shared.source.describe(params.pid, id).map_err(dialog_err)?;
+            let popup = shared
+                .source
+                .describe(params.pid.get(), id)
+                .map_err(dialog_err)?;
             Ok(json!({ "ok": true, "pid": params.pid, "popup": popup }))
         }
         DialogsAction::Dismiss => {
@@ -79,7 +83,7 @@ pub fn run_with(
                 .ok_or(("tdmcp.args.missing_field", "dismiss requires `id`".into()))?;
             let outcome = shared
                 .source
-                .dismiss(params.pid, id, params.button.as_deref())
+                .dismiss(params.pid.get(), id, params.button.as_deref())
                 .map_err(dialog_err)?;
             Ok(json!({
                 "ok": true,

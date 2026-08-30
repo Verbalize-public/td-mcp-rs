@@ -50,15 +50,37 @@
         }
       ]
     },
+    "LenientU32": {
+      "anyOf": [
+        {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "pattern": "^\\s*[0-9]+\\s*$",
+          "type": "string"
+        }
+      ],
+      "description": "Unsigned 32-bit integer; accepts a JSON number or a decimal numeric string."
+    },
     "OpPath": {
       "description": "Operator path string passed to TD for resolution via `td.op()`.",
       "type": "string"
     },
     "Pid": {
-      "description": "OS process id — sole address for tools and queues.",
-      "format": "uint32",
-      "minimum": 0,
-      "type": "integer"
+      "anyOf": [
+        {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "pattern": "^\\s*[0-9]+\\s*$",
+          "type": "string"
+        }
+      ],
+      "description": "OS process id — sole address for tools and queues."
     }
   },
   "additionalProperties": false,
@@ -90,14 +112,16 @@
       "description": "Diagnostic payload size (`summary` omits raw traceback)."
     },
     "maxSize": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/LenientU32"
+        },
+        {
+          "type": "null"
+        }
+      ],
       "default": 512,
-      "description": "Longer-side pixel cap before PNG encode. `null` = native resolution.\nDefaults to 512. Hard-capped at 1536 (`tdmcp.perception.max_size_too_large`);\n`null` is only honored when native resolution is already under the cap.",
-      "format": "uint32",
-      "minimum": 0,
-      "type": [
-        "integer",
-        "null"
-      ]
+      "description": "Longer-side pixel cap before PNG encode. `null` = native resolution.\nDefaults to 512. Hard-capped at 1536 (`tdmcp.perception.max_size_too_large`);\n`null` is only honored when native resolution is already under the cap."
     },
     "mode": {
       "$ref": "#/$defs/CaptureMode",

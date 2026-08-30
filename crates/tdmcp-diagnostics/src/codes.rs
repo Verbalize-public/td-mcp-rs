@@ -74,6 +74,14 @@ pub const SPAWN_WAIT_TIMEOUT: &str = "tdmcp.spawn.wait_timeout";
 pub const SPAWN_BLOCKED_BY_DIALOG: &str = "tdmcp.spawn.blocked_by_dialog";
 /// Process exited before handshaking.
 pub const SPAWN_EXITED_EARLY: &str = "tdmcp.spawn.exited_early";
+/// Project target missing and createIfMissing is false.
+pub const SPAWN_TARGET_NOT_FOUND: &str = "tdmcp.spawn.target_not_found";
+/// Template .toe not found.
+pub const SPAWN_TEMPLATE_NOT_FOUND: &str = "tdmcp.spawn.template_not_found";
+/// Template .toe looks invalid.
+pub const SPAWN_TEMPLATE_INVALID: &str = "tdmcp.spawn.template_invalid";
+/// Failed to copy template to target.
+pub const SPAWN_CREATE_FAILED: &str = "tdmcp.spawn.create_failed";
 /// Pid is neither registered nor a TD image.
 pub const KILL_NOT_TD_PID: &str = "tdmcp.kill.not_td_pid";
 /// Process survived the graceful close window.
@@ -250,6 +258,10 @@ pub const ALL: &[&str] = &[
     SPAWN_WAIT_TIMEOUT,
     SPAWN_BLOCKED_BY_DIALOG,
     SPAWN_EXITED_EARLY,
+    SPAWN_TARGET_NOT_FOUND,
+    SPAWN_TEMPLATE_NOT_FOUND,
+    SPAWN_TEMPLATE_INVALID,
+    SPAWN_CREATE_FAILED,
     KILL_NOT_TD_PID,
     KILL_GRACEFUL_TIMEOUT,
     KILL_ACCESS_DENIED,

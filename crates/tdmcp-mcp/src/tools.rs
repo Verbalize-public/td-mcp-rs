@@ -14,8 +14,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use tdmcp_core::{
-    AggregatedFleetProcess, BridgeMethod, DaemonId, OpPath, Pid, PidRegistry, PidResolve,
-    SlaveReachability, TaskMode,
+    AggregatedFleetProcess, BridgeMethod, DaemonId, LenientU32, OpPath, Pid, PidRegistry,
+    PidResolve, SlaveReachability, TaskMode,
 };
 use tdmcp_diagnostics::{codes, DiagnosticLevel};
 use thiserror::Error;
@@ -207,7 +207,7 @@ impl ToolName {
                 "List/describe/dismiss OS popups owned by a TD pid. list returns popups+windowStatus; dismiss runs the ladder (button label/id optional, default button otherwise) and verifies the window is gone. Main chrome is protected."
             }
             Self::SpawnTd => {
-                "Spawn TouchDesigner and deterministically wait for THAT pid's bridge handshake (never another instance). Registers pre-handshake so fleet shows it immediately. Non-handshake outcomes return ok:false with an `outcome` field (`wait_timeout` + stillAlive, or `exited_early` + exitCode) — not a diagnostic code. Startup popups ride along as `startupDialogs`, surfaced and never auto-dismissed: a wait_timeout carrying startupDialogs means a modal is blocking the handshake — dismiss via `dialogs`, then poll fleet for that pid rather than spawning again."
+                "Spawn TouchDesigner and deterministically wait for THAT pid's bridge handshake (never another instance). Registers pre-handshake so fleet shows it immediately. Non-handshake outcomes return ok:false with an `outcome` field (`wait_timeout` + stillAlive, or `exited_early` + exitCode) — not a diagnostic code. Startup popups ride along as `startupDialogs`, surfaced and never auto-dismissed: a wait_timeout carrying startupDialogs means a modal is blocking the handshake — dismiss via `dialogs`, then poll fleet for that pid rather than spawning again. When createIfMissing is true and projectPath does not exist, the template .toe (templatePath arg, else [project].template_path, else {data_dir}/template.toe) is copied to projectPath before spawn; otherwise a missing target fails tdmcp.spawn.target_not_found."
             }
             Self::KillTd => {
                 "Kill a known TouchDesigner pid: graceful WM_CLOSE first (graceMs window), then mode=force as explicit opt-in. Refuses pids that are neither registered nor TouchDesigner.exe."
@@ -496,14 +496,14 @@ pub struct CaptureParams {
     /// Defaults to 512. Hard-capped at 1536 (`tdmcp.perception.max_size_too_large`);
     /// `null` is only honored when native resolution is already under the cap.
     #[serde(default = "default_capture_max_size")]
-    pub max_size: Option<u32>,
+    pub max_size: Option<LenientU32>,
     /// Diagnostic payload size (`summary` omits raw traceback).
     #[serde(default)]
     pub diagnostic_level: DiagnosticLevel,
 }
 
-fn default_capture_max_size() -> Option<u32> {
-    Some(CAPTURE_DEFAULT_MAX_SIZE)
+fn default_capture_max_size() -> Option<LenientU32> {
+    Some(LenientU32(CAPTURE_DEFAULT_MAX_SIZE))
 }
 
 /// Sections to include in an inspect response.
@@ -630,10 +630,10 @@ pub enum MutateStep {
         dst: OpPath,
         /// Source output connector index (default 0).
         #[serde(default, rename = "srcOutput")]
-        src_output: u32,
+        src_output: LenientU32,
         /// Destination input connector index (default 0).
         #[serde(default, rename = "dstInput")]
-        dst_input: u32,
+        dst_input: LenientU32,
     },
     /// Clear an input connector on `path`.
     Disconnect {
@@ -641,7 +641,7 @@ pub enum MutateStep {
         path: OpPath,
         /// Input connector index to clear (default 0).
         #[serde(default)]
-        input: u32,
+        input: LenientU32,
     },
 }
 
@@ -908,7 +908,9 @@ async fn dispatch_tool_inner(
                 params.install_id.as_deref(),
                 params.project_path.as_deref(),
                 &params.args,
-                params.wait_timeout_ms,
+                params.wait_timeout_ms.get(),
+                params.create_if_missing,
+                params.template_path.as_deref(),
             )
             .await
             .map_err(|e| {
@@ -916,24 +918,40 @@ async fn dispatch_tool_inner(
                     "spawn.exe_incomplete" => tdmcp_diagnostics::codes::SPAWN_EXE_INCOMPLETE,
                     "spawn.spawn_failed" => tdmcp_diagnostics::codes::SPAWN_FAILED,
                     "spawn.wait_timeout" => tdmcp_diagnostics::codes::SPAWN_WAIT_TIMEOUT,
+                    "spawn.target_not_found" => tdmcp_diagnostics::codes::SPAWN_TARGET_NOT_FOUND,
+                    "spawn.template_not_found" => tdmcp_diagnostics::codes::SPAWN_TEMPLATE_NOT_FOUND,
+                    "spawn.template_invalid" => tdmcp_diagnostics::codes::SPAWN_TEMPLATE_INVALID,
+                    "spawn.create_failed" => tdmcp_diagnostics::codes::SPAWN_CREATE_FAILED,
                     _ => tdmcp_diagnostics::codes::SPAWN_WAIT_TIMEOUT,
                 };
-                coded_failure(catalog, tool, code, "exePath", e.message)
+                let field = match e.code {
+                    "spawn.target_not_found" => "projectPath",
+                    "spawn.template_not_found" | "spawn.template_invalid" => "templatePath",
+                    "spawn.create_failed" => "projectPath",
+                    _ => "exePath",
+                };
+                coded_failure(catalog, tool, code, field, e.message)
             })
         }
         ToolName::KillTd => {
             let params: crate::lifecycle::KillTdParams = parse_args(catalog, tool, args)?;
             let source = crate::dialogs::get().map(|d| d.source.as_ref());
-            crate::lifecycle::kill_td(registry, source, params.pid, params.mode, params.grace_ms)
-                .await
-                .map_err(|e| {
-                    let code = match e.code {
-                        "kill.not_td_pid" => tdmcp_diagnostics::codes::KILL_NOT_TD_PID,
-                        "kill.graceful_timeout" => tdmcp_diagnostics::codes::KILL_GRACEFUL_TIMEOUT,
-                        _ => tdmcp_diagnostics::codes::KILL_ACCESS_DENIED,
-                    };
-                    coded_failure(catalog, tool, code, "pid", e.message)
-                })
+            crate::lifecycle::kill_td(
+                registry,
+                source,
+                params.pid.get(),
+                params.mode,
+                params.grace_ms.get(),
+            )
+            .await
+            .map_err(|e| {
+                let code = match e.code {
+                    "kill.not_td_pid" => tdmcp_diagnostics::codes::KILL_NOT_TD_PID,
+                    "kill.graceful_timeout" => tdmcp_diagnostics::codes::KILL_GRACEFUL_TIMEOUT,
+                    _ => tdmcp_diagnostics::codes::KILL_ACCESS_DENIED,
+                };
+                coded_failure(catalog, tool, code, "pid", e.message)
+            })
         }
         ToolName::ProjectLint => {
             let params: crate::project_lint::ProjectLintParams = parse_args(catalog, tool, args)?;

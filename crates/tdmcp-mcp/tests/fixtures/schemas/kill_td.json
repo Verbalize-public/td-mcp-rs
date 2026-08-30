@@ -14,27 +14,51 @@
           "type": "string"
         }
       ]
+    },
+    "LenientU64": {
+      "anyOf": [
+        {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "pattern": "^\\s*[0-9]+\\s*$",
+          "type": "string"
+        }
+      ],
+      "description": "Unsigned 64-bit integer; accepts a JSON number or a decimal numeric string."
+    },
+    "Pid": {
+      "anyOf": [
+        {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "pattern": "^\\s*[0-9]+\\s*$",
+          "type": "string"
+        }
+      ],
+      "description": "OS process id — sole address for tools and queues."
     }
   },
   "additionalProperties": false,
   "description": "Args for `kill_td`.",
   "properties": {
     "graceMs": {
+      "$ref": "#/$defs/LenientU64",
       "default": 5000,
-      "description": "Grace window for graceful mode (ms).",
-      "format": "uint64",
-      "minimum": 0,
-      "type": "integer"
+      "description": "Grace window for graceful mode (ms)."
     },
     "mode": {
       "$ref": "#/$defs/KillMode",
       "description": "`graceful` (close windows / SIGTERM + grace window) or `force`."
     },
     "pid": {
-      "description": "Target pid.",
-      "format": "uint32",
-      "minimum": 0,
-      "type": "integer"
+      "$ref": "#/$defs/Pid",
+      "description": "Target pid."
     }
   },
   "required": [

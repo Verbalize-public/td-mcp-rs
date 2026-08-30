@@ -6,11 +6,21 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// OS process id — sole address for tools and queues.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
-)]
+///
+/// Wire-leniency: deserializes from a JSON number *or* a decimal numeric
+/// string (`"4988"`), so client serialization quirks cannot fail the args
+/// stage. Serializes as a plain number. See [`numeric`](crate::numeric).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
 #[serde(transparent)]
 pub struct Pid(pub u32);
+
+crate::numeric::impl_lenient_uint!(
+    Pid,
+    u32,
+    "uint32",
+    "a u32 or a decimal numeric string",
+    "OS process id — sole address for tools and queues."
+);
 
 impl Pid {
     /// Wrap a raw OS pid.
@@ -84,5 +94,42 @@ impl From<&str> for OpPath {
 impl AsRef<str> for OpPath {
     fn as_ref(&self) -> &str {
         &self.0
+    }
+}
+
+#[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    reason = "unit tests"
+)]
+mod tests {
+    use super::Pid;
+    use serde_json::{from_value, json};
+
+    #[test]
+    fn pid_accepts_number_numeric_string_and_integral_float() {
+        for ok in [json!(4988), json!("4988"), json!(" 4988 "), json!(4988.0)] {
+            let pid: Pid = from_value(ok.clone()).unwrap_or_else(|e| panic!("{ok}: {e}"));
+            assert_eq!(pid.get(), 4988, "{ok}");
+        }
+    }
+
+    #[test]
+    fn pid_rejects_non_numeric_shapes() {
+        for bad in [
+            json!("abc"),
+            json!(""),
+            json!(-1),
+            json!(4_294_967_296_u64),
+            json!(1.5),
+            json!(null),
+        ] {
+            assert!(
+                from_value::<Pid>(bad.clone()).is_err(),
+                "Pid accepted {bad}"
+            );
+        }
     }
 }

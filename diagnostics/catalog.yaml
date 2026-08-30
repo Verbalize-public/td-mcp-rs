@@ -925,6 +925,31 @@ entries:
     mitigation:
       - "Pick another installId from td_installs (complete=true)"
 
+  - code: tdmcp.spawn.target_not_found
+    layer: args
+    message: "Project target does not exist and createIfMissing is false"
+    mitigation:
+      - "Pass createIfMissing:true to create the project from the template"
+      - "Or create the .toe manually first"
+
+  - code: tdmcp.spawn.template_not_found
+    layer: args
+    message: "Template .toe not found"
+    mitigation:
+      - "Set [project].template_path to an existing .toe, or run tdmcp-daemon ensure to restore {data_dir}/template.toe"
+
+  - code: tdmcp.spawn.template_invalid
+    layer: args
+    message: "Template .toe looks invalid"
+    mitigation:
+      - "Pick a valid .toe file as template; or delete the current template and run tdmcp-daemon ensure"
+
+  - code: tdmcp.spawn.create_failed
+    layer: args
+    message: "Failed to create new project from template"
+    mitigation:
+      - "Check target parent directory is writable and the template path is readable"
+
   - code: tdmcp.spawn.spawn_failed
     layer: args
     message: "Process spawn failed"

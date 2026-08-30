@@ -203,6 +203,7 @@ safety net only — the daemon owns the real per-method budgets.
 | ------------ | ------------------------------------------------------------------------------------------ |
 | Name         | stable snake_case                                                                          |
 | Params       | typed; process-scoped tools require `pid`; paths use `OpPath`                              |
+| Numeric args | every wire unsigned integer (`pid`, `maxSize`, ms budgets, connector indexes) accepts a JSON number **or** a decimal numeric string (`"4988"`); schema advertises `anyOf: [integer, string]`; serialization stays a plain number |
 | Diagnostics  | uniform `diagnostics` envelope; stable `tdmcp.*` codes                                     |
 | Detail flags | `detailLevel` (structure), `diagnosticLevel` (error payload), `resultRef` (large payloads) |
 
@@ -275,7 +276,7 @@ Structured success is **flat tool fields** with a single outer `ok` (bridge may 
 
 Failures (all bridge-backed tools): `{ ok: false, summary, items, … }` via diagnostics flatten. Mutate soft-fail splices `applied` / `failedAt` / `steps` **flat** (not under `data`). Soft perception fails (black/uniform frame) use `isError` + diagnostics + image content — that path is separate from success nesting.
 
-**Argument-shape failures** (missing / unknown field, bad enum value, wrong type) are **not** protocol errors: every tool returns the same `{ ok: false, summary, items }` shape with catalog-backed `tdmcp.args.*` codes (`missing_field`, `unknown_field`, `unknown_variant`, `wrong_type`; `tdmcp.args.similar_field` lint carries a did-you-mean suggestion). Spans point at the exact JSON reference (`steps[0].op`). `-32602 invalid_params` is reserved for unknown tool names and malformed requests; expected fields/values are derived from each tool's advertised schema. See [`TOOL_ERROR_PLAN.md`](TOOL_ERROR_PLAN.md).
+**Argument-shape failures** (missing / unknown field, bad enum value, wrong type) are **not** protocol errors: every tool returns the same `{ ok: false, summary, items }` shape with catalog-backed `tdmcp.args.*` codes (`missing_field`, `unknown_field`, `unknown_variant`, `wrong_type`; `tdmcp.args.similar_field` lint carries a did-you-mean suggestion). Spans point at the exact JSON reference (`steps[0].op`). `-32602 invalid_params` is reserved for unknown tool names and malformed requests; expected fields/values are derived from each tool's advertised schema. Numeric params accept either shape before this layer ever fires (see the Numeric args row above); a string that does not parse as an unsigned integer (`"abc"`, `"-1"`, `"0x10"`) still surfaces as `tdmcp.args.wrong_type` pointing at the field. See [`TOOL_ERROR_PLAN.md`](TOOL_ERROR_PLAN.md).
 
 **Transport note:** Streamable HTTP JSON fallback (`/mcp/tools/call`) still wraps success as `{ ok: true, data: <above> }`; stdio/rmcp does not. Failures are not double-wrapped.
 

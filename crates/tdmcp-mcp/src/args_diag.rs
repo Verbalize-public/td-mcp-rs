@@ -501,6 +501,39 @@ mod tests {
     }
 
     #[test]
+    fn numeric_string_pid_passes_args_stage() {
+        let catalog = Catalog::fallback();
+        let params = parse_args::<crate::tools::ExecutePythonParams>(
+            &catalog,
+            ToolName::ExecutePython,
+            json!({"pid": "4988", "script": "print(1)"}),
+        )
+        .expect("decimal string pid accepted");
+        assert_eq!(params.pid.get(), 4988);
+    }
+
+    #[test]
+    fn non_numeric_string_pid_is_wrong_type_with_pid_span() {
+        let catalog = Catalog::fallback();
+        let err = parse_args::<crate::tools::ExecutePythonParams>(
+            &catalog,
+            ToolName::ExecutePython,
+            json!({"pid": "abc", "script": "print(1)"}),
+        )
+        .expect_err("expected arg failure");
+        match err {
+            ToolCallError::Failed(payload) => {
+                let item = &payload.diagnostics.items[0];
+                assert_eq!(item.code, "tdmcp.args.wrong_type");
+                assert_eq!(item.span.field.as_deref(), Some("pid"));
+                assert!(item.message.contains("pid"), "{}", item.message);
+                assert!(!item.message.contains("line "), "{}", item.message);
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[test]
     fn similar_prefers_exact_casefold_then_distance() {
         let cands = vec![
             "contextPath".to_owned(),

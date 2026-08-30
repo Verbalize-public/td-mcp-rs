@@ -53,6 +53,8 @@ pub struct ConfigFile {
     pub official_tools: OfficialToolsSection,
     /// OS-dialog detection / interception switches.
     pub dialogs: DialogsSection,
+    /// Template / new-project defaults.
+    pub project: ProjectSection,
 }
 
 /// `[server]` table.
@@ -255,6 +257,15 @@ impl Default for DialogsSection {
     }
 }
 
+/// `[project]` table — template for `spawn_td` create-new.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ProjectSection {
+    /// Path to the template `.toe` used by `spawn_td` `createIfMissing`.
+    /// `None` → `{data_dir}/template.toe` (shipped fallback).
+    pub template_path: Option<PathBuf>,
+}
+
 /// Field descriptions shared by docs, GUI tooltips, and the default template.
 #[derive(Debug, Clone, Copy)]
 pub struct FieldDesc {
@@ -408,6 +419,11 @@ pub const FIELD_DESCS: &[FieldDesc] = &[
         label: "Daemon bin",
         help: "Path to the installed daemon binary (auto-set by `install`; used for spawn / restart / autostart).",
     },
+    FieldDesc {
+        key: "project.template_path",
+        label: "Template .toe",
+        help: "Template .toe for spawn_td createIfMissing. Empty = {data_dir}/template.toe (shipped fallback).",
+    },
 ];
 
 /// Default config file path (`{config_dir}/tdmcp-rs/config.toml`).
@@ -511,6 +527,7 @@ pub fn save(path: &Path, cfg: &ConfigFile) -> Result<()> {
     ensure_table(&mut doc, "advanced");
     ensure_table(&mut doc, "official_tools");
     ensure_table(&mut doc, "dialogs");
+    ensure_table(&mut doc, "project");
 
     doc["dialogs"]["enabled"] = value(cfg.dialogs.enabled);
     doc["dialogs"]["intercept"] = value(cfg.dialogs.intercept);
@@ -587,6 +604,12 @@ pub fn save(path: &Path, cfg: &ConfigFile) -> Result<()> {
         &mut doc["official_tools"],
         "collapse_path",
         cfg.official_tools.collapse_path.as_ref(),
+    );
+
+    set_optional_path(
+        &mut doc["project"],
+        "template_path",
+        cfg.project.template_path.as_ref(),
     );
 
     fs::write(path, doc.to_string()).with_context(|| format!("write config {}", path.display()))?;

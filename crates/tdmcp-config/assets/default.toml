@@ -121,3 +121,9 @@ enabled = true
 intercept = true
 # Watcher cadence (milliseconds).
 poll_ms = 1000
+
+[project]
+# Template for `spawn_td` createIfMissing: copied to the target path when the
+# target does not yet exist. Leave unset to use {data_dir}/template.toe
+# (shipped fallback). Per-call `templatePath` can also override this.
+# template_path = "C:/path/to/my-template.toe"

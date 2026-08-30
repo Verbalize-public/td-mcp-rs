@@ -225,6 +225,17 @@ idle_dead_secs = 20
 # daemon_bin = "C:/path/to/tdmcp-daemon.exe"
 ```
 
+## Project template (create-new)
+
+```toml
+[project]
+# template_path = "C:/path/to/my-template.toe"  # spawn_td createIfMissing source.
+# Empty/unset → {data_dir}/template.toe (shipped fallback).
+# Per-call spawn_td.templatePath can also override. Create is copy-if-missing only.
+```
+
+Resolution order for `spawn_td` `createIfMissing:true`: per-call `templatePath` > `[project].template_path` > `{data_dir}/template.toe` (installed) > error `spawn.template_not_found`. The Settings dashboard exposes Locate/Reveal/Open for this file: Open launches the template with the OS default association (TouchDesigner) so any build-upgrade modal appears natively — accept it inside TD and Save over the template to adopt the new build.
+
 ## Project I/O & dialogs (v2)
 
 ```toml
