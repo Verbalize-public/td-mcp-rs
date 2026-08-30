@@ -87,10 +87,6 @@ pub(crate) fn daemon_actions(app: &mut DashboardApp, ui: &mut egui::Ui) {
     });
     ui.add_space(sp::XS);
     draw_open_split(app, ui);
-    if app.spawn_busy {
-        ui.add_space(sp::XS);
-        ui.spinner();
-    }
     // Render dropdown if open (foreground area anchored to last arrow rect).
     draw_recent_menu(app, ui.ctx());
 }
