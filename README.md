@@ -6,7 +6,7 @@
 
 ![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
 ![Rust](https://img.shields.io/badge/Rust-1.92-000000?style=for-the-badge&logo=rust&logoColor=white)
-![Version](https://img.shields.io/badge/version-1.0.0-blue?style=for-the-badge)
+![Version](https://img.shields.io/badge/version-0.1.4-blue?style=for-the-badge)
 ![MCP](https://img.shields.io/badge/MCP-Streamable_HTTP-7C3AED?style=for-the-badge)
 ![Platform](https://img.shields.io/badge/Windows%20%7C%20macOS%20%7C%20Linux-9cf?style=for-the-badge)
 

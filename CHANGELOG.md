@@ -1,0 +1,191 @@
+# Changelog
+
+## v0.1.4 — 2026-08-30
+
+### Added
+- feat: create tox
+- feat(comments): first-class OP.comment on mutate_nodes and inspect
+- feat(claude-code): self-contained plugin with bundled skills
+- feat(gui): single-click popup, double-click dashboard, right-click menu
+- feat(gui): promote daemon actions to the top bar and tray footer
+- feat(install): create-from-scratch bridge injection (P3)
+- feat(mcp): project_install_bridge tool wiring
+- feat(projectio): .text sidecar codec - parse/encode/normalize_lf
+- feat(mcp): project_lint tool - toc/fs consistency + bridge presence
+- feat(mcp): spawn_td / kill_td lifecycle tools
+- feat(mcp): dialogs interception gate on bridged dispatch
+- feat(mcp): dialogs tool - popup list/describe/dismiss
+- feat(daemon): dialogs watcher - popup sampling, windowStatus fill, fleet emission
+- feat(mcp): project_pack tool - expand dir to packed via toecollapse
+- feat(mcp): project_unpack tool + full project.* diagnostic family
+- feat(projectio): toc parsing + expand/collapse ops with evidence gates
+- feat(mcp): td_installs tool - TouchDesigner installation discovery
+- feat(config): [official_tools] section for expand/collapse pinning
+- feat(mcp): fleet rows carry spawn provenance
+- feat(core): BridgeStatus::Starting + pre-handshake spawn registration
+- feat(dialogs): UIA COM content fill-in for Qt-hosted dialogs
+- feat(dialogs): Win32 backend - user32 shim, portable classify/ladder, worker
+- feat(core): dialog domain types + DialogSource seam
+- feat(projectio): crate skeleton over official toeexpand/toecollapse
+- feat(gui): merge Overview+Fleet, module split, design-system v2
+- feat: improve tool error reporting
+- feat(gui): crash-report hook + previous-crash banner
+- feat(gui): tray click remap — left opens dashboard, right toggles popup
+- feat(gui): pass 5 streamlining — token system, glance popup, dashboard daemon card
+- feat(release): tag-driven multi-platform pipeline, Inno Setup installer, macOS DMG
+- feat(packaging): xtask package/release commands + app icon groundwork
+- feat: GUI dashboard viewport scaffold + error ring, GUI map doc
+- feat: observability M3 execute_python log capture + TD error polling (T3.2-T3.4)
+- feat: bootstrap.tox drift-detection guardrail
+- feat: observability M6 message hygiene audit (§5.7 rules 4, 6, 7, 8)
+- feat: observability M5 proxy-side log uplink (tracing Layer + flusher)
+- feat: observability M5 daemon-side proxy log ingest (POST /admin/logs/ingest)
+- feat: observability M4 tray Logs view (T4.2/T4.3)
+- feat: observability M4 admin log endpoints (T4.1)
+- feat: observability M2 python-side log uplink (T2.1/T2.2)
+- feat: observability M2 rust-side bridge log uplink (T2.3/T2.4)
+- feat: shader lint and mutate text writes
+- feat(untested) federation
+- feat(untested) inspect dat content
+- feat: improve diagnostic
+- feat(mcp): Jinja-templated skills with dual MCP/filesystem rendering
+- feat: skills
+- feat: embeded skills
+- feat: stability improvements
+- feat: editor_context
+- feat: api help tool
+- feat: kill daemon leftover (dev script)
+- feat: review
+- feat: improve test coverage
+- feat: improve stability
+- feat: improve inspect tool (add custom param error)
+- feat: improve bridge reliability
+- feat: force cook
+- feat: extend capture mode (wip)
+- feat: improve capture tool
+- feat: lifecycle -> auto reconnect from MCP rpc
+- feat: (wip) improve ui
+- feat: improve python exec diagnostic
+- feat: forward correct error from stdio proxy
+- feat: improved tools contract
+- feat: improve lifecycle + inspect (return expression/const)
+- feat: improve perception tool (catch uniform image with a hint to avoid useless img2text)
+- feat: improve mutation tool
+- feat: improve mutate diagnostic
+- feat: force cook before inspect
+- feat: include warning in inspect tool
+- feat: log system
+- feat: fleet eviction
+- feat: ping pong to assert bridge health
+- feat: embeded gui (frature)
+- feat: stdio MCP wrapper
+- feat: update doc
+
+### Fixed
+- fix(gui): make tray footer padding perfectly even
+- fix(gui): tray footer hugs bottom edge, remove spinner overflow on New
+- fix(gui): avoid spurious spawn failed log when TD starts slowly
+- fix(gui): symmetric popup footer, sidebar cleanup, wrapped dialog banner; feat open/create project with recents
+- fix(claude-code): correct marketplace.json schema
+- fix(claude-code): add marketplace.json for plugin discovery
+- fix(windows): repair clippy and test gates broken by macos-compat pass
+- fix: macos compat
+- fix: gui
+- fix(mcp): project_lint auto-expands packed targets in temp staging
+- fix(mcp): correct inverted stillAlive in spawn wait_timeout payload
+- fix(dialogs): hang probe decides on call outcome only
+- fix(mcp): normalize null args for spawn_td
+- fix(dialogs): filter system helper windows from popup detection
+- fix(projectio): collapse stages under the output name
+- fix(projectio): toc path strips .dir per official layout
+- fix(mcp): keep canonical toc layout for default-dest unpacks
+- fix(projectio): RunnerEffect alias for clippy type-complexity
+- fix(projectio): dedup aliased Program Files scan roots
+- fix: close silent-loss and transport bugs found by a live limits audit
+- fix(gui): replace tofu glyphs, wire tray right-click menu
+- fix(ci): EOL-normalize tox drift hash (mac/win parity); GTK deps for linux msrv
+- fix: gui
+- fix(ci): gate windows-only named-pipe tests; true MSRV 1.92; rustfmt sweep
+- fix: stop logging tracebacks for routine connection-superseded writes
+- fix: logtap install() left stale tees from earlier reload generations
+- fix: assign ring seq before serializing sink JSONL line
+- fix: daemon as admin
+- fix: gui ui/ux for federation
+- fix: lifecycle
+- fix: gui
+- fix: repo hygien
+- fix: apply skill authoring pattern
+- fix: inspect tool
+- fix: install command
+- fix: readme
+- fix: update doc
+- fix: cleanup
+- fix: trail on macos
+- fix: paused pump
+- fix: macos compat
+- fix: doc
+- fix: various issues
+- fix: crash on non serializable json + improve inspect tool
+- fix: python helper
+- fix: mullti mmcp consumer contract
+- fix: fuzzy suggest
+- fix: capture tool + rework skills
+- fix: proper daemon exit
+- fix: response shape inconsistancy
+- fix: mutate connect/disconnect op
+- fix: improve summary tool (proper truncation  + hint)
+- fix: capture tool
+- fix: bridge on windows is now stable
+
+### Other
+- docs: sync 1.0 contract, tcp transport and disposition v2 deviations
+- docs(agents): make the claude-skills re-render step impossible to miss
+- wip: linux support
+- docs: route and correct the v2 tool skills (project-io, lifecycle, popups)
+- test(mcp): close the two lint holes that let v2 cards and schemas ship unguarded
+- docs: curated v2 handoff for next agent
+- docs: v2 capability catalogue, config annex, skill cards, e2e records V1-V9
+- test(projectio): r0 flagship probe fixtures from F2 install loop
+- docs: record F2 flagship live loop
+- style: rustfmt import order in project_install
+- docs: record E-phase live verification
+- docs: record D1-D3 live interception + C-phase round-trip evidence
+- docs(diagnostics): doc comments for dialog code constants
+- docs(dialogs): per-block SAFETY comments across the FFI enclave
+- chore: pin LF eol for toc/project-io fixture artifacts via .gitattributes
+- docs: record V2-0 probe results and derived project-io laws
+- test(probes): V2-0 probe scripts + evidence artifacts
+- docs: v2 planning package - unified contract, dialogs rev4, impl plan
+- chore(docs): payload-spool plan, skills contract proposal, doc index
+- hotifx: trail click crash
+- Merge remote-tracking branch 'origin/main' into feat/packaging-pipeline
+- chore(deps): lock xtask chrono dependency
+- docs: delivery pipeline reference + installer quick-start notes
+- ci: windows gate per-push, macos daily/dispatch, msrv check, deny+audit cron
+- build: repack bootstrap.tox against live TD, restamp source hash
+- test: cover M3 logtap on_local hook and execute_python log routing
+- docs: record T3.1 live-verify gate results (run against real TD)
+- docs: observability M6 doc touchpoints + honest status pass
+- wip: observability M1 sink, ring, retention, fd-attach removal, CLI tail
+- wip: observability m1 logging config and deps
+- drop: force psk
+- wip: skills
+- wip: doc
+- wip: skills
+- wip: skills
+- wip: skills
+- wip
+- refactor: wip
+- wip: bridge stability
+- refactor: inspect tool
+- refactor: config system
+- wip: ui polish
+- refactor: various fixes
+- wip: mutate tool
+- wip: improved tox
+- refactor: enforce schemas
+- wip: basic full roundtrip ok
+- wip: mcp protocol
+- wip
+- wip: architecture/resume failed agent
+
