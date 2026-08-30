@@ -40,18 +40,18 @@ Crate layout: `[ARCHITECTURE.md](../ARCHITECTURE.md)`. Engineering law: `[CONSTI
 
 ## Architecture — Shipped
 
-```text
- IDE (Cursor)  ── stdio ──► tdmcp-daemon mcp ──► HTTP MCP proxy ──┐
- Other MCP callers ── Streamable HTTP http://127.0.0.1:9860/mcp ──┤
-                                                                  ▼
- ┌────────────── Daemon process (tdmcp-daemon, single binary) ──────────┐
- │  background: axum + rmcp │ admin │ PidRegistry │ per-pid queues      │
- │  main thread (default): tray + toast; dashboard on demand (gui)      │
- └──────────┬───────────────────────────────────────────────────────────┘
-            │  local IPC (Win named pipe / Unix UDS)
-            ▼
-   TD process(es)  ←── bootstrap .tox → handshake → FS load bridge/
-```
+ ```text
+  IDE (Cursor)  ── stdio ──► tdmcp-daemon mcp ──► HTTP MCP proxy ──┐
+  Other MCP callers ── Streamable HTTP http://127.0.0.1:9860/mcp ──┤
+                                                                   ▼
+  ┌────────────── Daemon process (tdmcp-daemon, single binary) ──────────┐
+  │  background: axum + rmcp │ admin │ PidRegistry │ per-pid queues      │
+  │  main thread (default): tray + toast; dashboard on demand (gui)      │
+  └──────────┬───────────────────────────────────────────────────────────┘
+             │  TCP loopback 127.0.0.1:9861 (configurable via [bridge] host/port)
+             ▼
+    TD process(es)  ←── bootstrap .tox → handshake → FS load bridge/
+ ```
 
 ### Surfaces
 
@@ -95,13 +95,12 @@ the tool). Thresholds:
 `TDMCP_RECONNECT_PROBE_MAX_MS` (5000). This is **not** the TD↔daemon IPC
 resurrection policy (Goals §7 / non-goal “Silent auto-reconnect”).
 
-### Bridge transport — Shipped
+### Bridge transport — Shipped (TCP loopback)
 
 
 | OS            | Mechanism          | Address                 |
 | ------------- | ------------------ | ----------------------- |
-| Windows       | Named pipe         | `\\.\pipe\tdmcp-rs`     |
-| macOS / Linux | Unix domain socket | `{dataDir}/bridge.sock` |
+| All           | TCP loopback       | `127.0.0.1:9861` (configurable via `[bridge] host`/`port`) |
 
 
 Handshake returns a local FS path to the bridge package directory. TD reloads from disk on every handshake. Package: `bridge/` + `manifest.json` (`protocolVersion`, `minDaemon`, entry). Post-connect handshake frame I/O is bounded at **5s** (`HANDSHAKE_IO_TIMEOUT`); a peer that connects then stalls is dropped so the accept loop can take the next connection. Handshake field `minDaemon` is **unused in v1** (always omitted by the daemon); `tdmcp.bridge.version` stays **reserved** in the catalog, not emitted.
@@ -356,7 +355,7 @@ When `content` is included, eligible nodes gain a `content` object (omitted on n
 | `isText` | `OP.isText` |
 | `isTable` | `OP.isTable` (tables included; body is still `.text` TSV) |
 | `bytes` | UTF-8 byte length of `text` |
-| `text` | Full `OP.text` |
+| `text` | Full `OP.text` (unbounded in 1.0 — large table DATs may approach the 32 MiB IPC frame; callers should page via `execute_python` slices; bounding tracked in `PAYLOAD_SPOOL_PLAN.md` Phase 0) |
 | `consumers?` | Shader-consumer diagnostics for this DAT — same item shape as mutate `shaderDiagnostics[]`; caps 2048 ops scanned / 64 consumers (`consumersTruncated` + standard `truncation` on overflow). Reading consumer `compileResult` forces a synchronous recompile of that consumer |
 
 **GLSL** (`opType` in `glslTOP` / `glslmultiTOP` / `glslMAT` / `glslPOP`):
@@ -607,7 +606,7 @@ Python `disconnect()` join fails.
 
 Config precedence: **CLI args > env (`TDMCP_`*) > RC file > defaults**.
 
-Artifacts: `tdmcp-daemon` (embeds tray UI when built with default `gui` feature), `bridge/`, `diagnostics/catalog.yaml`, bootstrap `.tox`. Bridge, catalog, and bootstrap ship embedded in the daemon binary; `install` / `ensure` / `start` / `mcp` extract into the data dir. Same semver stamp skips re-extract — use `tdmcp-daemon install --force` or `ensure --force` to refresh embedded assets without bumping the package version. `mcp` upsert stays non-force (does not re-extract on every Cursor reconnect). Packaging via `cargo xtask dist` is **Planned** (P2); until then build with `cargo build --release -p tdmcp-daemon`. Headless: `cargo build --release -p tdmcp-daemon --no-default-features`, or runtime `--no-gui` / `TDMCP_NO_GUI=1`.
+Artifacts: `tdmcp-daemon` (embeds tray UI when built with default `gui` feature), `bridge/`, `diagnostics/catalog.yaml`, bootstrap `.tox`. Bridge, catalog, and bootstrap ship embedded in the daemon binary; `install` / `ensure` / `start` / `mcp` extract into the data dir. Same semver stamp skips re-extract — use `tdmcp-daemon install --force` or `ensure --force` to refresh embedded assets without bumping the package version. `mcp` upsert stays non-force (does not re-extract on every Cursor reconnect). Packaging via `cargo run -p xtask -- package` ships named archives + SHA256SUMS (also `cargo run -p xtask -- dist` for plain `target/dist` tree); CI builds on tag `v*`. Headless: `cargo build --release -p tdmcp-daemon --no-default-features`, or runtime `--no-gui` / `TDMCP_NO_GUI=1`.
 
 Daemon CLI: `start` (foreground; tray + toast by default, dashboard hidden until opened), `stop`, `status`, `install` (`--force` re-extract), `ensure` (`--force` re-extract then upsert), `mcp` (Cursor entrypoint — `ensure` then stdio proxy). Manual `start` for debugging; Cursor uses `mcp`.
 
@@ -619,7 +618,7 @@ Daemon CLI: `start` (foreground; tray + toast by default, dashboard hidden until
 | Phase    | Ship                                                                                                                                                            | Exit green                                                                                                                                                                | Status                                                                                      |
 | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
 | **P0**   | Daemon + IPC + bootstrap + Streamable HTTP: `fleet` + script/errors + `capture` (`top`/`preview`) + diagnostics + per-pid queue + exclusive fail + resurrection | Two connected pids; exclusive fails while busy; perception non-black; structured script failure                                                                           | **Shipped** (see `[E2E_CHECKLIST.md](E2E_CHECKLIST.md)`)                                    |
-| **P1**   | `mutate_nodes` (incl. connect/disconnect), `capture` `chop_data`, dialogs (Win), op lint engine                                                                 | `mutate_nodes` sequential apply stops at first bad path with `failedAt`; later steps emit `tdmcp.batch.skipped_dependent`; pure `apply_step` seam unit-covered without TD | Partial (`mutate_nodes` + `capture` `chop_data` **Shipped**; dialogs / op lint **Planned**) |
+| **P1**   | `mutate_nodes` (incl. connect/disconnect), `capture` `chop_data`, dialogs (Win+macOS), op lint engine                                                       | `mutate_nodes` sequential apply stops at first bad path with `failedAt`; later steps emit `tdmcp.batch.skipped_dependent`; pure `apply_step` seam unit-covered without TD | **Shipped** (`mutate_nodes` + `capture` `chop_data` + dialogs Win+macOS); **Deferred to 1.x:** full op lint engine (shader/error enableExpr today only) |
 | **P1.x** | Universal `capture` via shared OP Viewer; `inspect` explicit `paths[]`; `api_help` live API cards                                                              | Any-family preview; chop_image/pop aliases; inspect batch + partial success; api_help class/classes/module                                                                 | **Shipped** (unit + FakeTdPeer; E2E rows 17–19 for inspect/capture)                         |
 | **P2**   | Lifecycle create/start/stop (tray already shipped)                                                                                                              | Operator create/start/stop; new project by pid                                                                                                                            | **Shipped in v2** (`spawn_td`/`kill_td` + dialogs watcher; tray **Shipped**)                                |
 | **P3**   | Streamable HTTP remote + single-level federation (`bind_address`, PSK auth, register/fleet-push, `daemonId` tool proxy)                                           | Automated: `admin_auth` + `federation_registration` + `federation_proxy` (inspect/capture/ambiguous/unreachable); see [`CONFIG.md`](CONFIG.md) § Federation auth & admin surface | **Shipped**                                                                                 |
@@ -630,7 +629,7 @@ Daemon CLI: `start` (foreground; tray + toast by default, dashboard hidden until
 
 ## Decided contract (summary)
 
-- TD↔daemon: local IPC (named pipe / UDS); handshake returns FS path to bridge package.
+- TD↔daemon: TCP loopback `127.0.0.1:9861` (configurable via `[bridge] host`/`port`); handshake returns FS path to bridge package.
 - Cursor↔daemon: `tdmcp-daemon mcp` (stdio proxy → Streamable HTTP at `/mcp/rpc`; v1 tools only, no notification forward). Direct HTTP clients may use `http://127.0.0.1:9860/mcp` (JSON fallback on `/mcp/tools/*`).
 - Identity: `pid` required on bridged tools; optional `daemonId` when federated (ambiguous pid → `tdmcp.federation.ambiguous_pid`). Bridged tools always exclusive-enqueue (fail iff queue non-empty); session chill on `(mcp_session, pid)` locally and `(mcp_session, daemonId, pid)` when proxied; resurrection stacks until first success.
 - Perception: `capture` only; builders never self-grade look.

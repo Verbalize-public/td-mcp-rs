@@ -1,9 +1,9 @@
-# Proposal — v2 Unified Tools & Skills Contract: Project I/O + Lifecycle + Dialogs
+# v2 Unified Tools & Skills Contract: Project I/O + Lifecycle + Dialogs — SHIPPED
 
-Status: **PROPOSAL** (not yet accepted). Extends [`CONTRACT.md`](CONTRACT.md) v1 with eight
-tools and three skills-layer cards, and **absorbs [`DIALOGS.md`](DIALOGS.md)** (kept as the
-full implementation annex for the `dialogs` tool; this document owns the unified scope,
-roadmap, and interaction contracts). On acceptance, apply the change-list in §8.
+Status: **ACCEPTED & SHIPPED 2026-08-26.** Was the proposal that extended [`CONTRACT.md`](CONTRACT.md) v1 with eight
+tools and three skills-layer cards, and **absorbed [`DIALOGS.md`](DIALOGS.md)** (kept as the
+full implementation annex for the `dialogs` tool; this document owned the unified scope,
+roadmap, and interaction contracts). Change-list in §8 **applied** — see [`V2_IMPLEMENTATION_PLAN.md`](V2_IMPLEMENTATION_PLAN.md) and [`HANDOFF_V2.md`](HANDOFF_V2.md) for live E2E V1-V10 PASS. Retained verbatim as historical record; contract of record is now [`CONTRACT.md`](CONTRACT.md).
 
 Rev 2 (challenge pass) — simplification cuts applied throughout: `spawn_td` is surface-only
 (no auto-dismiss policy), no round-trip diffing in `project_pack` (targeted byte-verify lives

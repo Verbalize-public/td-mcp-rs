@@ -7,6 +7,7 @@
 entries:
   - code: tdmcp.bridge.unknown_pid
     layer: fleet
+    # In 1.0 `unknown_pid` vs `bridge.lost` distinction is shipped (registry check in BridgeSessions::call); see LIMITS_AUDIT 2.4.
     message: "Unknown or dead pid — process not listed or never connected"
     mitigation:
       - "Call fleet; pick a connected pid (exited or never connected)"
@@ -964,12 +965,14 @@ entries:
 
   - code: tdmcp.spawn.blocked_by_dialog
     layer: fleet
+    # Reserved in 1.0 — spawn uses outcome:"wait_timeout" + startupDialogs instead (see HANDOFF_V2 deviation).
     message: "Startup popups are blocking the handshake"
     mitigation:
       - "Run dialogs action=list then dismiss each popup; spawn continues waiting"
 
   - code: tdmcp.spawn.exited_early
     layer: fleet
+    # Reserved in 1.0 — spawn uses outcome:"exited_early" + exitCode instead (see HANDOFF_V2 deviation).
     message: "TouchDesigner exited before handshake"
     mitigation:
       - "Check exitCode; verify project path and licence state"

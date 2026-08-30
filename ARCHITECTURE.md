@@ -11,13 +11,13 @@ crate boundaries and process topology.
                      │  MCP Streamable HTTP  http://{bind_address}:9860/mcp
  Other MCP callers ──┤   (default bind 127.0.0.1; P3 may use 0.0.0.0 + PSK)
                      ▼
- ┌────────── Daemon process (tdmcp-daemon) ─────────────────────────────┐
- │  bg thread: axum + rmcp │ admin │ PidRegistry │ SlaveRegistry │ queues │
- │  main thread (gui feature, default): tray + egui → /admin/*          │
- └──────────┬───────────────────────────────────────────────────────────┘
-            │  local IPC (Win named pipe / Unix UDS)
-            ▼
-   TD process(es)  ←── bootstrap .tox → handshake → FS load bridge/
+  ┌────────── Daemon process (tdmcp-daemon) ─────────────────────────────┐
+  │  bg thread: axum + rmcp │ admin │ PidRegistry │ SlaveRegistry │ queues │
+  │  main thread (gui feature, default): tray + egui → /admin/*          │
+  └──────────┬───────────────────────────────────────────────────────────┘
+             │  TCP loopback 127.0.0.1:9861 (configurable via [bridge] host/port)
+             ▼
+    TD process(es)  ←── bootstrap .tox → handshake → FS load bridge/
 
  Optional P3: slave daemons register + fleet-push to a master; master proxies
  tools with optional daemonId (see docs/CONFIG.md § Federation auth & admin surface).
@@ -29,8 +29,10 @@ crate boundaries and process topology.
 tdmcp-core          domain: PidRegistry, SlaveRegistry, TaskQueue, ResurrectionState (zero I/O)
 tdmcp-config        TOML config file (load / save / defaults) — shared by daemon + GUI
 tdmcp-diagnostics   catalog types, YAML loader, envelope builders
-tdmcp-ipc           named pipe / UDS + framing + handshake
+tdmcp-ipc           TCP loopback + framing + handshake
 tdmcp-mcp           rmcp tool handlers → core calls → diagnostics envelope
+tdmcp-projectio     official tools (toeexpand/toecollapse), toc/sidecar
+tdmcp-dialogs       OS dialogs (Win32 + macOS adapters)
 tdmcp-daemon        bin: clap, tracing, axum wiring, admin API (composition root)
                     optional dep on tdmcp-gui via default `gui` feature
 tdmcp-gui           lib: egui + eframe + tray-icon → admin HTTP client + Settings
@@ -57,7 +59,7 @@ timeouts, teardown) plus process wiring (axum, admin, GUI spawn).
 | MCP Streamable HTTP | `{bind_address}:9860/mcp/rpc` | Agent tools; JSON fallback `/mcp/tools/*`. Optional Bearer PSK when `[auth] mode=psk`. |
 | Admin HTTP | `{bind_address}:9860/admin/*` | GUI + status; loopback-only for shutdown/restart/sessions; auth-gated remote for `/admin/federation/*` + `/admin/config`. |
 | Federation | master↔slave HTTP | Register, fleet-push, tool proxy (`daemonId`). See [`docs/CONFIG.md`](docs/CONFIG.md) § Federation auth & admin surface. |
-| Bridge IPC | `\\.\pipe\tdmcp-rs` or `{dataDir}/bridge.sock` | TD peer |
+| Bridge IPC | `127.0.0.1:9861` (TCP loopback, `[bridge] host`/`port`) | TD peer |
 
 ## Identity and queues
 

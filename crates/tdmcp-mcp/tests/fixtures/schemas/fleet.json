@@ -25,7 +25,7 @@
         },
         {
           "const": "popups",
-          "description": "OS dialogs (best-effort; empty until dialogs land).",
+          "description": "OS dialogs (best-effort; empty when backend disabled or unsupported).",
           "type": "string"
         }
       ]

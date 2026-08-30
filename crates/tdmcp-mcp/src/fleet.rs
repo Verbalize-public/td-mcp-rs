@@ -31,7 +31,7 @@ pub enum FleetInclude {
     Tasks,
     /// Cancelled / resurrection traces.
     Cancelled,
-    /// OS dialogs (best-effort; empty until dialogs land).
+    /// OS dialogs (best-effort; empty when backend disabled or unsupported).
     Popups,
 }
 
@@ -44,7 +44,7 @@ pub struct FleetProcess {
     /// Project identity (`project.name`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
-    /// Responsive / frozen hint — empty until P1 dialogs.
+    /// Responsive / frozen hint — filled by dialogs watcher when available, else None.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub window_status: Option<String>,
     /// Opened `.toe` path when known.

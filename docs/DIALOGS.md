@@ -1,8 +1,9 @@
-# OS dialogs support (`dialogs`, P1) — research & implementation plan
+# OS dialogs support (`dialogs`) — shipped (v2), historical implementation spec retained
 
-Status: **Plan / not implemented.** Prepared from codebase reconnaissance
-(td-mcp-rs @ `522ed577`), prior-art analysis of the JS POC at
-`../td-mcp`, and Win32 API research. No code changed.
+Status: **Shipped V2-D — Windows + macOS.** Historical spec below; kept as the
+implementation annex for the `dialogs` tool. Spec of record for the released
+behavior is [`docs/CONTRACT.md`](CONTRACT.md) + live code (`crates/tdmcp-dialogs`,
+`crates/tdmcp-daemon/src/dialogs.rs`, `crates/tdmcp-mcp/src/dialogs_tool.rs`).
 
 Rev 3: platform strategy is a **vendored in-house wrapper** over the OS APIs
 (review feedback); the `uiautomation` *crate* is dropped, but UI Automation
@@ -10,14 +11,14 @@ Rev 3: platform strategy is a **vendored in-house wrapper** over the OS APIs
 and expose no classic controls (see §4). Windows first, macOS later behind the
 same internal facade.
 
-Rev 4: scheduled into the unified v2 roadmap as phase **V2-D** by
+Rev 4 → Rev 5 (shipped): scheduled into the unified v2 roadmap as phase **V2-D** by
 [`SKILLS_CONTRACT_PROPOSAL.md`](SKILLS_CONTRACT_PROPOSAL.md); this annex keeps the full
 implementation spec, that document owns scope/phasing/interactions. Deltas: watcher predicate
 widens to `{starting, connected}` (pre-handshake spawned pids, resolving limitation §9-1 for
 spawned processes), start-flow dialog policy moves into `spawn_td`
 (`spawn_td` startup-dialog surfacing — surface-only, never auto-dismiss; proposal §3.6)
 instead of being a non-goal, and milestones M1–M5 map
-onto V2-A/V2-D/V2-G.
+onto V2-A/V2-D/V2-G. **Shipped 2026-08-26 (Windows) + macOS port same day** — live E2E V7-V9 PASS.
 
 Reserves already in the tree this feature fills:
 

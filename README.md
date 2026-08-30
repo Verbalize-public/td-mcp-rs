@@ -6,9 +6,9 @@
 
 ![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
 ![Rust](https://img.shields.io/badge/Rust-1.92-000000?style=for-the-badge&logo=rust&logoColor=white)
-![Version](https://img.shields.io/badge/version-0.1.3-blue?style=for-the-badge)
+![Version](https://img.shields.io/badge/version-1.0.0-blue?style=for-the-badge)
 ![MCP](https://img.shields.io/badge/MCP-Streamable_HTTP-7C3AED?style=for-the-badge)
-![Platform](https://img.shields.io/badge/Windows%20%7C%20macOS-9cf?style=for-the-badge)
+![Platform](https://img.shields.io/badge/Windows%20%7C%20macOS%20%7C%20Linux-9cf?style=for-the-badge)
 
 <img src="docs/screens/overview-populated.png" alt="td-mcp-rs dashboard — Overview with a live TouchDesigner fleet" width="820">
 
@@ -209,9 +209,9 @@ or ask you to explain your setup.
 <details>
 <summary><b>Fine print</b> — caps and conventions for power users</summary>
 
-- `inspect` takes a required `paths` array (soft-cap 96; no auto-recursion).
+- `inspect` takes a required `paths` array (soft-cap 256; no auto-recursion).
   Prefer `detailLevel: summary` — each node's child roster is `name` +
-  `opType`, capped at 96 (`node.truncation` when truncated).
+  `opType`, capped at 256 (`node.truncation` when truncated).
 - Use `capture` when visual look is the claim; `preview` rasterizes any family
   via the bridge's shared OP Viewer TOP.
 - Full contract: [`docs/CONTRACT.md`](docs/CONTRACT.md).
@@ -248,9 +248,9 @@ or ask you to explain your setup.
 
 | Layer | Technology |
 | --- | --- |
-| Core | Rust (edition 2021, MSRV 1.88) — tokio, axum, rmcp |
+| Core | Rust (edition 2021, MSRV 1.92) — tokio, axum, rmcp |
 | MCP | Streamable HTTP server + stdio proxy (rmcp) |
-| IPC | Local named pipes / Unix domain sockets, heartbeat + task queues |
+| IPC | TCP loopback (`127.0.0.1:9861`), framing + handshake, heartbeat + task queues |
 | GUI | eframe / egui + tray-icon (system-tray dashboard, `gui` feature) |
 | Config | TOML via `toml_edit` (`config.toml`) |
 | Skills | Jinja templates (minijinja), embedded via `include_dir` |
@@ -264,8 +264,10 @@ td-mcp-rs/
 │   ├── tdmcp-core          # PidRegistry, shared types
 │   ├── tdmcp-config        # config.toml load/save + Settings schema
 │   ├── tdmcp-diagnostics   # rustc-style diagnostics + catalog.yaml
-│   ├── tdmcp-ipc           # named-pipe/UDS protocol, heartbeat, queues
+│   ├── tdmcp-ipc           # TCP loopback + framing + handshake
 │   ├── tdmcp-mcp           # MCP server: tools, resources, stdio proxy
+│   ├── tdmcp-projectio     # toeexpand/toecollapse, toc/sidecar
+│   ├── tdmcp-dialogs       # OS dialogs (Win32 + macOS)
 │   ├── tdmcp-daemon        # composition root: CLI, HTTP, tray
 │   ├── tdmcp-gui           # egui dashboard (consumed via `gui` feature)
 │   └── tdmcp-test-support  # shared test helpers

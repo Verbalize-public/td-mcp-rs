@@ -1,7 +1,8 @@
-# v2 Curated Handoff — for the next agent
+# v2 Curated Handoff — for the next agent (historical, 1.0 shipped)
 
-Recorded 2026-08-26. Branch `main`, HEAD `5b4b860`, working tree clean.
-This file is the entry point; everything else it points to is committed.
+Recorded 2026-08-26. Branch `main`, HEAD `5b4b860`, working tree clean at that time.
+Retained as historical record; contract of record is now [`CONTRACT.md`](CONTRACT.md).
+Spec deviations below are dispositioned for 1.0 (see §Known spec deviations — dispositioned).
 
 ## What just finished (v2 unified plan — executed end to end)
 
@@ -105,24 +106,24 @@ running; copy the fresh one into place.
 - td-cli delegation backend discovery/wiring for `project_lint`.
 - No caches anywhere in the offline path (user directive).
 
-## Known spec deviations (audited 2026-08-26 — decide, don't rediscover)
+## Known spec deviations — dispositioned for 1.0
 
-These are places the shipped code does **not** match
-`SKILLS_CONTRACT_PROPOSAL.md`. Docs and skill cards now describe the *shipped*
-behavior; the spec still describes the intent. Close the gap or amend the spec.
+These were places the shipped code did **not** match
+`SKILLS_CONTRACT_PROPOSAL.md` at audit 2026-08-26. For **1.0** they are
+**spec-amended to match shipped behavior** (catalog entries remain as
+`Reserved` for future major if needed; wire shape unchanged per reliability
+principle).
 
-- **`tdmcp.spawn.blocked_by_dialog` is never emitted.** Spec §3.6.5 wants
-  timeout-with-popups to be its own coded failure. Reality: `spawn_td` returns
+- **`tdmcp.spawn.blocked_by_dialog` / `tdmcp.spawn.exited_early` are reserved, not emitted in 1.0.** Spec §3.6.5 wanted
+  timeout-with-popups as its own coded failure. Shipped: `spawn_td` returns
   `Ok({ok:false, outcome:"wait_timeout", stillAlive, startupDialogs})` — the
-  agent discriminates on `startupDialogs` being non-empty. The code constant
-  exists in `codes.rs` + `catalog.yaml` with zero call sites.
-  `tdmcp.spawn.exited_early` is dead the same way (`outcome:"exited_early"`
-  instead). Changing this flips a soft result into a hard error — a wire-shape
-  change that needs a live probe, so it was left alone.
-- **Fleet `owner: "external"|"spawned"` (spec §4.4) is not implemented.**
+  agent discriminates on `startupDialogs` being non-empty. Same for `outcome:"exited_early"`.
+  Catalog entries stay but carry `Reserved in 1.0` notes; `CONTRACT.md` documents the `outcome` field.
+  Changing this flips a soft result into a hard `isError` — deferred to next major if desired, with live probe.
+- **Fleet `owner: "external"|"spawned"` (spec §4.4) is not a shipped field in 1.0.**
   Spawned rows carry `spawn: {startedAt, exePath}`; `owner` is absent. Only a
-  permissive assertion in `fleet.rs` tests references it.
-- **`spawn_td` success payload omits `installId` and `waitedMs`** (spec §3.6.5).
+  permissive assertion in `fleet.rs` tests references it. Amended: `spawn` presence is the 1.0 ownership signal.
+- **`spawn_td` success payload omits `installId` and `waitedMs`** (spec §3.6.5) — deferred; `pid + handshake` is the 1.0 guarantee.
 
 macOS dialogs backend shipped 2026-08-26 (`MacDialogSource`: CGWindowList +
 Accessibility). Grant TCC Accessibility for describe/dismiss.

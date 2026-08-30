@@ -122,12 +122,14 @@ base URL overwrites; from a different host/port it is rejected with a diagnostic
 
 ### `[bridge]`
 
-IPC call budgets and idle heartbeat. Changes apply after the next daemon restart.
+TCP loopback endpoint + IPC call budgets and idle heartbeat. Changes apply after the next daemon restart.
 `idle_dead_secs` is also forwarded to connecting Python bridges via handshake
 `idleDeadSecs` so both sides share the same silence budget.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
+| `host` | `127.0.0.1` | TCP bind host for the daemon↔bridge listener (loopback only in v1) |
+| `port` | `9861` | TCP bind port for the daemon↔bridge listener |
 | `call_timeout_secs` | `45` | Wait for `ping` / `inspect` / `capture` responses |
 | `script_timeout_secs` | `120` | Wait for `execute_python` / `mutate_nodes` |
 | `heartbeat_interval_secs` | `5` | Idle bridge ping cadence |
@@ -214,6 +216,8 @@ always_on = false
 show_tray = true
 
 [bridge]
+host = "127.0.0.1"
+port = 9861
 call_timeout_secs = 45
 script_timeout_secs = 120
 heartbeat_interval_secs = 5

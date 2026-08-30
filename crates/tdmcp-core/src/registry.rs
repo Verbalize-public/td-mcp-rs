@@ -46,7 +46,7 @@ pub struct ProcessAttrs {
     /// Opened `.toe` path when known (`folder` + `name`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub toe_path: Option<String>,
-    /// Responsive / frozen hint — empty until P1 dialogs / hang probe.
+    /// Responsive / frozen hint — filled by dialogs watcher when available (Windows + macOS), else None.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub window_status: Option<String>,
     /// Fingerprint for pid-reuse checks.
