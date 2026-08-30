@@ -16,7 +16,7 @@ use clap::{Parser, Subcommand};
 use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
 use rmcp::transport::streamable_http_server::{StreamableHttpServerConfig, StreamableHttpService};
 use tdmcp_core::PidRegistry;
-use tdmcp_ipc::BridgeEndpoint;
+use tdmcp_ipc::{BridgeEndpoint, IpcListener};
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
@@ -278,7 +278,7 @@ fn main() -> Result<()> {
                     no_gui: cfg.no_gui,
                     idle_exit_secs: None,
                     force_install: force,
-                    ipc_pipe: None,
+                    ipc_port: None,
                     config_path: Some(cfg.config_path),
                 };
                 let result = ensure_daemon(opts).await?;
@@ -309,10 +309,15 @@ fn main() -> Result<()> {
                     exe: cfg.daemon_bin.clone(),
                     timeout: Duration::from_millis(timeout_ms),
                     poll_only: false,
-                    no_gui: cfg.no_gui,
+                    // Headless, always: this proxy is the IDE-spawned manager
+                    // of the long-lived service. A tray request here would tear
+                    // down a healthy headless daemon to "restart with tray"
+                    // (see ensure_daemon) and every respawn it spawns would try
+                    // to open a GUI — failing outright on headless machines.
+                    no_gui: true,
                     idle_exit_secs: None,
                     force_install: false,
-                    ipc_pipe: None,
+                    ipc_port: None,
                     config_path: Some(cfg.config_path.clone()),
                 };
                 // Cold start may race a dying daemon between ensure and the first
@@ -331,6 +336,44 @@ fn main() -> Result<()> {
                             warn!(error = %e, "automatic respawn attempt failed");
                         }
                     })
+                });
+                // Self-probe respawn watchdog. The daemon-link watcher escalates
+                // only after a failed forwarded call marks the link unhealthy —
+                // an idle IDE session (no traffic) never does, so a daemon
+                // killed mid-session was never respawned (LINUX_SUPPORT F5).
+                // Probe /mcp/health on the same env-tuned cadence and fire the
+                // same ensure closure once downtime crosses the reconnect
+                // `stale` threshold; ensure_daemon's own lock keeps this
+                // single-flight with the link watcher.
+                const WATCHDOG_RESPAWN_COOLDOWN: Duration = Duration::from_secs(10);
+                let reconnect = tdmcp_mcp::ReconnectConfig::from_env();
+                let watchdog_port = cfg.port;
+                let watchdog_respawn = std::sync::Arc::clone(&respawn);
+                tokio::spawn(async move {
+                    let mut down_since: Option<Instant> = None;
+                    let mut last_attempt: Option<Instant> = None;
+                    loop {
+                        tokio::time::sleep(reconnect.probe_interval).await;
+                        if health_ok(watchdog_port).await {
+                            down_since = None;
+                            continue;
+                        }
+                        let since = *down_since.get_or_insert_with(Instant::now);
+                        if since.elapsed() < reconnect.stale {
+                            continue;
+                        }
+                        if last_attempt.is_some_and(|last| {
+                            last.elapsed() < WATCHDOG_RESPAWN_COOLDOWN
+                        }) {
+                            continue;
+                        }
+                        last_attempt = Some(Instant::now());
+                        info!(
+                            port = watchdog_port,
+                            "sustained downtime — watchdog triggering automatic daemon respawn"
+                        );
+                        (watchdog_respawn)().await;
+                    }
                 });
                 const MAX_CONNECT_ATTEMPTS: u32 = 3;
                 let mut last_err = None;
@@ -516,7 +559,7 @@ async fn restart_running_daemon(
         no_gui: false,
         idle_exit_secs: None,
         force_install: false,
-        ipc_pipe: None,
+        ipc_port: None,
         config_path: Some(config_path.to_path_buf()),
     })
     .await?;
@@ -644,17 +687,44 @@ fn start_daemon(cfg: Config, log_sink: tdmcp_daemon::LogSink) -> Result<()> {
                 })
                 .context("spawn daemon background thread")?;
 
-            // eframe/winit require the real main thread.
-            let gui_result = tdmcp_gui::run(admin_base, data_dir, Arc::clone(&quit), config_path);
+            // eframe/winit require the real main thread. A GUI-stack failure
+            // (headless winit, missing session bus, a panic inside eframe)
+            // must degrade to headless serving, never exit the daemon (L-10).
+            let gui_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                tdmcp_gui::run(admin_base, data_dir, Arc::clone(&quit), config_path)
+            }));
+            match gui_result {
+                Ok(Ok(())) => {
+                    // GUI returned — never join forever on a still-running
+                    // control plane.
+                    quit.store(true, Ordering::SeqCst);
+                    shutdown.cancel();
+                    let join_result = join_daemon_thread(handle, JOIN_DEADLINE);
+                    return match join_result {
+                        Ok(()) => Ok(()),
+                        Err(e) => Err(e),
+                    };
+                }
+                Ok(Err(e)) => {
+                    warn!(error = %e, "GUI stack unavailable — continuing headless (L-10)");
+                }
+                Err(payload) => {
+                    let reason = payload
+                        .downcast_ref::<&str>()
+                        .map(|s| (*s).to_owned())
+                        .or_else(|| payload.downcast_ref::<String>().cloned())
+                        .unwrap_or_else(|| "non-string panic payload".to_owned());
+                    warn!(reason = %reason, "GUI stack panicked — continuing headless (L-10)");
+                }
+            }
 
-            // GUI returned — never join forever on a still-running control plane.
-            quit.store(true, Ordering::SeqCst);
-            shutdown.cancel();
-            let join_result = join_daemon_thread(handle, JOIN_DEADLINE);
-            return match (gui_result, join_result) {
-                (Ok(()), Ok(())) => Ok(()),
-                (Err(e), _) => Err(e),
-                (Ok(()), Err(e)) => Err(e),
+            // Degrade: the GUI died, but the daemon thread keeps serving.
+            // Wait on it without a deadline — the process must live exactly as
+            // long as the control plane does.
+            return match handle.join() {
+                Ok(Ok(())) => Ok(()),
+                Ok(Err(e)) => Err(e),
+                Err(_) => Err(anyhow::anyhow!("daemon thread panicked")),
             };
         }
     }
@@ -896,6 +966,20 @@ async fn run_daemon(
     });
     info!(%addr, "listening (MCP rmcp /mcp/rpc + JSON fallback /mcp/* + admin /admin/*)");
 
+    // Bridge listener binds before the daemon.lock write so a port conflict
+    // exits with a clear error and never leaves a lock behind (T-3).
+    let bridge_listener = IpcListener::bind(BridgeEndpoint::Tcp {
+        host: cfg.bridge_host.clone(),
+        port: cfg.bridge_port,
+    })
+    .await
+    .map_err(|e| {
+        anyhow::anyhow!(StartupFailure::Other(format!(
+            "bridge listener on {}:{} — {e}; free the port or set [bridge] port / TDMCP_IPC_PORT",
+            cfg.bridge_host, cfg.bridge_port
+        )))
+    })?;
+
     let lock_path = daemon_lock_path(&cfg.data_dir);
     std::fs::create_dir_all(&cfg.data_dir)?;
     std::fs::write(&lock_path, std::process::id().to_string())?;
@@ -908,14 +992,13 @@ async fn run_daemon(
         shutdown.clone(),
     ));
 
-    // IPC accept loop: bind the local bridge endpoint and spawn a per-pid
-    // session actor for each handshaken TD peer.
-    let endpoint = BridgeEndpoint::default_endpoint(&cfg.data_dir);
+    // IPC accept loop: spawn a per-pid session actor for each handshaken TD
+    // peer on the bridge listener bound above.
     let ipc_registry = registry.clone();
     let ipc_sessions = sessions.clone();
     let bridge_dir = cfg.bridge_dir.clone();
     let ipc_handle = tokio::spawn(async move {
-        run_ipc_accept(endpoint, bridge_dir, ipc_registry, ipc_sessions).await;
+        run_ipc_accept(bridge_listener, bridge_dir, ipc_registry, ipc_sessions).await;
     });
 
     let _slave_handle = if cfg.federation_role == "slave" {

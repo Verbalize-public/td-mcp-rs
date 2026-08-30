@@ -105,6 +105,33 @@ entries:
       - kind: tool
         id: fleet
 
+  - code: tdmcp.bridge.protocol_mismatch
+    layer: fleet
+    message: "Bridge handshake protocol_version not supported by the daemon"
+    mitigation:
+      - "Re-embed the shipped bootstrap tox via project_install_bridge / tdmcp-daemon ensure so the bridge speaks the current wire version"
+    references:
+      - kind: tool
+        id: fleet
+
+  - code: tdmcp.bridge.handshake_invalid
+    layer: fleet
+    message: "Bridge handshake frame missing or unreadable on the TCP bridge socket"
+    mitigation:
+      - "Re-embed the shipped bootstrap tox; if the peer is not TouchDesigner (port scanner / health probe), ignore"
+    references:
+      - kind: tool
+        id: fleet
+
+  - code: tdmcp.bridge.handshake_timeout
+    layer: fleet
+    message: "Peer connected but sent no handshake frame within the 5s budget"
+    mitigation:
+      - "Re-embed the shipped bootstrap tox; if the peer is a silent health probe, ignore"
+    references:
+      - kind: tool
+        id: fleet
+
   - code: tdmcp.daemon.unreachable
     layer: fleet
     message: "Stdio proxy lost its HTTP link to the daemon"

@@ -20,6 +20,7 @@ import sys
 import threading
 import time
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -217,8 +218,8 @@ class QueuedServeTest(unittest.TestCase):
         The stream here (a plain `socketpair().makefile()`) has no read
         timeout support, so the worker's blocking read never wakes up on its
         own to drain — a real request is what cycles the loop back to the
-        top-of-loop drain point, same as the real named-pipe/UDS streams do
-        every ``_READ_POLL_S`` while idle.
+        top-of-loop drain point, same as the real TCP stream does every
+        ``_READ_POLL_S`` while idle.
         """
         worker = threading.Thread(
             target=tdmcp_bridge.serve_queued, args=(self.bridge_stream,), daemon=True
@@ -266,7 +267,7 @@ class IdleDeadTest(unittest.TestCase):
         self.daemon_sock = daemon_sock
         self.addCleanup(bridge_sock.close)
         self.addCleanup(daemon_sock.close)
-        self.stream = tdmcp_bridge._UdsStream(bridge_sock)  # noqa: SLF001
+        self.stream = tdmcp_bridge._TcpStream(bridge_sock)  # noqa: SLF001
 
     def test_idle_dead_exits_serve_queued(self) -> None:
         done = threading.Event()
@@ -289,15 +290,15 @@ class IdleDeadTest(unittest.TestCase):
     "concurrent blocking recv() the way real POSIX sockets do (verified "
     "manually — recv() never unblocks); this path only ships on macOS/Linux, "
     "where shutdown() is the documented, reliable cross-thread cancellation "
-    "primitive. See WindowsPipeDisconnectTest for the Windows equivalent.",
+    "primitive.",
 )
 class DisconnectTest(unittest.TestCase):
-    """Regression for the close-while-blocked-read freeze (POSIX/UDS path).
+    """Regression for the close-while-blocked-read freeze (TCP stream path).
 
     `disconnect()` must not block: the worker thread is parked in a blocking
     `read()` with nothing to read (no pending job), and `disconnect()` has to
     unstick it (`cancel_pending_io` -> POSIX `shutdown`) rather than closing
-    the handle out from under it.
+    the socket out from under it.
     """
 
     def setUp(self) -> None:
@@ -306,7 +307,7 @@ class DisconnectTest(unittest.TestCase):
         self.daemon_sock = daemon_sock
         self.addCleanup(daemon_sock.close)
 
-        stream = tdmcp_bridge._UdsStream(bridge_sock)  # noqa: SLF001
+        stream = tdmcp_bridge._TcpStream(bridge_sock)  # noqa: SLF001
         thread = threading.Thread(target=tdmcp_bridge.serve_queued, args=(stream,), daemon=True)
         thread.start()
         # Let the worker actually enter its blocking read before we disconnect.
@@ -344,55 +345,81 @@ class IsConnectedIdleTest(unittest.TestCase):
         self.assertFalse(tdmcp_bridge.is_connected())
 
 
-@unittest.skipUnless(sys.platform.startswith("win"), "named-pipe path is Windows-only")
-class WindowsPipeDisconnectTest(unittest.TestCase):
-    """Regression for the CloseHandle-while-blocked-ReadFile freeze (named-pipe path).
+class ResolveEndpointTest(unittest.TestCase):
+    """T-8 endpoint resolution: TDMCP_IPC_ENDPOINT > TDMCP_IPC_PORT > default."""
 
-    This is the exact bug hit live against TouchDesigner: `disconnect()`
-    calling `CloseHandle` while the worker thread had a pending synchronous
-    `ReadFile` on the same handle froze the *calling* thread indefinitely —
-    which froze TD itself, since the call originated from a script running on
-    TD's main thread. Verified manually that `CancelSynchronousIo` targeting
-    the worker's OS thread id aborts the pending `ReadFile` with
-    `ERROR_OPERATION_ABORTED` immediately; this test locks that in.
-    """
+    def test_default_loopback_port(self) -> None:
+        with mock.patch.dict(os.environ):
+            os.environ.pop("TDMCP_IPC_ENDPOINT", None)
+            os.environ.pop("TDMCP_IPC_PORT", None)
+            self.assertEqual(tdmcp_bridge.resolve_endpoint(), ("127.0.0.1", 9861))
 
-    PIPE_NAME = r"\\.\pipe\tdmcp-test-disconnect"
+    def test_port_env_overrides_port_only(self) -> None:
+        with mock.patch.dict(os.environ):
+            os.environ.pop("TDMCP_IPC_ENDPOINT", None)
+            os.environ["TDMCP_IPC_PORT"] = "9000"
+            self.assertEqual(tdmcp_bridge.resolve_endpoint(), ("127.0.0.1", 9000))
 
-    def setUp(self) -> None:
-        import ctypes
+    def test_endpoint_env_beats_port_env(self) -> None:
+        with mock.patch.dict(os.environ):
+            os.environ["TDMCP_IPC_ENDPOINT"] = "10.1.2.3:7000"
+            os.environ["TDMCP_IPC_PORT"] = "9000"
+            self.assertEqual(tdmcp_bridge.resolve_endpoint(), ("10.1.2.3", 7000))
 
-        self.kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
-        pipe_access_duplex = 0x3
-        server = self.kernel32.CreateNamedPipeW(
-            self.PIPE_NAME, pipe_access_duplex, 0, 1, 65536, 65536, 0, None
+    def test_malformed_endpoint_env_raises_clear_error(self) -> None:
+        with mock.patch.dict(os.environ, {"TDMCP_IPC_ENDPOINT": "no-port-here"}):
+            with self.assertRaises(ValueError) as ctx:
+                tdmcp_bridge.resolve_endpoint()
+        self.assertIn("TDMCP_IPC_ENDPOINT", str(ctx.exception))
+
+    def test_malformed_port_env_raises_clear_error(self) -> None:
+        with mock.patch.dict(os.environ, {"TDMCP_IPC_PORT": "not-a-port"}):
+            os.environ.pop("TDMCP_IPC_ENDPOINT", None)
+            with self.assertRaises(ValueError) as ctx:
+                tdmcp_bridge.resolve_endpoint()
+        self.assertIn("TDMCP_IPC_PORT", str(ctx.exception))
+
+
+class DialTcpSmokeTest(unittest.TestCase):
+    """T-8: dial() connects over TCP and frames both directions (no daemon)."""
+
+    def test_dial_connects_and_frames_over_tcp(self) -> None:
+        server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        server.bind(("127.0.0.1", 0))
+        server.listen(1)
+        self.addCleanup(server.close)
+        port = server.getsockname()[1]
+
+        accepted: list[socket.socket] = []
+
+        def accept_one() -> None:
+            conn, _ = server.accept()
+            accepted.append(conn)
+
+        accepter = threading.Thread(target=accept_one, daemon=True)
+        accepter.start()
+
+        stream = tdmcp_bridge.dial(f"127.0.0.1:{port}")
+        self.addCleanup(stream.close)
+        accepter.join(timeout=2.0)
+        self.assertEqual(len(accepted), 1, "server must accept the dial")
+        daemon_stream = accepted[0].makefile("rwb")
+        self.addCleanup(daemon_stream.close)
+        self.addCleanup(accepted[0].close)
+
+        tdmcp_bridge._write_frame(  # noqa: SLF001
+            stream,
+            {"type": "request", "id": 1, "method": "ping", "params": {}},
         )
-        client_handle = self.kernel32.CreateFileW(
-            self.PIPE_NAME, 0x80000000 | 0x40000000, 0, None, 3, 0, None
+        req = tdmcp_bridge._read_frame(daemon_stream)  # noqa: SLF001
+        self.assertEqual(req["method"], "ping")
+        tdmcp_bridge._write_frame(  # noqa: SLF001
+            daemon_stream,
+            {"type": "response", "id": 1, "result": {"ok": True, "pong": True}},
         )
-        self.kernel32.ConnectNamedPipe(server, None)
-        self.addCleanup(lambda: self.kernel32.CloseHandle(server))
-
-        tdmcp_bridge._reset_pending_for_tests()  # noqa: SLF001
-        stream = tdmcp_bridge._NamedPipeStream(client_handle)  # noqa: SLF001
-        thread = threading.Thread(target=tdmcp_bridge.serve_queued, args=(stream,), daemon=True)
-        thread.start()
-        time.sleep(0.1)  # let the worker enter its blocking ReadFile
-        tdmcp_bridge._active_stream = stream  # noqa: SLF001
-        tdmcp_bridge._active_thread = thread  # noqa: SLF001
-
-    def test_disconnect_does_not_hang_and_joins_worker(self) -> None:
-        thread = tdmcp_bridge._active_thread  # noqa: SLF001
-        self.assertTrue(tdmcp_bridge.is_connected())
-
-        started = time.monotonic()
-        ok = tdmcp_bridge.disconnect()
-        elapsed = time.monotonic() - started
-
-        self.assertTrue(ok)
-        self.assertLess(elapsed, 2.0, "disconnect() should not block on a pending ReadFile")
-        self.assertFalse(thread.is_alive(), "worker thread must exit after disconnect()")
-        self.assertFalse(tdmcp_bridge.is_connected())
+        resp = tdmcp_bridge._read_frame(stream)  # noqa: SLF001
+        self.assertEqual(resp["id"], 1)
+        self.assertEqual(resp["result"], {"ok": True, "pong": True})
 
 
 class MidFrameTimeoutServeTest(unittest.TestCase):
@@ -431,7 +458,7 @@ class MidFrameTimeoutServeTest(unittest.TestCase):
 
             def read(self, _n: int) -> bytes:
                 calls["n"] += 1
-                raise TimeoutError("named pipe read timed out")
+                raise TimeoutError("read timed out")
 
             def write(self, data: bytes) -> int:
                 return len(data)
@@ -779,32 +806,6 @@ class WriteFrameTest(unittest.TestCase):
         w = FullWriter()
         tdmcp_bridge._write_frame(w, {"ok": True})
         self.assertGreater(len(w.buf), 4)
-
-
-@unittest.skipUnless(sys.platform.startswith("win"), "named-pipe WriteFile loop is Windows-only")
-class NamedPipeWriteLoopTest(unittest.TestCase):
-    """_NamedPipeStream.write must loop until all bytes are sent."""
-
-    def test_write_loops_on_partial_writefile(self) -> None:
-        from ctypes import wintypes
-
-        stream = tdmcp_bridge._NamedPipeStream.__new__(tdmcp_bridge._NamedPipeStream)  # noqa: SLF001
-        stream._handle = 1  # noqa: SLF001
-        stream._wintypes = wintypes  # noqa: SLF001
-        calls = {"n": 0}
-
-        class FakeKernel:
-            def WriteFile(self, _h, _data, length, written_ref, _ov):
-                calls["n"] += 1
-                take = min(3, int(length))
-                written_ref._obj.value = take
-                return 1
-
-        stream._kernel32 = FakeKernel()  # noqa: SLF001
-        payload = b"abcdefghij"  # 10 bytes → at least 4 WriteFile calls
-        n = stream.write(payload)
-        self.assertEqual(n, len(payload))
-        self.assertGreaterEqual(calls["n"], 4)
 
 
 if __name__ == "__main__":

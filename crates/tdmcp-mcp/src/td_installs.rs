@@ -59,7 +59,10 @@ pub fn run(env: resolve::EnvLookup<'_>) -> Value {
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, reason = "unit tests")]
 mod tests {
+    // Linux ships no tests until the Wine-prefix scan lands (LINUX_SUPPORT.md L-6).
+    #[cfg(any(windows, target_os = "macos"))]
     use super::*;
+    #[cfg(any(windows, target_os = "macos"))]
     use std::fs;
 
     #[cfg(windows)]

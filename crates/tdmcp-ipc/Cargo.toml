@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Local IPC (named pipe / UDS) for td-mcp-rs bridge"
+description = "Local TCP-loopback IPC for td-mcp-rs bridge"
 
 [dependencies]
 bytes = { workspace = true }
@@ -13,11 +13,6 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
-
-[target.'cfg(windows)'.dependencies]
-# Must match tokio's windows-sys major so SECURITY_ATTRIBUTES is the same
-# type consumed by create_with_security_attributes_raw.
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization"] }
 
 [lints]
 workspace = true

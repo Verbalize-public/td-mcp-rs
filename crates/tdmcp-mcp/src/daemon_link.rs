@@ -397,6 +397,7 @@ impl DaemonLink {
         {
             let state = self.state.read().await;
             if state.generation != generation_used {
+                self.unmark_unhealthy();
                 return HealOutcome {
                     healed: true,
                     downtime: self.downtime().or(downtime),
@@ -420,6 +421,7 @@ impl DaemonLink {
         {
             let state = self.state.read().await;
             if state.generation != generation_used {
+                self.unmark_unhealthy();
                 return HealOutcome {
                     healed: true,
                     downtime: self.downtime().or(downtime),
@@ -587,6 +589,15 @@ impl DaemonLink {
             *last = downtime;
         }
         downtime
+    }
+
+    /// Drop the unhealthy mark without touching `last_downtime`: a caller whose
+    /// generation was already healed by someone else must not leave the link
+    /// marked, or the watcher re-heals (and cancels) the live healthy session.
+    fn unmark_unhealthy(&self) {
+        if let Ok(mut guard) = self.unhealthy_since.lock() {
+            *guard = None;
+        }
     }
 
     async fn health_ok(&self) -> bool {

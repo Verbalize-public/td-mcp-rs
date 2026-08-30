@@ -67,6 +67,17 @@ fn pick_free_port() -> u16 {
         .port()
 }
 
+/// Bridge port for a daemon: free and distinct from its HTTP port (a
+/// conflicting bridge bind fatally exits the daemon, T-3).
+fn free_ipc_port(http_port: u16) -> u16 {
+    loop {
+        let port = pick_free_port();
+        if port != http_port {
+            return port;
+        }
+    }
+}
+
 fn write_config(path: &std::path::Path, bind_address: &str, auth_mode: &str, psk: &str) {
     let text = format!(
         r#"
@@ -120,6 +131,7 @@ fn spawn_daemon(bind_address: &str, auth_mode: &str, psk: &str) -> TestDaemon {
         .arg("--no-gui")
         .env("TDMCP_CONFIG_PATH", &config_path)
         .env("TDMCP_IDLE_EXIT_SECS", "0")
+        .env("TDMCP_IPC_PORT", free_ipc_port(port).to_string())
         .env("RUST_LOG", "warn,tdmcp_daemon=info")
         .stdin(Stdio::null())
         .stdout(Stdio::null())

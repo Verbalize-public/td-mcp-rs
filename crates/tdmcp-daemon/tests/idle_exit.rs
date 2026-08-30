@@ -19,6 +19,17 @@ fn free_port() -> u16 {
     listener.local_addr().expect("local_addr").port()
 }
 
+/// Bridge port for a daemon: free and distinct from its HTTP port (both bind
+/// loopback; a collision would trip the daemon's fatal bridge-bind check).
+fn free_ipc_port(http_port: u16) -> u16 {
+    loop {
+        let port = free_port();
+        if port != http_port {
+            return port;
+        }
+    }
+}
+
 fn daemon_bin() -> PathBuf {
     PathBuf::from(env!("CARGO_BIN_EXE_tdmcp-daemon"))
 }
@@ -46,7 +57,6 @@ struct IdleHarness {
 
 impl IdleHarness {
     fn spawn(port: u16, data_dir: &Path, idle_secs: u64) -> Self {
-        let pipe = format!(r"\\.\pipe\tdmcp-rs-idle-test-{port}");
         let config_path = data_dir.join("test-config.toml");
         tdmcp_config::ensure_default(&config_path, true).expect("seed config");
         // keep_alive now defaults to true (daemon stays resident) — this test
@@ -70,7 +80,7 @@ impl IdleHarness {
                 "--no-gui",
             ])
             .env("TDMCP_IDLE_EXIT_SECS", idle_secs.to_string())
-            .env("TDMCP_IPC_PIPE", pipe)
+            .env("TDMCP_IPC_PORT", free_ipc_port(port).to_string())
             .env(tdmcp_config::CONFIG_PATH_ENV, &config_path)
             .stdin(Stdio::null())
             .stdout(Stdio::null())

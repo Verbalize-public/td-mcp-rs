@@ -1,6 +1,7 @@
 """td-mcp-rs bootstrap — Text DAT body inside the bootstrap ``.tox``.
 
-Dials the local td-mcp-rs daemon over named pipe (Windows) / UDS (Unix),
+Dials the local td-mcp-rs daemon over TCP (loopback; override with
+``TDMCP_IPC_ENDPOINT`` / ``TDMCP_IPC_PORT`` — see ``tdmcp_bridge.transport``),
 performs the handshake, loads the ``tdmcp_bridge`` package from the path the
 daemon returns, and starts the framed read loop **on a background thread**
 so TD's main thread keeps cooking.

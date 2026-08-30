@@ -23,7 +23,7 @@ pub fn post_close(_id: &str) -> bool {
 }
 
 /// Never hung without probes.
-pub fn is_hung(_id: &str, _budget_ms: u64) -> bool {
+pub fn is_hung(_id: &str, _budget_ms: u32) -> bool {
     false
 }
 

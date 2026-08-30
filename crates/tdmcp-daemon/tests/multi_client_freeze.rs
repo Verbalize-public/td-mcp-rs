@@ -1,8 +1,8 @@
 //! Multi-client MCP session freeze repro.
 //!
 //! Spawns a real `tdmcp-daemon` binary (no GUI) on a test port with fake TD
-//! peers over the real named pipe, then drives it with several concurrent
-//! rmcp Streamable HTTP client sessions firing bursts of tool calls.
+//! peers over the real TCP bridge socket, then drives it with several
+//! concurrent rmcp Streamable HTTP client sessions firing bursts of tool calls.
 //!
 //! A dedicated probe session calls `fleet` on a strict deadline throughout the
 //! storm; any probe that exceeds its budget signals a wedged session/daemon.
@@ -14,7 +14,6 @@
 //! cargo test -p tdmcp-daemon --test multi_client_freeze -- --nocapture --test-threads=1
 //! ```
 
-#![cfg(windows)] // named-pipe transport is Windows-only
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -35,7 +34,7 @@ use rmcp::RoleClient;
 use serde_json::json;
 use tdmcp_ipc::{encode, HandshakeRequest, Message};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::windows::named_pipe::{ClientOptions, NamedPipeClient};
+use tokio::net::TcpStream;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tokio::time::timeout;
@@ -69,7 +68,7 @@ struct Stats {
 struct TestDaemon {
     child: Child,
     port: u16,
-    pipe: String,
+    bridge_port: u16,
     log_path: std::path::PathBuf,
     _data_dir: tempfile::TempDir,
 }
@@ -108,10 +107,25 @@ fn pick_free_port() -> u16 {
         .port()
 }
 
+/// Bridge port for the daemon: free and distinct from its HTTP port (a
+/// conflicting bridge bind fatally exits the daemon, T-3).
+fn free_ipc_port(http_port: u16) -> u16 {
+    loop {
+        let port = pick_free_port();
+        if port != http_port {
+            return port;
+        }
+    }
+}
+
 fn spawn_daemon() -> TestDaemon {
     let data_dir = tempfile::tempdir().expect("temp dir");
     let port = pick_free_port();
-    let pipe = format!(r"\\.\pipe\tdmcp-frz-{}-{}", std::process::id(), port);
+    let bridge_port = free_ipc_port(port);
+    // Pin the config like every other binary-spawning test: the daemon must
+    // not touch the user config dir (read-only under some sandboxes).
+    let config_path = data_dir.path().join("test-config.toml");
+    tdmcp_config::ensure_default(&config_path, true).expect("seed config");
     let exe = env!("CARGO_BIN_EXE_tdmcp-daemon");
 
     // Persistent log under target/ so failures are inspectable after the run.
@@ -130,9 +144,10 @@ fn spawn_daemon() -> TestDaemon {
         .arg("--data-dir")
         .arg(data_dir.path())
         .arg("--no-gui")
-        .env("TDMCP_IPC_PIPE", &pipe)
+        .env("TDMCP_IPC_PORT", bridge_port.to_string())
         .env("TDMCP_IDLE_EXIT_SECS", "0")
         .env("TDMCP_TRACE_ACCEPT", "1")
+        .env(tdmcp_config::CONFIG_PATH_ENV, &config_path)
         .env(
             "RUST_LOG",
             "warn,tdmcp_daemon=info,tdmcp_mcp=info,tdmcp_ipc=info",
@@ -146,7 +161,7 @@ fn spawn_daemon() -> TestDaemon {
     TestDaemon {
         child,
         port,
-        pipe,
+        bridge_port,
         log_path,
         _data_dir: data_dir,
     }
@@ -175,41 +190,43 @@ async fn wait_health(daemon: &mut TestDaemon, budget: Duration) {
 }
 
 // ---------------------------------------------------------------------------
-// Fake TD peer over the real named pipe
+// Fake TD peer over the real TCP bridge socket
 // ---------------------------------------------------------------------------
 
-async fn read_frame(pipe: &mut NamedPipeClient) -> Option<Message> {
+async fn read_frame(client: &mut TcpStream) -> Option<Message> {
     let mut len_buf = [0u8; 4];
-    if pipe.read_exact(&mut len_buf).await.is_err() {
+    if client.read_exact(&mut len_buf).await.is_err() {
         return None;
     }
     let len = u32::from_le_bytes(len_buf) as usize;
     let mut body = vec![0u8; len];
-    if pipe.read_exact(&mut body).await.is_err() {
+    if client.read_exact(&mut body).await.is_err() {
         return None;
     }
     serde_json::from_slice(&body).ok()
 }
 
-async fn write_frame(pipe: &mut NamedPipeClient, msg: &Message) -> bool {
+async fn write_frame(client: &mut TcpStream, msg: &Message) -> bool {
     match encode(msg) {
-        Ok(bytes) => pipe.write_all(&bytes).await.is_ok(),
+        Ok(bytes) => client.write_all(&bytes).await.is_ok(),
         Err(_) => false,
     }
 }
 
-/// Connect to the daemon's IPC pipe, handshake, then answer every request.
+/// Dial the daemon's bridge port, handshake, then answer every request.
 /// `inspect` responses are delayed by `delay`; `execute_python` by
 /// `slow_call_delay` (keeps bridge calls in flight, closer to real TD load).
 async fn fake_td_peer(
-    pipe: String,
+    bridge_port: u16,
     pid: u32,
     delay: Duration,
     slow_call_delay: Duration,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
+        // The daemon may still be starting its bridge listener — retry the
+        // dial until the port accepts.
         let mut client = loop {
-            match ClientOptions::new().open(&pipe) {
+            match TcpStream::connect(("127.0.0.1", bridge_port)).await {
                 Ok(c) => break c,
                 Err(_) => tokio::time::sleep(Duration::from_millis(50)).await,
             }
@@ -622,7 +639,7 @@ async fn multi_client_storm_does_not_freeze() {
     let pids: Vec<u32> = (0..4).map(|i| 4240 + i).collect();
     let mut peers = Vec::new();
     for pid in &pids {
-        peers.push(fake_td_peer(daemon.pipe.clone(), *pid, PEER_DELAY, SLOW_CALL_DELAY).await);
+        peers.push(fake_td_peer(daemon.bridge_port, *pid, PEER_DELAY, SLOW_CALL_DELAY).await);
     }
 
     // Wait for bridges to register.
@@ -649,11 +666,28 @@ async fn multi_client_storm_does_not_freeze() {
             .lines()
             .filter(|l| l.contains(&format!(":{port} ")) || l.contains(&format!(":{port}\t")))
             .collect();
-        let mut by_state = std::collections::HashMap::<&str, usize>::new();
+        // netstat column order differs between Windows and Linux — identify
+        // the TCP state by token instead of by position.
+        let mut by_state = std::collections::HashMap::<String, usize>::new();
         for line in &matching {
-            if let Some(state) = line.split_whitespace().nth(3) {
-                *by_state.entry(state).or_default() += 1;
-            }
+            let state = line.split_whitespace().find(|t| {
+                matches!(
+                    *t,
+                    "ESTABLISHED"
+                        | "TIME_WAIT"
+                        | "LISTEN"
+                        | "SYN_SENT"
+                        | "SYN_RECV"
+                        | "FIN_WAIT1"
+                        | "FIN_WAIT2"
+                        | "CLOSE_WAIT"
+                        | "CLOSING"
+                        | "LAST_ACK"
+                )
+            });
+            *by_state
+                .entry(state.unwrap_or("?").to_owned())
+                .or_default() += 1;
         }
         time_wait_count = by_state.get("TIME_WAIT").copied().unwrap_or(0);
         println!(
@@ -716,7 +750,7 @@ async fn multi_client_storm_does_not_freeze() {
     assert!(
         time_wait_count < 2_000,
         "client connection churn not bounded: {time_wait_count} TIME_WAIT sockets on :{port} \
-         — pooled HTTP client not in effect; sustained load exhausts the Windows \
+         — pooled HTTP client not in effect; sustained load exhausts the OS \
          ephemeral port range and freezes the MCP transport"
     );
 }

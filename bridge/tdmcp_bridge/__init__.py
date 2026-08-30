@@ -148,7 +148,7 @@ def dispatch(msg: dict[str, Any]) -> dict[str, Any]:
 
 
 def main() -> None:
-    """Stdio framed loop for local debugging (tox uses named pipe / UDS)."""
+    """Stdio framed loop for local debugging (tox uses TCP)."""
     while True:
         try:
             msg = _read_frame(sys.stdin.buffer)
@@ -158,7 +158,7 @@ def main() -> None:
         _write_frame(sys.stdout.buffer, resp)
 
 
-# --- Live IPC client (named pipe on Windows, UDS on Unix) -------------------
+# --- Live IPC client (TCP loopback) ------------------------------------------
 
 def _env_bridge_dir() -> str | None:
     env = os.environ.get("TDMCP_BRIDGE_DIR")
@@ -378,14 +378,12 @@ def disconnect() -> bool:
     TD — e.g. to exercise the resurrection path, or to force a clean
     reconnect after changing the bridge package on disk.
 
-    The worker thread ([`serve_queued`]) is normally blocked in a
-    synchronous, non-overlapped read on the stream. Closing the handle out
-    from under that pending read from a different thread is undefined
-    behavior on Windows (and unsafe on POSIX) — it can hang the *closing*
-    thread instead of erroring the reader, which freezes TD if this is
-    called from a script running on TD's main thread. So: cancel the
-    worker's pending I/O first ([`_NamedPipeStream.cancel_pending_io`] /
-    [`_UdsStream.cancel_pending_io`]), join it, *then* close.
+    The worker thread ([`serve_queued`]) is normally blocked in a read on
+    the stream. Closing the socket out from under that pending read from a
+    different thread can hang the *closing* thread instead of erroring the
+    reader, which freezes TD if this is called from a script running on TD's
+    main thread. So: unblock the worker's pending read first
+    ([`_TcpStream.cancel_pending_io`] → ``shutdown``), join it, *then* close.
     """
     global _active_stream, _active_thread
     if _active_stream is None:

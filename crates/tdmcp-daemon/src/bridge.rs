@@ -18,7 +18,7 @@
 //! next call's budget so they cannot be mistaken for `bridge_lost`.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -26,7 +26,7 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use serde_json::Value;
 use tdmcp_core::{BridgeMethod, PidRegistry, ProcessAttrs, TaskResult};
-use tdmcp_ipc::{BridgeEndpoint, HandshakeOffer, IpcListener, IpcStream, Message};
+use tdmcp_ipc::{HandshakeOffer, IpcListener, IpcStream, Message};
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio::time::{timeout, MissedTickBehavior};
 use tokio_util::sync::CancellationToken;
@@ -672,22 +672,41 @@ fn is_bridge_error(value: &Value) -> bool {
         .is_some_and(|ok| !ok)
 }
 
-/// Bind the local bridge endpoint and spawn a per-pid session actor for each
-/// handshaken TD peer. Runs until the listener fails irrecoverably.
+/// Wine's default root drive, onto which Wine maps the Unix `/` tree.
+#[cfg(target_os = "linux")]
+const WINE_ROOT_DRIVE: char = 'Z';
+
+/// Path string the daemon offers TD as `HandshakeResponse.bridgePackageDir`
+/// (T-7): Wine form on Linux, native form elsewhere. Total — relative or
+/// empty paths are returned unchanged so the TD side fails with its own
+/// attributable error.
+#[cfg(target_os = "linux")]
+fn to_wine_path_string(path: &Path) -> String {
+    // Wine maps the Unix root onto its default `Z:` drive, so TD cannot read the raw Unix path.
+    if !path.is_absolute() {
+        return path.to_string_lossy().into_owned();
+    }
+    let dirs = path.to_string_lossy().replace('/', "\\");
+    format!("{WINE_ROOT_DRIVE}:{dirs}")
+}
+
+/// Non-Linux daemons hand TD a native path — behavior unchanged (T-7).
+#[cfg(not(target_os = "linux"))]
+fn to_wine_path_string(path: &Path) -> String {
+    path.to_string_lossy().into_owned()
+}
+
+/// Run the accept loop on an already-bound bridge listener, spawning a
+/// per-pid session actor for each handshaken TD peer. The caller binds
+/// (and fails fast on a bind conflict) so a taken port exits the daemon
+/// instead of leaving a bridge-less listener behind (T-3).
 pub async fn run_ipc_accept(
-    endpoint: BridgeEndpoint,
+    listener: IpcListener,
     bridge_dir: PathBuf,
     registry: Arc<Mutex<PidRegistry>>,
     sessions: BridgeSessions,
 ) {
-    let listener = match IpcListener::bind(endpoint).await {
-        Ok(l) => l,
-        Err(e) => {
-            warn!(error = %e, "ipc listener bind failed — no bridges will connect");
-            return;
-        }
-    };
-    let bridge_dir_str = bridge_dir.to_string_lossy().to_string();
+    let bridge_dir_str = to_wine_path_string(&bridge_dir);
     let version = env!("CARGO_PKG_VERSION").to_string();
     let offer = HandshakeOffer {
         idle_dead_secs: Some(sessions.idle_dead_secs()),
@@ -702,7 +721,7 @@ pub async fn run_ipc_accept(
         {
             Ok(stream) => {
                 // Registry + session spawn off the accept loop so the next
-                // pipe/UDS accept can proceed immediately.
+                // next accept can proceed immediately.
                 let registry = registry.clone();
                 let sessions = sessions.clone();
                 tokio::spawn(async move {
@@ -738,3 +757,43 @@ pub async fn run_ipc_accept(
 
 #[allow(unused_imports)]
 use tdmcp_ipc::HandshakeRequest as _HandshakeRequestReexport;
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, reason = "unit tests")]
+mod tests {
+    use super::*;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn wine_path_maps_absolute_unix_path_to_z_drive() {
+        assert_eq!(
+            to_wine_path_string(Path::new("/home/acorbeau/.local/share/tdmcp-rs/bridge")),
+            "Z:\\home\\acorbeau\\.local\\share\\tdmcp-rs\\bridge"
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn wine_path_keeps_spaces_in_path_segments() {
+        assert_eq!(
+            to_wine_path_string(Path::new("/mnt/windows/Program Files/Derivative")),
+            "Z:\\mnt\\windows\\Program Files\\Derivative"
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn wine_path_passes_relative_and_empty_through_unchanged() {
+        assert_eq!(to_wine_path_string(Path::new("relative/dir")), "relative/dir");
+        assert_eq!(to_wine_path_string(Path::new("")), "");
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    #[test]
+    fn wine_path_passes_native_path_through_unchanged() {
+        assert_eq!(
+            to_wine_path_string(Path::new("/Applications/TouchDesigner.app/bridge")),
+            "/Applications/TouchDesigner.app/bridge"
+        );
+    }
+}

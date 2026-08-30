@@ -1,6 +1,6 @@
 //! Federation tool-proxy integration tests (P3 Wave Fc).
 //!
-//! Spawns real master + slave daemons, attaches a named-pipe fake TD on the
+//! Spawns real master + slave daemons, attaches a TCP fake TD on the
 //! slave, then exercises master `/mcp/tools/call` proxy routing.
 //!
 //! Run:
@@ -8,7 +8,6 @@
 //! cargo test -p tdmcp-daemon --test federation_proxy -- --nocapture --test-threads=1
 //! ```
 
-#![cfg(windows)] // named-pipe transport is Windows-only
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -23,7 +22,7 @@ use serde_json::{json, Value};
 use tdmcp_diagnostics::codes;
 use tdmcp_ipc::{encode, HandshakeRequest, Message};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::windows::named_pipe::{ClientOptions, NamedPipeClient};
+use tokio::net::TcpStream;
 use tokio::task::JoinHandle;
 
 const MASTER_PSK: &str = "fc-master-psk-secret";
@@ -35,7 +34,7 @@ const FAKE_PID: u32 = 4242;
 struct TestDaemon {
     child: Child,
     port: u16,
-    pipe: String,
+    bridge_port: u16,
     _daemon_id: String,
     log_path: std::path::PathBuf,
     _data_dir: tempfile::TempDir,
@@ -72,6 +71,18 @@ fn pick_free_port() -> u16 {
         .local_addr()
         .expect("local addr")
         .port()
+}
+
+/// Bridge port for a daemon: free and distinct from its HTTP port (a
+/// conflicting bridge bind fatally exits the daemon, T-3). Parallel-safe:
+/// every spawned daemon gets its own.
+fn free_ipc_port(http_port: u16) -> u16 {
+    loop {
+        let port = pick_free_port();
+        if port != http_port {
+            return port;
+        }
+    }
 }
 
 #[allow(clippy::too_many_arguments, reason = "test config fixture")]
@@ -140,12 +151,7 @@ fn spawn_daemon(
         daemon_id,
     );
 
-    let pipe = format!(
-        r"\\.\pipe\tdmcp-fc-{}-{}-{}",
-        role,
-        std::process::id(),
-        port
-    );
+    let bridge_port = free_ipc_port(port);
     let exe = env!("CARGO_BIN_EXE_tdmcp-daemon");
     let log_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("target")
@@ -163,7 +169,7 @@ fn spawn_daemon(
         .arg(data_dir.path())
         .arg("--no-gui")
         .env("TDMCP_CONFIG_PATH", &config_path)
-        .env("TDMCP_IPC_PIPE", &pipe)
+        .env("TDMCP_IPC_PORT", bridge_port.to_string())
         .env("TDMCP_IDLE_EXIT_SECS", "0")
         .env("RUST_LOG", "warn,tdmcp_daemon=info,tdmcp_mcp=info")
         .stdin(Stdio::null())
@@ -175,7 +181,7 @@ fn spawn_daemon(
     TestDaemon {
         child,
         port,
-        pipe,
+        bridge_port,
         _daemon_id: daemon_id.to_owned(),
         log_path,
         _data_dir: data_dir,
@@ -216,31 +222,34 @@ async fn wait_health(daemon: &mut TestDaemon, auth: Option<&str>, budget: Durati
     }
 }
 
-async fn read_frame(pipe: &mut NamedPipeClient) -> Option<Message> {
+async fn read_frame(client: &mut TcpStream) -> Option<Message> {
     let mut len_buf = [0u8; 4];
-    if pipe.read_exact(&mut len_buf).await.is_err() {
+    if client.read_exact(&mut len_buf).await.is_err() {
         return None;
     }
     let len = u32::from_le_bytes(len_buf) as usize;
     let mut body = vec![0u8; len];
-    if pipe.read_exact(&mut body).await.is_err() {
+    if client.read_exact(&mut body).await.is_err() {
         return None;
     }
     serde_json::from_slice(&body).ok()
 }
 
-async fn write_frame(pipe: &mut NamedPipeClient, msg: &Message) -> bool {
+async fn write_frame(client: &mut TcpStream, msg: &Message) -> bool {
     match encode(msg) {
-        Ok(bytes) => pipe.write_all(&bytes).await.is_ok(),
+        Ok(bytes) => client.write_all(&bytes).await.is_ok(),
         Err(_) => false,
     }
 }
 
-/// Minimal fake TD: handshake + answer execute_python / capture / inspect.
-fn spawn_fake_td(pipe: String, pid: u32) -> JoinHandle<()> {
+/// Minimal fake TD: dial the daemon's bridge port, handshake, then answer
+/// execute_python / capture / inspect.
+fn spawn_fake_td(bridge_port: u16, pid: u32) -> JoinHandle<()> {
     tokio::spawn(async move {
+        // The daemon may still be starting its bridge listener — retry the
+        // dial like the named-pipe harness used to retry `open`.
         let mut client = loop {
-            match ClientOptions::new().open(&pipe) {
+            match TcpStream::connect(("127.0.0.1", bridge_port)).await {
                 Ok(c) => break c,
                 Err(_) => tokio::time::sleep(Duration::from_millis(50)).await,
             }
@@ -374,7 +383,7 @@ async fn proxy_execute_python_with_daemon_id() {
     let mut slave = spawn_daemon("slave", "none", "", &master_url, MASTER_PSK, SLAVE_A_ID);
     wait_health(&mut slave, None, Duration::from_secs(20)).await;
 
-    let _peer = spawn_fake_td(slave.pipe.clone(), FAKE_PID);
+    let _peer = spawn_fake_td(slave.bridge_port, FAKE_PID);
     wait_slave_registered(&master, SLAVE_A_ID, Duration::from_secs(15)).await;
     wait_fleet_has_pid(&master, FAKE_PID, SLAVE_A_ID, Duration::from_secs(15)).await;
 
@@ -447,11 +456,11 @@ async fn ambiguous_pid_without_daemon_id() {
 
     let mut slave_a = spawn_daemon("slave", "none", "", &master_url, MASTER_PSK, SLAVE_A_ID);
     wait_health(&mut slave_a, None, Duration::from_secs(20)).await;
-    let _peer_a = spawn_fake_td(slave_a.pipe.clone(), FAKE_PID);
+    let _peer_a = spawn_fake_td(slave_a.bridge_port, FAKE_PID);
 
     let mut slave_b = spawn_daemon("slave", "none", "", &master_url, MASTER_PSK, SLAVE_B_ID);
     wait_health(&mut slave_b, None, Duration::from_secs(20)).await;
-    let _peer_b = spawn_fake_td(slave_b.pipe.clone(), FAKE_PID);
+    let _peer_b = spawn_fake_td(slave_b.bridge_port, FAKE_PID);
 
     wait_slave_registered(&master, SLAVE_A_ID, Duration::from_secs(15)).await;
     wait_slave_registered(&master, SLAVE_B_ID, Duration::from_secs(15)).await;
@@ -486,7 +495,7 @@ async fn slave_unreachable_after_kill() {
 
     let mut slave = spawn_daemon("slave", "none", "", &master_url, MASTER_PSK, SLAVE_A_ID);
     wait_health(&mut slave, None, Duration::from_secs(20)).await;
-    let _peer = spawn_fake_td(slave.pipe.clone(), FAKE_PID);
+    let _peer = spawn_fake_td(slave.bridge_port, FAKE_PID);
     wait_slave_registered(&master, SLAVE_A_ID, Duration::from_secs(15)).await;
 
     // Kill slave process (drop will also kill, but we need mid-test death).

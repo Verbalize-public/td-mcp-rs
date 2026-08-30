@@ -2,17 +2,85 @@
 
 #![warn(missing_docs)]
 
-use tdmcp_ipc::{encode, FrameError, HandshakeRequest, HandshakeResponse, IpcError, Message};
-use tokio::io::{AsyncReadExt, AsyncWriteExt, DuplexStream};
+use std::io;
+use std::pin::Pin;
+use std::task::{Context, Poll};
+
+use tdmcp_ipc::{
+    encode, FrameError, HandshakeRequest, HandshakeResponse, IpcError, Message, PROTOCOL_VERSION,
+};
+use tokio::io::{
+    AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, DuplexStream, ReadBuf,
+};
+use tokio::net::TcpStream;
+
+/// Backing connection of a [`FakeTdPeer`] — real TCP socket or in-memory
+/// duplex (unit tests that never touch the socket path).
+enum PeerStream {
+    Tcp(TcpStream),
+    Memory(DuplexStream),
+}
+
+impl AsyncRead for PeerStream {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        match self.get_mut() {
+            Self::Tcp(s) => Pin::new(s).poll_read(cx, buf),
+            Self::Memory(m) => Pin::new(m).poll_read(cx, buf),
+        }
+    }
+}
+
+impl AsyncWrite for PeerStream {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        match self.get_mut() {
+            Self::Tcp(s) => Pin::new(s).poll_write(cx, buf),
+            Self::Memory(m) => Pin::new(m).poll_write(cx, buf),
+        }
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        match self.get_mut() {
+            Self::Tcp(s) => Pin::new(s).poll_flush(cx),
+            Self::Memory(m) => Pin::new(m).poll_flush(cx),
+        }
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        match self.get_mut() {
+            Self::Tcp(s) => Pin::new(s).poll_shutdown(cx),
+            Self::Memory(m) => Pin::new(m).poll_shutdown(cx),
+        }
+    }
+}
 
 /// A fake TD peer that speaks the real IPC handshake + message protocol.
 pub struct FakeTdPeer {
-    stream: DuplexStream,
+    stream: PeerStream,
     /// Pid announced at handshake.
     pub pid: u32,
 }
 
 impl FakeTdPeer {
+    /// Dial the daemon's TCP bridge endpoint (real socket path, T-11).
+    ///
+    /// # Errors
+    /// Returns the underlying connect error (e.g. daemon not up yet).
+    pub async fn connect(addr: impl tokio::net::ToSocketAddrs, pid: u32) -> io::Result<Self> {
+        let stream = TcpStream::connect(addr).await?;
+        Ok(Self {
+            stream: PeerStream::Tcp(stream),
+            pid,
+        })
+    }
+
     /// Create a connected pair: `(fake_peer, daemon_side_stream)`.
     ///
     /// The fake peer has **not** yet performed handshake — call
@@ -22,7 +90,7 @@ impl FakeTdPeer {
         let (client, server) = tokio::io::duplex(64 * 1024);
         (
             Self {
-                stream: client,
+                stream: PeerStream::Memory(client),
                 pid,
             },
             server,
@@ -45,7 +113,7 @@ impl FakeTdPeer {
     ) -> Result<HandshakeResponse, IpcError> {
         let req = HandshakeRequest {
             pid: self.pid,
-            protocol_version: "1".into(),
+            protocol_version: PROTOCOL_VERSION.into(),
             title: Some(title.into()),
             toe_path,
             image: Some("TouchDesigner.exe".into()),
@@ -126,7 +194,9 @@ impl FakeTdPeer {
     }
 }
 
-async fn read_msg<T: serde::de::DeserializeOwned>(r: &mut DuplexStream) -> Result<T, IpcError> {
+async fn read_msg<T: serde::de::DeserializeOwned>(
+    r: &mut PeerStream,
+) -> Result<T, IpcError> {
     let mut len_buf = [0u8; 4];
     r.read_exact(&mut len_buf).await?;
     let len = u32::from_le_bytes(len_buf) as usize;
@@ -135,7 +205,7 @@ async fn read_msg<T: serde::de::DeserializeOwned>(r: &mut DuplexStream) -> Resul
     Ok(serde_json::from_slice(&body).map_err(FrameError::Json)?)
 }
 
-async fn write_msg<T: serde::Serialize>(w: &mut DuplexStream, msg: &T) -> Result<(), IpcError> {
+async fn write_msg<T: serde::Serialize>(w: &mut PeerStream, msg: &T) -> Result<(), IpcError> {
     let bytes = encode(msg)?;
     w.write_all(&bytes).await?;
     Ok(())

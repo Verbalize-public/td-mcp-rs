@@ -44,8 +44,15 @@ fn daemon_bin() -> PathBuf {
     PathBuf::from(env!("CARGO_BIN_EXE_tdmcp-daemon"))
 }
 
-fn ipc_pipe_for(port: u16) -> String {
-    format!(r"\\.\pipe\tdmcp-rs-ensure-test-{port}")
+/// Bridge port for a spawned daemon: free and distinct from its HTTP port
+/// (the daemon fatally refuses a conflicting bridge bind, T-3).
+fn free_ipc_port(http_port: u16) -> u16 {
+    loop {
+        let port = free_port();
+        if port != http_port {
+            return port;
+        }
+    }
 }
 
 fn kill_pid(pid: u32) {
@@ -84,7 +91,7 @@ impl DaemonHarness {
                 "--no-gui",
             ])
             .env("TDMCP_IDLE_EXIT_SECS", "0")
-            .env("TDMCP_IPC_PIPE", ipc_pipe_for(port))
+            .env("TDMCP_IPC_PORT", free_ipc_port(port).to_string())
             .env(tdmcp_config::CONFIG_PATH_ENV, &config_path)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -197,7 +204,7 @@ fn ensure_opts(port: u16, data_dir: &Path) -> EnsureOptions {
         no_gui: true,
         idle_exit_secs: Some(0),
         force_install: false,
-        ipc_pipe: Some(ipc_pipe_for(port)),
+        ipc_port: Some(free_ipc_port(port)),
         config_path: Some(config_path),
     }
 }
@@ -332,7 +339,7 @@ async fn second_start_refuses_while_healthy() {
             "--no-gui",
         ])
         .env("TDMCP_IDLE_EXIT_SECS", "0")
-        .env("TDMCP_IPC_PIPE", ipc_pipe_for(port))
+        .env("TDMCP_IPC_PORT", free_ipc_port(port).to_string())
         .env(tdmcp_config::CONFIG_PATH_ENV, &config_path)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -469,7 +476,7 @@ async fn zero_args_defaults_to_start() {
         .env("TDMCP_DATA_DIR", dir.path())
         .env("TDMCP_NO_GUI", "true")
         .env("TDMCP_IDLE_EXIT_SECS", "0")
-        .env("TDMCP_IPC_PIPE", ipc_pipe_for(port))
+        .env("TDMCP_IPC_PORT", free_ipc_port(port).to_string())
         .env(tdmcp_config::CONFIG_PATH_ENV, &config_path)
         .stdin(Stdio::null())
         .stdout(Stdio::null())

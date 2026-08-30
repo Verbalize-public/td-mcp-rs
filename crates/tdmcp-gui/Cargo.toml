@@ -32,9 +32,17 @@ serde_json = { workspace = true }
 tdmcp-config = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
-tray-icon = { workspace = true }
 uuid = { workspace = true }
 winit = { workspace = true }
+
+# tray-icon drives the native status item everywhere but Linux: its Linux
+# backend needs GTK + libappindicator (crashed the daemon when absent, L-10).
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+tray-icon = { workspace = true }
+
+# Linux tray = appindicator3 (libayatana-appindicator-glib) via GTK.
+[target.'cfg(target_os = "linux")'.dependencies]
+appindicator3 = { workspace = true }
 
 [lints]
 workspace = true

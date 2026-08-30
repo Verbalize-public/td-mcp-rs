@@ -98,6 +98,12 @@ pub const ARGS_SIMILAR_FIELD: &str = "tdmcp.args.similar_field";
 pub const BRIDGE_TIMEOUT: &str = "tdmcp.bridge.timeout";
 /// Bridge package version incompatible with daemon.
 pub const BRIDGE_VERSION: &str = "tdmcp.bridge.version";
+/// Bridge handshake protocol_version not supported by the daemon (T-6/D5).
+pub const BRIDGE_PROTOCOL_MISMATCH: &str = "tdmcp.bridge.protocol_mismatch";
+/// Bridge handshake frame missing/unreadable on the TCP bridge socket.
+pub const BRIDGE_HANDSHAKE_INVALID: &str = "tdmcp.bridge.handshake_invalid";
+/// Peer connected but sent no handshake frame within the 5s budget.
+pub const BRIDGE_HANDSHAKE_TIMEOUT: &str = "tdmcp.bridge.handshake_timeout";
 
 /// Stdio proxy ↔ daemon HTTP link lost / unreachable (reconnect-only; no upsert).
 pub const DAEMON_UNREACHABLE: &str = "tdmcp.daemon.unreachable";
@@ -261,6 +267,9 @@ pub const ALL: &[&str] = &[
     ARGS_SIMILAR_FIELD,
     BRIDGE_TIMEOUT,
     BRIDGE_VERSION,
+    BRIDGE_PROTOCOL_MISMATCH,
+    BRIDGE_HANDSHAKE_INVALID,
+    BRIDGE_HANDSHAKE_TIMEOUT,
     DAEMON_UNREACHABLE,
     REMOTE_UNAUTHORIZED,
     FEDERATION_AUTH_REJECTED,

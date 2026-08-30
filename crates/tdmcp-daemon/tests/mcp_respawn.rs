@@ -60,10 +60,14 @@ async fn wait_healthy(port: u16, timeout: Duration) {
 async fn mid_session_daemon_death_triggers_automatic_respawn() {
     let dir = tempdir().expect("tempdir");
     let port = free_port();
+    // The daemon also binds the bridge/IPC listener — on the DEFAULT port
+    // (9861) unless overridden, colliding with any live system daemon or a
+    // parallel test run. Isolate it like the MCP port above; both children
+    // (and the respawn the proxy triggers, which inherits env) get the same
+    // override.
+    let ipc_port = free_port();
     let config_path = dir.path().join("test-config.toml");
     tdmcp_config::ensure_default(&config_path, true).expect("seed config");
-    let pipe = format!(r"\\.\pipe\tdmcp-rs-respawn-test-{port}");
-
     // Cold-start a real headless daemon, exactly like `ensure` would.
     let mut daemon = Command::new(daemon_bin())
         .args([
@@ -75,7 +79,7 @@ async fn mid_session_daemon_death_triggers_automatic_respawn() {
             "--no-gui",
         ])
         .env("TDMCP_IDLE_EXIT_SECS", "0")
-        .env("TDMCP_IPC_PIPE", &pipe)
+        .env("TDMCP_IPC_PORT", ipc_port.to_string())
         .env(tdmcp_config::CONFIG_PATH_ENV, &config_path)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -97,7 +101,7 @@ async fn mid_session_daemon_death_triggers_automatic_respawn() {
             dir.path().to_str().expect("utf8 data_dir"),
         ])
         .env("TDMCP_IDLE_EXIT_SECS", "0")
-        .env("TDMCP_IPC_PIPE", &pipe)
+        .env("TDMCP_IPC_PORT", ipc_port.to_string())
         .env(tdmcp_config::CONFIG_PATH_ENV, &config_path)
         // Fast, deterministic escalation: the daemon dies well past `recent`,
         // so the very first watcher tick after `stale` fires the respawn.

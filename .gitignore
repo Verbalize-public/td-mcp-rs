@@ -4,6 +4,7 @@ target/
 **/*.rs.bk
 .idea/
 .vscode/
+.venv/
 *.pdb
 __pycache__/
 *.pyc

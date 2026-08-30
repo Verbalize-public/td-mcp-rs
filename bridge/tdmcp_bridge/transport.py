@@ -1,11 +1,10 @@
-"""Wire framing + local IPC transport (named pipe / UDS)."""
+"""Wire framing + TCP loopback transport."""
 from __future__ import annotations
 
-import ctypes
 import json
 import os
+import socket
 import struct
-import sys
 import time
 from typing import Any
 
@@ -72,11 +71,10 @@ def _mid_frame_dead_s(stream, default: float = IDLE_DEAD_S) -> float:
 
 
 def _apply_read_timeout(stream, seconds: float) -> None:
-    """Best-effort read timeout for idle polling (UDS / named pipe wrappers)."""
+    """Best-effort read timeout for idle polling (the TCP stream wrapper)."""
     setter = getattr(stream, "set_read_timeout", None)
     if callable(setter):
         setter(seconds)
-
 
 def _write_frame(stream, msg: dict[str, Any]) -> None:
     body = json.dumps(msg).encode("utf-8")
@@ -89,75 +87,87 @@ def _write_frame(stream, msg: dict[str, Any]) -> None:
         raise OSError(f"short write: body {n}/{len(body)}")
     stream.flush()
 
-def default_endpoint() -> str:
-    """Return the default local IPC endpoint path for this platform."""
-    if sys.platform.startswith("win"):
-        return r"\\.\pipe\tdmcp-rs"
-    import os
+# --- TCP endpoint resolution + dial (docs/LINUX_SUPPORT.md §3, T-8) ---------
 
-    env = os.environ.get("TDMCP_DATA_DIR")
-    if env:
-        data_dir = env
-    elif sys.platform == "darwin":
-        # Match daemon `dirs::data_local_dir()` → ~/Library/Application Support.
-        data_dir = os.path.join(
-            os.path.expanduser("~"), "Library", "Application Support", "tdmcp-rs"
-        )
-    else:
-        data_dir = os.path.join(
-            os.environ.get("XDG_DATA_HOME")
-            or os.path.join(os.path.expanduser("~"), ".local", "share"),
-            "tdmcp-rs",
-        )
-    return os.path.join(data_dir, "bridge.sock")
+_DEFAULT_HOST = "127.0.0.1"
+_DEFAULT_PORT = 9861
 
+def _parse_port(raw: str, source: str) -> int:
+    """Parse a decimal TCP port (1-65535); ``ValueError`` names ``source``."""
+    try:
+        port = int(raw)
+    except ValueError:
+        raise ValueError(f"{source} must be an integer port, got {raw!r}") from None
+    if not 1 <= port <= 65535:
+        raise ValueError(f"{source} port out of range 1-65535, got {raw!r}")
+    return port
+
+def _parse_endpoint(raw: str, source: str) -> tuple[str, int]:
+    """Parse a ``host:port`` string; ``ValueError`` names ``source`` on garbage."""
+    host, sep, port_s = raw.rpartition(":")
+    if not sep or not host:
+        raise ValueError(f"{source} must be 'host:port', got {raw!r}")
+    return host, _parse_port(port_s, source)
+
+def resolve_endpoint() -> tuple[str, int]:
+    """Resolve the daemon TCP endpoint as ``(host, port)``.
+
+    Precedence: ``TDMCP_IPC_ENDPOINT`` (``host:port``) if set, else
+    ``TDMCP_IPC_PORT`` (host defaults to 127.0.0.1), else the default
+    ``127.0.0.1:9861``. Malformed values raise ``ValueError`` naming the
+    offending variable, so a bad env never dials garbage.
+    """
+    raw = os.environ.get("TDMCP_IPC_ENDPOINT")
+    if raw:
+        return _parse_endpoint(raw, "TDMCP_IPC_ENDPOINT")
+    raw = os.environ.get("TDMCP_IPC_PORT")
+    if raw:
+        return _DEFAULT_HOST, _parse_port(raw, "TDMCP_IPC_PORT")
+    return _DEFAULT_HOST, _DEFAULT_PORT
 
 def dial(endpoint: str | None = None):
-    """Connect to the daemon IPC endpoint. Returns a file-like stream."""
-    endpoint = endpoint or default_endpoint()
-    if sys.platform.startswith("win"):
-        return _dial_named_pipe(endpoint)
-    return _dial_uds(endpoint)
+    """Connect to the daemon over TCP. Returns a file-like stream.
 
+    ``endpoint`` is an optional ``"host:port"`` override; without it the
+    endpoint comes from [`resolve_endpoint`] (env precedence, then the
+    ``127.0.0.1:9861`` default).
+    """
+    if endpoint is None:
+        host, port = resolve_endpoint()
+    else:
+        host, port = _parse_endpoint(endpoint, "endpoint")
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.connect((host, port))
+    return _TcpStream(sock)
 
-def _dial_uds(path: str):
-    import socket
-
-    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    sock.connect(path)
-    return _UdsStream(sock)
-
-
-class _UdsStream:
-    """Minimal file-like wrapper over a UDS socket (mirrors `_NamedPipeStream`).
+class _TcpStream:
+    """Minimal file-like wrapper over a TCP socket (uniform on every OS).
 
     Unbuffered by design (manual length-prefixed framing already batches
-    reads/writes); avoids `makefile()`'s buffering surprises and gives us a
-    real socket reference for [`shutdown`], which is the POSIX-supported way
-    to unblock a concurrent `recv()` on another thread.
+    reads/writes); avoids ``makefile()``'s buffering surprises and keeps a
+    real socket reference for ``shutdown``, which reliably unblocks a
+    concurrent blocking ``recv()`` on another thread.
     """
 
     def __init__(self, sock) -> None:
         self._sock = sock
 
     def set_read_timeout(self, seconds: float | None) -> None:
-        """Socket-level recv timeout for idle polling (`None` = block forever)."""
+        """Socket-level recv timeout for idle polling (``None`` = block forever)."""
         self._sock.settimeout(seconds)
 
     def read(self, n: int) -> bytes:
-        import socket as _socket
-
         out = bytearray()
         last_progress = time.monotonic()
         while len(out) < n:
             try:
                 chunk = self._sock.recv(n - len(out))
-            except _socket.timeout as exc:
+            except socket.timeout as exc:
                 if not out:
-                    raise TimeoutError("uds read timed out") from exc
+                    raise TimeoutError("tcp read timed out") from exc
                 if (time.monotonic() - last_progress) >= _mid_frame_dead_s(self):
                     raise MidFrameTimeout(
-                        "uds read stalled mid-frame with no progress"
+                        "tcp read stalled mid-frame with no progress"
                     ) from exc
                 continue
             if not chunk:
@@ -180,189 +190,13 @@ class _UdsStream:
             pass
 
     def cancel_pending_io(self, _thread_id: int | None) -> None:
-        """Unblock a concurrent `recv()` on another thread before `close()`.
+        """Unblock a concurrent ``recv()`` on another thread before ``close()``.
 
-        The thread id is irrelevant on POSIX — `shutdown()` unblocks *any*
-        thread reading this socket, unlike Windows `CancelSynchronousIo`
-        which must target a specific thread.
+        The thread id is accepted for call compatibility and ignored — TCP
+        ``shutdown()`` unblocks *any* thread reading this socket, on every
+        platform.
         """
-        import socket as _socket
-
         try:
-            self._sock.shutdown(_socket.SHUT_RDWR)
+            self._sock.shutdown(socket.SHUT_RDWR)
         except OSError:
             pass
-
-
-def _dial_named_pipe(name: str):
-    kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
-    GENERIC_READ = 0x80000000
-    GENERIC_WRITE = 0x40000000
-    OPEN_EXISTING = 3
-    INVALID = ctypes.c_void_p(-1).value
-
-    # Handles are 64-bit; ctypes' default restype (c_int) truncates
-    # INVALID_HANDLE_VALUE to -1, so a failed open would masquerade as a
-    # valid handle and blow up later as a misleading "WriteFile failed".
-    kernel32.CreateFileW.restype = ctypes.c_void_p
-
-    handle = kernel32.CreateFileW(
-        name,
-        GENERIC_READ | GENERIC_WRITE,
-        0,
-        None,
-        OPEN_EXISTING,
-        0,
-        None,
-    )
-    if handle in (INVALID, None):
-        err = kernel32.GetLastError()
-        raise OSError(f"could not open named pipe {name} (WinError {err})")
-    return _NamedPipeStream(handle)
-
-
-class _NamedPipeStream:
-    """Minimal file-like wrapper over a named pipe handle."""
-
-    _ERROR_TIMEOUT = 1460
-    _ERROR_SEM_TIMEOUT = 121
-    _ERROR_IO_INCOMPLETE = 996
-
-    def __init__(self, handle: int) -> None:
-        from ctypes import wintypes
-
-        self._handle = handle
-        self._kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
-        self._buf = (ctypes.c_ubyte * 65536)()
-        self._wintypes = wintypes
-        self._read_timeout_ms: int | None = None
-
-    def set_read_timeout(self, seconds: float | None) -> None:
-        """Apply ``SetCommTimeouts`` so ``ReadFile`` can return on idle polls."""
-        from ctypes import wintypes
-
-        class _CommTimeouts(ctypes.Structure):
-            _fields_ = [
-                ("ReadIntervalTimeout", wintypes.DWORD),
-                ("ReadTotalTimeoutMultiplier", wintypes.DWORD),
-                ("ReadTotalTimeoutConstant", wintypes.DWORD),
-                ("WriteTotalTimeoutMultiplier", wintypes.DWORD),
-                ("WriteTotalTimeoutConstant", wintypes.DWORD),
-            ]
-
-        timeouts = _CommTimeouts()
-        if seconds is None:
-            self._read_timeout_ms = None
-            # Restore blocking defaults (all zero).
-            timeouts.ReadIntervalTimeout = 0
-            timeouts.ReadTotalTimeoutMultiplier = 0
-            timeouts.ReadTotalTimeoutConstant = 0
-        else:
-            ms = max(1, int(seconds * 1000))
-            self._read_timeout_ms = ms
-            # Total timeout only (no per-byte multiplier).
-            timeouts.ReadIntervalTimeout = 0
-            timeouts.ReadTotalTimeoutMultiplier = 0
-            timeouts.ReadTotalTimeoutConstant = ms
-        timeouts.WriteTotalTimeoutMultiplier = 0
-        timeouts.WriteTotalTimeoutConstant = 0
-        ok = self._kernel32.SetCommTimeouts(self._handle, ctypes.byref(timeouts))
-        if not ok:
-            raise OSError("SetCommTimeouts failed")
-
-    def read(self, n: int) -> bytes:
-        out = bytearray()
-        last_progress = time.monotonic()
-        while len(out) < n:
-            want = min(n - len(out), len(self._buf))
-            read = self._wintypes.DWORD(0)
-            ok = self._kernel32.ReadFile(
-                self._handle,
-                self._buf,
-                want,
-                ctypes.byref(read),
-                None,
-            )
-            if not ok:
-                err = self._kernel32.GetLastError()
-                if err in (
-                    self._ERROR_TIMEOUT,
-                    self._ERROR_SEM_TIMEOUT,
-                    self._ERROR_IO_INCOMPLETE,
-                ):
-                    if not out:
-                        raise TimeoutError("named pipe read timed out")
-                    if (time.monotonic() - last_progress) >= _mid_frame_dead_s(self):
-                        raise MidFrameTimeout(
-                            "named pipe read stalled mid-frame with no progress"
-                        )
-                    continue
-                break
-            if read.value == 0:
-                # Timeout with zero bytes can also surface as success+0.
-                if self._read_timeout_ms is not None and not out:
-                    raise TimeoutError("named pipe read timed out")
-                if self._read_timeout_ms is not None and out:
-                    if (time.monotonic() - last_progress) >= _mid_frame_dead_s(self):
-                        raise MidFrameTimeout(
-                            "named pipe read stalled mid-frame with no progress"
-                        )
-                    continue
-                break
-            out += bytes(self._buf[: read.value])
-            last_progress = time.monotonic()
-        return bytes(out)
-
-    def write(self, data: bytes) -> int:
-        """Write all of ``data`` (loop WriteFile — partial writes are normal)."""
-        total = 0
-        while total < len(data):
-            written = self._wintypes.DWORD(0)
-            chunk = data[total:]
-            ok = self._kernel32.WriteFile(
-                self._handle,
-                chunk,
-                len(chunk),
-                ctypes.byref(written),
-                None,
-            )
-            if not ok:
-                err = self._kernel32.GetLastError()
-                raise OSError(f"WriteFile failed (WinError {err})")
-            if written.value == 0:
-                raise OSError("WriteFile wrote 0 bytes")
-            total += written.value
-        return total
-
-    def flush(self) -> None:  # noqa: D401
-        return None
-
-    def close(self) -> None:
-        self._kernel32.CloseHandle(self._handle)
-
-    def cancel_pending_io(self, thread_id: int | None) -> None:
-        """Unblock a concurrent synchronous `ReadFile` on `thread_id`.
-
-        **Must** be called before [`close`] whenever another thread might be
-        mid-blocking-read on this handle: closing a handle out from under a
-        pending synchronous `ReadFile` on a *different* thread is undefined
-        behavior on Windows (observed: freezes the whole caller thread,
-        which — if that thread is TD's main/cook thread reached indirectly
-        via a script waiting on `join()` — freezes TD itself). Targets the
-        specific thread via `OpenThread` + `CancelSynchronousIo`, which is
-        the documented, safe cross-thread cancellation primitive for
-        synchronous (non-overlapped) I/O.
-        """
-        if not thread_id:
-            return
-        thread_terminate = 0x0001
-        handle = self._kernel32.OpenThread(thread_terminate, False, thread_id)
-        if not handle:
-            return
-        try:
-            self._kernel32.CancelSynchronousIo(handle)
-        except OSError:  # noqa: BLE001 — best-effort; read loop will retry/exit
-            pass
-        finally:
-            self._kernel32.CloseHandle(handle)
-

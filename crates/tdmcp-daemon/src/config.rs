@@ -3,9 +3,14 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use tdmcp_config::DialogsSection;
 use tdmcp_config::{self as cfgfile, BridgeSection, ConfigFile};
+
+/// Env override for the bridge listener host (beats `[bridge] host`).
+pub const IPC_HOST_ENV: &str = "TDMCP_IPC_HOST";
+/// Env override for the bridge listener port (beats `[bridge] port`).
+pub const IPC_PORT_ENV: &str = "TDMCP_IPC_PORT";
 
 /// Resolved runtime config.
 #[derive(Debug, Clone)]
@@ -42,6 +47,10 @@ pub struct Config {
     pub no_gui: bool,
     /// Bridge IPC call / heartbeat budgets from `[bridge]`.
     pub bridge: BridgeSection,
+    /// Resolved bridge listener host (env → config → default, loopback-only).
+    pub bridge_host: String,
+    /// Resolved bridge listener port (env → config → default).
+    pub bridge_port: u16,
     /// Resolved `[logging]` directory (`[logging].dir` > `data_dir/logs`).
     pub logging_dir: PathBuf,
     /// EnvFilter string for the file layer; None => RUST_LOG => built-in default.
@@ -112,6 +121,12 @@ impl Config {
             .unwrap_or_else(|| default_catalog_path(&data_dir));
         let no_gui = overrides.no_gui || !file.daemon.show_tray;
 
+        // Bridge endpoint resolution happens here (composition root) so
+        // env/config precedence and loopback validation fail at startup
+        // rather than inside the IPC crate.
+        let (bridge_host, bridge_port) =
+            resolve_bridge_endpoint(std::env::var(IPC_HOST_ENV).ok().as_deref(), std::env::var(IPC_PORT_ENV).ok().as_deref(), &file.bridge)?;
+
         let logging_dir = file
             .logging
             .dir
@@ -138,6 +153,8 @@ impl Config {
             always_on: file.daemon.always_on,
             no_gui,
             bridge: file.bridge,
+            bridge_host,
+            bridge_port,
             logging_dir,
             logging_filter: file.logging.filter,
             logging_console_level: file.logging.console_level,
@@ -173,11 +190,151 @@ fn default_catalog_path(data_dir: &Path) -> PathBuf {
     data_dir.join("diagnostics/catalog.yaml")
 }
 
+/// Resolve the bridge bind endpoint: env → config → default (T-2), rejecting
+/// non-loopback hosts (T-4) and port 0 (T-3 forbids port hopping).
+///
+/// Arguments are pre-read env values so precedence is unit-testable without
+/// mutating process-global env.
+fn resolve_bridge_endpoint(
+    env_host: Option<&str>,
+    env_port: Option<&str>,
+    bridge: &BridgeSection,
+) -> Result<(String, u16)> {
+    let host = env_host
+        .map(str::trim)
+        .filter(|h| !h.is_empty())
+        .map(str::to_owned)
+        .unwrap_or_else(|| {
+            let host = bridge.host.trim();
+            if host.is_empty() {
+                cfgfile::DEFAULT_BRIDGE_HOST.to_owned()
+            } else {
+                host.to_owned()
+            }
+        });
+    if !is_loopback_host(&host) {
+        bail!(
+            "bridge host {host:?} is not loopback — the bridge port must bind \
+             127.0.0.1/::1 only in v0; fix [bridge] host or {IPC_HOST_ENV}"
+        );
+    }
+    let port = match env_port.map(str::trim).filter(|p| !p.is_empty()) {
+        Some(raw) => raw
+            .parse::<u16>()
+            .with_context(|| format!("parse {IPC_PORT_ENV} {raw:?}"))?,
+        None if bridge.port == 0 => bail!(
+            "bridge port 0 would bind a random port — the bridge needs a \
+             deterministic endpoint; fix [bridge] port or {IPC_PORT_ENV}"
+        ),
+        None => bridge.port,
+    };
+    Ok((host, port))
+}
+
+/// Read the env overrides and resolve against `bridge` (production path).
+pub fn resolve_bridge_endpoint_from_env(bridge: &BridgeSection) -> Result<(String, u16)> {
+    resolve_bridge_endpoint(
+        std::env::var(IPC_HOST_ENV).ok().as_deref(),
+        std::env::var(IPC_PORT_ENV).ok().as_deref(),
+        bridge,
+    )
+}
+
+/// Loopback = `localhost` or an IP inside the loopback ranges (T-4).
+fn is_loopback_host(host: &str) -> bool {
+    if host.eq_ignore_ascii_case("localhost") {
+        return true;
+    }
+    host.parse::<std::net::IpAddr>()
+        .map(|ip| ip.is_loopback())
+        .unwrap_or(false)
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, reason = "unit tests")]
 mod tests {
     use super::*;
     use tempfile::tempdir;
+
+    /// Env vars are process-global; serialize tests that touch them.
+    fn env_guard() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+        LOCK.get_or_init(|| std::sync::Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    #[test]
+    fn bridge_endpoint_env_beats_config_beats_default() {
+        // Defaults.
+        let (host, port) =
+            resolve_bridge_endpoint(None, None, &BridgeSection::default()).expect("defaults");
+        assert_eq!(host, "127.0.0.1");
+        assert_eq!(port, cfgfile::DEFAULT_BRIDGE_PORT);
+        // Config beats default.
+        let configured = BridgeSection {
+            host: "127.0.0.2".to_owned(),
+            port: 9999,
+            ..Default::default()
+        };
+        let (host, port) = resolve_bridge_endpoint(None, None, &configured).expect("config");
+        assert_eq!(host, "127.0.0.2");
+        assert_eq!(port, 9999);
+        // Env beats config.
+        let (host, port) =
+            resolve_bridge_endpoint(Some("127.0.0.3"), Some("7000"), &configured).expect("env");
+        assert_eq!(host, "127.0.0.3");
+        assert_eq!(port, 7000);
+    }
+
+    #[test]
+    fn bridge_endpoint_rejects_non_loopback_host() {
+        for host in ["0.0.0.0", "192.168.1.9", "example.com"] {
+            let bridge = BridgeSection {
+                host: host.to_owned(),
+                ..Default::default()
+            };
+            let err = resolve_bridge_endpoint(None, None, &bridge).expect_err(host);
+            assert!(
+                err.to_string().contains("loopback"),
+                "{host:?} must be rejected as non-loopback, got: {err}"
+            );
+        }
+        // Env override cannot smuggle a non-loopback host past validation.
+        let err = resolve_bridge_endpoint(Some("0.0.0.0"), None, &BridgeSection::default())
+            .expect_err("env host");
+        assert!(err.to_string().contains("loopback"), "got: {err}");
+    }
+
+    #[test]
+    fn bridge_endpoint_rejects_invalid_port() {
+        let err = resolve_bridge_endpoint(None, Some("not-a-port"), &BridgeSection::default())
+            .expect_err("env port");
+        assert!(err.to_string().contains(IPC_PORT_ENV), "got: {err}");
+        let bridge = BridgeSection {
+            port: 0,
+            ..Default::default()
+        };
+        let err = resolve_bridge_endpoint(None, None, &bridge).expect_err("port 0");
+        assert!(
+            err.to_string().contains("deterministic"),
+            "port 0 must be refused, got: {err}"
+        );
+    }
+
+    #[test]
+    fn bridge_endpoint_env_names_match_runtime_resolution() {
+        let _guard = env_guard();
+        // Prove the production wrapper reads exactly TDMCP_IPC_HOST/PORT.
+        std::env::set_var(IPC_HOST_ENV, "127.0.0.4");
+        std::env::set_var(IPC_PORT_ENV, "7001");
+        let resolved = resolve_bridge_endpoint_from_env(&BridgeSection::default());
+        std::env::remove_var(IPC_HOST_ENV);
+        std::env::remove_var(IPC_PORT_ENV);
+        let (host, port) = resolved.expect("env resolution");
+        assert_eq!(host, "127.0.0.4");
+        assert_eq!(port, 7001);
+    }
 
     #[test]
     fn overrides_win_over_file() {

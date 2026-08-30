@@ -63,6 +63,17 @@ fn pick_free_port() -> u16 {
         .port()
 }
 
+/// Bridge port for a daemon: free and distinct from its HTTP port (a
+/// conflicting bridge bind fatally exits the daemon, T-3).
+fn free_ipc_port(http_port: u16) -> u16 {
+    loop {
+        let port = pick_free_port();
+        if port != http_port {
+            return port;
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments, reason = "test config fixture")]
 fn write_config(
     path: &std::path::Path,
@@ -147,6 +158,7 @@ fn spawn_daemon(
         .arg("--no-gui")
         .env("TDMCP_CONFIG_PATH", &config_path)
         .env("TDMCP_IDLE_EXIT_SECS", "0")
+        .env("TDMCP_IPC_PORT", free_ipc_port(port).to_string())
         .env("RUST_LOG", "warn,tdmcp_daemon=info")
         .stdin(Stdio::null())
         .stdout(Stdio::null())

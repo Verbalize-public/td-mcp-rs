@@ -33,8 +33,9 @@ pub struct EnsureOptions {
     pub idle_exit_secs: Option<u64>,
     /// When true, re-extract embedded bridge/catalog/tox even if already current.
     pub force_install: bool,
-    /// Child `TDMCP_IPC_PIPE` override (tests isolate from the live TD pipe).
-    pub ipc_pipe: Option<String>,
+    /// Child `TDMCP_IPC_PORT` override (tests isolate from the default
+    /// bridge port and from each other under parallel `cargo test`).
+    pub ipc_port: Option<u16>,
     /// Child `TDMCP_CONFIG_PATH` override (tests isolate from the user config).
     pub config_path: Option<PathBuf>,
 }
@@ -50,7 +51,7 @@ impl Default for EnsureOptions {
             no_gui: false,
             idle_exit_secs: None,
             force_install: false,
-            ipc_pipe: None,
+            ipc_port: None,
             config_path: None,
         }
     }
@@ -139,7 +140,7 @@ pub async fn ensure_daemon(opts: EnsureOptions) -> Result<EnsureResult> {
                     &opts.data_dir,
                     opts.no_gui,
                     opts.idle_exit_secs,
-                    opts.ipc_pipe.as_deref(),
+                    opts.ipc_port,
                     opts.config_path.as_deref(),
                 )?;
                 spawned = true;
@@ -258,7 +259,7 @@ fn spawn_detached(
     data_dir: &Path,
     no_gui: bool,
     idle_exit_secs: Option<u64>,
-    ipc_pipe: Option<&str>,
+    ipc_port: Option<u16>,
     config_path: Option<&Path>,
 ) -> Result<()> {
     info!(
@@ -267,7 +268,7 @@ fn spawn_detached(
         data_dir = %data_dir.display(),
         no_gui,
         idle_exit_secs,
-        ipc_pipe,
+        ipc_port,
         config_path = ?config_path.map(|p| p.display().to_string()),
         "spawning detached daemon"
     );
@@ -285,8 +286,8 @@ fn spawn_detached(
     if let Some(secs) = idle_exit_secs {
         cmd.env("TDMCP_IDLE_EXIT_SECS", secs.to_string());
     }
-    if let Some(pipe) = ipc_pipe {
-        cmd.env("TDMCP_IPC_PIPE", pipe);
+    if let Some(port) = ipc_port {
+        cmd.env(crate::config::IPC_PORT_ENV, port.to_string());
     }
     if let Some(cfg) = config_path {
         cmd.env(tdmcp_config::CONFIG_PATH_ENV, cfg);
@@ -421,7 +422,16 @@ pub fn pid_alive(pid: u32) -> bool {
     }
     #[cfg(target_os = "linux")]
     {
-        Path::new(&format!("/proc/{pid}")).exists()
+        // A SIGKILLed child lingers as a zombie (state `Z`) until its parent
+        // reaps it, and /proc/<pid> exists the whole time — a bare existence
+        // check reported dead daemons as alive and pinned stale daemon.locks
+        // (LINUX_SUPPORT F5). Read the state char instead.
+        match fs::read_to_string(format!("/proc/{pid}/stat")) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => false,
+            // Unreadable (hidepid, exit race) → assume alive; never reclaim on a guess.
+            Err(_) => true,
+            Ok(text) => !matches!(proc_stat_state(&text), Some('Z')),
+        }
     }
     #[cfg(all(unix, not(target_os = "linux")))]
     {
@@ -439,4 +449,14 @@ pub fn pid_alive(pid: u32) -> bool {
             Err(_) => true,
         }
     }
+}
+
+/// State char from `/proc/<pid>/stat` (`pid (comm) state ppid …`).
+///
+/// `comm` may contain spaces and parentheses, so parse after the last `)`.
+/// `None` when the content is malformed — callers treat that as alive.
+#[cfg(target_os = "linux")]
+fn proc_stat_state(text: &str) -> Option<char> {
+    let after_comm = text.rsplit_once(')')?.1;
+    after_comm.split_whitespace().next()?.chars().next()
 }

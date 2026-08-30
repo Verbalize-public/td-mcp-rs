@@ -64,7 +64,7 @@ pub fn expand(
     // Filesystem-evidence gate (exit code ignored by design).
     let entries = match toc::parse(&toc_path) {
         Ok(entries) => entries,
-        Err(ProjectIoError::Fs { path: _, .. }) => {
+        Err(ProjectIoError::Fs { .. }) => {
             // No toc at all == the canonical failure shape.
             cleanup_partials(packed);
             tracing::warn!(exit = output.code, stderr = %output.stderr, "toeexpand wrote no toc - cleaned partials");
@@ -309,7 +309,7 @@ mod tests {
             0,
             "",
             Box::new(|_program, args| {
-                fs::write(PathBuf::from(&args[0]), [b'1', b'0']).unwrap();
+                fs::write(PathBuf::from(&args[0]), *b"10").unwrap();
             }),
         );
         let res = collapse(&src, &out, &tools_pair(), &runner);

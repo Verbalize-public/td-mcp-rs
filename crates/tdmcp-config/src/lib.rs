@@ -22,6 +22,12 @@ pub const CONFIG_PATH_ENV: &str = "TDMCP_CONFIG_PATH";
 /// Default HTTP listen port (MCP + admin).
 pub const DEFAULT_PORT: u16 = 9860;
 
+/// Default TCP listen port for the daemon↔bridge transport (loopback only).
+pub const DEFAULT_BRIDGE_PORT: u16 = 9861;
+
+/// Default TCP bind host for the daemon↔bridge transport (loopback only).
+pub const DEFAULT_BRIDGE_HOST: &str = "127.0.0.1";
+
 /// App directory name under OS config/data dirs.
 pub const APP_DIR_NAME: &str = "tdmcp-rs";
 
@@ -162,10 +168,14 @@ impl Default for LoggingSection {
     }
 }
 
-/// `[bridge]` table — IPC call budgets and idle heartbeat.
+/// `[bridge]` table — TCP endpoint, IPC call budgets, and idle heartbeat.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct BridgeSection {
+    /// Bind host for the bridge listener. Loopback only in v0 (see T-4).
+    pub host: String,
+    /// Bind port for the bridge listener.
+    pub port: u16,
     /// Default per-call wait for `ping` / `inspect` / `capture` (seconds).
     pub call_timeout_secs: u64,
     /// Per-call wait for `execute_python` / `mutate_nodes` (seconds).
@@ -181,6 +191,8 @@ pub struct BridgeSection {
 impl Default for BridgeSection {
     fn default() -> Self {
         Self {
+            host: DEFAULT_BRIDGE_HOST.to_owned(),
+            port: DEFAULT_BRIDGE_PORT,
             call_timeout_secs: 45,
             script_timeout_secs: 120,
             heartbeat_interval_secs: 5,
@@ -340,6 +352,16 @@ pub const FIELD_DESCS: &[FieldDesc] = &[
         key: "daemon.show_tray",
         label: "Show tray",
         help: "Show the system-tray dashboard (gui builds). CLI --no-gui still forces headless.",
+    },
+    FieldDesc {
+        key: "bridge.host",
+        label: "Bridge host",
+        help: "Loopback bind host for the daemon↔bridge TCP listener (default 127.0.0.1).",
+    },
+    FieldDesc {
+        key: "bridge.port",
+        label: "Bridge port",
+        help: "TCP port of the daemon↔bridge listener (default 9861).",
     },
     FieldDesc {
         key: "bridge.call_timeout_secs",
@@ -507,6 +529,8 @@ pub fn save(path: &Path, cfg: &ConfigFile) -> Result<()> {
     doc["daemon"]["always_on"] = value(cfg.daemon.always_on);
     doc["daemon"]["show_tray"] = value(cfg.daemon.show_tray);
 
+    doc["bridge"]["host"] = value(cfg.bridge.host.as_str());
+    doc["bridge"]["port"] = value(i64::from(cfg.bridge.port));
     doc["bridge"]["call_timeout_secs"] = value(cfg.bridge.call_timeout_secs as i64);
     doc["bridge"]["script_timeout_secs"] = value(cfg.bridge.script_timeout_secs as i64);
     doc["bridge"]["heartbeat_interval_secs"] = value(cfg.bridge.heartbeat_interval_secs as i64);
@@ -682,6 +706,22 @@ show_tray = true
         .expect("write");
         let cfg = load(&path).expect("load");
         assert_eq!(cfg.bridge, BridgeSection::default());
+    }
+
+    #[test]
+    fn bridge_endpoint_round_trips() {
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join("config.toml");
+        ensure_default(&path, true).expect("seed");
+        let mut cfg = load(&path).expect("load");
+        assert_eq!(cfg.bridge.host, "127.0.0.1");
+        assert_eq!(cfg.bridge.port, DEFAULT_BRIDGE_PORT);
+        cfg.bridge.host = "::1".to_owned();
+        cfg.bridge.port = 9999;
+        save(&path, &cfg).expect("save");
+        let again = load(&path).expect("reload");
+        assert_eq!(again.bridge.host, "::1");
+        assert_eq!(again.bridge.port, 9999);
     }
 
     #[test]

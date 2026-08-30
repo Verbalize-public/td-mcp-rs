@@ -17,7 +17,7 @@ use uuid::Uuid;
 use crate::dashboard;
 use crate::http::{http_get_blocking, http_post_blocking};
 use crate::platform::{notify, reveal_in_file_manager};
-use crate::tray::{tray_icon_from, RgbaIcon};
+use crate::tray::{RgbaIcon, TrayHandle, TrayRect};
 use crate::wire::{parse_slaves, FleetView, LogsResponse, StatusView};
 
 /// Newest-first error/warning entries kept for popup + dashboard surfaces.
@@ -71,7 +71,7 @@ pub(crate) struct DashboardApp {
     pub(crate) slaves_json: String,
     pub(crate) last_poll: Option<Instant>,
     pub(crate) error: Option<String>,
-    pub(crate) tray: Option<tray_icon::TrayIcon>,
+    pub(crate) tray: Option<TrayHandle>,
     pub(crate) icon_normal: RgbaIcon,
     pub(crate) icon_attention: RgbaIcon,
     pub(crate) attention: bool,
@@ -100,7 +100,15 @@ pub(crate) struct DashboardApp {
     /// DoubleClick consumed the gesture — swallow the trailing Click Up.
     pub(crate) tray_swallow_left_up: bool,
     /// Last tray icon rect for anchoring.
-    pub(crate) last_tray_rect: Option<tray_icon::Rect>,
+    pub(crate) last_tray_rect: Option<TrayRect>,
+    /// Linux: pending ksni spawn result — the DBus connect runs off-thread
+    /// and the GUI only polls it, so a missing/hung session bus never stalls
+    /// the UI (L-10).
+    #[cfg(target_os = "linux")]
+    pub(crate) tray_spawn: Option<crate::tray::TraySpawnRx>,
+    /// Linux: tray event stream (menu choices + left-click activations).
+    #[cfg(target_os = "linux")]
+    pub(crate) tray_events: Option<std::sync::mpsc::Receiver<crate::tray::TrayEvent>>,
     /// Shared with the daemon thread — when set, close the event loop for real.
     pub(crate) quit: Arc<AtomicBool>,
     /// Show auth PSK in Settings.
@@ -286,6 +294,10 @@ impl DashboardApp {
             tray_popup_open_at: None,
             tray_swallow_left_up: false,
             last_tray_rect: None,
+            #[cfg(target_os = "linux")]
+            tray_spawn: None,
+            #[cfg(target_os = "linux")]
+            tray_events: None,
             quit,
             show_psk: false,
             show_master_psk: false,
@@ -544,7 +556,7 @@ impl DashboardApp {
         ));
     }
 
-    pub(crate) fn show_window(&mut self, ctx: &egui::Context, tray_rect: Option<tray_icon::Rect>) {
+    pub(crate) fn show_window(&mut self, ctx: &egui::Context, tray_rect: Option<TrayRect>) {
         if let Some(r) = tray_rect {
             self.last_tray_rect = Some(r);
         }
@@ -802,16 +814,14 @@ impl DashboardApp {
         };
 
         if let Some(tray) = &self.tray {
-            let _ = tray.set_tooltip(Some(&tooltip));
+            tray.set_tooltip(&tooltip);
             if needs_attention != self.attention {
                 let icon = if needs_attention {
                     &self.icon_attention
                 } else {
                     &self.icon_normal
                 };
-                if let Ok(ti) = tray_icon_from(icon) {
-                    let _ = tray.set_icon(Some(ti));
-                }
+                tray.set_icon(icon);
                 self.attention = needs_attention;
             }
         }

@@ -71,6 +71,14 @@ max_files = 14
 retention_days = 30
 
 [bridge]
+# Loopback bind host for the daemon<->bridge TCP listener. Loopback only in
+# v0; the daemon refuses any other host at startup.
+host = "127.0.0.1"
+
+# TCP port of the daemon<->bridge listener. The shipped bootstrap tox finds
+# the daemon here; the port must stay stable (no silent fallback on conflict).
+port = 9861
+
 # Seconds to wait for ping / inspect / capture responses (default: 45).
 call_timeout_secs = 45
 

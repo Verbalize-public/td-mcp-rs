@@ -86,6 +86,21 @@ Clear `externaltox` on the COMP before save. Use `comp.save(path)` (not `saveTox
    freshly-installed `.tox` into it again. `install --force` / a daemon
    restart does **not** reach an already-open project on its own.
 
+### Linux / Wine variant (G-L2, see docs/LINUX_SUPPORT.md)
+
+TD runs under Wine against the Windows-partition build
+(`/mnt/windows/Program Files/Derivative/TouchDesigner.2025.32460/bin/TouchDesigner.exe`,
+reached through the prefix's `z: → /` mapping). The script below works
+unchanged except `REPO`, which must be the Wine-visible form of this repo:
+
+```python
+REPO = r"Z:\home\acorbeau\Repos\td-mcp-rs"  # Linux repo via Wine z: mapping
+```
+
+Run it through the live bridge (`execute_python_script` via the daemon's MCP
+surface) after the G-L2 TCP handshake succeeds — the bridge must be up before
+the daemon can deliver the script to TD.
+
 ```python
 import os
 
