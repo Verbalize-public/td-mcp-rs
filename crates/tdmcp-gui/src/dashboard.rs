@@ -84,7 +84,9 @@ pub fn render(app: &mut DashboardApp, ui: &mut egui::Ui) {
                     left: 0,
                     right: 0,
                     top: 14,
-                    bottom: 14,
+                    // Sole gap between the sidebar footer and the window
+                    // bottom — the footer adds no spacing of its own.
+                    bottom: 12,
                 }),
         )
         .show(ui, |ui| {

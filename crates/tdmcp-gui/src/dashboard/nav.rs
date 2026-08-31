@@ -13,6 +13,10 @@ use crate::theme::{
 /// Sidebar width (px).
 pub(crate) const SIDEBAR_W: f32 = 172.0;
 
+/// Footer text inset (px) — matches the nav labels' 16px text origin so the
+/// whole sidebar shares one left edge.
+const FOOTER_INSET: f32 = 16.0;
+
 /// Brand-mark display size (px).
 const LOGO_SIZE: f32 = 44.0;
 
@@ -62,9 +66,9 @@ pub(crate) fn sidebar(app: &mut DashboardApp, ui: &mut egui::Ui) {
 
     ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
         // Footer stack (painted bottom-up): version/uptime meta, role badge,
-        // then the health word — symmetric 12px breathing room at the very
-        // bottom, no separator line.
-        ui.add_space(12.0);
+        // then the health word. Every row shares the 16px text inset; the
+        // only gap to the window bottom is the panel's own 12px margin — the
+        // footer adds none on top of it.
         // Version + uptime (hidden while the daemon is unreachable — the
         // role badge already says "offline").
         if let Some(s) = app.status.as_ref() {
@@ -75,7 +79,7 @@ pub(crate) fn sidebar(app: &mut DashboardApp, ui: &mut egui::Ui) {
                 format!("v{} · up {}", s.version, up)
             };
             ui.horizontal(|ui| {
-                ui.add_space(14.0);
+                ui.add_space(FOOTER_INSET);
                 ui.label(
                     egui::RichText::new(meta)
                         .font(font_mono())
@@ -85,7 +89,9 @@ pub(crate) fn sidebar(app: &mut DashboardApp, ui: &mut egui::Ui) {
             ui.add_space(6.0);
         }
         ui.horizontal(|ui| {
-            ui.add_space(14.0);
+            // badge() pads its text 6px inside the pill — shift the box left
+            // so the pill's *text* aligns with the rows above and below.
+            ui.add_space(FOOTER_INSET - 6.0);
             let role = app
                 .status
                 .as_ref()
@@ -103,7 +109,7 @@ pub(crate) fn sidebar(app: &mut DashboardApp, ui: &mut egui::Ui) {
         });
         ui.add_space(6.0);
         ui.horizontal(|ui| {
-            ui.add_space(14.0);
+            ui.add_space(FOOTER_INSET);
             let (color, word) = if offline {
                 (ERR, "offline")
             } else if attention > 0 {
@@ -119,7 +125,7 @@ pub(crate) fn sidebar(app: &mut DashboardApp, ui: &mut egui::Ui) {
                     snap.disconnected, snap.resurrected, snap.cancelled
                 ));
         });
-        ui.add_space(4.0);
+        ui.add_space(10.0);
     });
 }
 
