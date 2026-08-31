@@ -143,3 +143,85 @@ pub(crate) fn reveal_in_file_manager(target: &Path, fallback_dir: &Path) -> Resu
         anyhow::bail!("reveal not supported on this platform");
     }
 }
+
+/// Glance-popup close-on-outside-click (X11 only).
+///
+/// Under focus-follows-mouse window managers (Hyprland default) the popup
+/// loses focus whenever the cursor merely moves off it, so "hide on focus
+/// loss" cannot tell an outside click from a mouse move — and a click outside
+/// our window is never delivered to us at all. X11 pointer state is
+/// server-global, so polling `XQueryPointer` on a private connection sees
+/// presses anywhere on screen (unsafe enclave: RISKS.md R10). The close rule
+/// lives in `DashboardApp::poll_outside_click_close`.
+#[cfg(target_os = "linux")]
+#[allow(unsafe_code)]
+pub(crate) mod glance_pointer {
+    use std::ffi::{c_int, c_uint};
+    use std::ptr::NonNull;
+
+    use x11_dl::xlib::{self, Xlib};
+
+    /// Button1|Button2|Button3 — wheel buttons 4/5 excluded so scrolling
+    /// elsewhere never closes the popup.
+    const CLOSE_BUTTON_MASK: c_uint = xlib::Button1Mask | xlib::Button2Mask | xlib::Button3Mask;
+
+    pub(crate) struct PointerPoller {
+        xlib: Xlib,
+        display: NonNull<xlib::Display>,
+    }
+
+    impl PointerPoller {
+        /// Open a private X connection. `None` when Xlib cannot be loaded or
+        /// no display is reachable — the caller then keeps the focus-loss
+        /// hide fallback.
+        pub(crate) fn open() -> Option<Self> {
+            let xlib = Xlib::open().ok()?;
+            // SAFETY: symbols borrowed from `xlib`, which outlives `display`
+            // in this struct; a NULL return (no display) maps to `None`.
+            let display = NonNull::new(unsafe { (xlib.XOpenDisplay)(std::ptr::null()) })?;
+            Some(Self { xlib, display })
+        }
+
+        /// Mask of physical buttons currently held anywhere on screen, or
+        /// `None` when the query fails.
+        pub(crate) fn held_buttons(&self) -> Option<c_uint> {
+            let dpy = self.display.as_ptr();
+            // SAFETY: all pointers are local out-params; `dpy` is alive for
+            // the lifetime of `self` and only used from the GUI thread.
+            unsafe {
+                let root = (self.xlib.XDefaultRootWindow)(dpy);
+                let (mut r, mut c) = (0 as xlib::Window, 0 as xlib::Window);
+                let (mut rx, mut ry, mut wx, mut wy) = (0 as c_int, 0, 0, 0);
+                let mut mask: c_uint = 0;
+                let ok = (self.xlib.XQueryPointer)(
+                    dpy, root, &mut r, &mut c, &mut rx, &mut ry, &mut wx, &mut wy, &mut mask,
+                );
+                (ok != 0).then_some(mask & CLOSE_BUTTON_MASK)
+            }
+        }
+    }
+
+    impl Drop for PointerPoller {
+        fn drop(&mut self) {
+            // SAFETY: single close of the connection opened in `open`.
+            unsafe { (self.xlib.XCloseDisplay)(self.display.as_ptr()) };
+        }
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+pub(crate) mod glance_pointer {
+    /// Non-X11 stub: outside-click polling is unavailable and the popup keeps
+    /// its hide-on-focus-loss behaviour.
+    pub(crate) struct PointerPoller;
+
+    impl PointerPoller {
+        pub(crate) fn open() -> Option<Self> {
+            None
+        }
+
+        pub(crate) fn held_buttons(&self) -> Option<u32> {
+            None
+        }
+    }
+}

@@ -44,6 +44,7 @@ tray-icon = { workspace = true }
 # Linux tray = ksni (pure-Rust StatusNotifierItem over DBus; no GTK).
 [target.'cfg(target_os = "linux")'.dependencies]
 ksni = { workspace = true }
+x11-dl = { workspace = true }
 
 [lints]
 workspace = true

@@ -30,6 +30,10 @@ const LOGS_FETCH_LIMIT: u32 = 512;
 /// itself is a cheap readdir, so 5s is plenty fresh).
 const CRASH_SCAN_INTERVAL: Duration = Duration::from_secs(5);
 
+/// After an outside-click close, a tray Up within this window is the release
+/// half of that same click — it must not re-open the popup.
+const OUTSIDE_CLOSE_TOGGLE_GUARD: Duration = Duration::from_millis(700);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum FleetPanel {
     None,
@@ -100,6 +104,20 @@ pub(crate) struct DashboardApp {
     pub(crate) tray_popup_open_at: Option<Instant>,
     /// DoubleClick consumed the gesture — swallow the trailing Click Up.
     pub(crate) tray_swallow_left_up: bool,
+    /// egui's view of the cursor: over our window (PointerMoved / press) or
+    /// gone (PointerGone). Feeds the X11 outside-click poll.
+    pub(crate) pointer_inside: bool,
+    /// A press started inside the popup and no all-buttons-up poll has run
+    /// since — suppresses outside-close while dragging out of the popup.
+    pub(crate) press_inside_active: bool,
+    /// Outside-click detection live (first all-buttons-up poll after show):
+    /// keeps the very press that opened the popup from closing it.
+    pub(crate) outside_click_armed: bool,
+    /// Last outside-click close — the tray Up half of the same physical click
+    /// must not reopen the popup.
+    pub(crate) outside_click_close_at: Option<Instant>,
+    /// X11 pointer poll connection for outside-click close (lazy).
+    pub(crate) x11_pointer: Option<crate::platform::glance_pointer::PointerPoller>,
     /// Last tray icon rect for anchoring.
     pub(crate) last_tray_rect: Option<TrayRect>,
     /// Linux: pending ksni spawn result — the DBus connect runs off-thread
@@ -321,6 +339,11 @@ impl DashboardApp {
             tray_popup_close_on_up: false,
             tray_popup_open_at: None,
             tray_swallow_left_up: false,
+            pointer_inside: false,
+            press_inside_active: false,
+            outside_click_armed: false,
+            outside_click_close_at: None,
+            x11_pointer: None,
             last_tray_rect: None,
             #[cfg(target_os = "linux")]
             tray_spawn: None,
@@ -607,6 +630,15 @@ impl DashboardApp {
         let now = Instant::now();
         self.clear_always_on_top_at = Some(now + Duration::from_millis(150));
         self.ignore_focus_loss_until = Some(now + Duration::from_millis(400));
+        // Outside-click close re-arms on the first all-buttons-up poll after
+        // show, so the press that opened the popup can never close it.
+        self.outside_click_armed = false;
+        self.press_inside_active = false;
+        // Open the X11 poll connection on first popup show (stays `None` off
+        // X11 or when the server is unreachable — focus-loss hide keeps working).
+        if self.x11_pointer.is_none() {
+            self.x11_pointer = crate::platform::glance_pointer::PointerPoller::open();
+        }
     }
 
     pub(crate) fn handle_close_request(&mut self, ctx: &egui::Context) {
@@ -625,6 +657,13 @@ impl DashboardApp {
         if !self.visible {
             return;
         }
+        // On X11 the outside-click poll owns popup closing: under
+        // focus-follows-mouse WMs (Hyprland default) a mere cursor move also
+        // steals focus, which read as "click outside". Keep this fallback for
+        // the Wayland backend and other platforms.
+        if crate::using_x11_backend() && self.x11_pointer.is_some() {
+            return;
+        }
         // Any focus loss hides the popup; editing happens in the dashboard.
         if self
             .ignore_focus_loss_until
@@ -638,6 +677,62 @@ impl DashboardApp {
         }
     }
 
+    /// The glance was just closed by an outside click — the tray Up half of
+    /// the same physical click must not re-arm the popup (anti-reopen).
+    pub(crate) fn recent_outside_click_close(&self) -> bool {
+        self.outside_click_close_at
+            .is_some_and(|t| t.elapsed() < OUTSIDE_CLOSE_TOGGLE_GUARD)
+    }
+
+    /// X11: close the popup when a physical button is held outside it.
+    ///
+    /// A click outside our window is never delivered to us, and under
+    /// focus-follows-mouse the focus loss it causes is indistinguishable from
+    /// a cursor move — so poll the X server instead (see
+    /// `platform::glance_pointer`). Cursor-over-window is tracked from egui's
+    /// own events; detection arms on the first all-buttons-up poll after show.
+    fn poll_outside_click_close(&mut self, ctx: &egui::Context) {
+        if !crate::using_x11_backend() || !self.visible {
+            return;
+        }
+        let mut inside = self.pointer_inside;
+        let mut pressed_inside = false;
+        ctx.input(|i| {
+            for e in &i.events {
+                match e {
+                    egui::Event::PointerMoved(_) => inside = true,
+                    egui::Event::PointerGone => inside = false,
+                    egui::Event::PointerButton { pressed: true, .. } => {
+                        pressed_inside = true;
+                        inside = true;
+                    }
+                    _ => {}
+                }
+            }
+        });
+        self.pointer_inside = inside;
+        if pressed_inside {
+            self.press_inside_active = true;
+        }
+        let Some(poller) = self.x11_pointer.as_ref() else {
+            return;
+        };
+        let Some(mask) = poller.held_buttons() else {
+            return;
+        };
+        if mask == 0 {
+            // All buttons up: arm detection and end any drag that started
+            // inside the popup.
+            self.outside_click_armed = true;
+            self.press_inside_active = false;
+            return;
+        }
+        if self.outside_click_armed && !self.pointer_inside && !self.press_inside_active {
+            self.hide_window(ctx);
+            self.outside_click_close_at = Some(Instant::now());
+        }
+    }
+
     /// Tray double-click / menu: open the dashboard or raise/focus it when
     /// already open.
     pub(crate) fn open_or_focus_dashboard(&mut self, ctx: &egui::Context) {
@@ -647,6 +742,12 @@ impl DashboardApp {
             ctx.send_viewport_cmd_to(id, egui::ViewportCommand::Focus);
         } else {
             self.dashboard_open = true;
+            // The glance used to close via focus loss when the dashboard took
+            // focus; keep that behaviour now that focus loss no longer hides
+            // it on X11.
+            if self.visible {
+                self.hide_window(ctx);
+            }
         }
     }
 
@@ -1188,6 +1289,7 @@ impl eframe::App for DashboardApp {
         self.handle_tray_events(ctx);
         self.flush_pending_tray_popup(ctx);
         self.handle_focus_loss(ctx);
+        self.poll_outside_click_close(ctx);
         let due = self
             .last_poll
             .is_none_or(|t| t.elapsed() > Duration::from_secs(2));
@@ -1227,7 +1329,13 @@ impl eframe::App for DashboardApp {
                 dashboard::render(self, ui);
             }
         });
-        ctx.request_repaint_after(Duration::from_millis(250));
+        // 100 ms while the glance is open = outside-click poll cadence.
+        let cadence = if self.visible {
+            Duration::from_millis(100)
+        } else {
+            Duration::from_millis(250)
+        };
+        ctx.request_repaint_after(cadence);
     }
 
     fn ui(&mut self, ui: &mut eframe::egui::Ui, _frame: &mut eframe::Frame) {

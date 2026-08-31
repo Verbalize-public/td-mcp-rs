@@ -208,7 +208,7 @@ impl DashboardApp {
         }
         self.last_tray_rect = Some(tray_rect);
 
-        if !self.visible && !self.tray_popup_close_on_up {
+        if !self.visible && !self.tray_popup_close_on_up && !self.recent_outside_click_close() {
             let at = Instant::now() + TRAY_DOUBLE_CLICK_GRACE;
             self.tray_popup_open_at = Some(at);
             ctx.request_repaint_after(TRAY_DOUBLE_CLICK_GRACE);

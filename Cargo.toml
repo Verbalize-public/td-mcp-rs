@@ -90,6 +90,11 @@ tray-icon = "0.24"
 # Linux tray = ksni (pure-Rust StatusNotifierItem over DBus, zbus-backed);
 # no GTK / libappindicator needed (their absence crashed the daemon, L-10).
 ksni = { version = "0.3", features = ["blocking"] }
+
+# Glance-popup outside-click close: Xlib XQueryPointer poll on a private
+# connection (pointer state outside our window is invisible to winit; RISKS
+# R10). Same crate winit already loads, so no new dynamic deps.
+x11-dl = "2.21"
 winit = "0.30"
 tempfile = "3"
 uuid = { version = "1", features = ["v4", "serde"] }

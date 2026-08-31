@@ -31,6 +31,24 @@ use eframe::egui;
 use app::DashboardApp;
 use tray::load_rgba;
 
+/// Linux GUI backend choice: XWayland unless `TDMCP_GUI_BACKEND=wayland`
+/// (winit's Wayland backend cannot hide windows — `set_visible` is a no-op,
+/// which broke popup toggle/close and the dashboard's close-to-black).
+/// Always `false` on other platforms.
+pub(crate) fn using_x11_backend() -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        match std::env::var("TDMCP_GUI_BACKEND").as_deref() {
+            Ok("wayland") => false,
+            _ => std::env::var("DISPLAY").is_ok_and(|d| !d.is_empty()),
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        false
+    }
+}
+
 /// Run the tray dashboard on the calling thread (must be the process main thread).
 ///
 /// Polls `admin_base` (e.g. `http://127.0.0.1:9860`) for status/fleet/sessions.
@@ -81,20 +99,12 @@ pub fn run(
             builder.with_activation_policy(ActivationPolicy::Accessory);
         }));
     }
-    // winit's Wayland backend can't hide windows (set_visible is a no-op), so
-    // run on XWayland; TDMCP_GUI_BACKEND=wayland opts back into Wayland.
     #[cfg(target_os = "linux")]
-    {
+    if using_x11_backend() {
         use winit::platform::x11::EventLoopBuilderExtX11 as _;
-        let use_x11 = match std::env::var("TDMCP_GUI_BACKEND").as_deref() {
-            Ok("wayland") => false,
-            _ => std::env::var("DISPLAY").is_ok_and(|d| !d.is_empty()),
-        };
-        if use_x11 {
-            options.event_loop_builder = Some(Box::new(|builder| {
-                builder.with_x11();
-            }));
-        }
+        options.event_loop_builder = Some(Box::new(|builder| {
+            builder.with_x11();
+        }));
     }
     eframe::run_native(
         "td-mcp-rs",
