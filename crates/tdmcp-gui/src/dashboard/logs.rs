@@ -10,7 +10,7 @@ use crate::theme::{
     chip, font_label, font_meta, font_mono, ghost_button, ACCENT, BG_HOVER, BG_ROW, BG_ROW_ALT,
     TEXT, TEXT_DIM, TEXT_FAINT, WARN,
 };
-use crate::wire::{level_color, level_letter, clip_line, LogRecordView};
+use crate::wire::{clip_line, level_color, level_letter, LogRecordView};
 
 /// Wide log stream.
 pub(crate) fn logs(app: &mut DashboardApp, ui: &mut egui::Ui) {
@@ -113,9 +113,11 @@ pub(crate) fn logs(app: &mut DashboardApp, ui: &mut egui::Ui) {
         }
     }
     ui.label(
-        egui::RichText::new("F follow · Space pause · / search · click a row to expand · Esc overview")
-            .font(font_meta())
-            .color(crate::theme::TEXT_FAINT),
+        egui::RichText::new(
+            "F follow · Space pause · / search · click a row to expand · Esc overview",
+        )
+        .font(font_meta())
+        .color(crate::theme::TEXT_FAINT),
     );
     ui.add_space(6.0);
 

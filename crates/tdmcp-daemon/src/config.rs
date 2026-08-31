@@ -124,8 +124,11 @@ impl Config {
         // Bridge endpoint resolution happens here (composition root) so
         // env/config precedence and loopback validation fail at startup
         // rather than inside the IPC crate.
-        let (bridge_host, bridge_port) =
-            resolve_bridge_endpoint(std::env::var(IPC_HOST_ENV).ok().as_deref(), std::env::var(IPC_PORT_ENV).ok().as_deref(), &file.bridge)?;
+        let (bridge_host, bridge_port) = resolve_bridge_endpoint(
+            std::env::var(IPC_HOST_ENV).ok().as_deref(),
+            std::env::var(IPC_PORT_ENV).ok().as_deref(),
+            &file.bridge,
+        )?;
 
         let logging_dir = file
             .logging

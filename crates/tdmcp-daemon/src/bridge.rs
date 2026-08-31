@@ -784,7 +784,10 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn wine_path_passes_relative_and_empty_through_unchanged() {
-        assert_eq!(to_wine_path_string(Path::new("relative/dir")), "relative/dir");
+        assert_eq!(
+            to_wine_path_string(Path::new("relative/dir")),
+            "relative/dir"
+        );
         assert_eq!(to_wine_path_string(Path::new("")), "");
     }
 

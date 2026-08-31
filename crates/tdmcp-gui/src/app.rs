@@ -263,8 +263,13 @@ impl DashboardApp {
             _ => dashboard::DashTab::default(),
         };
         let dash_open = !dash_env.is_empty() && dash_env != "0";
-        let (data_dir_edit, bridge_dir_edit, catalog_path_edit, daemon_bin_edit, template_path_edit) =
-            path_edits_from(&draft);
+        let (
+            data_dir_edit,
+            bridge_dir_edit,
+            catalog_path_edit,
+            daemon_bin_edit,
+            template_path_edit,
+        ) = path_edits_from(&draft);
         let settings_loaded_snapshot = draft.clone();
         // Load recents from sidecar (outside config) — do after data_dir is known.
         // Use a temp data_dir for the load; the real one is `data_dir` param below
@@ -899,7 +904,10 @@ impl DashboardApp {
 
     pub(crate) fn reveal_template(&self) {
         let tmpl = self.effective_template_path();
-        let fallback = tmpl.parent().map(PathBuf::from).unwrap_or_else(|| self.data_dir.clone());
+        let fallback = tmpl
+            .parent()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| self.data_dir.clone());
         if let Err(e) = reveal_in_file_manager(&tmpl, &fallback) {
             warn!(error = %e, "reveal template.toe failed");
         }
@@ -986,7 +994,11 @@ impl DashboardApp {
         self.snack(
             &format!(
                 "{} {}",
-                if create_if_missing { "Creating" } else { "Opening" },
+                if create_if_missing {
+                    "Creating"
+                } else {
+                    "Opening"
+                },
                 path.file_name()
                     .map(|n| n.to_string_lossy().to_string())
                     .unwrap_or_else(|| path.display().to_string())
@@ -1086,11 +1098,7 @@ impl DashboardApp {
             .recent_projects
             .first()
             .and_then(|p| p.parent().map(PathBuf::from))
-            .or_else(|| {
-                self.effective_template_path()
-                    .parent()
-                    .map(PathBuf::from)
-            })
+            .or_else(|| self.effective_template_path().parent().map(PathBuf::from))
             .unwrap_or_else(|| self.data_dir.clone());
         if let Some(path) = rfd::FileDialog::new()
             .set_directory(&start)
@@ -1106,11 +1114,7 @@ impl DashboardApp {
             .recent_projects
             .first()
             .and_then(|p| p.parent().map(PathBuf::from))
-            .or_else(|| {
-                self.effective_template_path()
-                    .parent()
-                    .map(PathBuf::from)
-            })
+            .or_else(|| self.effective_template_path().parent().map(PathBuf::from))
             .unwrap_or_else(|| self.data_dir.clone());
         if let Some(path) = rfd::FileDialog::new()
             .set_directory(&start)

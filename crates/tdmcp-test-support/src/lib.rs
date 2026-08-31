@@ -9,9 +9,7 @@ use std::task::{Context, Poll};
 use tdmcp_ipc::{
     encode, FrameError, HandshakeRequest, HandshakeResponse, IpcError, Message, PROTOCOL_VERSION,
 };
-use tokio::io::{
-    AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, DuplexStream, ReadBuf,
-};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, DuplexStream, ReadBuf};
 use tokio::net::TcpStream;
 
 /// Backing connection of a [`FakeTdPeer`] — real TCP socket or in-memory
@@ -194,9 +192,7 @@ impl FakeTdPeer {
     }
 }
 
-async fn read_msg<T: serde::de::DeserializeOwned>(
-    r: &mut PeerStream,
-) -> Result<T, IpcError> {
+async fn read_msg<T: serde::de::DeserializeOwned>(r: &mut PeerStream) -> Result<T, IpcError> {
     let mut len_buf = [0u8; 4];
     r.read_exact(&mut len_buf).await?;
     let len = u32::from_le_bytes(len_buf) as usize;

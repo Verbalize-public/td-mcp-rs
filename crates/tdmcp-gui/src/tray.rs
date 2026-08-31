@@ -427,7 +427,10 @@ impl DashboardApp {
 #[derive(Clone)]
 pub(crate) enum TrayEvent {
     /// Left click on the item; x/y are screen pixels (positioning hint).
-    Activate { x: f64, y: f64 },
+    Activate {
+        x: f64,
+        y: f64,
+    },
     Dashboard,
     Stop,
     Restart,
@@ -521,7 +524,10 @@ fn argb_icon(icon: &RgbaIcon) -> ksni::Icon {
 
 #[cfg(target_os = "linux")]
 pub(crate) type TraySpawnRx = std::sync::mpsc::Receiver<
-    anyhow::Result<(KsniHandle<KsniTrayState>, std::sync::mpsc::Receiver<TrayEvent>)>,
+    anyhow::Result<(
+        KsniHandle<KsniTrayState>,
+        std::sync::mpsc::Receiver<TrayEvent>,
+    )>,
 >;
 
 /// Start the ksni SNI service off-thread. The returned channel yields
@@ -593,9 +599,10 @@ impl DashboardApp {
                     // Two activations inside the grace are the halves of a
                     // double click: the second claims the dashboard, exactly
                     // like the native DoubleClick event.
-                    if self.last_tray_toggle_at.is_some_and(|t| {
-                        Instant::now().duration_since(t) < TRAY_DOUBLE_CLICK_GRACE
-                    }) {
+                    if self
+                        .last_tray_toggle_at
+                        .is_some_and(|t| Instant::now().duration_since(t) < TRAY_DOUBLE_CLICK_GRACE)
+                    {
                         self.on_tray_double_click(ctx);
                     } else {
                         // One activation per click: run the Down→Up pair the

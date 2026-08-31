@@ -157,15 +157,11 @@ fn resolve_template_path(cfg: &ConfigFile, override_path: Option<&str>) -> PathB
         return p.clone();
     }
     // Default: {data_dir}/template.toe, respecting [advanced].data_dir override.
-    let base = cfg
-        .advanced
-        .data_dir
-        .clone()
-        .unwrap_or_else(|| {
-            dirs::data_local_dir()
-                .unwrap_or_else(|| PathBuf::from("."))
-                .join(tdmcp_config::APP_DIR_NAME)
-        });
+    let base = cfg.advanced.data_dir.clone().unwrap_or_else(|| {
+        dirs::data_local_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join(tdmcp_config::APP_DIR_NAME)
+    });
     base.join("template.toe")
 }
 

@@ -19,7 +19,9 @@ use core_graphics::window::{
 };
 use libc::{c_int, kill, sysctl, KERN_PROC};
 use objc2_application_services::{AXError, AXIsProcessTrusted, AXUIElement};
-use objc2_core_foundation::{CFArray as ObjCFArray, CFRetained, CFString as ObjCFString, CFType as ObjCFType, Type};
+use objc2_core_foundation::{
+    CFArray as ObjCFArray, CFRetained, CFString as ObjCFString, CFType as ObjCFType, Type,
+};
 
 use super::{SysControl, SysWindow};
 
@@ -137,12 +139,7 @@ fn ax_copy_value(el: &AXUIElement, attr: &str) -> Option<CFRetained<ObjCFType>> 
     let attr_cf = ObjCFString::from_str(attr);
     let mut value: *const ObjCFType = std::ptr::null();
     // SAFETY: `value` is a valid out-pointer for CopyAttributeValue.
-    let err = unsafe {
-        el.copy_attribute_value(
-            &attr_cf,
-            NonNull::from(&mut value),
-        )
-    };
+    let err = unsafe { el.copy_attribute_value(&attr_cf, NonNull::from(&mut value)) };
     if err != AXError::Success || value.is_null() {
         return None;
     }
@@ -154,10 +151,7 @@ fn ax_copy_value(el: &AXUIElement, attr: &str) -> Option<CFRetained<ObjCFType>> 
 
 fn ax_attr_string(el: &AXUIElement, attr: &str) -> Option<String> {
     let value = ax_copy_value(el, attr)?;
-    value
-        .downcast::<ObjCFString>()
-        .ok()
-        .map(|s| s.to_string())
+    value.downcast::<ObjCFString>().ok().map(|s| s.to_string())
 }
 
 fn ax_children(el: &AXUIElement) -> Vec<CFRetained<AXUIElement>> {

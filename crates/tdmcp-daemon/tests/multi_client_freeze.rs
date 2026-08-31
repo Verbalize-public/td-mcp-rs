@@ -685,9 +685,7 @@ async fn multi_client_storm_does_not_freeze() {
                         | "LAST_ACK"
                 )
             });
-            *by_state
-                .entry(state.unwrap_or("?").to_owned())
-                .or_default() += 1;
+            *by_state.entry(state.unwrap_or("?").to_owned()).or_default() += 1;
         }
         time_wait_count = by_state.get("TIME_WAIT").copied().unwrap_or(0);
         println!(

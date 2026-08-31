@@ -19,12 +19,12 @@ use std::time::{Duration, Instant};
 
 use tdmcp_core::{DialogError, DialogSnapshot, DialogSource, DismissOutcome, PopupInfo};
 
-#[cfg(windows)]
-use crate::sys::windows as platform;
 #[cfg(target_os = "macos")]
 use crate::sys::macos as platform;
 #[cfg(all(not(windows), not(target_os = "macos")))]
 use crate::sys::stub as platform;
+#[cfg(windows)]
+use crate::sys::windows as platform;
 
 /// Budgets (DIALOGS.md §5.2): snapshot is on the watcher hot path.
 pub const SNAPSHOT_BUDGET: Duration = Duration::from_millis(150);

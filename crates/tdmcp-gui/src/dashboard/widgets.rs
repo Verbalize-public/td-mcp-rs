@@ -113,7 +113,11 @@ fn draw_open_split(app: &mut DashboardApp, ui: &mut egui::Ui) {
     let arrow_hover = arrow_resp.hovered() || arrow_resp.is_pointer_button_down_on();
     let any_hover = main_hover || arrow_hover || app.show_recent_menu;
 
-    let stroke = if any_hover { TEXT } else { crate::theme::BORDER_STRONG };
+    let stroke = if any_hover {
+        TEXT
+    } else {
+        crate::theme::BORDER_STRONG
+    };
     let fill_main = if main_hover { BG_HOVER } else { BG_CARD };
     let fill_arrow = if arrow_hover || app.show_recent_menu {
         BG_HOVER
@@ -142,7 +146,8 @@ fn draw_open_split(app: &mut DashboardApp, ui: &mut egui::Ui) {
         egui::Stroke::new(1.0, stroke),
         egui::StrokeKind::Inside,
     );
-    ui.painter().rect_filled(arrow_rect, arrow_corner, fill_arrow);
+    ui.painter()
+        .rect_filled(arrow_rect, arrow_corner, fill_arrow);
     ui.painter().rect_stroke(
         arrow_rect,
         arrow_corner,
@@ -156,7 +161,9 @@ fn draw_open_split(app: &mut DashboardApp, ui: &mut egui::Ui) {
         egui::Stroke::new(1.0, crate::theme::BORDER),
     );
     // Centered labels.
-    let main_galley = ui.painter().layout_no_wrap("Open".to_owned(), font_label(), text_color);
+    let main_galley = ui
+        .painter()
+        .layout_no_wrap("Open".to_owned(), font_label(), text_color);
     ui.painter().galley(
         egui::pos2(
             main_rect.center().x - main_galley.size().x * 0.5,
@@ -226,14 +233,18 @@ fn draw_recent_menu(app: &mut DashboardApp, ctx: &egui::Context) {
                 ui.set_max_width(360.0);
                 if recents.is_empty() {
                     ui.label(
-                        egui::RichText::new("No recent projects — open a .toe/.tox to populate this list")
-                            .font(font_meta())
-                            .color(TEXT_DIM),
+                        egui::RichText::new(
+                            "No recent projects — open a .toe/.tox to populate this list",
+                        )
+                        .font(font_meta())
+                        .color(TEXT_DIM),
                     );
                     ui.add_space(sp::XS);
                     if ui
                         .add(egui::Button::new(
-                            egui::RichText::new("Browse…").font(font_label()).color(ACCENT),
+                            egui::RichText::new("Browse…")
+                                .font(font_label())
+                                .color(ACCENT),
                         ))
                         .clicked()
                     {

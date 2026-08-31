@@ -362,9 +362,9 @@ fn main() -> Result<()> {
                         if since.elapsed() < reconnect.stale {
                             continue;
                         }
-                        if last_attempt.is_some_and(|last| {
-                            last.elapsed() < WATCHDOG_RESPAWN_COOLDOWN
-                        }) {
+                        if last_attempt
+                            .is_some_and(|last| last.elapsed() < WATCHDOG_RESPAWN_COOLDOWN)
+                        {
                             continue;
                         }
                         last_attempt = Some(Instant::now());

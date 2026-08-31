@@ -5,8 +5,8 @@ use eframe::egui;
 
 use crate::app::{generate_psk, DashboardApp};
 use crate::theme::{
-    banner, filled_button, font_label, font_meta, font_mono, ghost_button, segmented,
-    ACCENT, BG_HOVER, BG_ROW, BORDER, ERR, TEXT, TEXT_DIM, TEXT_FAINT, WARN, BannerTone,
+    banner, filled_button, font_label, font_meta, font_mono, ghost_button, segmented, BannerTone,
+    ACCENT, BG_HOVER, BG_ROW, BORDER, ERR, TEXT, TEXT_DIM, TEXT_FAINT, WARN,
 };
 use crate::wire::ScanPurpose;
 
@@ -42,7 +42,11 @@ pub(crate) fn settings(app: &mut DashboardApp, ui: &mut egui::Ui) {
     // Sticky one-click restart prompt after a restart-requiring save.
     if app.needs_restart {
         ui.add_space(6.0);
-        banner(ui, BannerTone::Warn, "A restart is needed for some saved values");
+        banner(
+            ui,
+            BannerTone::Warn,
+            "A restart is needed for some saved values",
+        );
         ui.horizontal(|ui| {
             if filled_button(ui, "Restart to apply").clicked() {
                 app.restart_daemon();
@@ -420,21 +424,18 @@ fn federation_card(app: &mut DashboardApp, ui: &mut egui::Ui) {
             const OPTIONS: [&str; 3] = ["Solo", "Master", "Join master"];
             const ROLES: [&str; 3] = ["standalone", "master", "slave"];
             let current = app.draft.federation.role.clone();
-            let selected = ROLES
-                .iter()
-                .position(|r| *r == current)
-                .unwrap_or(0);
+            let selected = ROLES.iter().position(|r| *r == current).unwrap_or(0);
             if let Some(i) = segmented(ui, &OPTIONS, selected) {
                 app.draft.federation.role = ROLES[i].to_owned();
                 // Federation needs LAN reachability — enable it automatically
                 // so the old interlock foot-gun disappears.
                 if i > 0 && tdmcp_config::is_loopback_bind(&app.draft.server.bind_address) {
                     app.set_sharing(true);
-                    app.role_change_note =
-                        Some("network sharing enabled · role change applies after restart".to_owned());
+                    app.role_change_note = Some(
+                        "network sharing enabled · role change applies after restart".to_owned(),
+                    );
                 } else {
-                    app.role_change_note =
-                        Some("role change applies after restart".to_owned());
+                    app.role_change_note = Some("role change applies after restart".to_owned());
                 }
             }
         },

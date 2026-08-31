@@ -58,7 +58,10 @@ async fn read_error_then_eof(client: &mut TcpStream) -> serde_json::Value {
         .expect("error frame length");
     let len = u32::from_le_bytes(len_buf) as usize;
     let mut body = vec![0u8; len];
-    client.read_exact(&mut body).await.expect("error frame body");
+    client
+        .read_exact(&mut body)
+        .await
+        .expect("error frame body");
     let value: serde_json::Value =
         serde_json::from_slice(&body).expect("error frame is valid JSON");
     let mut eof = [0u8; 1];
@@ -84,7 +87,10 @@ async fn fake_peer_completes_handshake_over_real_tcp() {
     assert_eq!(resp.daemon_version, "9.9.9-test");
 
     // Handshake stream carries requests both ways: daemon pings, peer answers.
-    let mut stream = server.await.expect("accept ok").expect("handshake accepted");
+    let mut stream = server
+        .await
+        .expect("accept ok")
+        .expect("handshake accepted");
     assert_eq!(stream.pid, 4242);
     assert_eq!(stream.handshake.protocol_version, PROTOCOL_VERSION);
     stream
@@ -186,13 +192,11 @@ async fn silent_peer_times_out_within_budget_and_listener_survives() {
         .expect("dial bridge listener");
     let started = std::time::Instant::now();
     let err = expect_reject(server).await;
-    assert!(
-        matches!(err, IpcError::HandshakeTimeout(_)),
-        "got {err}"
-    );
+    assert!(matches!(err, IpcError::HandshakeTimeout(_)), "got {err}");
     let elapsed = started.elapsed();
     assert!(
-        elapsed >= HANDSHAKE_IO_TIMEOUT && elapsed < HANDSHAKE_IO_TIMEOUT + std::time::Duration::from_secs(3),
+        elapsed >= HANDSHAKE_IO_TIMEOUT
+            && elapsed < HANDSHAKE_IO_TIMEOUT + std::time::Duration::from_secs(3),
         "timeout must respect the budget, took {elapsed:?}"
     );
 }

@@ -11,7 +11,8 @@
 //! popup · popup-stop-confirm (tray glance card at its real size).
 
 fn main() {
-    let scene = std::env::var("TDMCP_PREVIEW_SCENE").unwrap_or_else(|_| "overview-populated".to_owned());
+    let scene =
+        std::env::var("TDMCP_PREVIEW_SCENE").unwrap_or_else(|_| "overview-populated".to_owned());
     if let Err(e) = tdmcp_gui::preview::run(&scene) {
         eprintln!("preview failed: {e}");
         std::process::exit(1);

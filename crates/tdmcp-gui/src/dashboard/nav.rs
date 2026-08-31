@@ -6,8 +6,8 @@ use eframe::egui::{self, Color32, Sense};
 use super::DashTab;
 use crate::app::DashboardApp;
 use crate::theme::{
-    badge, font_label, font_meta, font_title, status_led, ACCENT, BG_ACTIVE, BG_HOVER, ERR, OK,
-    TEXT, TEXT_DIM, WARN, BadgeKind,
+    badge, font_label, font_meta, font_title, status_led, BadgeKind, ACCENT, BG_ACTIVE, BG_HOVER,
+    ERR, OK, TEXT, TEXT_DIM, WARN,
 };
 
 /// Sidebar width (px).
@@ -104,7 +104,8 @@ fn nav_item(
     } else {
         blend(BG_HOVER, Color32::TRANSPARENT, 1.0 - t)
     };
-    ui.painter().rect_filled(rect, egui::CornerRadius::same(6), fill);
+    ui.painter()
+        .rect_filled(rect, egui::CornerRadius::same(6), fill);
     if selected {
         let bar = egui::Rect::from_min_size(
             rect.left_top() + egui::vec2(0.0, 5.0),
@@ -122,9 +123,7 @@ fn nav_item(
     if let Some(n) = badge_count {
         // Right-aligned amber count pill inside the item.
         let text = n.to_string();
-        let galley = ui
-            .painter()
-            .layout_no_wrap(text.clone(), font_meta(), WARN);
+        let galley = ui.painter().layout_no_wrap(text.clone(), font_meta(), WARN);
         let w = galley.size().x + 10.0;
         let pill = egui::Rect::from_min_size(
             egui::pos2(rect.right() - w - 8.0, rect.center().y - 8.0),

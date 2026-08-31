@@ -177,10 +177,9 @@ impl IpcListener {
     pub async fn bind(endpoint: BridgeEndpoint) -> Result<Self, IpcError> {
         let BridgeEndpoint::Tcp { host, port } = &endpoint;
         let addr = resolve_loopback(host, *port)?;
-        let listener =
-            TcpListener::bind(addr)
-                .await
-                .map_err(|source| IpcError::Bind { addr, source })?;
+        let listener = TcpListener::bind(addr)
+            .await
+            .map_err(|source| IpcError::Bind { addr, source })?;
         // Report the bound address (port 0 binds get the OS-assigned port).
         let addr = listener.local_addr()?;
         info!(%addr, "binding tcp bridge listener");
@@ -272,7 +271,9 @@ impl HandshakeFailure {
             ),
             Self::Invalid(e) => (
                 HANDSHAKE_INVALID_CODE,
-                format!("bridge handshake frame unreadable: {e}; re-embed the shipped bootstrap tox"),
+                format!(
+                    "bridge handshake frame unreadable: {e}; re-embed the shipped bootstrap tox"
+                ),
             ),
             Self::Version(v) => (
                 PROTOCOL_MISMATCH_CODE,
@@ -329,8 +330,7 @@ async fn handshake_exchange<S>(
 where
     S: AsyncReadExt + AsyncWriteExt + Unpin,
 {
-    let req: HandshakeRequest =
-        read_msg(stream).await.map_err(HandshakeFailure::Invalid)?;
+    let req: HandshakeRequest = read_msg(stream).await.map_err(HandshakeFailure::Invalid)?;
     if req.protocol_version != PROTOCOL_VERSION {
         return Err(HandshakeFailure::Version(req.protocol_version));
     }
@@ -439,12 +439,20 @@ mod tests {
     }
 
     /// Read one framed JSON value, then assert the connection closes.
-    async fn read_error_then_eof<T: serde::de::DeserializeOwned>(client: &mut tokio::io::DuplexStream) -> T {
+    async fn read_error_then_eof<T: serde::de::DeserializeOwned>(
+        client: &mut tokio::io::DuplexStream,
+    ) -> T {
         let mut len_buf = [0u8; 4];
-        client.read_exact(&mut len_buf).await.expect("error frame length");
+        client
+            .read_exact(&mut len_buf)
+            .await
+            .expect("error frame length");
         let len = u32::from_le_bytes(len_buf) as usize;
         let mut body = vec![0u8; len];
-        client.read_exact(&mut body).await.expect("error frame body");
+        client
+            .read_exact(&mut body)
+            .await
+            .expect("error frame body");
         let parsed: T = serde_json::from_slice(&body).expect("error frame json");
         let mut eof = [0u8; 1];
         assert_eq!(
@@ -515,10 +523,7 @@ mod tests {
         );
         for host in ["0.0.0.0", "192.168.1.9", "example.com", ""] {
             assert!(
-                matches!(
-                    resolve_loopback(host, 9861),
-                    Err(IpcError::NotLoopback(_))
-                ),
+                matches!(resolve_loopback(host, 9861), Err(IpcError::NotLoopback(_))),
                 "{host:?} must be rejected"
             );
         }

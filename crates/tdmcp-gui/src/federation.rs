@@ -5,16 +5,14 @@ use eframe::egui;
 use serde_json::json;
 
 use crate::app::{local_master_psk, nonempty_opt, DashboardApp, FleetPanel, SnackTone};
+use crate::dashboard::widgets::section_caption;
 use crate::http::{http_get_blocking, http_post_blocking, ip_prefix, local_ip, scan_subnet};
 use crate::platform::notify;
 use crate::theme::{
-    filled_button, font_label, font_meta, font_mono, ghost_button, status_led, ACCENT,
-    BG_HOVER, ERR, OK, RADIUS_SM, ROW_H, SIDE_MARGIN, TEXT, TEXT_DIM, TEXT_FAINT, WARN,
+    filled_button, font_label, font_meta, font_mono, ghost_button, status_led, ACCENT, BG_HOVER,
+    ERR, OK, RADIUS_SM, ROW_H, SIDE_MARGIN, TEXT, TEXT_DIM, TEXT_FAINT, WARN,
 };
-use crate::wire::{
-    id_tail, FederationProbe, ScanHit, ScanPurpose, SlaveSettingsTarget,
-};
-use crate::dashboard::widgets::section_caption;
+use crate::wire::{id_tail, FederationProbe, ScanHit, ScanPurpose, SlaveSettingsTarget};
 
 /// Settings-row height for the federation panels (px).
 const SETTINGS_ROW_H: f32 = 26.0;
@@ -32,7 +30,12 @@ pub(crate) enum AddSlaveStep {
 /// Fixed height, symmetric side margins and an explicit control column, so
 /// controls never touch the window edge, wrap under the label, or clip on
 /// any platform. The help tooltip rides the whole row when one is given.
-pub(crate) fn settings_row(ui: &mut egui::Ui, label: &str, help: &str, add: impl FnOnce(&mut egui::Ui)) {
+pub(crate) fn settings_row(
+    ui: &mut egui::Ui,
+    label: &str,
+    help: &str,
+    add: impl FnOnce(&mut egui::Ui),
+) {
     // The window is a fixed width; bound the row to it so a reported
     // available_width larger than the actually-painted viewport (seen on some
     // macOS DPI paths) can never push controls past the window's right edge.
@@ -103,7 +106,8 @@ impl DashboardApp {
         let mut use_hit: Option<(String, u16)> = None;
         for hit in hits.iter() {
             let full = ui.available_width();
-            let (rect, response) = ui.allocate_exact_size(egui::vec2(full, ROW_H), egui::Sense::hover());
+            let (rect, response) =
+                ui.allocate_exact_size(egui::vec2(full, ROW_H), egui::Sense::hover());
             if response.hovered() {
                 ui.painter().rect_filled(rect, RADIUS_SM, BG_HOVER);
             }
@@ -409,7 +413,11 @@ impl DashboardApp {
                 );
                 if ghost_button(
                     ui,
-                    if self.show_add_slave_psk { "hide" } else { "show" },
+                    if self.show_add_slave_psk {
+                        "hide"
+                    } else {
+                        "show"
+                    },
                     TEXT_DIM,
                     TEXT,
                 )

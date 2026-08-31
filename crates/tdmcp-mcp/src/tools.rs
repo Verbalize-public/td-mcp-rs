@@ -919,7 +919,9 @@ async fn dispatch_tool_inner(
                     "spawn.spawn_failed" => tdmcp_diagnostics::codes::SPAWN_FAILED,
                     "spawn.wait_timeout" => tdmcp_diagnostics::codes::SPAWN_WAIT_TIMEOUT,
                     "spawn.target_not_found" => tdmcp_diagnostics::codes::SPAWN_TARGET_NOT_FOUND,
-                    "spawn.template_not_found" => tdmcp_diagnostics::codes::SPAWN_TEMPLATE_NOT_FOUND,
+                    "spawn.template_not_found" => {
+                        tdmcp_diagnostics::codes::SPAWN_TEMPLATE_NOT_FOUND
+                    }
                     "spawn.template_invalid" => tdmcp_diagnostics::codes::SPAWN_TEMPLATE_INVALID,
                     "spawn.create_failed" => tdmcp_diagnostics::codes::SPAWN_CREATE_FAILED,
                     _ => tdmcp_diagnostics::codes::SPAWN_WAIT_TIMEOUT,

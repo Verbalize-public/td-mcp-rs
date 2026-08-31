@@ -363,12 +363,9 @@ pub fn banner(ui: &mut egui::Ui, tone: BannerTone, text: &str) -> egui::Response
     let pad_y = 8.0;
     // Width available for wrapped text (full - edge strip - horizontal padding).
     let avail_w = (ui.available_width() - pad_x * 2.0 - 8.0).max(80.0);
-    let galley = ui.painter().layout(
-        text.to_owned(),
-        font_label(),
-        fg,
-        avail_w,
-    );
+    let galley = ui
+        .painter()
+        .layout(text.to_owned(), font_label(), fg, avail_w);
     let h = (galley.size().y + pad_y * 2.0).max(32.0);
     let full = ui.available_width();
     let (rect, response) = ui.allocate_exact_size(egui::vec2(full, h), egui::Sense::hover());
