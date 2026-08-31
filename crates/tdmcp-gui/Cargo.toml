@@ -41,9 +41,9 @@ winit = { workspace = true }
 [target.'cfg(not(target_os = "linux"))'.dependencies]
 tray-icon = { workspace = true }
 
-# Linux tray = appindicator3 (libayatana-appindicator-glib) via GTK.
+# Linux tray = ksni (pure-Rust StatusNotifierItem over DBus; no GTK).
 [target.'cfg(target_os = "linux")'.dependencies]
-appindicator3 = { workspace = true }
+ksni = { workspace = true }
 
 [lints]
 workspace = true

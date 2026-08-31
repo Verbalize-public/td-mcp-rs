@@ -87,10 +87,9 @@ windows = { version = "0.58", features = [
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "registry"] }
 tracing-appender = "0.2"
 tray-icon = "0.24"
-# Linux tray uses appindicator3 (libayatana-appindicator-glib) via GTK.
-# This is the maintained Ayatana fork of libappindicator; more reliable
-# than the older libayatana-appindicator crate (L-10).
-appindicator3 = { version = "0.3", features = ["v0_5"] }
+# Linux tray = ksni (pure-Rust StatusNotifierItem over DBus, zbus-backed);
+# no GTK / libappindicator needed (their absence crashed the daemon, L-10).
+ksni = { version = "0.3", features = ["blocking"] }
 winit = "0.30"
 tempfile = "3"
 uuid = { version = "1", features = ["v4", "serde"] }

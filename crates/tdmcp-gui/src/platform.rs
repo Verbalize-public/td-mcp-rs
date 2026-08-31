@@ -46,14 +46,26 @@ pub fn toast(summary: &str, body: &str) {
     }
     #[cfg(not(target_os = "macos"))]
     {
-        match notify_rust::Notification::new()
-            .summary(summary)
-            .body(body)
-            .appname("td-mcp-rs")
-            .show()
-        {
-            Ok(_) => {}
-            Err(e) => warn!(error = %e, summary, "OS toast failed"),
+        // Same thread hand-off as the macOS path: notify-rust's show() is a
+        // synchronous DBus/WinRT round-trip and must never block the caller
+        // (the idle watcher fires toasts from inside an async task).
+        let summary = summary.to_owned();
+        let body = body.to_owned();
+        let spawn = std::thread::Builder::new()
+            .name("tdmcp-toast".into())
+            .spawn(move || {
+                match notify_rust::Notification::new()
+                    .summary(&summary)
+                    .body(&body)
+                    .appname("td-mcp-rs")
+                    .show()
+                {
+                    Ok(_) => {}
+                    Err(e) => warn!(error = %e, summary, "OS toast failed"),
+                }
+            });
+        if let Err(e) = spawn {
+            warn!(error = %e, "toast thread spawn failed");
         }
     }
 }

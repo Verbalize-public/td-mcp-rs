@@ -200,9 +200,17 @@ mod tests {
         }));
         std::panic::set_hook(prev);
         assert!(result.is_err());
+        // set_hook is process-global: a panic in a concurrently running
+        // sibling test writes its own report into this dir. Count only
+        // reports raised by this test's payload.
         let hits: Vec<PathBuf> = fs::read_dir(crash_dir(dir.path()))
             .expect("crash dir created by hook")
             .map(|e| e.expect("entry").path())
+            .filter(|p| {
+                std::fs::read_to_string(p)
+                    .map(|t| t.contains("crash-hook-probe"))
+                    .unwrap_or(false)
+            })
             .collect();
         assert_eq!(hits.len(), 1);
         let text = std::fs::read_to_string(&hits[0]).expect("read report written by hook");

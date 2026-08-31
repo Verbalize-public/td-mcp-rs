@@ -256,34 +256,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
-name = "appindicator3"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "efd2fb26f69a24bd06db7df9ec92318a58e7789c1e2e5a1965f698759aad6c92"
-dependencies = [
- "appindicator3-sys",
- "gdk",
- "gdk-sys",
- "glib",
- "gtk",
- "libc",
-]
-
-[[package]]
-name = "appindicator3-sys"
-version = "0.0.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1de844677d52b310793e46a737f3f47334ea8c83dcd617901c0d5c544b260f28"
-dependencies = [
- "gdk-sys",
- "glib-sys",
- "gobject-sys",
- "gtk-sys",
- "libc",
- "pkg-config",
-]
-
-[[package]]
 name = "arboard"
 version = "3.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2637,6 +2609,19 @@ name = "khronos_api"
 version = "3.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e2db585e1d738fc771bf08a151420d3ed193d9d895a36df7f6f8a9456b911ddc"
+
+[[package]]
+name = "ksni"
+version = "0.3.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "814b44c24cd2cb236c3b8a41c7f08237b452a8e76ecaa81f1cec40b5b678215b"
+dependencies = [
+ "futures-util",
+ "pastey",
+ "serde",
+ "tokio",
+ "zbus 5.18.0",
+]
 
 [[package]]
 name = "kurbo"
@@ -5095,10 +5080,10 @@ name = "tdmcp-gui"
 version = "0.1.4"
 dependencies = [
  "anyhow",
- "appindicator3",
  "eframe",
  "egui",
  "image",
+ "ksni",
  "notify-rust",
  "reqwest",
  "rfd",
@@ -5355,6 +5340,7 @@ dependencies = [
  "signal-hook-registry",
  "socket2",
  "tokio-macros",
+ "tracing",
  "windows-sys 0.61.2",
 ]
 
@@ -7084,6 +7070,7 @@ dependencies = [
  "rustix 1.1.4",
  "serde",
  "serde_repr",
+ "tokio",
  "tracing",
  "uds_windows",
  "uuid",
