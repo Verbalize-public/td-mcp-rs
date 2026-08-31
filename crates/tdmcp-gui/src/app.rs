@@ -205,6 +205,8 @@ pub(crate) struct DashboardApp {
     pub(crate) show_recent_menu: bool,
     /// Anchor for the dropdown popup (screen pos).
     pub(crate) recent_menu_anchor: Option<egui::Pos2>,
+    /// Palette section: roster snapshot, selection, thumbnails, jobs.
+    pub(crate) palette: crate::palette::PaletteView,
 }
 
 /// Tray Logs view state (T4.2). Polling only runs while this view is the
@@ -270,13 +272,14 @@ impl DashboardApp {
         window_icon: egui::IconData,
     ) -> Result<Self> {
         let draft = cfgfile::load(&config_path).unwrap_or_default();
-        // Dev/test hook: TDMCP_OPEN_DASH=1|logs|settings opens the dashboard
-        // (optionally on a tab) instead of staying tray-only. `fleet` is kept
-        // as a back-compat alias for Overview since the tab merge.
+        // Dev/test hook: TDMCP_OPEN_DASH=1|logs|palette|settings opens the
+        // dashboard (optionally on a tab) instead of staying tray-only.
+        // `fleet` is kept as a back-compat alias for Overview since the tab merge.
         let dash_env = std::env::var("TDMCP_OPEN_DASH").unwrap_or_default();
         let dash_tab = match dash_env.as_str() {
             "logs" => dashboard::DashTab::Logs,
             "fleet" | "overview" => dashboard::DashTab::Overview,
+            "palette" => dashboard::DashTab::Palette,
             "settings" => dashboard::DashTab::Settings,
             _ => dashboard::DashTab::default(),
         };
@@ -391,6 +394,7 @@ impl DashboardApp {
             recent_projects,
             spawn_busy: false,
             spawn_rx: None,
+            palette: crate::palette::PaletteView::default(),
             show_recent_menu: false,
             recent_menu_anchor: None,
         })
@@ -1306,6 +1310,7 @@ impl eframe::App for DashboardApp {
             self.snack(&format!("Scan finished · {n} found"), SnackTone::Info);
         }
         self.poll_spawn();
+        crate::palette::poll(self);
         // Keep the dashboard viewport alive from the very first tick and only
         // toggle its visibility: when the root window is hidden, eframe drives
         // its repaints outside the winit event-loop guard, and an immediate

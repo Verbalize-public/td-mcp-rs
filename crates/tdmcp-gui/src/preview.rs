@@ -3,7 +3,8 @@
 //! dirty settings — can be pixel-verified without a live daemon or TD.
 //!
 //! Scenes: `overview-empty · overview-populated · overview-offline ·
-//! modal-add-slave · stop-confirm · logs-filtered · settings-dirty`.
+//! modal-add-slave · stop-confirm · logs-filtered · settings-dirty ·
+//! palette-tree · palette-empty · palette-analyse`.
 //! Window title matches the production dashboard so the Win32 capture script
 //! (`.ua/gui-shot.ps1` technique) finds it.
 
@@ -183,9 +184,60 @@ fn build(scene: &str) -> anyhow::Result<DashboardApp> {
             app.draft.server.port += 7;
             app.needs_restart = true;
         }
+        "palette-tree" | "palette-analyse" => {
+            app.dash_tab = crate::dashboard::DashTab::Palette;
+            inject_status(&mut app, "standalone", 1, 9860);
+            app.fleet_json = json!({
+                "processes": [
+                    {"pid": 12045, "title": "palette_probe", "bridge": "connected",
+                     "tasks": [], "cancelledTasks": []}
+                ]
+            })
+            .to_string();
+            app.sessions_json = r#"{"sessions":[]}"#.to_owned();
+            palette_fixture(&mut app);
+            if scene == "palette-analyse" {
+                app.palette.analyse = crate::palette::AnalyseState::fresh(
+                    "ImageFilters · undescribed".to_owned(),
+                    "undescribed",
+                    Some("ImageFilters".to_owned()),
+                );
+                app.palette.analyse.pid = Some(12045);
+                app.palette.analyse.undescribed_left = 38;
+                app.palette.analyse.finished = true;
+                app.palette.analyse.running = false;
+                use crate::palette::{Step, StepState};
+                app.palette
+                    .analyse
+                    .set(Step::Rescan, StepState::Done, "281 indexed · +0 · 78 ignored");
+                app.palette
+                    .analyse
+                    .set(Step::Probe, StepState::Done, "38 digested · 2 failed");
+                app.palette.analyse.set(
+                    Step::Thumbnails,
+                    StepState::Done,
+                    "36 rendered · 2 without a picture",
+                );
+                app.palette.analyse.set(
+                    Step::Cards,
+                    StepState::HandedOff,
+                    "38 still undescribed — needs an agent",
+                );
+                app.palette.analyse_open = true;
+            }
+        }
+        "palette-empty" => {
+            app.dash_tab = crate::dashboard::DashTab::Palette;
+            inject_status(&mut app, "standalone", 0, 9860);
+            app.fleet_json = r#"{"processes":[]}"#.to_owned();
+            app.sessions_json = r#"{"sessions":[]}"#.to_owned();
+            // Loaded, but genuinely empty — the "nothing scanned yet" state.
+            app.palette.loaded = true;
+        }
         other => anyhow::bail!(
             "unknown scene `{other}` — expected popup · popup-stop-confirm · overview-narrow · overview-many · overview-empty · overview-populated · \
-             overview-offline · modal-add-slave · stop-confirm · logs-filtered · settings-dirty"
+             overview-offline · modal-add-slave · stop-confirm · logs-filtered · settings-dirty · \
+             palette-tree · palette-empty · palette-analyse"
         ),
     }
     Ok(app)
@@ -325,3 +377,208 @@ fn log_records() -> Vec<LogRecordView> {
     }
     v
 }
+
+/// A believable palette roster: real category names and counts from the stock
+/// TouchDesigner palette, four carded entries, a blacklisted family, and a
+/// wedge suspect — so every row state the tree can paint is on screen at once.
+///
+/// Thumbnails are written as real PNGs into a temp dir and referenced by path,
+/// exercising the same decode-and-cache path a probed thumbnail takes rather
+/// than a shortcut only the fixture would use.
+fn palette_fixture(app: &mut DashboardApp) {
+    use crate::palette::{PaletteRow, PaletteStats};
+
+    let thumb_dir = std::env::temp_dir().join("tdmcp-preview-thumbs");
+    let _ = std::fs::create_dir_all(&thumb_dir);
+
+    let mut rows: Vec<PaletteRow> = Vec::new();
+    let mut push = |id: &str,
+                    name: &str,
+                    category: &str,
+                    source: &str,
+                    summary: Option<&str>,
+                    card_status: &str,
+                    probe_status: &str,
+                    ignored: bool,
+                    thumb: Option<String>| {
+        rows.push(PaletteRow {
+            palette_id: id.to_owned(),
+            name: name.to_owned(),
+            category: category.to_owned(),
+            source: source.to_owned(),
+            summary: summary.map(str::to_owned),
+            tags: if summary.is_some() {
+                vec!["image".to_owned(), "post".to_owned()]
+            } else {
+                Vec::new()
+            },
+            card_status: card_status.to_owned(),
+            probe_status: probe_status.to_owned(),
+            ignored,
+            thumb,
+        });
+    };
+
+    let carded: [(&str, &str, &str); 4] = [
+        ("bloom", "ImageFilters", "Classic bloom — thresholds the bright parts of an image, blurs them, and composites the glow back."),
+        ("cartesianToPolar", "ImageFilters", "Remaps an image between cartesian and polar space; the basis of kaleidoscope and radial-smear looks."),
+        ("changeColor", "ImageFilters", "Selective hue replacement — pick a source colour and drive it to a target."),
+        ("particlesGpu", "Tools", "GPU particle system driven by a source TOP; instanced geometry out."),
+    ];
+    for (i, (name, cat, summary)) in carded.iter().enumerate() {
+        let thumb = write_fixture_thumb(&thumb_dir, name, i);
+        push(
+            &format!("builtin:{cat}/{name}"),
+            name,
+            cat,
+            "builtin",
+            Some(summary),
+            "described",
+            "ok",
+            false,
+            thumb,
+        );
+    }
+
+    // The bulk of a real roster: indexed, named, and nothing more.
+    let plain: [(&str, &str); 10] = [
+        ("chromaKey", "ImageFilters"),
+        ("edgeGlow", "ImageFilters"),
+        ("checker", "Generators"),
+        ("julia", "Generators"),
+        ("mandelbrot", "Generators"),
+        ("audioAnalysis", "Tools"),
+        ("moviePlayer", "Tools"),
+        ("opBrowser", "Tools"),
+        ("buttons", "UI/Basic Widgets"),
+        ("sliders", "UI/Basic Widgets"),
+    ];
+    for (name, cat) in plain {
+        push(
+            &format!("builtin:{cat}/{name}"),
+            name,
+            cat,
+            "builtin",
+            None,
+            "undescribed",
+            "unprobed",
+            false,
+            None,
+        );
+    }
+
+    // A card written against a .tox that has since changed.
+    push(
+        "builtin:Techniques/instancing",
+        "instancing",
+        "Techniques",
+        "builtin",
+        Some("Worked instancing setup — geometry driven by a CHOP of transforms."),
+        "stale",
+        "ok",
+        false,
+        None,
+    );
+    // The one state that earns the sidebar's attention pill.
+    push(
+        "builtin:Techniques/SICK/scanner",
+        "scanner",
+        "Techniques/SICK",
+        "builtin",
+        None,
+        "undescribed",
+        "suspect",
+        false,
+        None,
+    );
+    // Blacklisted family — hidden under every filter but `ignored`.
+    push(
+        "builtin:TDAbleton/TDAbletonPackage",
+        "TDAbletonPackage",
+        "TDAbleton",
+        "builtin",
+        None,
+        "undescribed",
+        "unprobed",
+        true,
+        None,
+    );
+    // The user's own component, which gets the `yours` badge.
+    push(
+        "user:MyRig/projector",
+        "projector",
+        "MyRig",
+        "user",
+        Some("Projector calibration rig — keystone, blend and test patterns."),
+        "described",
+        "ok",
+        false,
+        None,
+    );
+
+    app.palette.rows = rows;
+    app.palette.loaded = true;
+    app.palette.stats = PaletteStats {
+        total: 281,
+        described: 4,
+        stale: 1,
+        undescribed: 197,
+        failed: 1,
+        ignored: 78,
+        scanned_at: Some("2026-08-31T17:47:02Z".to_owned()),
+    };
+    app.palette.selected = Some("builtin:ImageFilters/bloom".to_owned());
+    app.palette.detail = Some(crate::palette::PaletteDetail {
+        palette_id: "builtin:ImageFilters/bloom".to_owned(),
+        tox_path: "/Applications/TouchDesigner.app/Contents/Resources/tfs/Samples/Palette/ImageFilters/bloom.tox".to_owned(),
+        card: Some(BLOOM_CARD.to_owned()),
+        card_error: None,
+    });
+}
+
+/// A small distinct PNG per fixture entry, so the tree shows real decoded
+/// textures rather than the monogram placeholder.
+fn write_fixture_thumb(dir: &std::path::Path, name: &str, seed: usize) -> Option<String> {
+    const SIZE: u32 = 96;
+    let mut img = image::RgbaImage::new(SIZE, SIZE);
+    let (r0, g0, b0) = [
+        (0xff_u8, 0x7a_u8, 0x1a_u8),
+        (0x5f, 0xd3, 0x8f),
+        (0x6a, 0x8f, 0xe0),
+        (0xd8, 0x6a, 0xc8),
+    ][seed % 4];
+    for (x, y, px) in img.enumerate_pixels_mut() {
+        let fx = x as f32 / SIZE as f32;
+        let fy = y as f32 / SIZE as f32;
+        let glow =
+            ((1.0 - ((fx - 0.5).powi(2) + (fy - 0.5).powi(2)).sqrt() * 1.9).max(0.0)).powf(1.6);
+        *px = image::Rgba([
+            (0x18 as f32 + r0 as f32 * glow) as u8,
+            (0x18 as f32 + g0 as f32 * glow) as u8,
+            (0x1c as f32 + b0 as f32 * glow) as u8,
+            255,
+        ]);
+    }
+    let path = dir.join(format!("{name}.png"));
+    img.save(&path).ok()?;
+    Some(path.to_string_lossy().into_owned())
+}
+
+const BLOOM_CARD: &str = r#"# bloom
+
+**What:** Classic bloom — thresholds the bright parts of an image, blurs them, and composites the glow back.
+**When:** Any glow/bleed pass on a rendered or video TOP. Cheaper and more controllable than hand-wiring threshold+blur+comp.
+
+**Pins:** `in1` TOP source · `in2` TOP (optional mask) → `out1` TOP graded result
+**Key pars:** page `Bloom` (20 pars) — threshold, blur size, intensity, and the composite mode. `About` page carries Help/Version.
+
+```opsketch
+scope: bloom (COMP:baseCOMP, pars: Bloom page) nodes=29
+bloom baseCOMP [custom]  # builtin:ImageFilters/bloom — threshold + blur + composite glow
+  in1 inTOP
+  in2 inTOP
+  out1 outTOP
+```
+
+**Gotchas:** cost scales with blur size and input resolution; it is a full post pass, so put it after the look chain, not inside a feedback loop.
+"#;

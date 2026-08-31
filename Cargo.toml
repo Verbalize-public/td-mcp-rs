@@ -43,6 +43,7 @@ tdmcp-test-support = { path = "crates/tdmcp-test-support" }
 
 anyhow = "1"
 async-trait = "0.1"
+base64 = "0.22"
 auto-launch = "0.6"
 axum = "0.8"
 bytes = "1"

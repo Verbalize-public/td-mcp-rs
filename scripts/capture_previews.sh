@@ -4,7 +4,7 @@
 # window-matching technique from the previous .ua/gui-shot.ps1 flow).
 #
 # Usage: scripts/capture_previews.sh [scene ...]
-#        (default: the 7 scenes referenced by README/docs)
+#        (default: the 10 scenes referenced by README/docs)
 set -u
 cd "$(dirname "$0")/.."
 
@@ -13,7 +13,7 @@ OUT="docs/screens"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"; [ -n "${PID:-}" ] && kill "$PID" 2>/dev/null' EXIT
 
-SCENES="${*:-overview-empty overview-populated overview-offline modal-add-slave stop-confirm logs-filtered settings-dirty}"
+SCENES="${*:-overview-empty overview-populated overview-offline modal-add-slave stop-confirm logs-filtered settings-dirty palette-tree palette-empty palette-analyse}"
 
 cat > "$TMP/find_window.swift" <<'EOF'
 import CoreGraphics

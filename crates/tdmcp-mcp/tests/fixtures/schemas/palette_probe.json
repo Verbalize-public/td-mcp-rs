@@ -227,6 +227,11 @@
         }
       ],
       "description": "Which components to probe. Defaults to undescribed entries."
+    },
+    "thumbnails": {
+      "default": false,
+      "description": "Also render a small PNG preview per component into the palette store.\n\nThe picture is rendered in the same load→destroy window as the digest\n(the component exists nowhere else), and is best-effort: a component\nthat will not draw still returns a full digest.",
+      "type": "boolean"
     }
   },
   "required": [

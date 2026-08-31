@@ -12,7 +12,7 @@ Two surfaces in one process (inside `tdmcp-daemon`, disabled with `--no-gui` /
 
 - **Dashboard window** (`dashboard.rs` + `dashboard/*`): a decorated,
   resizable secondary egui viewport (default 960×640, min 800×520) with
-  sidebar navigation **Overview / Logs / Settings**. Overview carries the
+  sidebar navigation **Overview / Palette / Logs / Settings**. Overview carries the
   daemon strip, stat tiles, the TOUCHDESIGNER fleet card (grouped by machine,
   master actions, slave self-view), the MCP CLIENTS card, and the
   ACTIVITY/errors card; federation flows (add-slave, per-slave settings,
@@ -32,8 +32,8 @@ Two surfaces in one process (inside `tdmcp-daemon`, disabled with `--no-gui` /
 - Stack: `eframe`/`egui 0.35` + `tray-icon` + `notify-rust` + `reqwest`
   (blocking calls with 2 s/3 s timeouts over throwaway current-thread tokio
   runtimes; `http.rs` isolates the seam).
-- Dev/test hooks: `TDMCP_OPEN_DASH=overview|logs|settings` (`fleet` kept as a
-  legacy alias for Overview) opens the dashboard on that tab; the `preview`
+- Dev/test hooks: `TDMCP_OPEN_DASH=overview|palette|logs|settings` (`fleet`
+  kept as a legacy alias for Overview) opens the dashboard on that tab; the `preview`
   feature renders fixture scenes for pixel verification (§2).
 
 ## 2. File inventory
@@ -50,10 +50,12 @@ Two surfaces in one process (inside `tdmcp-daemon`, disabled with `--no-gui` /
 | `crates/tdmcp-gui/src/http.rs` | blocking HTTP helpers (bounded timeouts), LAN subnet scan, local-IP helpers |
 | `crates/tdmcp-gui/src/platform.rs` | OS toasts, file-manager reveal, per-OS pointer query (Linux glance close-on-outside-click) |
 | `crates/tdmcp-gui/src/federation.rs` | add-slave one-click pipeline, per-slave settings, Go-standalone, scan-results UI |
+| `crates/tdmcp-gui/src/palette.rs` | Palette section state: roster snapshot + DTOs, filters, thumbnail texture cache (LRU 240), background jobs (load/rescan/detail/ignore/analyse), clipboard briefs |
 | `crates/tdmcp-gui/src/theme.rs` + `theme/` | Ableton-dark tokens/fonts/visuals + widget kit (§6) |
-| `crates/tdmcp-gui/src/dashboard.rs` | dashboard shell + viewport; `DashTab {Overview, Logs, Settings}` router |
+| `crates/tdmcp-gui/src/dashboard.rs` | dashboard shell + viewport; `DashTab {Overview, Palette, Logs, Settings}` router |
 | `crates/tdmcp-gui/src/dashboard/{nav,overview,fleet,logs,settings,widgets}.rs` | sidebar nav, pages, and shared painted pieces (`stat_card`, `fleet_row`, `card_with_header`, `daemon_actions`, `capped_rows`) |
-| `crates/tdmcp-gui/src/preview.rs` + `examples/dashboard_preview.rs` | fixture harness (§7); scenes: `overview-empty` · `overview-populated` · `overview-offline` · `overview-many` · `overview-narrow` · `modal-add-slave` · `stop-confirm` · `logs-filtered` · `settings-dirty` · `popup` · `popup-stop-confirm` |
+| `crates/tdmcp-gui/src/dashboard/palette.rs` | Palette page: virtualized category tree with thumbnails, detail pane, the card Markdown renderer, and the Analyse modal |
+| `crates/tdmcp-gui/src/preview.rs` + `examples/dashboard_preview.rs` | fixture harness (§7); scenes: `overview-empty` · `overview-populated` · `overview-offline` · `overview-many` · `overview-narrow` · `modal-add-slave` · `stop-confirm` · `logs-filtered` · `settings-dirty` · `palette-tree` · `palette-empty` · `palette-analyse` · `popup` · `popup-stop-confirm` |
 | `crates/tdmcp-gui/assets/logo-mark.png` | sidebar/popup brand mark (cropped node from `logo.svg`, rendered by `packaging/gen_icons.py`) |
 | `crates/tdmcp-gui/assets/icon-normal.png` / `icon-attention.png` | tray icons (rendered from `logo.svg`; attention = orange corner badge) |
 
@@ -82,6 +84,15 @@ Federation routes live in `crates/tdmcp-daemon/src/federation.rs`
 (`/admin/federation/status|register|fleet-push|slaves`); the GUI calls some
 of these directly during add-slave / join-master flows.
 
+The **Palette section and the project-spawn action do not use `/admin/*` at
+all** — they call `POST /mcp/tools/call`, the daemon's sessionless JSON tool
+route (`crates/tdmcp-mcp/src/server.rs`), with `palette_index` /
+`palette_probe` / `spawn_td` / `kill_td`. That is deliberate: the roster a user
+browses and the roster an agent queries are then the *same* roster, computed
+once by the tool, and the GUI re-implements no scanning, selection, card status
+or blacklist logic. The route is PSK-gated like `/admin/logs`, so the same
+`app::local_master_psk(&draft)` bearer applies.
+
 Other threads/flows:
 
 - **Subnet scan**: `std::thread` + `mpsc` channel, results drained each
@@ -100,7 +111,7 @@ Other threads/flows:
 Grouped by concern:
 
 - **Identity/wiring**: `admin_base`, `data_dir`, `config_path`, `quit`.
-- **Navigation**: `dash_tab: DashTab {Overview, Logs, Settings}`,
+- **Navigation**: `dash_tab: DashTab {Overview, Palette, Logs, Settings}`,
   `fleet_panel: FleetPanel {None, AddSlave, SlaveSettings}` (overlay state).
 - **Poll snapshots**: `status: Option<StatusView>`, `fleet_json`,
   `sessions_json`, `slaves_json`, `prev_snapshot: FleetSnapshot`,
@@ -116,6 +127,13 @@ Grouped by concern:
   sharing), `role_change_note`, `focus_master_psk`, known-slave id set +
   seen-once flag (join-toast suppression).
 - **Scans**: `scan_results`, `scan_busy`, `scan_rx`, `scan_purpose`.
+- **Palette**: `palette: PaletteView` (`palette.rs`) — the full roster
+  (`rows: Vec<PaletteRow>`, ignored entries included) plus `stats`, the
+  `search` / `filter` pair, folded `collapsed` categories, `selected` +
+  `detail`, the `job` / `rx` / `detail_rx` / `cancel` job slot, `analyse_open`
+  + `AnalyseState`, and a private LRU thumbnail texture cache. Filtering is
+  client-side over daemon-computed fields — the GUI never decides what
+  "carded" means.
 - **Logs**: `logs_view: LogsViewState` — client ring capped at 2048 rows,
   fetch limit 512/poll while visible, level filter + text search, follow/pause.
 - **Errors/crashes**: `error_ring` (attention strip + errors card),
@@ -185,7 +203,7 @@ signal. Rounding is tokenized, not zero-everywhere.
 | `BG_PANEL` | `#1c1c1c` | stat cards / strips |
 | `BG_ROW` / `BG_ROW_ALT` | `#1a1a1a` / `#1f1f1f` | cards / zebra rows (logs) |
 | `BG_HOVER` / `BG_ACTIVE` | `#262626` / `#2e2e2e` | hover / pressed |
-| `TEXT` / `TEXT_DIM` / `TEXT_FAINT` | `#e6e6e6` / `#7a7a7a` / `#555555` | text tiers |
+| `TEXT` / `TEXT_DIM` / `TEXT_FAINT` | `#e6e6e6` / `#8a8a8a` / `#606060` | text tiers |
 | `ACCENT` | `#ff7a1a` | Ableton orange, ≤5% of frame |
 | `OK` / `WARN` / `ERR` | `#5fd35f` / `#f0a830` / `#e85d5d` | status LEDs |
 | `BORDER` / `BORDER_STRONG` | `#2a2a2a` / `#3a3a3a` | hairlines |

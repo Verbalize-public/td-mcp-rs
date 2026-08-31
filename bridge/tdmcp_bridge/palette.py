@@ -22,6 +22,7 @@ from .constants import (
     PALETTE_PARS_PER_PAGE_LIMIT,
     PALETTE_PROBE_BATCH_LIMIT,
     PALETTE_SCRATCH_NAME,
+    PALETTE_THUMB_MAX_SIZE,
 )
 
 # Child opType prefixes that form a COMP's wiring boundary.
@@ -30,6 +31,13 @@ _OUT_PREFIX = "out"
 
 # Decoration children of a palette wrapper (not the component itself).
 _WRAPPER_DECOR = ("icon", "help")
+
+# Capture verdicts that mean "nothing was drawn". A thumbnail is a picture or
+# it is nothing; an all-black tile only looks like a bug.
+_EMPTY_FRAME_CODES = (
+    "tdmcp.perception.black_frame",
+    "tdmcp.perception.uniform_frame",
+)
 
 
 def palette_payload(loaded: Any) -> Any | None:
@@ -69,6 +77,20 @@ def wrapper_help(loaded: Any) -> str | None:
     for child in _children(loaded):
         if _attr(child, "name") == "help":
             return _text(_attr(child, "text"), PALETTE_HELP_MAX_CHARS)
+    return None
+
+
+def wrapper_icon(loaded: Any) -> Any | None:
+    """A palette wrapper's ``icon`` child — Derivative's own artwork.
+
+    This is the tile TouchDesigner itself shows in its palette browser, already
+    composed and already the right shape for a thumbnail. Preferring it over
+    rendering the component means the common case never cooks a stranger's
+    graph just to draw a picture.
+    """
+    for child in _children(loaded):
+        if _attr(child, "name") == "icon":
+            return child
     return None
 
 
@@ -290,13 +312,32 @@ class ProbeContext:
         except Exception:  # noqa: BLE001
             pass
 
+    def thumbnail(self, loaded: Any, comp: Any) -> dict[str, Any] | None:
+        """PNG preview of one loaded component, or ``None`` when unavailable.
 
-def run_probe(ctx: ProbeContext, targets: list[dict[str, Any]], detail_level: str) -> dict[str, Any]:
+        ``loaded`` is what ``loadTox`` produced (the wrapper, for stock
+        components); ``comp`` is the unwrapped payload. Implementations return
+        the capture-shaped dict (``imageBase64`` / ``mimeType`` / ``code``).
+        """
+        return None
+
+
+def run_probe(
+    ctx: ProbeContext,
+    targets: list[dict[str, Any]],
+    detail_level: str,
+    *,
+    thumbnails: bool = False,
+) -> dict[str, Any]:
     """Load, digest, and destroy each target. Partial success per component.
 
     A component that fails to load becomes an error row — never a failed batch,
     so one hostile component costs the caller one row, not the whole run. The
     scratch COMP is destroyed even when a load raises.
+
+    With ``thumbnails`` the digest also carries a small PNG. It is rendered in
+    the same load→destroy window (the component only exists there) and is
+    strictly best-effort: a missing picture never downgrades a row.
     """
     results: list[dict[str, Any]] = []
     scratch = None
@@ -326,6 +367,8 @@ def run_probe(ctx: ProbeContext, targets: list[dict[str, Any]], detail_level: st
                 # Digest unwraps; destroy still targets what loadTox created,
                 # since the wrapper owns the payload.
                 digest = build_probe_digest(loaded, palette_id, tox_path)
+                if thumbnails:
+                    _attach_thumbnail(ctx, digest, loaded)
                 digest["probeMs"] = int((time.monotonic() - started) * 1000)
                 if detail_level != "detailed":
                     # Internals are the expensive half and rarely decide a pick.
@@ -346,6 +389,38 @@ def run_probe(ctx: ProbeContext, targets: list[dict[str, Any]], detail_level: st
         if scratch is not None:
             ctx.destroy(scratch)
     return {"ok": True, "results": results, "scratchName": PALETTE_SCRATCH_NAME}
+
+
+def _attach_thumbnail(ctx: ProbeContext, digest: dict[str, Any], loaded: Any) -> None:
+    """Render a thumbnail into ``digest``; swallow every failure.
+
+    A probe runs arbitrary third-party code and the thumbnail is the least
+    important thing it produces — anything that raises here leaves the digest
+    exactly as it was, with no key added and no row downgraded.
+    """
+    try:
+        payload = palette_payload(loaded)
+        shot = ctx.thumbnail(loaded, payload if payload is not None else loaded)
+    except Exception:  # noqa: BLE001
+        return
+    if not isinstance(shot, dict):
+        return
+    b64 = shot.get("imageBase64")
+    if not b64:
+        return
+    note = shot.get("code")
+    if note in _EMPTY_FRAME_CODES:
+        # A component that did not draw is the common case for an unwrapped
+        # `.tox`: the OP Viewer has not rasterized by the time this task saves
+        # it. Storing the black rectangle would put a broken-looking tile in
+        # front of the user; reporting the code instead lets the caller fall
+        # back to its own placeholder, which is an honest "no preview yet".
+        digest["thumbnailNote"] = note
+        return
+    digest["thumbnailBase64"] = b64
+    digest["thumbnailMime"] = shot.get("mimeType") or "image/png"
+    if note:
+        digest["thumbnailNote"] = note
 
 
 class _TdProbeContext(ProbeContext):
@@ -386,6 +461,34 @@ class _TdProbeContext(ProbeContext):
                 return child
         return None
 
+    def thumbnail(self, loaded: Any, comp: Any) -> dict[str, Any] | None:
+        """Wrapper ``icon`` first, the component's own viewer as a fallback.
+
+        The icon is a plain TOP, so it saves without cooking the component at
+        all — that is the whole reason it is tried first. Only an unwrapped
+        ``.tox`` (someone's own component, which ships no icon) pays for a
+        render through the shared OP Viewer.
+        """
+        import td  # type: ignore
+
+        from . import capture as _capture
+
+        path = _text(_attr(comp, "path", None), 256) or ""
+
+        icon = wrapper_icon(loaded)
+        if icon is not None and hasattr(icon, "saveByteArray"):
+            shot = _capture._capture_top_image(
+                td, icon, path, PALETTE_THUMB_MAX_SIZE
+            )
+            if shot.get("imageBase64"):
+                return shot
+
+        # No icon (or it produced nothing): rasterize the component itself.
+        # Safe under the per-pid FIFO — see the note on the shared viewer.
+        return _capture._capture_via_shared_viewer(
+            td, comp, path, PALETTE_THUMB_MAX_SIZE, mode="preview"
+        )
+
 
 def handle_palette_probe(params: dict[str, Any]) -> dict[str, Any]:
     """Bridge entrypoint for ``palette_probe``."""
@@ -397,4 +500,7 @@ def handle_palette_probe(params: dict[str, Any]) -> dict[str, Any]:
             "message": "palette_probe requires a non-empty targets array",
         }
     detail_level = str(params.get("detailLevel") or "summary")
-    return run_probe(_TdProbeContext(), targets, detail_level)
+    thumbnails = bool(params.get("thumbnails"))
+    return run_probe(
+        _TdProbeContext(), targets, detail_level, thumbnails=thumbnails
+    )

@@ -8,6 +8,7 @@
 //! Scenes: overview-empty · overview-populated · overview-offline ·
 //! overview-narrow (800px min width) · overview-many (roster cap) ·
 //! modal-add-slave · stop-confirm · logs-filtered · settings-dirty ·
+//! palette-tree · palette-empty · palette-analyse ·
 //! popup · popup-stop-confirm (tray glance card at its real size).
 
 fn main() {

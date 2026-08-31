@@ -51,13 +51,18 @@ pub(crate) fn sidebar(app: &mut DashboardApp, ui: &mut egui::Ui) {
     }
     ui.add_space(14.0);
 
+    // Palette's own attention count: components that failed to probe or are
+    // wedge suspects. It is the one palette state that wants a human — a large
+    // undescribed roster is normal, a component that hung TouchDesigner is not.
+    let palette_attention = app.palette.stats.failed;
+
     for tab in DashTab::ALL {
         let selected = app.dash_tab == tab;
-        // The Overview nav item carries the live attention count.
-        let count = if tab == DashTab::Overview && attention > 0 && !offline {
-            Some(attention)
-        } else {
-            None
+        // Nav items carry their own live attention count.
+        let count = match tab {
+            DashTab::Overview if attention > 0 && !offline => Some(attention),
+            DashTab::Palette if palette_attention > 0 => Some(palette_attention),
+            _ => None,
         };
         if nav_item(ui, tab.label(), selected, count).clicked() {
             app.dash_tab = tab;

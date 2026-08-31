@@ -212,6 +212,13 @@ pub struct PaletteProbeParams {
     /// Structural detail level for each digest.
     #[serde(default)]
     pub detail_level: crate::tools::DetailLevel,
+    /// Also render a small PNG preview per component into the palette store.
+    ///
+    /// The picture is rendered in the same load→destroy window as the digest
+    /// (the component exists nowhere else), and is best-effort: a component
+    /// that will not draw still returns a full digest.
+    #[serde(default)]
+    pub thumbnails: bool,
     /// Diagnostic payload size.
     #[serde(default)]
     pub diagnostic_level: tdmcp_diagnostics::DiagnosticLevel,
@@ -323,7 +330,7 @@ pub fn discover_roots(cfg: &ConfigFile, scan_roots: &[PathBuf]) -> Vec<PaletteRo
 // Row shaping
 // ---------------------------------------------------------------------------
 
-fn row(index: &PaletteIndex, id: &str, entry: &PaletteEntry) -> Value {
+fn row(store: &PaletteStore, index: &PaletteIndex, id: &str, entry: &PaletteEntry) -> Value {
     let mut obj = Map::new();
     obj.insert("paletteId".into(), json!(id));
     obj.insert("name".into(), json!(entry.name));
@@ -336,6 +343,14 @@ fn row(index: &PaletteIndex, id: &str, entry: &PaletteEntry) -> Value {
         obj.insert("tags".into(), json!(entry.tags));
     }
     obj.insert("cardStatus".into(), json!(entry.card_status().as_str()));
+    // Absolute, and only when the file is really there — a path that resolves
+    // to nothing is worse than no path at all for whoever tries to open it.
+    if let Some(rel) = &entry.thumb {
+        let abs = store.abs_path(rel);
+        if abs.is_file() {
+            obj.insert("thumb".into(), json!(abs.to_string_lossy()));
+        }
+    }
     obj.insert("probeStatus".into(), json!(entry.probe.status.as_str()));
     if index.is_ignored(id) {
         obj.insert("ignored".into(), json!(true));
@@ -401,7 +416,7 @@ pub fn run_with(
 
     match params.action {
         PaletteAction::Scan => action_scan(cfg, scan_roots, &store, &mut index, params),
-        PaletteAction::List => action_list(&index, params),
+        PaletteAction::List => action_list(&store, &index, params),
         PaletteAction::Get => action_get(&store, &index, params),
         PaletteAction::Describe => action_describe(&store, &mut index, params),
         PaletteAction::Ignore | PaletteAction::Unignore => {
@@ -494,7 +509,11 @@ fn action_scan(
     Ok(out)
 }
 
-fn action_list(index: &PaletteIndex, params: &PaletteIndexParams) -> Result<Value, CodedError> {
+fn action_list(
+    store: &PaletteStore,
+    index: &PaletteIndex,
+    params: &PaletteIndexParams,
+) -> Result<Value, CodedError> {
     if index.entries.is_empty() {
         return Err(CodedError {
             code: codes::PALETTE_NOT_INDEXED,
@@ -510,7 +529,7 @@ fn action_list(index: &PaletteIndex, params: &PaletteIndexParams) -> Result<Valu
         .iter()
         .skip(offset)
         .take(limit)
-        .filter_map(|id| index.entries.get(id).map(|e| row(index, id, e)))
+        .filter_map(|id| index.entries.get(id).map(|e| row(store, index, id, e)))
         .collect();
     let returned = page.len();
     let mut out = json!({ "ok": true, "entries": page, "total": total });
@@ -534,7 +553,7 @@ fn action_get(
     let entry = require_entry(index, &id)?;
     let mut out = json!({
         "ok": true,
-        "entry": row(index, &id, entry),
+        "entry": row(store, index, &id, entry),
         "toxPath": entry.tox_path.to_string_lossy(),
     });
     if let Some(card) = &entry.card {
@@ -887,15 +906,22 @@ pub fn clear_inflight(cfg: &ConfigFile) -> Result<(), ProjectIoError> {
     store.save(&index)
 }
 
+/// Where each stored thumbnail landed: `paletteId` → absolute PNG path.
+pub type StoredThumbs = std::collections::BTreeMap<String, String>;
+
 /// Fold probe results back into the index and clear the in-flight breadcrumb.
 ///
 /// `results` is the bridge's per-component array. An entry that fails twice
-/// auto-ignores itself so the next bulk run does not re-hit it.
-pub fn record_probe(cfg: &ConfigFile, results: &[Value]) -> Result<(), ProjectIoError> {
+/// auto-ignores itself so the next bulk run does not re-hit it. Any
+/// `thumbnailBase64` a row carries is decoded to `{store}/thumbs/` here, in the
+/// same load→save the ledger already does, and the paths come back so the
+/// caller can echo them instead of the bytes.
+pub fn record_probe(cfg: &ConfigFile, results: &[Value]) -> Result<StoredThumbs, ProjectIoError> {
     use tdmcp_projectio::palette::ProbeStatus;
 
     let store = PaletteStore::new(store_dir(cfg));
     let mut index = store.load()?;
+    let mut thumbs = StoredThumbs::new();
     index.inflight.clear();
     for row in results {
         let Some(id) = row.get("paletteId").and_then(Value::as_str) else {
@@ -909,6 +935,11 @@ pub fn record_probe(cfg: &ConfigFile, results: &[Value]) -> Result<(), ProjectIo
             entry.probe.fail_count = 0;
             entry.probe.message = None;
             entry.probe.last_ms = row.get("probeMs").and_then(Value::as_u64);
+            if let Some(rel) = store_thumbnail(&store, id, row) {
+                thumbs.insert(id.to_owned(), store.abs_path(&rel).to_string_lossy().into());
+                entry.thumb = Some(rel);
+                entry.thumb_fingerprint = Some(entry.fingerprint);
+            }
         } else {
             entry.probe.status = ProbeStatus::Failed;
             entry.probe.fail_count = entry.probe.fail_count.saturating_add(1);
@@ -922,7 +953,24 @@ pub fn record_probe(cfg: &ConfigFile, results: &[Value]) -> Result<(), ProjectIo
             }
         }
     }
-    store.save(&index)
+    store.save(&index)?;
+    Ok(thumbs)
+}
+
+/// Decode and store one row's thumbnail; `None` when it has none or it is junk.
+///
+/// A picture is the least important thing a probe produces, so every failure
+/// here — absent, unpadded base64, an unwritable store — is silence rather than
+/// an error that would mask a perfectly good digest.
+fn store_thumbnail(store: &PaletteStore, id: &str, row: &Value) -> Option<String> {
+    use base64::Engine as _;
+
+    let b64 = row.get("thumbnailBase64").and_then(Value::as_str)?;
+    let png = base64::engine::general_purpose::STANDARD.decode(b64).ok()?;
+    if png.is_empty() {
+        return None;
+    }
+    store.write_thumb(id, &png).ok()
 }
 
 #[cfg(test)]
@@ -1226,6 +1274,7 @@ mod tests {
             select,
             include_ignored: false,
             detail_level: crate::tools::DetailLevel::default(),
+            thumbnails: false,
             diagnostic_level: tdmcp_diagnostics::DiagnosticLevel::default(),
         }
     }
@@ -1467,6 +1516,87 @@ mod tests {
             .targets
             .iter()
             .any(|t| t.palette_id == "user:UI/buttons"));
+    }
+
+    #[test]
+    fn a_probed_thumbnail_lands_in_the_store_and_shows_up_in_list() {
+        let fx = fixture();
+        scan(&fx.cfg);
+        let id = "user:Tools/particlesGpu";
+        // "PNG" is enough: nothing here decodes the image, only moves bytes.
+        let png_b64 = "iVBORw0KGgo=";
+
+        let thumbs = record_probe(
+            &fx.cfg,
+            &[json!({"ok": true, "paletteId": id, "thumbnailBase64": png_b64})],
+        )
+        .unwrap();
+        let abs = thumbs.get(id).expect("the path comes back for the caller");
+        assert!(std::path::Path::new(abs).is_file());
+
+        let store = PaletteStore::new(store_dir(&fx.cfg));
+        let entry = &store.load().unwrap().entries[id];
+        assert!(entry.thumb.as_deref().unwrap().starts_with("thumbs/"));
+        assert_eq!(
+            entry.thumb_fingerprint,
+            Some(entry.fingerprint),
+            "a fresh render is current, not stale"
+        );
+
+        // The GUI reads it off `list` like any other field.
+        let out = run_with(&fx.cfg, NO_INSTALLS, &params(PaletteAction::List)).unwrap();
+        let row = out["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["paletteId"] == id)
+            .unwrap();
+        assert_eq!(row["thumb"], json!(abs));
+    }
+
+    #[test]
+    fn a_thumbnail_path_is_withheld_once_the_file_is_gone() {
+        // A path that resolves to nothing is worse than no path at all.
+        let fx = fixture();
+        scan(&fx.cfg);
+        let id = "user:Tools/particlesGpu";
+        record_probe(
+            &fx.cfg,
+            &[json!({"ok": true, "paletteId": id, "thumbnailBase64": "iVBORw0KGgo="})],
+        )
+        .unwrap();
+
+        let store = PaletteStore::new(store_dir(&fx.cfg));
+        let rel = store.load().unwrap().entries[id].thumb.clone().unwrap();
+        store.remove_thumb(&rel).unwrap();
+
+        let out = run_with(&fx.cfg, NO_INSTALLS, &params(PaletteAction::List)).unwrap();
+        let row = out["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["paletteId"] == id)
+            .unwrap();
+        assert!(row.get("thumb").is_none());
+    }
+
+    #[test]
+    fn junk_thumbnail_bytes_never_break_a_good_digest() {
+        let fx = fixture();
+        scan(&fx.cfg);
+        let id = "user:Tools/particlesGpu";
+        for junk in ["", "!!!not base64!!!"] {
+            let thumbs = record_probe(
+                &fx.cfg,
+                &[json!({"ok": true, "paletteId": id, "thumbnailBase64": junk, "probeMs": 5})],
+            )
+            .unwrap();
+            assert!(thumbs.is_empty(), "junk stores nothing");
+            let index = PaletteStore::new(store_dir(&fx.cfg)).load().unwrap();
+            // The digest half of the row still landed.
+            assert_eq!(index.entries[id].probe.last_ms, Some(5));
+            assert!(index.entries[id].thumb.is_none());
+        }
     }
 
     #[test]

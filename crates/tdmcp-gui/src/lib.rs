@@ -6,13 +6,15 @@
 //!
 //! Module map: [`app`] shared state/logic · [`tray`] status item · [`popup`]
 //! glance card · [`dashboard`] secondary viewport · [`federation`] flows ·
-//! [`wire`] admin DTOs · [`http`] blocking transport · [`platform`] OS shims ·
-//! [`theme`] design tokens + widget kit.
+//! [`palette`] component-library state + jobs · [`wire`] admin DTOs ·
+//! [`http`] blocking transport · [`platform`] OS shims · [`theme`] design
+//! tokens + widget kit.
 
 mod app;
 mod dashboard;
 mod federation;
 mod http;
+mod palette;
 mod platform;
 mod popup;
 mod recent;

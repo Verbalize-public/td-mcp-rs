@@ -275,8 +275,8 @@ Structured success is **flat tool fields** with a single outer `ok` (bridge may 
 | `dialogs` | `list`: `{ ok: true, pid, windowStatus, popups, accessibilityGranted?, permissionHint? }` (last two macOS only) · `describe`: `{ ok: true, pid, popup }` · `dismiss`: `{ ok: true, pid, dismissed, via, stillOpen }` |
 | `spawn_td` | `{ ok: true, pid, handshake: { title, toePath }, startupDialogs? }`, or a **successful result with `ok: false`** carrying `outcome: "wait_timeout"` (+ `stillAlive`, `startupDialogs`) / `"exited_early"` (+ `exitCode`) |
 | `kill_td` | `{ ok: true, pid, how: "graceful" or "force" }` |
-| `palette_index` | Per action — `scan`: `{ ok, roots, added, updated, removed, stale, total, ignored, suspect?, suspectHint? }` · `list`: `{ ok, entries: [{ paletteId, name, category, source, summary?, tags?, cardStatus, probeStatus, ignored? }], total, truncation? }` · `get`: `{ ok, entry, toxPath, card?, cardError? }` · `describe`: `{ ok, paletteId, cardPath, bytes }` · `ignore`/`unignore`: `{ ok, ignore, affected }` · `forget`: `{ ok, removed, total }` · `stats`: `{ ok, total, described, stale, undescribed, failed, ignored, scannedAt, autoIgnoreAfter, byCategory }` |
-| `palette_probe` | `{ ok: true, results: [{ ok, paletteId, opType, family, customPars, inputs, outputs, children?, childCount, extensions?, comment?, tags?, help?, wrapped?, errors?, probeMs } \| { ok: false, paletteId, code, message }], skipped?, skippedTotal?, note?, remaining, scratchName, ledgerError? }` — partial success inside `results`; `help` is the wrapper's help DAT, `wrapped` marks an unwrapped palette component |
+| `palette_index` | Per action — `scan`: `{ ok, roots, added, updated, removed, stale, total, ignored, suspect?, suspectHint? }` · `list`: `{ ok, entries: [{ paletteId, name, category, source, summary?, tags?, cardStatus, probeStatus, ignored?, thumb? }], total, truncation? }` · `get`: `{ ok, entry, toxPath, card?, cardError? }` · `describe`: `{ ok, paletteId, cardPath, bytes }` · `ignore`/`unignore`: `{ ok, ignore, affected }` · `forget`: `{ ok, removed, total }` · `stats`: `{ ok, total, described, stale, undescribed, failed, ignored, scannedAt, autoIgnoreAfter, byCategory }` |
+| `palette_probe` | `{ ok: true, results: [{ ok, paletteId, opType, family, customPars, inputs, outputs, children?, childCount, extensions?, comment?, tags?, help?, wrapped?, errors?, probeMs, thumb?, thumbnailNote?, thumbError? } \| { ok: false, paletteId, code, message }], skipped?, skippedTotal?, note?, remaining, scratchName, ledgerError? }` — partial success inside `results`; `help` is the wrapper's help DAT, `wrapped` marks an unwrapped palette component; `thumb` is the stored PNG path when `thumbnails: true` (see § thumbnails) |
 
 
 Failures (all bridge-backed tools): `{ ok: false, summary, items, … }` via diagnostics flatten. Mutate soft-fail splices `applied` / `failedAt` / `steps` **flat** (not under `data`). Soft perception fails (black/uniform frame) use `isError` + diagnostics + image content — that path is separate from success nesting.
@@ -533,7 +533,7 @@ deliberate: tools produce evidence, the agent produces the card,
 | --- | --- |
 | Builtin root | `InstallInfo.palette` — first existing of `Contents/Resources/tfs/Samples/Palette` (macOS bundle), `Samples/Palette`, `Config/Palette` under the install root. Same probe law as the tool pair: **a candidate counts only if the directory exists**. Newest install wins |
 | User root | `[palette].user_root`, else `{documents}/Derivative/Palette`; must exist on disk |
-| Store | `[palette].store_dir`, else `{data_dir}/palette` — `index.json` plus `cards/<slug>.md` |
+| Store | `[palette].store_dir`, else `{data_dir}/palette` — `index.json`, `cards/<slug>.md`, and `thumbs/<slug>.png` |
 
 Ids are `{source}:{Category}/{Name}` (`builtin:Tools/particlesGpu`,
 `user:UI/My Widget`) — machine-independent, glob-friendly, safe to write into a
@@ -619,6 +619,35 @@ batch. `detailLevel: summary` omits `children` / `extensions`; the interface
 Every component-facing attribute read goes through a guard that survives a
 raising property — a probe runs arbitrary third-party code, and none of it is a
 claim worth failing a batch over.
+
+#### Thumbnails
+
+`palette_probe` `{thumbnails: true}` also renders a 256px PNG per component
+into `{store_dir}/thumbs/<slug>.png` — the same slug the card uses, so one id
+maps to one basename. The render happens inside the same load → digest →
+destroy task, because that is the only window in which the component exists.
+
+Two sources, in order:
+
+1. **The wrapper's `icon` child** — Derivative's own artwork, the tile
+   TouchDesigner shows in its palette browser. It is a plain TOP, so it saves
+   without cooking the component at all. This covers every stock component.
+2. **The payload through the shared `capture_viewer`** — the `capture`
+   `preview` path, for an unwrapped `.tox` that ships no icon. Safe under the
+   per-pid FIFO, same argument as `capture` itself.
+
+A frame graded `black_frame` / `uniform_frame` is **reported, not stored**: the
+row carries `thumbnailNote` and no file is written, because an all-black tile in
+a UI reads as a bug where a placeholder reads as "not rendered yet". In practice
+the viewer path usually lands here — the OP Viewer has not rasterized by the
+time the task saves it — so an unwrapped component normally has no thumbnail.
+
+Everything about the picture is best-effort: a thumbnail that fails never
+downgrades a digest, and the row stays `ok: true`. The daemon writes the bytes
+to the store and replaces `thumbnailBase64` with `thumb` (the absolute path)
+before replying, so a batch never carries the image twice. `thumbError` marks a
+picture that rendered but could not be stored. `palette_index` `list` / `get`
+echo `thumb` for any entry whose file is actually present on disk.
 
 #### Failure codes
 

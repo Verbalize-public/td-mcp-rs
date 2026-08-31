@@ -174,6 +174,12 @@ pub struct PaletteEntry {
     /// Fingerprint the card was written against; drift ⇒ the card is stale.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub card_fingerprint: Option<Fingerprint>,
+    /// Thumbnail path relative to the store dir, when one has been rendered.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thumb: Option<String>,
+    /// Fingerprint the thumbnail was rendered against; drift ⇒ it is stale.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thumb_fingerprint: Option<Fingerprint>,
     /// Probe ledger.
     #[serde(default)]
     pub probe: ProbeState,
@@ -190,6 +196,18 @@ impl PaletteEntry {
     #[must_use]
     pub fn card_status(&self) -> CardStatus {
         match (&self.card, self.card_fingerprint) {
+            (Some(_), Some(fp)) if fp == self.fingerprint => CardStatus::Described,
+            (Some(_), _) => CardStatus::Stale,
+            (None, _) => CardStatus::Undescribed,
+        }
+    }
+
+    /// Thumbnail state relative to the `.tox` on disk — same law as the card:
+    /// a picture rendered from a `.tox` that has since changed is still worth
+    /// showing, but it is a hint, not a claim.
+    #[must_use]
+    pub fn thumb_status(&self) -> CardStatus {
+        match (&self.thumb, self.thumb_fingerprint) {
             (Some(_), Some(fp)) if fp == self.fingerprint => CardStatus::Described,
             (Some(_), _) => CardStatus::Stale,
             (None, _) => CardStatus::Undescribed,
@@ -301,9 +319,12 @@ pub fn split_id(id: &str) -> (String, String) {
     }
 }
 
-/// Filesystem-safe card filename for an id, collision-proofed with a short hash.
+/// Filesystem-safe stem for an id, collision-proofed with a short hash.
+///
+/// Every per-component file in the store (card, thumbnail) hangs off this one
+/// stem, so an id maps to exactly one basename no matter what is stored for it.
 #[must_use]
-pub fn card_slug(id: &str) -> String {
+fn slug_stem(id: &str) -> String {
     let sanitized: String = id
         .chars()
         .map(|c| {
@@ -321,7 +342,19 @@ pub fn card_slug(id: &str) -> String {
         hash = hash.wrapping_mul(0x0100_0193);
     }
     let trimmed: String = sanitized.chars().take(80).collect();
-    format!("{trimmed}-{hash:08x}.md")
+    format!("{trimmed}-{hash:08x}")
+}
+
+/// Filesystem-safe card filename for an id.
+#[must_use]
+pub fn card_slug(id: &str) -> String {
+    format!("{}.md", slug_stem(id))
+}
+
+/// Filesystem-safe thumbnail filename for an id.
+#[must_use]
+pub fn thumb_slug(id: &str) -> String {
+    format!("{}.png", slug_stem(id))
 }
 
 // ---------------------------------------------------------------------------
@@ -558,6 +591,8 @@ pub fn scan_into(index: &mut PaletteIndex, roots: &[PaletteRoot]) -> ScanReport 
                             tags: Vec::new(),
                             card: None,
                             card_fingerprint: None,
+                            thumb: None,
+                            thumb_fingerprint: None,
                             probe: ProbeState::default(),
                             ignored: false,
                             ignored_auto: false,
@@ -634,6 +669,18 @@ impl PaletteStore {
         self.dir.join("cards")
     }
 
+    /// `{dir}/thumbs`.
+    #[must_use]
+    pub fn thumbs_dir(&self) -> PathBuf {
+        self.dir.join("thumbs")
+    }
+
+    /// Absolute path for a store-relative entry path (card or thumbnail).
+    #[must_use]
+    pub fn abs_path(&self, rel: &str) -> PathBuf {
+        self.dir.join(rel)
+    }
+
     /// Load the index. A missing file is an empty index, not an error; a
     /// corrupt one is [`ProjectIoError::PaletteStore`] so the caller can tell
     /// the user to re-scan rather than silently discarding their cards.
@@ -699,6 +746,29 @@ impl PaletteStore {
 
     /// Delete a card by store-relative path. A missing file is not an error.
     pub fn remove_card(&self, rel: &str) -> Result<(), ProjectIoError> {
+        self.remove_file(rel)
+    }
+
+    /// Write a PNG thumbnail for `id`; returns the store-relative path.
+    pub fn write_thumb(&self, id: &str, png: &[u8]) -> Result<String, ProjectIoError> {
+        let thumbs = self.thumbs_dir();
+        std::fs::create_dir_all(&thumbs).map_err(|source| ProjectIoError::Fs {
+            path: thumbs.clone(),
+            source,
+        })?;
+        let rel = format!("thumbs/{}", thumb_slug(id));
+        let path = self.dir.join(&rel);
+        std::fs::write(&path, png).map_err(|source| ProjectIoError::Fs { path, source })?;
+        Ok(rel)
+    }
+
+    /// Delete a thumbnail by store-relative path. A missing file is not an error.
+    pub fn remove_thumb(&self, rel: &str) -> Result<(), ProjectIoError> {
+        self.remove_file(rel)
+    }
+
+    /// Shared unlink: a file that is already gone is the state we wanted.
+    fn remove_file(&self, rel: &str) -> Result<(), ProjectIoError> {
         let path = self.dir.join(rel);
         match std::fs::remove_file(&path) {
             Ok(()) => Ok(()),
@@ -983,5 +1053,90 @@ mod tests {
             a, b,
             "sanitization alone would collide; the hash separates them"
         );
+    }
+
+    #[test]
+    fn a_card_and_its_thumbnail_share_one_stem() {
+        // One id, one basename: the card and the picture for a component must
+        // never drift onto different names.
+        let id = "builtin:Tools/particlesGpu";
+        let card = card_slug(id);
+        let thumb = thumb_slug(id);
+        assert_eq!(card.trim_end_matches(".md"), thumb.trim_end_matches(".png"));
+        assert!(!thumb.contains('/') && !thumb.contains(':'));
+    }
+
+    #[test]
+    fn store_round_trips_thumbnails() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = PaletteStore::new(dir.path().to_path_buf());
+        let png = b"\x89PNG\r\n\x1a\nnot-really";
+
+        let rel = store
+            .write_thumb("builtin:Tools/particlesGpu", png)
+            .unwrap();
+        assert!(rel.starts_with("thumbs/"));
+        assert_eq!(fs::read(store.abs_path(&rel)).unwrap(), png);
+        store.remove_thumb(&rel).unwrap();
+        store.remove_thumb(&rel).unwrap(); // idempotent
+    }
+
+    #[test]
+    fn a_thumbnail_goes_stale_with_its_tox() {
+        let mut entry = PaletteEntry {
+            name: "x".into(),
+            category: "Tools".into(),
+            source: PaletteSource::Builtin,
+            tox_path: PathBuf::from("/p/x.tox"),
+            fingerprint: Fingerprint {
+                bytes: 10,
+                mtime_ms: 1,
+            },
+            summary: None,
+            tags: Vec::new(),
+            card: None,
+            card_fingerprint: None,
+            thumb: None,
+            thumb_fingerprint: None,
+            probe: ProbeState::default(),
+            ignored: false,
+            ignored_auto: false,
+        };
+        assert_eq!(entry.thumb_status(), CardStatus::Undescribed);
+
+        entry.thumb = Some("thumbs/x.png".into());
+        entry.thumb_fingerprint = Some(entry.fingerprint);
+        assert_eq!(entry.thumb_status(), CardStatus::Described);
+
+        // The .tox changed under it — still served, but only as a hint.
+        entry.fingerprint = Fingerprint {
+            bytes: 11,
+            mtime_ms: 2,
+        };
+        assert_eq!(entry.thumb_status(), CardStatus::Stale);
+    }
+
+    #[test]
+    fn an_index_written_before_thumbnails_still_loads() {
+        // Additive optional fields must not force a version bump: a bump makes
+        // load() hard-error, and rebuilding loses every agent-written summary.
+        let dir = tempfile::tempdir().unwrap();
+        let store = PaletteStore::new(dir.path().to_path_buf());
+        fs::create_dir_all(dir.path()).unwrap();
+        fs::write(
+            store.index_path(),
+            br#"{"version":1,"entries":{"builtin:Tools/x":{
+                "name":"x","category":"Tools","source":"builtin",
+                "toxPath":"/p/x.tox","fingerprint":{"bytes":1,"mtimeMs":2},
+                "summary":"a summary written before thumbnails existed"}}}"#,
+        )
+        .unwrap();
+        let index = store.load().unwrap();
+        let entry = &index.entries["builtin:Tools/x"];
+        assert_eq!(
+            entry.summary.as_deref(),
+            Some("a summary written before thumbnails existed")
+        );
+        assert!(entry.thumb.is_none());
     }
 }

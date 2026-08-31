@@ -8,6 +8,7 @@ mod fleet;
 mod logs;
 mod nav;
 mod overview;
+pub(crate) mod palette;
 mod settings;
 pub(crate) mod widgets;
 
@@ -26,6 +27,7 @@ const GUTTER: f32 = 16.0;
 pub enum DashTab {
     #[default]
     Overview,
+    Palette,
     Logs,
     Settings,
 }
@@ -34,12 +36,18 @@ impl DashTab {
     fn label(self) -> &'static str {
         match self {
             DashTab::Overview => "Overview",
+            DashTab::Palette => "Palette",
             DashTab::Logs => "Logs",
             DashTab::Settings => "Settings",
         }
     }
 
-    const ALL: [DashTab; 3] = [DashTab::Overview, DashTab::Logs, DashTab::Settings];
+    const ALL: [DashTab; 4] = [
+        DashTab::Overview,
+        DashTab::Palette,
+        DashTab::Logs,
+        DashTab::Settings,
+    ];
 }
 
 /// Stable id for the dashboard viewport.
@@ -148,9 +156,12 @@ pub fn render(app: &mut DashboardApp, ui: &mut egui::Ui) {
         )
         .show(ui, |ui| match app.dash_tab {
             DashTab::Overview => overview::overview(app, ui),
+            DashTab::Palette => palette::palette(app, ui),
             DashTab::Logs => logs::logs(app, ui),
             DashTab::Settings => settings::settings(app, ui),
         });
+
+    palette::analyse_modal(app, ui.ctx());
 
     draw_snacks(app, ui);
 }

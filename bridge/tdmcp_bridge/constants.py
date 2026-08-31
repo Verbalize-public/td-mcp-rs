@@ -66,6 +66,10 @@ PALETTE_SCRATCH_NAME = "tdmcp_probe"
 # A palette wrapper's `help` DAT is the component's own documentation and the
 # best raw material for a card — worth more budget than a node comment.
 PALETTE_HELP_MAX_CHARS = 4000
+# Thumbnail edge cap for `palette_probe thumbnails:true`. Small on purpose: the
+# PNG rides the same IPC frame as the digest, and the only consumer is a GUI
+# tile. Mirrored in Rust as palette::THUMB_MAX_SIZE.
+PALETTE_THUMB_MAX_SIZE = 256
 
 # api_help batch / payload caps (mirrored in Rust tools.rs).
 API_HELP_QUERIES_LIMIT = 64

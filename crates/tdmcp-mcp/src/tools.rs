@@ -800,6 +800,42 @@ pub enum BridgeOutcome {
     Transport(BridgeRpcError),
 }
 
+/// Swap each probe row's inline thumbnail bytes for the path they were stored at.
+///
+/// The bytes have already been written to the palette store by `record_probe`,
+/// so keeping them in the reply would send every picture twice — once to disk
+/// and once down the wire — for a caller that only needs to know where it went.
+fn rehome_thumbnails(mapped: &mut Value, thumbs: &crate::palette::StoredThumbs) {
+    let Some(rows) = mapped.get_mut("results").and_then(Value::as_array_mut) else {
+        return;
+    };
+    for row in rows {
+        let Some(obj) = row.as_object_mut() else {
+            continue;
+        };
+        let had_bytes = obj.remove("thumbnailBase64").is_some();
+        obj.remove("thumbnailMime");
+        if !had_bytes {
+            continue;
+        }
+        if let Some(id) = obj.get("paletteId").and_then(Value::as_str) {
+            match thumbs.get(id) {
+                Some(path) => {
+                    obj.insert("thumb".into(), serde_json::json!(path));
+                }
+                // Rendered but unstorable (a full or read-only store dir):
+                // say so rather than imply a file that is not there.
+                None => {
+                    obj.insert(
+                        "thumbError".into(),
+                        serde_json::json!("thumbnail could not be stored"),
+                    );
+                }
+            }
+        }
+    }
+}
+
 /// Rewrite every `place` step's `paletteId` into an absolute `.tox` path.
 ///
 /// Runs before the bridge call so an unknown id, a vanished file, or an
@@ -1215,6 +1251,7 @@ async fn dispatch_tool_inner(
                 serde_json::json!({
                     "targets": targets,
                     "detailLevel": params.detail_level.as_str(),
+                    "thumbnails": params.thumbnails,
                 }),
             )
             .await;
@@ -1245,8 +1282,12 @@ async fn dispatch_tool_inner(
                 .and_then(Value::as_array)
                 .cloned()
                 .unwrap_or_default();
-            if let Err(e) = crate::palette::record_probe(&cfg, &results) {
-                mapped["ledgerError"] = serde_json::json!(e.to_string());
+            match crate::palette::record_probe(&cfg, &results) {
+                // The PNG is now a file in the store; echoing the bytes back as
+                // well would double a batch's payload for nothing. Swap each
+                // row's base64 for the path it landed at.
+                Ok(thumbs) => rehome_thumbnails(&mut mapped, &thumbs),
+                Err(e) => mapped["ledgerError"] = serde_json::json!(e.to_string()),
             }
             if !skipped.is_empty() {
                 mapped["skipped"] = Value::Array(skipped);

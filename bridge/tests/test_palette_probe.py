@@ -343,3 +343,106 @@ class WrapperUnwrapTest(unittest.TestCase):
         comp.extensions = [None, None]
         d = tdmcp_bridge.build_probe_digest(comp, "user:X/y", "/p/y.tox")
         self.assertNotIn("extensions", d)
+
+
+class ThumbnailProbeCtx(FakeProbeCtx):
+    """Probe context that answers the thumbnail seam with a canned shot."""
+
+    def __init__(self, comps: dict[str, Any] | None = None, shot: Any = None) -> None:
+        super().__init__(comps)
+        self.shot = shot
+        self.thumbnail_targets: list[Any] = []
+
+    def thumbnail(self, loaded: Any, comp: Any) -> Any:
+        self.thumbnail_targets.append((loaded, comp))
+        if isinstance(self.shot, Exception):
+            raise self.shot
+        return self.shot
+
+
+class ThumbnailTest(unittest.TestCase):
+    def test_wrapper_icon_is_found_and_absent_when_unwrapped(self) -> None:
+        self.assertEqual(
+            tdmcp_bridge.wrapper_icon(wrapped_palette_tox()).opType, "nullTOP"
+        )
+        # A component saved straight from a COMP ships no icon child.
+        self.assertIsNone(tdmcp_bridge.wrapper_icon(particles_comp()))
+
+    def test_thumbnail_rides_the_digest_when_asked(self) -> None:
+        ctx = ThumbnailProbeCtx(
+            {"/p/w.tox": wrapped_palette_tox()},
+            shot={"ok": True, "imageBase64": "QUJD", "mimeType": "image/png"},
+        )
+        out = tdmcp_bridge.run_probe(
+            ctx,
+            [{"paletteId": "builtin:Tools/w", "toxPath": "/p/w.tox"}],
+            "summary",
+            thumbnails=True,
+        )
+        row = out["results"][0]
+        self.assertTrue(row["ok"])
+        self.assertEqual(row["thumbnailBase64"], "QUJD")
+        self.assertEqual(row["thumbnailMime"], "image/png")
+        self.assertNotIn("thumbnailNote", row)
+
+    def test_the_payload_is_what_gets_rendered_not_the_wrapper(self) -> None:
+        # Same unwrap law as the digest: the wrapper is an icon in a box.
+        ctx = ThumbnailProbeCtx(
+            {"/p/w.tox": wrapped_palette_tox()},
+            shot={"imageBase64": "QUJD"},
+        )
+        tdmcp_bridge.run_probe(
+            ctx,
+            [{"paletteId": "builtin:Tools/w", "toxPath": "/p/w.tox"}],
+            "summary",
+            thumbnails=True,
+        )
+        loaded, comp = ctx.thumbnail_targets[0]
+        self.assertEqual(loaded.opType, "baseCOMP")       # the wrapper
+        self.assertEqual(comp.opType, "containerCOMP")    # the real component
+
+    def test_a_frame_that_drew_nothing_is_reported_not_stored(self) -> None:
+        # An all-black tile in the UI reads as a bug; the placeholder does not.
+        for code in ("tdmcp.perception.black_frame", "tdmcp.perception.uniform_frame"):
+            with self.subTest(code=code):
+                ctx = ThumbnailProbeCtx(
+                    {"/p/w.tox": wrapped_palette_tox()},
+                    shot={"ok": False, "code": code, "imageBase64": "QUJD"},
+                )
+                out = tdmcp_bridge.run_probe(
+                    ctx,
+                    [{"paletteId": "builtin:Tools/w", "toxPath": "/p/w.tox"}],
+                    "summary",
+                    thumbnails=True,
+                )
+                row = out["results"][0]
+                self.assertTrue(row["ok"])
+                self.assertEqual(row["thumbnailNote"], code)
+                self.assertNotIn("thumbnailBase64", row)
+
+    def test_a_thumbnail_failure_never_downgrades_the_row(self) -> None:
+        for shot in (RuntimeError("gpu is on fire"), None, {}, {"imageBase64": ""}):
+            with self.subTest(shot=shot):
+                ctx = ThumbnailProbeCtx(
+                    {"/p/w.tox": wrapped_palette_tox()}, shot=shot
+                )
+                out = tdmcp_bridge.run_probe(
+                    ctx,
+                    [{"paletteId": "builtin:Tools/w", "toxPath": "/p/w.tox"}],
+                    "summary",
+                    thumbnails=True,
+                )
+                row = out["results"][0]
+                self.assertTrue(row["ok"])
+                self.assertEqual(row["opType"], "containerCOMP")
+                self.assertNotIn("thumbnailBase64", row)
+
+    def test_thumbnails_are_off_by_default(self) -> None:
+        ctx = ThumbnailProbeCtx(
+            {"/p/w.tox": wrapped_palette_tox()}, shot={"imageBase64": "QUJD"}
+        )
+        out = tdmcp_bridge.run_probe(
+            ctx, [{"paletteId": "builtin:Tools/w", "toxPath": "/p/w.tox"}], "summary"
+        )
+        self.assertNotIn("thumbnailBase64", out["results"][0])
+        self.assertEqual(ctx.thumbnail_targets, [])
