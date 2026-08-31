@@ -81,6 +81,21 @@ pub fn run(
             builder.with_activation_policy(ActivationPolicy::Accessory);
         }));
     }
+    // winit's Wayland backend can't hide windows (set_visible is a no-op), so
+    // run on XWayland; TDMCP_GUI_BACKEND=wayland opts back into Wayland.
+    #[cfg(target_os = "linux")]
+    {
+        use winit::platform::x11::EventLoopBuilderExtX11 as _;
+        let use_x11 = match std::env::var("TDMCP_GUI_BACKEND").as_deref() {
+            Ok("wayland") => false,
+            _ => std::env::var("DISPLAY").is_ok_and(|d| !d.is_empty()),
+        };
+        if use_x11 {
+            options.event_loop_builder = Some(Box::new(|builder| {
+                builder.with_x11();
+            }));
+        }
+    }
     eframe::run_native(
         "td-mcp-rs",
         options,
