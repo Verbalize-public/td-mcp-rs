@@ -249,7 +249,7 @@ const SLAVE_ID: &str = "91ac33dd-02ea-49ab-8d10-9988aabbccdd";
 fn inject_status(app: &mut DashboardApp, role: &str, mcp: usize, _port: u16) {
     let body = json!({
         "ok": true,
-        "version": "0.9.3",
+        "version": "0.1.4",
         "pid": std::process::id(),
         "mcpSessionCount": mcp,
         "bridgeCount": 2,
@@ -285,7 +285,7 @@ fn sessions_fixture() -> String {
 fn slaves_fixture() -> String {
     json!({
         "slaves": [
-            {"daemonId": SLAVE_ID, "hostname": "studio-b", "version": "0.9.1",
+            {"daemonId": SLAVE_ID, "hostname": "studio-b", "version": "0.1.3",
              "baseUrl": "http://192.168.1.50:9860", "authToken": "",
              "reachability": "reachable", "processCount": 3}
         ]
@@ -295,7 +295,7 @@ fn slaves_fixture() -> String {
 
 const PROBE_FIXTURE: &str = r#"{
     "role": "slave",
-    "version": "0.9.1",
+    "version": "0.1.3",
     "hostname": "studio-c",
     "daemonId": "55667788-aabb-4cdd-8eef-001122334455"
 }"#;
@@ -308,7 +308,7 @@ fn scan_hits() -> Vec<ScanHit> {
             role: "slave".to_owned(),
             hostname: "studio-b".to_owned(),
             daemon_id: SLAVE_ID.to_owned(),
-            version: "0.9.1".to_owned(),
+            version: "0.1.3".to_owned(),
         },
         ScanHit {
             host: "192.168.1.62".to_owned(),
@@ -316,7 +316,7 @@ fn scan_hits() -> Vec<ScanHit> {
             role: "slave".to_owned(),
             hostname: "studio-c".to_owned(),
             daemon_id: "55667788-aabb-4cdd-8eef-001122334455".to_owned(),
-            version: "0.9.1".to_owned(),
+            version: "0.1.3".to_owned(),
         },
     ]
 }

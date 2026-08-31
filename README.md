@@ -15,7 +15,16 @@ your whole studio, with whatever assistant you already use.**
 [![Platform](https://img.shields.io/badge/Windows%20%C2%B7%20macOS-b58cff?style=flat-square)](#step-1--install-the-daemon)
 [![Buy me a coffee](https://img.shields.io/badge/%E2%98%95_Buy_me_a_coffee-FFDD00?style=flat-square&logo=buymeacoffee&logoColor=000000)](https://buymeacoffee.com/asyade)
 
-<img src="docs/screens/overview-populated.png" alt="The td-mcp-rs dashboard showing a live TouchDesigner fleet across two machines" width="860">
+<table>
+  <tr>
+    <td width="50%" align="center"><img src="docs/screens/overview-populated.png" alt="Overview tab — every TouchDesigner and assistant client, live" width="420"><br><sub><b>Overview</b> · fleet, clients and activity across machines</sub></td>
+    <td width="50%" align="center"><img src="docs/screens/palette-tree.png" alt="Palette tab — browse your component library with previews and agent-ready cards" width="420"><br><sub><b>Palette</b> · your components, with agent-ready reference cards</sub></td>
+  </tr>
+  <tr>
+    <td width="50%" align="center"><img src="docs/screens/logs-filtered.png" alt="Logs tab — filter, search and follow the daemon log" width="420"><br><sub><b>Logs</b> · filter, search, follow or pause</sub></td>
+    <td width="50%" align="center"><img src="docs/screens/settings-dirty.png" alt="Settings tab — every knob with honest save gating" width="420"><br><sub><b>Settings</b> · every knob, honest save gating</sub></td>
+  </tr>
+</table>
 
 **[Quick start](#quick-start) · [What you can ask for](#what-you-can-actually-ask-for) · [Federation](#federation--one-agent-many-machines) · [The toolbox](#the-toolbox) · [Full install guide](docs/INSTALL.md)**
 
