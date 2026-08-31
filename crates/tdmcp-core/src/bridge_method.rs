@@ -23,6 +23,8 @@ pub enum BridgeMethod {
     ApiHelp,
     /// Live editor pane / selection snapshot.
     EditorContext,
+    /// Load palette components and digest their interface.
+    PaletteProbe,
     /// Liveness ping.
     Ping,
 }
@@ -38,6 +40,7 @@ impl BridgeMethod {
             Self::MutateNodes => "mutate_nodes",
             Self::ApiHelp => "api_help",
             Self::EditorContext => "editor_context",
+            Self::PaletteProbe => "palette_probe",
             Self::Ping => "ping",
         }
     }
@@ -52,6 +55,7 @@ impl BridgeMethod {
             Self::MutateNodes => "Mutate",
             Self::ApiHelp => "ApiHelp",
             Self::EditorContext => "EditorContext",
+            Self::PaletteProbe => "PaletteProbe",
             Self::Ping => "Ping",
         }
     }
@@ -64,6 +68,7 @@ impl BridgeMethod {
         Self::MutateNodes,
         Self::ApiHelp,
         Self::EditorContext,
+        Self::PaletteProbe,
         Self::Ping,
     ];
 
@@ -76,6 +81,7 @@ impl BridgeMethod {
             "mutate_nodes" => Some(Self::MutateNodes),
             "api_help" => Some(Self::ApiHelp),
             "editor_context" => Some(Self::EditorContext),
+            "palette_probe" => Some(Self::PaletteProbe),
             "ping" => Some(Self::Ping),
             _ => None,
         }

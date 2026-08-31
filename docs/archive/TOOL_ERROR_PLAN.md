@@ -1,5 +1,7 @@
 # Curated Tool-Call Error Diagnostics — Plan
 
+> **Archived 2026-08-31** — implemented & verified; behavior summarized in [CONTRACT.md](../CONTRACT.md).
+
 > **Status: implemented & verified (2026-08-25).** All milestones below are
 > done; live probes confirmed the curated payloads through the daemon's HTTP
 > surface, and `stdio_proxy_forwards_curated_arg_errors` covers the stdio

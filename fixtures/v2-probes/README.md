@@ -2,8 +2,8 @@
 
 Evidence captured by `scripts/probes/v2/*.ps1` against TouchDesigner 2025.32460
 (2026-08-25). Findings and their consequences live in
-[`docs/SKILLS_CONTRACT_PROPOSAL.md`](../../docs/SKILLS_CONTRACT_PROPOSAL.md) §6.1 and
-[`docs/V2_IMPLEMENTATION_PLAN.md`](../../docs/V2_IMPLEMENTATION_PLAN.md).
+[`docs/archive/SKILLS_CONTRACT_PROPOSAL.md`](../../docs/archive/SKILLS_CONTRACT_PROPOSAL.md) §6.1 and
+[`docs/archive/V2_IMPLEMENTATION_PLAN.md`](../../docs/archive/V2_IMPLEMENTATION_PLAN.md).
 
 | File | What it proves |
 | --- | --- |

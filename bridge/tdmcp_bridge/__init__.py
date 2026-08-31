@@ -29,6 +29,7 @@ from . import (
     inspect as _inspect,
     logtap as _logtap,
     mutate as _mutate,
+    palette as _palette,
     paths as _paths,
     suggest as _suggest,
     task_queue as _task_queue,
@@ -70,6 +71,7 @@ for _mod in (
     _capture,
     _inspect,
     _mutate,
+    _palette,
     _api_help,
     _editor_context,
     _identity,
@@ -107,6 +109,11 @@ class MutateNodesParams(TypedDict):
     detailLevel: NotRequired[str]
 
 
+class PaletteProbeParams(TypedDict):
+    targets: list[dict[str, Any]]
+    detailLevel: NotRequired[str]
+
+
 class BridgeOkResult(TypedDict):
     ok: bool
     result: NotRequired[Any]
@@ -128,6 +135,7 @@ HANDLERS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "mutate_nodes": handle_mutate,
     "api_help": handle_api_help,
     "editor_context": handle_editor_context,
+    "palette_probe": handle_palette_probe,
     "ping": lambda _p: {"ok": True, "pong": True},
 }
 

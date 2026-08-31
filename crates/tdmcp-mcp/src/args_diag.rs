@@ -418,9 +418,10 @@ mod tests {
         assert_eq!(item.code, "tdmcp.args.missing_field");
         assert_eq!(item.layer, tdmcp_diagnostics::DiagnosticLayer::Args);
         assert_eq!(item.span.field.as_deref(), Some("steps[0].op"));
+        // Derived from the schema, so a new step op shows up here for free.
         assert!(item
             .message
-            .contains("one of create, set, delete, connect, disconnect"));
+            .contains("one of create, set, delete, connect, place, disconnect"));
     }
 
     #[test]

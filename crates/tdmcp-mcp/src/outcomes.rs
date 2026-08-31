@@ -434,6 +434,45 @@ pub fn map_api_help_outcome(
     }
 }
 
+/// Map a `palette_probe` outcome.
+///
+/// The bridge returns flat `{ok, results: [...], scratchPath, ...}` with
+/// partial success inside `results` — a component that fails to load is an
+/// error row, never a failed batch.
+pub fn map_palette_probe_outcome(
+    catalog: &Catalog,
+    pid: Pid,
+    outcome: BridgeOutcome,
+    _diagnostic_level: DiagnosticLevel,
+) -> Result<Value, ToolCallError> {
+    let span = span("palette_probe", Some("select".into()));
+    match outcome {
+        BridgeOutcome::Ok(value) => {
+            let env = BridgeResultEnvelope::from_value(&value);
+            if env.is_error() {
+                let code = match env.code.as_deref() {
+                    Some(codes::PALETTE_LOAD_FAILED) => codes::PALETTE_LOAD_FAILED,
+                    _ => codes::PALETTE_PROBE_FAILED,
+                };
+                let msg = env.message_or("palette probe failed");
+                let item = build_diag(
+                    catalog,
+                    code,
+                    span,
+                    Some(msg),
+                    ctx(pid, None, None),
+                    DiagnosticLayer::Structure,
+                );
+                Err(failed_one(item))
+            } else {
+                Ok(value)
+            }
+        }
+        BridgeOutcome::QueueBusy => Err(queue_busy(catalog, "palette_probe", pid)),
+        BridgeOutcome::Transport(err) => Err(transport(catalog, "palette_probe", pid, err)),
+    }
+}
+
 /// Map a `mutate_nodes` outcome.
 pub fn map_mutate_outcome(
     catalog: &Catalog,

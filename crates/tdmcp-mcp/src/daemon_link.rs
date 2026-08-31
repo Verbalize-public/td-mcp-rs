@@ -175,7 +175,9 @@ impl ReconnectConfig {
     /// Wall-clock budget for a forwarded `tools/call`, by method class.
     #[must_use]
     pub fn tool_call_budget(&self, name: &str) -> Duration {
-        if matches!(name, "execute_python" | "mutate_nodes") {
+        // palette_probe loads .tox files from disk and cooks them — slow like
+        // a script, not like a read.
+        if matches!(name, "execute_python" | "mutate_nodes" | "palette_probe") {
             self.script_timeout
         } else {
             self.call_timeout

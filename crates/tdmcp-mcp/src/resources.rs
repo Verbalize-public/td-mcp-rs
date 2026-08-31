@@ -28,6 +28,9 @@ No connected pid? `spawn_td` / `kill_td` — tdmcp://docs/lifecycle. \
 Calls stalling or a modal popup? `dialogs` — tdmcp://docs/popups. \
 Offline .toe/.tox, installs, bridge install: `td_installs` / `project_unpack` / \
 `project_pack` / `project_lint` / `project_install_bridge` — tdmcp://docs/project-io. \
+Before hand-building a subsystem, check the Palette: `palette_index` then \
+`mutate_nodes` op=place — tdmcp://docs/palette (building the cards: \
+`palette_probe` — tdmcp://docs/palette-scan). \
 Operate umbrella: tdmcp://docs/operate. \
 List all cards via resources/list.";
 
@@ -43,6 +46,7 @@ Before Python: resources/read tdmcp://docs/python-api. \
 No connected pid? `spawn_td` / `kill_td` — tdmcp://docs/lifecycle. \
 Calls stalling or a modal popup? `dialogs` — tdmcp://docs/popups. \
 Offline .toe/.tox, installs, bridge install: tdmcp://docs/project-io. \
+Stock .tox components: `palette_index` + `mutate_nodes` op=place — tdmcp://docs/palette. \
 Operate pack: tdmcp://docs/operate ; full catalog: resources/list. \
 Tool calls forward to the HTTP daemon; operate docs are served locally from the embed. \
 If the daemon restarts, the proxy reconnects (never auto-spawns) and returns \

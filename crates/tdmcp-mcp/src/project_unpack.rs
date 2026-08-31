@@ -116,6 +116,8 @@ pub(crate) fn code_for(e: &ProjectIoError) -> &'static str {
         ProjectIoError::RoundtripMismatch { .. } => "project.roundtrip_mismatch",
         ProjectIoError::BackupFailed { .. } => "project.backup_failed",
         ProjectIoError::BuildSkew { .. } => "project.build_skew",
+        // Palette store failures never originate here; keep the match total.
+        ProjectIoError::PaletteStore { .. } => "project.io_failed",
     }
 }
 

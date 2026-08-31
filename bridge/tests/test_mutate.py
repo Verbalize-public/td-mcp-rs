@@ -64,6 +64,9 @@ class FakeNode:
     ) -> None:
         self.path = path
         self.par = FakeParGroup()
+        # Set by the ctx that owns this node, so a rename re-keys the registry
+        # the way TD re-paths an operator.
+        self._registry: dict[str, "FakeNode"] | None = None
         self._destroyed = False
         self._children: dict[str, FakeNode] = {}
         self._op_types = op_types or {}
@@ -74,6 +77,27 @@ class FakeNode:
         self.outputConnectors = [
             FakeConnector(self, kind="out", index=i) for i in range(n_outputs)
         ]
+
+    @property
+    def name(self) -> str:
+        return self.path.rsplit("/", 1)[-1]
+
+    @name.setter
+    def name(self, new: str) -> None:
+        # TD moves the operator when you rename it; the fake must too, or
+        # placement tests would silently pass on a stale path.
+        old_path = self.path
+        parent, _ = old_path.rsplit("/", 1)
+        wanted = f"{parent or '/'}/{new}"
+        if self._registry is not None:
+            occupant = self._registry.get(wanted)
+            if occupant is not None and occupant is not self:
+                # Name taken: TD keeps the operator where it is, and the caller
+                # learns the real path from the returned `tdmcp.op.renamed` lint.
+                return
+            self._registry.pop(old_path, None)
+            self._registry[wanted] = self
+        self.path = wanted
 
     def pars(self) -> list[Any]:
         return [SimpleNamespace(name=k) for k in self.par._pars]
@@ -134,6 +158,7 @@ class FakeCtx(tdmcp_bridge.MutateContext):
         return "EXPRESSION"
 
     def track(self, node: FakeNode) -> FakeNode:
+        node._registry = self.nodes
         self.nodes[node.path] = node
         parent_path, leaf = tdmcp_bridge._parent_and_name(node.path)
         parent = self.nodes.get(parent_path)
@@ -1253,3 +1278,284 @@ class MutateCommentTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FakePaletteCtx(FakeCtx):
+    """FakeCtx plus a ``load_tox`` that mimics ``COMP.loadTox``.
+
+    TD returns the loaded component as a *child* of the receiver
+    (``docs/DEV_ENV.md`` `root.loadTox(KIT)`), under the name baked into the
+    `.tox` — which is why `_step_place` renames afterwards.
+    """
+
+    def __init__(self, *, loaded_name: str = "loaded", fail: bool = False) -> None:
+        super().__init__()
+        self.loaded_name = loaded_name
+        self.fail = fail
+        self.loads: list[str] = []
+        self.returns_none = False
+
+    def _materialize(self, parent: Any, leaf: str, op_type: str) -> FakeNode:
+        """A child of ``parent`` whose ``.name`` setter moves it, as TD's does."""
+        path = f"{parent.path.rstrip('/')}/{leaf}"
+        node = FakeNode(path, op_types=self.op_types)
+        node.opType = op_type
+        node.par = FakeParGroup({"Birthrate": FakePar(1000)})
+        node.family = "COMP"
+        parent._children[leaf] = node
+        self.track(node)
+        return node
+
+    def copy_ops(self, parent: Any, ops: list[Any]) -> list[Any]:
+        # TD suffixes the copy when the source name is taken in the destination.
+        out = [
+            self._materialize(parent, f"{o.name}1", getattr(o, "opType", None))
+            for o in ops
+        ]
+        self.copied = out
+        return out
+
+    def load_tox(self, parent: Any, tox_path: str) -> Any | None:
+        self.loads.append(tox_path)
+        if self.fail:
+            raise RuntimeError("bad tox build")
+        if self.returns_none:
+            return None
+        return self._materialize(parent, self.loaded_name, "baseCOMP")
+
+
+class MutatePlaceTest(unittest.TestCase):
+    def test_place_loads_renames_and_applies_values(self) -> None:
+        ctx = FakePaletteCtx()
+        out = tdmcp_bridge.apply_step(
+            ctx,
+            {
+                "op": "place",
+                "path": "/project1/parts",
+                "paletteId": "builtin:Tools/particlesGpu",
+                "toxPath": "/palette/Tools/particlesGpu.tox",
+                "comment": "stock GPU particles",
+                "values": {"Birthrate": 2000},
+            },
+        )
+        self.assertTrue(out["ok"], out)
+        self.assertEqual(out["path"], "/project1/parts")
+        self.assertEqual(out["paletteId"], "builtin:Tools/particlesGpu")
+        self.assertEqual(ctx.loads, ["/palette/Tools/particlesGpu.tox"])
+        placed = ctx.nodes["/project1/parts"]
+        self.assertEqual(placed.par.Birthrate.val, 2000)
+        self.assertEqual(placed.comment, "stock GPU particles")
+        # Renamed to the requested leaf, so no rename lint.
+        self.assertNotIn("lints", out)
+
+    def test_place_reports_a_rename_when_td_keeps_its_own_name(self) -> None:
+        ctx = FakePaletteCtx()
+        # A node already occupies the requested leaf name, so the rename is
+        # refused and TD keeps what it loaded.
+        placed_holder = FakeNode("/project1/parts", op_types=ctx.op_types)
+        ctx.track(placed_holder)
+
+        def stubborn_load(parent: Any, tox_path: str) -> Any:
+            child = FakeNode("/project1/particlesGpu", op_types=ctx.op_types)
+            child.opType = "baseCOMP"
+            ctx.track(child)
+            return child
+
+        ctx.load_tox = stubborn_load  # type: ignore[method-assign]
+        out = tdmcp_bridge.apply_step(
+            ctx,
+            {
+                "op": "place",
+                "path": "/project1/parts",
+                "toxPath": "/palette/Tools/particlesGpu.tox",
+            },
+        )
+        self.assertTrue(out["ok"], out)
+        self.assertEqual(out["path"], "/project1/particlesGpu")
+        self.assertEqual(out["lints"][0]["code"], "tdmcp.op.renamed")
+        self.assertEqual(
+            out["lints"][0]["suggestion"]["opPath"], "/project1/particlesGpu"
+        )
+
+    def test_place_rolls_back_when_a_value_fails(self) -> None:
+        ctx = FakePaletteCtx()
+        out = tdmcp_bridge.apply_step(
+            ctx,
+            {
+                "op": "place",
+                "path": "/project1/parts",
+                "toxPath": "/palette/x.tox",
+                "values": {"NoSuchPar": 1},
+            },
+        )
+        self.assertFalse(out["ok"])
+        placed = ctx.nodes["/project1/parts"]
+        self.assertTrue(placed._destroyed, "a failed place must not leave debris")
+
+    def test_place_surfaces_a_load_failure_as_palette_load_failed(self) -> None:
+        ctx = FakePaletteCtx(fail=True)
+        out = tdmcp_bridge.apply_step(
+            ctx,
+            {"op": "place", "path": "/project1/parts", "toxPath": "/palette/x.tox"},
+        )
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["code"], "tdmcp.palette.load_failed")
+        self.assertIn("bad tox build", out["message"])
+
+    def test_place_reports_a_load_that_produced_nothing(self) -> None:
+        ctx = FakePaletteCtx()
+        ctx.returns_none = True
+        out = tdmcp_bridge.apply_step(
+            ctx,
+            {"op": "place", "path": "/project1/parts", "toxPath": "/palette/x.tox"},
+        )
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["code"], "tdmcp.palette.load_failed")
+
+    def test_place_requires_a_resolved_tox_path(self) -> None:
+        # The daemon resolves paletteId; a step arriving without toxPath is a
+        # contract break, not something to guess at.
+        ctx = FakePaletteCtx()
+        out = tdmcp_bridge.apply_step(
+            ctx,
+            {"op": "place", "path": "/project1/parts", "paletteId": "builtin:Tools/x"},
+        )
+        self.assertFalse(out["ok"])
+        self.assertIn("toxPath", out["message"])
+
+    def test_place_fails_when_the_parent_is_missing(self) -> None:
+        ctx = FakePaletteCtx()
+        out = tdmcp_bridge.apply_step(
+            ctx,
+            {"op": "place", "path": "/nope/parts", "toxPath": "/palette/x.tox"},
+        )
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["code"], "tdmcp.op.not_found")
+
+    def test_a_renamed_placement_remaps_later_steps_in_the_batch(self) -> None:
+        ctx = FakePaletteCtx()
+        blocker = FakeNode("/project1/parts", op_types=ctx.op_types)
+        ctx.track(blocker)
+        target = FakeNode("/project1/out1", op_types=ctx.op_types)
+        ctx.track(target)
+
+        def stubborn_load(parent: Any, tox_path: str) -> Any:
+            child = FakeNode("/project1/particlesGpu", op_types=ctx.op_types)
+            child.opType = "baseCOMP"
+            ctx.track(child)
+            return child
+
+        ctx.load_tox = stubborn_load  # type: ignore[method-assign]
+        out = tdmcp_bridge.run_mutate_steps(
+            ctx,
+            [
+                {
+                    "op": "place",
+                    "path": "/project1/parts",
+                    "toxPath": "/palette/x.tox",
+                },
+                {"op": "connect", "src": "/project1/parts", "dst": "/project1/out1"},
+            ],
+            context_path="/project1",
+            detail_level="detailed",
+        )
+        self.assertTrue(out["ok"], out)
+        # The connect followed the placement to its real path.
+        self.assertEqual(out["steps"][1]["src"], "/project1/particlesGpu")
+        placed = ctx.nodes["/project1/particlesGpu"]
+        self.assertEqual(
+            placed.outputConnectors[0].connections,
+            [target.inputConnectors[0]],
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+
+class PlaceUnwrapsPaletteWrapperTest(unittest.TestCase):
+    """A stock palette `.tox` is a wrapper (icon + help + the real component).
+
+    Placing the wrapper would drop a parameterless baseCOMP with an icon into
+    the network — verified live against TouchDesigner before this was fixed.
+    """
+
+    def ctx_with_wrapper(self) -> FakePaletteCtx:
+        ctx = FakePaletteCtx(loaded_name="particlesGpu")
+        orig = ctx.load_tox
+
+        def load_wrapper(parent: Any, tox_path: str) -> Any:
+            wrapper = orig(parent, tox_path)
+            payload = FakeNode(f"{wrapper.path}/particlesGpu", op_types=ctx.op_types)
+            payload.opType = "containerCOMP"
+            payload.family = "COMP"
+            payload.__dict__["name"] = "particlesGpu"
+            payload.par = FakeParGroup({"Birthrate": FakePar(1000)})
+            payload.customPars = [SimpleNamespace(name="Birthrate")]
+            icon = FakeNode(f"{wrapper.path}/icon", op_types=ctx.op_types)
+            icon.opType = "nullTOP"
+            icon.__dict__["name"] = "icon"
+            wrapper.children = [icon, payload]
+            wrapper.customPars = []
+            return wrapper
+
+        ctx.load_tox = load_wrapper  # type: ignore[method-assign]
+        return ctx
+
+    def test_place_lifts_the_component_out_and_drops_the_wrapper(self) -> None:
+        ctx = self.ctx_with_wrapper()
+        out = tdmcp_bridge.apply_step(
+            ctx,
+            {
+                "op": "place",
+                "path": "/project1/parts",
+                "paletteId": "builtin:Tools/particlesGpu",
+                "toxPath": "/palette/Tools/particlesGpu.tox",
+                "values": {"Birthrate": 2000},
+            },
+            detail_level="detailed",
+        )
+        self.assertTrue(out["ok"], out)
+        self.assertTrue(out["unwrapped"])
+        self.assertEqual(out["opType"], "containerCOMP", "the payload, not the wrapper")
+        self.assertEqual(out["path"], "/project1/parts")
+        placed = ctx.nodes["/project1/parts"]
+        self.assertEqual(placed.par.Birthrate.val, 2000)
+        # The wrapper (and its icon) must not survive in the user's network.
+        wrapper = ctx.nodes["/project1/particlesGpu"]
+        self.assertTrue(wrapper._destroyed)
+
+    def test_a_copy_failure_leaves_no_wrapper_behind(self) -> None:
+        ctx = self.ctx_with_wrapper()
+
+        def boom(parent: Any, ops: list[Any]) -> list[Any]:
+            raise RuntimeError("copyOPs refused")
+
+        ctx.copy_ops = boom  # type: ignore[method-assign]
+        out = tdmcp_bridge.apply_step(
+            ctx,
+            {"op": "place", "path": "/project1/parts", "toxPath": "/palette/x.tox"},
+        )
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["code"], "tdmcp.palette.load_failed")
+        self.assertTrue(ctx.nodes["/project1/particlesGpu"]._destroyed)
+
+    def test_an_empty_copy_is_a_load_failure_not_a_silent_success(self) -> None:
+        ctx = self.ctx_with_wrapper()
+        ctx.copy_ops = lambda parent, ops: []  # type: ignore[method-assign]
+        out = tdmcp_bridge.apply_step(
+            ctx,
+            {"op": "place", "path": "/project1/parts", "toxPath": "/palette/x.tox"},
+        )
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["code"], "tdmcp.palette.load_failed")
+
+    def test_a_plain_user_tox_is_placed_as_is(self) -> None:
+        ctx = FakePaletteCtx(loaded_name="myThing")
+        out = tdmcp_bridge.apply_step(
+            ctx,
+            {"op": "place", "path": "/project1/mine", "toxPath": "/mine/myThing.tox"},
+            detail_level="detailed",
+        )
+        self.assertTrue(out["ok"], out)
+        self.assertFalse(out["unwrapped"], "nothing to unwrap; no copy round-trip")

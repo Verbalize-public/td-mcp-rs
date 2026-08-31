@@ -1,9 +1,12 @@
 # Observability & Logging — Spec
 
-Status: **M1/M2/M4/M5/M6 shipped; M3 planned** (spec v2 — challenged & revised;
-implementation plan: [`OBSERVABILITY_PLAN.md`](OBSERVABILITY_PLAN.md)). M3 (TD
-textport mirror / face LOGS upgrade) needs its own T3.1 live-verify gate
-against a real TD instance before implementation starts — not yet run.
+Status: **shipped; one open item** (spec v2 — challenged & revised;
+implementation plan archived:
+[`OBSERVABILITY_PLAN.md`](archive/OBSERVABILITY_PLAN.md)). All milestones
+landed, including M3's stream-ownership coordination (T3.2), the face LOGS
+mirror upgrade (T3.4), and the logtap test suite (T3.5). The only open item is
+T3.3 (`td.errors` polling into the log tap — plan §T3.3; note `td.errors`
+does not exist on TD 2025.32460, use `op('/').errors(recurse=True)`).
 Owner: daemon/GUI.
 Cross-refs: [`CONTRACT.md`](CONTRACT.md) (diagnostics catalog, `execute_python`
 logs), [`CONFIG.md`](CONFIG.md) (config surface — gains `[logging]`),
@@ -207,7 +210,7 @@ Textport sees, then fan out to two sinks (local `./debug` DAT and daemon):
   designed as a narrow single-column scrollback with level dots, tap-to-expand
   detail, compact filter chips, and follow-pinned-to-bottom; heavy analysis is
   delegated to "Open logs folder" in the real editor. Full UX spec:
-  [`OBSERVABILITY_PLAN.md`](OBSERVABILITY_PLAN.md) §M4. Headless (`--no-gui`)
+   [`OBSERVABILITY_PLAN.md`](archive/OBSERVABILITY_PLAN.md) §M4. Headless (`--no-gui`)
   unaffected.
 - MCP-facing convenience (P1, optional): reuse `fleet include=logs` style — a
   `logs {tail}` tool row is deliberately **not** added in v1; agents read
@@ -248,7 +251,7 @@ Rules:
    response-code test in [`TESTING.md`](TESTING.md)).
 9. Argument-shape tool failures carry `tdmcp.args.*` codes as structured
    `isError` results — raw serde strings never reach agents; mapping in
-   [`TOOL_ERROR_PLAN.md`](TOOL_ERROR_PLAN.md).
+   [`TOOL_ERROR_PLAN.md`](archive/TOOL_ERROR_PLAN.md).
 
 ## 6. Milestones
 

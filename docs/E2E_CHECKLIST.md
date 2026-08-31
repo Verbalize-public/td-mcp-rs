@@ -150,7 +150,7 @@ Zone
 `null1` remapped to `null2`. Occupant inputs stayed empty; `capture` top
 on `null2` non-black. HTTP `/mcp/tools/call`.
 
-### Observability (`docs/OBSERVABILITY_PLAN.md`)
+### Observability (`docs/archive/OBSERVABILITY_PLAN.md`)
 
 M1 (central sink), M2 (bridge uplink), M4 (admin API + tray Logs view), and
 M5 (proxy ingest) are implemented and covered by non-live tests (Rust
@@ -246,7 +246,7 @@ in `bridge/tdmcp_bridge/__init__.py` and covered by `bridge/tests/test_bridge_qu
 
 Evidence transcripts: session log 2026-08-26; artifacts under
 `fixtures/v2-probes/r0/`. Known degraded subsets recorded in the blocked ledger
-of [`V2_IMPLEMENTATION_PLAN.md`](V2_IMPLEMENTATION_PLAN.md) — none open.
+of [`V2_IMPLEMENTATION_PLAN.md`](archive/V2_IMPLEMENTATION_PLAN.md) — none open.
 
 ## macOS — Project I/O / Lifecycle / Dialogs (port 2026-08-26)
 
@@ -265,3 +265,42 @@ Shell probes: [`scripts/probes/v2-macos/`](../scripts/probes/v2-macos/). Run
 | V8 | `dialogs list` returns popups + `accessibilityGranted` | probe (manual) |
 | V9 | Intercept `tdmcp.dialog.blocking` during modal + dismiss recovery | probe (manual, TCC) |
 | V10 | `fleet` + `describe_tools` lists 16 tools | probe |
+
+## Palette awareness (recorded 2026-08-31, TD 2025.x on macOS)
+
+Run against a live TouchDesigner spawned on a throwaway project
+(`/tmp/tdmcp-palette-e2e/palette_probe.toe`), driven over
+`POST /mcp/tools/call`. Rebuild loop between rounds: `tdmcp-daemon stop` →
+`cargo build --workspace` → `tdmcp-daemon install --force` → `ensure`.
+
+| # | Check | Result |
+| --- | --- | --- |
+| P1 | `palette_index {action:"scan"}` indexed **281** builtin `.tox` across 17 categories from `/Applications/TouchDesigner.app/Contents/Resources/tfs/Samples/Palette`; 78 pre-blacklisted from `[palette].ignore` | PASS |
+| P2 | `list {category:"Tools", limit:5}` → 5 one-line rows, `total: 49`, `truncation.nextOffset: 5` | PASS |
+| P3 | `spawn_td` throwaway → `palette_probe` returned real interfaces: `particlesGpu` 6 par pages (31/43/18/4/34/3), 5 inputs, 3 outputs, 185 children, 154-char help; `bloom` and `audioAnalysis` likewise | PASS |
+| P4 | `inspect ["/"]` after probing → root children are `ui/sys/local/perform/project1` only; **no `tdmcp_probe`**, no loaded components | PASS |
+| P5 | `describe` → `get` returns the card body and `cardStatus:"described"`; `stats` `undescribed` drops by the batch size | PASS |
+| P6 | One batch: create zone → `place builtin:Tools/particlesGpu` (`unwrapped:true`, `containerCOMP`, `Particles:2000`) → create null → `connect` — all 6 steps applied; `inspect` shows the wire resolving to `parts/out1`, zero errors, `Particles=2000`; `capture` non-black, and pulsing `Create` visibly increased particles (5859 → 6415 B). Repeated with `builtin:ImageFilters/bloom` in a noise→bloom→null chain; setting `Threshold`/`Intensity`/`Blursize`/`Glowcolor*` changed the capture (2240 → 14656 B) | PASS |
+| P7 | `place` with an unknown `paletteId` → `tdmcp.palette.unknown_id`, span `steps[0].paletteId`, catalog mitigation attached, **zero nodes created**; both-fields → `tdmcp.args.unknown_field` on `steps[0].toxPath`; neither → `tdmcp.args.missing_field` | PASS |
+| P8 | Blacklist: an all-ignored selection returns `skipped[]` + `skippedTotal:20` + a `note`. Corrupt `.tox` → `tdmcp.palette.load_failed` as **one error row in an `ok:true` batch**; second failure auto-blacklisted it (`ignoredAuto:true`) and the next bulk run skipped it with a reason; no debris at `/`. A stranded breadcrumb is surfaced by `scan` as `suspect` + `suspectHint`, and the entry lists under `status:"failed"`. A dispatch to a dead pid returns `tdmcp.bridge.lost` and **clears** the breadcrumb rather than blaming its components | PASS |
+| P9 | Own component: `COMP.save` into `[palette].user_root` → `scan` added it as `user:MyRig/myWidget` (total 282) with the builtin roster intact; probe reported `wrapped` absent and surfaced its own `Widget`/`Gain` page and `out1` pin; `place` landed it with `unwrapped:false` | PASS |
+| P10 | `/mcp/tools/list` → **18** tools including `palette_index` and `palette_probe` | PASS |
+
+### Fixed during this run
+
+| Finding | Fix |
+| --- | --- |
+| Every stock palette `.tox` is a **wrapper** (icon + help + the real component). The digest reported `customPars: []` / `inputs: []` for all 281, and `place` would have dropped a parameterless shell with an icon into the network | `palette_payload()` detection (no own pars + self-named COMP child), digest unwraps and lifts the `help` DAT, `place` lifts the payload out with `COMP.copyOPs` and destroys the shell (`wrapped` / `unwrapped` reported) |
+| A fully blacklisted selection returned `results:[] skipped:[]` — silent, and indistinguishable from an empty palette. The selector filtered ignored entries out before the skip-reason loop, making `skipped` dead code | Probe planning now matches blacklisted entries and rejects them per-entry, reporting `skipped[]` (capped) + `skippedTotal` + an explanatory `note` |
+| A probe naming an id absent from the index returned an empty batch instead of an error | `plan_probe` fails `tdmcp.palette.unknown_id` naming the bad ids |
+| Any failed dispatch stranded the in-flight breadcrumb, so the next `scan` accused components that never ran | Only `Timeout` / mid-call `Disconnected` strand it; queue-busy, unknown pid, and not-connected clear it |
+| An un-extended COMP reported `extensions: [{class: "NoneType"}]` | Empty extension slots are dropped |
+
+### Dev-loop caveats (pre-existing, not palette-specific)
+
+- `tdmcp-daemon install` skips re-extraction when `install.version` matches, so
+  an edited `bridge/` package silently does **not** reach `{data_dir}`. Use
+  `install --force` after any bridge edit, and clear
+  `{data_dir}/bridge/tdmcp_bridge/__pycache__`.
+- `install` also **resets `config.toml`**, dropping local `[palette]` edits —
+  back it up across a forced install.

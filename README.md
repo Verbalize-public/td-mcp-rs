@@ -201,10 +201,20 @@ Once connected, the AI has a small, focused toolbox:
 | `project_install_bridge` | Install or refresh the MCP bridge inside any project file |
 | `spawn_td` / `kill_td` | Start TouchDesigner on a project (deterministic pid) and close it |
 | `dialogs` | See and dismiss TouchDesigner popups that block automation |
+| `palette_index` | Browse the Palette — the `.tox` components TouchDesigner ships, plus your own |
+| `palette_probe` | Look inside palette components so it learns what each one is for |
 
 The AI can also read built-in TouchDesigner guides (OpSketch, Python
 cheatsheet, primers, …) through the connection, so it doesn't have to guess —
 or ask you to explain your setup.
+
+**Palette awareness.** TouchDesigner ships hundreds of ready-made components in
+its Palette, and you probably have your own. `palette_index` lets the AI find
+them and `mutate_nodes` drops one into your network — so it reaches for
+`particlesGpu` instead of rebuilding a particle system badly. Nothing about your
+palette ships with this tool: the AI builds that knowledge on your machine, a
+slice at a time, and you can blacklist any component you would rather it never
+load. Ask it to "learn my palette" to start.
 
 <details>
 <summary><b>Fine print</b> — caps and conventions for power users</summary>

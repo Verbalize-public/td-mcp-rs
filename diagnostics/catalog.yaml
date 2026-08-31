@@ -965,14 +965,14 @@ entries:
 
   - code: tdmcp.spawn.blocked_by_dialog
     layer: fleet
-    # Reserved in 1.0 — spawn uses outcome:"wait_timeout" + startupDialogs instead (see HANDOFF_V2 deviation).
+    # Reserved in 1.0 — spawn uses outcome:"wait_timeout" + startupDialogs instead (see docs/archive/HANDOFF_V2.md deviation note).
     message: "Startup popups are blocking the handshake"
     mitigation:
       - "Run dialogs action=list then dismiss each popup; spawn continues waiting"
 
   - code: tdmcp.spawn.exited_early
     layer: fleet
-    # Reserved in 1.0 — spawn uses outcome:"exited_early" + exitCode instead (see HANDOFF_V2 deviation).
+    # Reserved in 1.0 — spawn uses outcome:"exited_early" + exitCode instead (see docs/archive/HANDOFF_V2.md deviation note).
     message: "TouchDesigner exited before handshake"
     mitigation:
       - "Check exitCode; verify project path and licence state"
@@ -994,3 +994,84 @@ entries:
     message: "Terminate failed (permissions/elevation)"
     mitigation:
       - "Run daemon elevated if the target is elevated"
+
+  - code: tdmcp.palette.no_roots
+    layer: args
+    message: "No palette folder found"
+    mitigation:
+      - "Check td_installs shows an install with a palette folder; or set [palette].user_root to your own .tox folder"
+    references:
+      - kind: tool
+        id: td_installs
+      - kind: doc
+        id: palette
+        uri: tdmcp://docs/palette
+
+  - code: tdmcp.palette.not_indexed
+    layer: args
+    message: "Palette index is empty"
+    mitigation:
+      - "Run palette_index with action=scan to build the roster first"
+    references:
+      - kind: tool
+        id: palette_index
+      - kind: doc
+        id: palette
+        uri: tdmcp://docs/palette
+
+  - code: tdmcp.palette.unknown_id
+    layer: args
+    message: "Unknown paletteId"
+    mitigation:
+      - "List candidates with palette_index action=list; ids look like builtin:Tools/particlesGpu"
+    references:
+      - kind: tool
+        id: palette_index
+
+  - code: tdmcp.palette.tox_missing
+    layer: args
+    message: "Indexed component .tox is gone from disk"
+    mitigation:
+      - "Re-run palette_index action=scan to reconcile the index with disk"
+    references:
+      - kind: tool
+        id: palette_index
+
+  - code: tdmcp.palette.ignored
+    layer: args
+    message: "Component is on the palette probe blacklist"
+    mitigation:
+      - "Pass includeIgnored=true to probe it deliberately, or clear it with palette_index action=unignore"
+    references:
+      - kind: doc
+        id: palette-scan
+        uri: tdmcp://docs/palette-scan
+
+  - code: tdmcp.palette.load_failed
+    layer: mutate
+    message: "TouchDesigner could not load the .tox"
+    mitigation:
+      - "Verify the file opens in TD by hand; check the TD build matches the component"
+    references:
+      - kind: doc
+        id: palette
+        uri: tdmcp://docs/palette
+
+  - code: tdmcp.palette.probe_failed
+    layer: structure
+    message: "Palette probe could not digest the component"
+    mitigation:
+      - "Ignore it with palette_index action=ignore and continue the bulk run"
+    references:
+      - kind: doc
+        id: palette-scan
+        uri: tdmcp://docs/palette-scan
+
+  - code: tdmcp.palette.store_failed
+    layer: args
+    message: "Palette index / card store is unreadable"
+    mitigation:
+      - "Re-run palette_index action=scan to rebuild the index; cards already written are kept"
+    references:
+      - kind: tool
+        id: palette_index

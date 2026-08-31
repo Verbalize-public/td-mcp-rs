@@ -1,0 +1,236 @@
+{
+  "$defs": {
+    "DetailLevel": {
+      "description": "Structural detail level.",
+      "oneOf": [
+        {
+          "const": "summary",
+          "description": "Direct-child roster as `{name, opType}` (capped at 256; see `node.truncation`).",
+          "type": "string"
+        },
+        {
+          "const": "detailed",
+          "description": "Direct-child roster as `{path, family, opType}` (same 256 cap — does not uncap).",
+          "type": "string"
+        }
+      ]
+    },
+    "DiagnosticLevel": {
+      "description": "Payload size for diagnostics (independent of structural `detailLevel`).",
+      "oneOf": [
+        {
+          "const": "summary",
+          "description": "Codes, messages, capped lints, mitigation.",
+          "type": "string"
+        },
+        {
+          "const": "detailed",
+          "description": "Plus raw traceback / full TD dumps.",
+          "type": "string"
+        }
+      ]
+    },
+    "LenientU32": {
+      "anyOf": [
+        {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "pattern": "^\\s*[0-9]+\\s*$",
+          "type": "string"
+        }
+      ],
+      "description": "Unsigned 32-bit integer; accepts a JSON number or a decimal numeric string."
+    },
+    "PaletteSelectorArg": {
+      "additionalProperties": false,
+      "description": "Which entries a bulk action applies to. Shared by `palette_index` and\n`palette_probe` so partial-palette selection is defined once.",
+      "properties": {
+        "category": {
+          "default": null,
+          "description": "Category prefix; `Tools` also matches `Tools/Sub`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "ids": {
+          "default": null,
+          "description": "Exact ids. Explicit ids bypass the blacklist — asking is deliberate.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "includeIgnored": {
+          "default": false,
+          "description": "Include blacklisted entries.",
+          "type": "boolean"
+        },
+        "limit": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LenientU32"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Max entries returned / probed."
+        },
+        "match": {
+          "default": null,
+          "description": "`*` / `?` glob over the id.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "offset": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LenientU32"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Skip this many matches first."
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PaletteSourceArg"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Restrict to one root."
+        },
+        "status": {
+          "$ref": "#/$defs/PaletteStatusArg",
+          "description": "Card / probe status."
+        }
+      },
+      "type": "object"
+    },
+    "PaletteSourceArg": {
+      "description": "Wire form of [`PaletteSource`].",
+      "oneOf": [
+        {
+          "const": "builtin",
+          "description": "Shipped with the TouchDesigner install.",
+          "type": "string"
+        },
+        {
+          "const": "user",
+          "description": "The user's own palette folder.",
+          "type": "string"
+        }
+      ]
+    },
+    "PaletteStatusArg": {
+      "description": "Card / probe status filter.",
+      "oneOf": [
+        {
+          "const": "all",
+          "description": "No status filter.",
+          "type": "string"
+        },
+        {
+          "const": "undescribed",
+          "description": "No card yet.",
+          "type": "string"
+        },
+        {
+          "const": "described",
+          "description": "Card present and current.",
+          "type": "string"
+        },
+        {
+          "const": "stale",
+          "description": "Card present but the `.tox` changed under it.",
+          "type": "string"
+        },
+        {
+          "const": "failed",
+          "description": "Last probe failed, or the entry is a wedge suspect.",
+          "type": "string"
+        },
+        {
+          "const": "ignored",
+          "description": "On the probe blacklist.",
+          "type": "string"
+        }
+      ]
+    },
+    "Pid": {
+      "anyOf": [
+        {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "pattern": "^\\s*[0-9]+\\s*$",
+          "type": "string"
+        }
+      ],
+      "description": "OS process id — sole address for tools and queues."
+    }
+  },
+  "additionalProperties": false,
+  "description": "Args for `palette_probe`.",
+  "properties": {
+    "daemonId": {
+      "default": null,
+      "description": "Optional federated daemon id (omit for local / unique remote resolve).",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "detailLevel": {
+      "$ref": "#/$defs/DetailLevel",
+      "default": "summary",
+      "description": "Structural detail level for each digest."
+    },
+    "diagnosticLevel": {
+      "$ref": "#/$defs/DiagnosticLevel",
+      "default": "summary",
+      "description": "Diagnostic payload size."
+    },
+    "includeIgnored": {
+      "default": false,
+      "description": "Probe blacklisted entries too. One of them may wedge TouchDesigner.",
+      "type": "boolean"
+    },
+    "pid": {
+      "$ref": "#/$defs/Pid",
+      "description": "Target pid — a throwaway project, never the user's work."
+    },
+    "select": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PaletteSelectorArg"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Which components to probe. Defaults to undescribed entries."
+    }
+  },
+  "required": [
+    "pid"
+  ],
+  "type": "object"
+}

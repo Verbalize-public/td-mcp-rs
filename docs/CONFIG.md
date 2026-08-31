@@ -142,7 +142,7 @@ masquerade as `tdmcp.bridge.lost`.
 
 ### `[logging]`
 
-Central JSONL sink (`docs/OBSERVABILITY_PLAN.md` M1). `dir`/`filter` are
+Central JSONL sink (`docs/archive/OBSERVABILITY_PLAN.md` M1). `dir`/`filter` are
 optional overrides — omit to use the defaults below. `filter` precedence for
 the file layer is `[logging].filter` > `RUST_LOG` > built-in default
 (`info,tdmcp_daemon=debug`); `console_level` follows the same precedence for
@@ -239,6 +239,34 @@ idle_dead_secs = 20
 ```
 
 Resolution order for `spawn_td` `createIfMissing:true`: per-call `templatePath` > `[project].template_path` > `{data_dir}/template.toe` (installed) > error `spawn.template_not_found`. The Settings dashboard exposes Locate/Reveal/Open for this file: Open launches the template with the OS default association (TouchDesigner) so any build-upgrade modal appears natively — accept it inside TD and Save over the template to adopt the new build.
+
+## Palette
+
+```toml
+[palette]
+# user_root = "C:/Users/you/Documents/Derivative/Palette"  # empty → OS default
+# store_dir = "C:/path/to/palette-store"                   # empty → {data_dir}/palette
+ignore = [
+  "builtin:TDAbleton/*", "builtin:TDBitwig/*", "builtin:TDSynchro/*",
+  "builtin:TDVR/*", "builtin:MetaQuest/*", "builtin:Vive/*", "builtin:WebRTC/*",
+]
+```
+
+The **builtin** palette folder is discovered from the TouchDesigner install and
+needs no configuration. Set `user_root` only when your own `.tox` library lives
+somewhere other than TD's default `{documents}/Derivative/Palette`.
+
+`ignore` is the **probe blacklist**, seeded into a freshly created index (an
+existing index keeps whatever you curated — edit it with `palette_index`
+`action: ignore` / `unignore`, not by editing this file). The shipped entries
+are components whose startup scripts open network sockets or expect absent
+hardware: loading one during a bulk scan can wedge TouchDesigner. Probe one
+deliberately with `palette_probe` `includeIgnored: true` if you actually need
+it.
+
+The store holds `index.json` (the roster) and `cards/*.md` (agent-written
+component cards). It is safe to delete — `palette_index action=scan` rebuilds
+the roster, though the cards go with it.
 
 ## Project I/O & dialogs (v2)
 

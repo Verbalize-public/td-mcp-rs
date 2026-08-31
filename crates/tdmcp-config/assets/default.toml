@@ -127,3 +127,22 @@ poll_ms = 1000
 # target does not yet exist. Leave unset to use {data_dir}/template.toe
 # (shipped fallback). Per-call `templatePath` can also override this.
 # template_path = "C:/path/to/my-template.toe"
+
+[palette]
+# TouchDesigner Palette component library (`palette_index` / `palette_probe`).
+# The builtin palette folder is discovered from the TD install; set `user_root`
+# only if your own palette lives somewhere other than the TD default.
+# user_root = "C:/Users/you/Documents/Derivative/Palette"
+# store_dir = "C:/path/to/palette-store"   # empty = {data_dir}/palette
+# Id globs never probed. Loading these runs startup scripts that open sockets
+# or expect absent hardware, which can wedge TouchDesigner mid-scan. Probe one
+# deliberately with palette_probe `includeIgnored: true` if you need it.
+ignore = [
+  "builtin:TDAbleton/*",
+  "builtin:TDBitwig/*",
+  "builtin:TDSynchro/*",
+  "builtin:TDVR/*",
+  "builtin:MetaQuest/*",
+  "builtin:Vive/*",
+  "builtin:WebRTC/*",
+]

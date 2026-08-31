@@ -29,7 +29,7 @@ Crate layout: `[ARCHITECTURE.md](../ARCHITECTURE.md)`. Engineering law: `[CONSTI
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------- |
 | Sticky / `select_target` / session peer   | Replaced by per-call `pid` + `fleet`                                                                    |
 | Generated `targetId` / UUID / path-hash   | `**pid` is the only id**                                                                                |
-| ~~Offline ToeDigest / `.toe` write / inject~~ | **Reversed in v2** — offline project I/O ships via official toeexpand/toecollapse (see SKILLS_CONTRACT_PROPOSAL) |
+| ~~Offline ToeDigest / `.toe` write / inject~~ | **Reversed in v2** — offline project I/O ships via official toeexpand/toecollapse (see archive/SKILLS_CONTRACT_PROPOSAL.md) |
 | Remote / WAN TD control                   | After local contract is boring                                                                          |
 | Multiple bridge protocols                 | One local IPC                                                                                           |
 | Silent auto-reconnect (TD↔daemon IPC)     | Explicit resurrection policy (see Goals §7). Distinct from stdio↔daemon HTTP reconnect-only heal below. |
@@ -228,10 +228,14 @@ safety net only — the daemon owns the real per-method budgets.
 | `project_install_bridge`†  | Install/override tdmcp bridge inside a packed project (backup + targeted verify)                       | **Shipped** (v2)      |
 | `spawn_td`†                | Spawn TD + deterministic pid handshake wait (startup popups surfaced, never auto-dismissed)            | **Shipped** (v2)      |
 | `kill_td`†                 | Graceful→force kill ladder for a known TD pid                                                          | **Shipped** (v2)      |
+| `palette_index`†           | Palette component roster: scan / list / get / describe / ignore / unignore / forget / stats            | **Shipped**           |
+| `palette_probe`            | Load palette components in a live TD, digest their interface, destroy                                  | **Shipped**           |
 
 † Offline/local tools: no bridge dispatch, session-gate exempt. `dialogs`/`spawn_td`/
 `kill_td` use platform backends on Windows and macOS; fleet rows for spawned pids carry
 `spawn` provenance and may show `bridge:"starting"` pre-handshake.
+
+**Palette awareness.** `palette_index` is offline (no pid, session-gate exempt); `palette_probe` is bridged and rides the script timeout class. Component **cards are authored by the agent**, not generated: the tools supply evidence (`palette_probe`) and storage (`palette_index describe`), and `tdmcp://docs/palette-scan` supplies the procedure. See § `palette_index` / `palette_probe`.
 
 **Still not planned:** sticky / `select_target` / `targetId` / ToeDigest / inject / `call_node` (use `execute_python` for other node method calls; connector wiring is `mutate_nodes` `connect` / `disconnect`).
 
@@ -271,11 +275,13 @@ Structured success is **flat tool fields** with a single outer `ok` (bridge may 
 | `dialogs` | `list`: `{ ok: true, pid, windowStatus, popups, accessibilityGranted?, permissionHint? }` (last two macOS only) · `describe`: `{ ok: true, pid, popup }` · `dismiss`: `{ ok: true, pid, dismissed, via, stillOpen }` |
 | `spawn_td` | `{ ok: true, pid, handshake: { title, toePath }, startupDialogs? }`, or a **successful result with `ok: false`** carrying `outcome: "wait_timeout"` (+ `stillAlive`, `startupDialogs`) / `"exited_early"` (+ `exitCode`) |
 | `kill_td` | `{ ok: true, pid, how: "graceful" or "force" }` |
+| `palette_index` | Per action — `scan`: `{ ok, roots, added, updated, removed, stale, total, ignored, suspect?, suspectHint? }` · `list`: `{ ok, entries: [{ paletteId, name, category, source, summary?, tags?, cardStatus, probeStatus, ignored? }], total, truncation? }` · `get`: `{ ok, entry, toxPath, card?, cardError? }` · `describe`: `{ ok, paletteId, cardPath, bytes }` · `ignore`/`unignore`: `{ ok, ignore, affected }` · `forget`: `{ ok, removed, total }` · `stats`: `{ ok, total, described, stale, undescribed, failed, ignored, scannedAt, autoIgnoreAfter, byCategory }` |
+| `palette_probe` | `{ ok: true, results: [{ ok, paletteId, opType, family, customPars, inputs, outputs, children?, childCount, extensions?, comment?, tags?, help?, wrapped?, errors?, probeMs } \| { ok: false, paletteId, code, message }], skipped?, skippedTotal?, note?, remaining, scratchName, ledgerError? }` — partial success inside `results`; `help` is the wrapper's help DAT, `wrapped` marks an unwrapped palette component |
 
 
 Failures (all bridge-backed tools): `{ ok: false, summary, items, … }` via diagnostics flatten. Mutate soft-fail splices `applied` / `failedAt` / `steps` **flat** (not under `data`). Soft perception fails (black/uniform frame) use `isError` + diagnostics + image content — that path is separate from success nesting.
 
-**Argument-shape failures** (missing / unknown field, bad enum value, wrong type) are **not** protocol errors: every tool returns the same `{ ok: false, summary, items }` shape with catalog-backed `tdmcp.args.*` codes (`missing_field`, `unknown_field`, `unknown_variant`, `wrong_type`; `tdmcp.args.similar_field` lint carries a did-you-mean suggestion). Spans point at the exact JSON reference (`steps[0].op`). `-32602 invalid_params` is reserved for unknown tool names and malformed requests; expected fields/values are derived from each tool's advertised schema. Numeric params accept either shape before this layer ever fires (see the Numeric args row above); a string that does not parse as an unsigned integer (`"abc"`, `"-1"`, `"0x10"`) still surfaces as `tdmcp.args.wrong_type` pointing at the field. See [`TOOL_ERROR_PLAN.md`](TOOL_ERROR_PLAN.md).
+**Argument-shape failures** (missing / unknown field, bad enum value, wrong type) are **not** protocol errors: every tool returns the same `{ ok: false, summary, items }` shape with catalog-backed `tdmcp.args.*` codes (`missing_field`, `unknown_field`, `unknown_variant`, `wrong_type`; `tdmcp.args.similar_field` lint carries a did-you-mean suggestion). Spans point at the exact JSON reference (`steps[0].op`). `-32602 invalid_params` is reserved for unknown tool names and malformed requests; expected fields/values are derived from each tool's advertised schema. Numeric params accept either shape before this layer ever fires (see the Numeric args row above); a string that does not parse as an unsigned integer (`"abc"`, `"-1"`, `"0x10"`) still surfaces as `tdmcp.args.wrong_type` pointing at the field. See [`TOOL_ERROR_PLAN.md`](archive/TOOL_ERROR_PLAN.md).
 
 **Transport note:** Streamable HTTP JSON fallback (`/mcp/tools/call`) still wraps success as `{ ok: true, data: <above> }`; stdio/rmcp does not. Failures are not double-wrapped.
 
@@ -467,12 +473,13 @@ Step shapes:
 | `set`        | `path`, `text?`, `comment?`, `values?`, `expressions?`, `pulse?`, `flags?` | Explicit modes — no silent guessing. `values: {name: val}`, `expressions: {name: expr}`, `pulse: [name]`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `delete`     | `path`                                                          |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `connect`    | `src`, `dst`, `srcOutput?` (default 0), `dstInput?` (default 0) | `src.outputConnectors[i].connect(dst.inputConnectors[j])`. Echoes canonical `path` = dst                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `place`      | `path`, `paletteId?` **xor** `toxPath?`, `comment?`, `values?`, `flags?` | Loads a Palette component (`.tox`) via `COMP.loadTox` under the parent derived from `path`, then renames the result to the requested leaf. `paletteId` is resolved to an absolute `.tox` **on the daemon** against the `palette_index` roster — an unknown id (`tdmcp.palette.unknown_id`), a vanished file (`tdmcp.palette.tox_missing`), or a step carrying both/neither field fails before the bridge is touched. Post-load `comment` → `values` → `flags` apply exactly as on `create`, with the same rollback-on-failure. A TD rename yields the same `tdmcp.op.renamed` lint as `create`, and the same in-batch alias remap, so `place` then `connect` works in one call. Load failures inside TD are `tdmcp.palette.load_failed`. `detailLevel: detailed` echoes `toxPath` and `opType` |
 | `disconnect` | `path`, `input?` (default 0)                                    | `path.inputConnectors[input].disconnect()`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 
 
 `values` = `.par.*` only. `flags` = direct OP attributes (`node.<name> = val`); allowlist = operate-relevant TD Common Flags subset: `activeViewer`, `allowCooking`, `bypass`, `cloneImmune`, `display`, `lock`, `render`, `viewer`. Unknown flag names → `tdmcp.flag.unknown`. When a name is in the wrong bag (flag under `values` / param under `flags`), the hard code stays (`tdmcp.par.unknown` / `tdmcp.flag.unknown`) and a best-effort nested lint (`tdmcp.par.wrong_collection` / `tdmcp.flag.wrong_collection`) may be attached — hints never auto-redirect and never change the hard outcome. Same-collection near-misses (typo / case) may attach `tdmcp.par.similar_name` or `tdmcp.op.similar_type` with `suggestion.replace` — also best-effort, never changing the hard code. Wire errors: `tdmcp.wire.bad_index` (connector index OOB), `tdmcp.wire.connect_failed` (TD connector exception); missing ops reuse `tdmcp.op.not_found`.
 
-**Text writes & shader lint.** `create`/`set` accept optional `text` (string) — applied **before** `values`. The target must be a DAT: otherwise hard step error `tdmcp.mutate.not_dat` (on `create`, the usual rollback destroys the node). After every successful `text` write, consuming GLSL ops are linted: stage-reference pars (`pixeldat`/`vertexdat`/`computedat`/`predat` on glslTOP/glslmultiTOP; `pdat`/`vdat`/`gdat`/`predat` on glslMAT; `computedat` on glslPOP) are scanned within the `contextPath` subtree (default `/project1`; ≤2048 ops scanned), each consumer's `OP.compileResult` is classified (reading forces a synchronous recompile of that consumer), and results attach as `steps[i].shaderDiagnostics[]`: `{severity: "note"|"error", code: "tdmcp.shader.compiled" | "tdmcp.shader.compile_failed" | "tdmcp.shader.unsupported_consumer", consumer, consumerOpType, role, message, lines[]}` — `lines[]` carries verbatim `ERROR:` lines, errors only; `glslPOP` consumers report `unsupported_consumer` (no verified compile surface). Batch summary adds `shaderNotes` / `shaderErrors` counts when nonzero. Consumers cap at 64 per DAT (`tdmcp.shader.consumers_truncated` on overflow in inspect content). Lint is best-effort enrichment: it never flips step/tool `ok`. `detailLevel: detailed` echoes `steps[i].textLength`, never the body. Full verified patterns: [SHADER_LINT.md](SHADER_LINT.md).
+**Text writes & shader lint.** `create`/`set` accept optional `text` (string) — applied **before** `values`. The target must be a DAT: otherwise hard step error `tdmcp.mutate.not_dat` (on `create`, the usual rollback destroys the node). After every successful `text` write, consuming GLSL ops are linted: stage-reference pars (`pixeldat`/`vertexdat`/`computedat`/`predat` on glslTOP/glslmultiTOP; `pdat`/`vdat`/`gdat`/`predat` on glslMAT; `computedat` on glslPOP) are scanned within the `contextPath` subtree (default `/project1`; ≤2048 ops scanned), each consumer's `OP.compileResult` is classified (reading forces a synchronous recompile of that consumer), and results attach as `steps[i].shaderDiagnostics[]`: `{severity: "note"|"error", code: "tdmcp.shader.compiled" | "tdmcp.shader.compile_failed" | "tdmcp.shader.unsupported_consumer", consumer, consumerOpType, role, message, lines[]}` — `lines[]` carries verbatim `ERROR:` lines, errors only; `glslPOP` consumers report `unsupported_consumer` (no verified compile surface). Batch summary adds `shaderNotes` / `shaderErrors` counts when nonzero. Consumers cap at 64 per DAT (`tdmcp.shader.consumers_truncated` on overflow in inspect content). Lint is best-effort enrichment: it never flips step/tool `ok`. `detailLevel: detailed` echoes `steps[i].textLength`, never the body. Full verified patterns: [SHADER_LINT.md](archive/SHADER_LINT.md).
 
 **Comment writes.** `create`/`set` accept optional `comment` (string) — applied **after** `text`, **before** `values`. It writes `OP.comment`, a plain read/write `str` present on every operator family (not a `.par`, not a flag — hence its own step field rather than a `values` / `flags` entry). An empty string clears the comment; omitting the field leaves any existing comment untouched. Accepted on any target with no family restriction; a write failure is `tdmcp.mutate.step_failed` with `field: "comment"` (on `create`, the usual rollback destroys the node). `detailLevel: detailed` echoes `steps[i].comment`. Read back through `inspect` (`comment` on the node, and on the parent's child roster — see `inspect` / `include`).
 
@@ -498,7 +505,124 @@ Result (summary):
 
 **Bridge package version checks are not enforced in v1.** `tdmcp.bridge.version` stays **reserved** in the catalog (not emitted). Handshake `minDaemon` is unused until a future compat gate lands.
 
+**Palette placement seam.** `place` adds `MutateContext.load_tox(parent, tox_path)` to the same pure seam, so `bridge/tests/test_mutate.py` covers placement (rename lint, rollback, missing parent, load failure) with no live TD.
+
 **Testability seam:** the bridge exposes a pure `apply_step(node, step) -> StepResult` function (no `td` import at the seam) so `bridge/tests/test_mutate.py` mirrors `test_inspect_summary.py` — no live TD required for shaping/parity. The `handle_mutate` wrapper does the `td.op()` resolution + calls `apply_step` per step.
+
+---
+
+### `palette_index` / `palette_probe` — Shipped
+
+TouchDesigner's Palette is a folder tree of `.tox` components: Derivative's own
+under the install root, plus the user's own palette folder. Palette awareness
+lets an agent reach for a shipped, debugged component instead of rebuilding it.
+
+**Nothing ships pre-described.** A fresh install knows no components at all.
+The roster is built locally by `scan`; the per-component *cards* — the summary
+and OpSketch that make a component pickable without loading it — are **written
+by the agent** from `palette_probe` evidence. No code generates a card; OpSketch
+is a prompt-level notation (`tdmcp://docs/opsketch-notation`), so the split is
+deliberate: tools produce evidence, the agent produces the card,
+`palette_index describe` persists it.
+
+#### Roots and store
+
+| Thing | Resolution |
+| --- | --- |
+| Builtin root | `InstallInfo.palette` — first existing of `Contents/Resources/tfs/Samples/Palette` (macOS bundle), `Samples/Palette`, `Config/Palette` under the install root. Same probe law as the tool pair: **a candidate counts only if the directory exists**. Newest install wins |
+| User root | `[palette].user_root`, else `{documents}/Derivative/Palette`; must exist on disk |
+| Store | `[palette].store_dir`, else `{data_dir}/palette` — `index.json` plus `cards/<slug>.md` |
+
+Ids are `{source}:{Category}/{Name}` (`builtin:Tools/particlesGpu`,
+`user:UI/My Widget`) — machine-independent, glob-friendly, safe to write into a
+plan. `scan` only prunes the sources it actually scanned, so rescanning the user
+root never drops the builtin roster. Cards are fingerprinted (size + mtime)
+against their `.tox`; drift marks the card `stale` and it is still served, as a
+hint.
+
+#### Selection
+
+One selector type is shared by `palette_index` `list` / `forget` and by
+`palette_probe`, so "analyse only part of the palette" is defined once:
+`{ids?, category?, source?, match? (glob), status? (all|undescribed|described|stale|failed|ignored), includeIgnored?, limit?, offset?}`.
+Explicit `ids` bypass the blacklist — naming a component is a deliberate act.
+
+#### Blacklist and wedge recovery
+
+Loading a `.tox` runs its startup scripts. Stock families like `TDAbleton`,
+`TDBitwig`, `TDSynchro`, `TDVR`, `MetaQuest`, `Vive`, `WebRTC` open sockets or
+expect absent hardware and can wedge TD mid-run. Three layers keep a bulk run
+survivable:
+
+1. `[palette].ignore` seeds a fresh index with those families excluded.
+2. `action: ignore` / `unignore` manage id globs; `unignore` on an exact id also
+   clears a per-entry auto-ignore and its strike count.
+3. `plan_probe` writes the batch's ids to `index.inflight` **before** dispatch.
+   A batch that never reports back leaves that breadcrumb, and the next `scan`
+   marks those entries `probeStatus: "suspect"` and returns `suspect` +
+   `suspectHint` — so the culprit is nameable after a `kill_td`. An entry that
+   fails twice (`AUTO_IGNORE_AFTER`) blacklists itself (`ignoredAuto: true`).
+
+Batches are capped at 8 (`PROBE_BATCH_MAX`, mirrored as
+`PALETTE_PROBE_BATCH_LIMIT` on the bridge), default 3: one call is one bridge
+task, so a wedging component costs at most its own batch.
+
+The breadcrumb is only left stranded when the batch may **actually have run** —
+a `Timeout` or a mid-call `Disconnected`. A queue rejection, an unknown pid, or
+no connected bridge provably never reached TouchDesigner, so those clear it
+instead of accusing innocent components on the next `scan`.
+
+**No empty result is ever silent.** A selection naming ids that are not in the
+index fails `tdmcp.palette.unknown_id` listing them; a selection where every
+match is blacklisted returns `ok:true` with `skipped[]` (capped at
+`SKIPPED_REPORT_LIMIT`), `skippedTotal`, and a `note` saying so; a selection
+matching nothing returns a `note` saying that instead. Silence would read as
+"the palette is empty".
+
+#### The palette wrapper (load-bearing)
+
+A stock palette `.tox` is **not** the component — it is a wrapper: a bare
+`baseCOMP` holding an `icon`, an optional `help` DAT, and the real component as
+a COMP child named exactly like the wrapper. Verified live against
+TouchDesigner across Tools / Techniques / UI / Generators / ImageFilters /
+Mapping / POPs: **20/20 wrappers carry zero custom parameters while their
+payloads carry 3–65**.
+
+Both surfaces unwrap:
+
+- `palette_probe` digests the **payload** (so `customPars` / `inputs` /
+  `outputs` are the component's real API) and lifts the wrapper's `help` DAT
+  text into `help` — the component's own documentation, and the best raw
+  material for a card. Sets `wrapped: true`.
+- `mutate_nodes` `place` lifts the payload out with `COMP.copyOPs`, destroys the
+  wrapper, then renames — so the network gets the component, not a
+  parameterless baseCOMP with an icon inside it. `detailLevel: detailed` echoes
+  `unwrapped`.
+
+Detection is deliberately narrow — the loaded COMP must have **no** custom
+parameters *and* a COMP child whose name equals its own — so a user's own
+`.tox`, saved straight from a COMP with its own parameters, is never unwrapped
+by mistake (`wrapped` absent, `unwrapped: false`).
+
+#### Probe mechanics
+
+The bridge creates a hidden `tdmcp_probe` `baseCOMP` under `/`, loads each
+target into it, digests, destroys the component, and destroys the scratch COMP
+in a `finally` — load → digest → destroy is one main-thread task, so an
+abandoned call cannot leave a half-loaded component in the user's project. A
+component that fails to load is an error row inside `results`, never a failed
+batch. `detailLevel: summary` omits `children` / `extensions`; the interface
+(`customPars`, `inputs`, `outputs`, `childCount`) always survives.
+
+Every component-facing attribute read goes through a guard that survives a
+raising property — a probe runs arbitrary third-party code, and none of it is a
+claim worth failing a batch over.
+
+#### Failure codes
+
+`tdmcp.palette.no_roots` · `not_indexed` · `unknown_id` · `tox_missing` ·
+`ignored` · `load_failed` · `probe_failed` · `store_failed`. The first four
+fire on the daemon before any bridge call.
 
 ---
 
@@ -622,7 +746,7 @@ Daemon CLI: `start` (foreground; tray + toast by default, dashboard hidden until
 | **P1.x** | Universal `capture` via shared OP Viewer; `inspect` explicit `paths[]`; `api_help` live API cards                                                              | Any-family preview; chop_image/pop aliases; inspect batch + partial success; api_help class/classes/module                                                                 | **Shipped** (unit + FakeTdPeer; E2E rows 17–19 for inspect/capture)                         |
 | **P2**   | Lifecycle create/start/stop (tray already shipped)                                                                                                              | Operator create/start/stop; new project by pid                                                                                                                            | **Shipped in v2** (`spawn_td`/`kill_td` + dialogs watcher; tray **Shipped**)                                |
 | **P3**   | Streamable HTTP remote + single-level federation (`bind_address`, PSK auth, register/fleet-push, `daemonId` tool proxy)                                           | Automated: `admin_auth` + `federation_registration` + `federation_proxy` (inspect/capture/ambiguous/unreachable); see [`CONFIG.md`](CONFIG.md) § Federation auth & admin surface | **Shipped**                                                                                 |
-| **v2**   | Project I/O (`td_installs`, `project_unpack/pack/lint/install_bridge`), lifecycle (`spawn_td`/`kill_td`), dialogs (`dialogs` + watcher + interception)            | See [`SKILLS_CONTRACT_PROPOSAL.md`](SKILLS_CONTRACT_PROPOSAL.md) + [`V2_IMPLEMENTATION_PLAN.md`](V2_IMPLEMENTATION_PLAN.md); live records in plan §Live verification       | **Shipped** (P3 carry-over: deeper round-trip diffing) |
+| **v2**   | Project I/O (`td_installs`, `project_unpack/pack/lint/install_bridge`), lifecycle (`spawn_td`/`kill_td`), dialogs (`dialogs` + watcher + interception)            | See [`SKILLS_CONTRACT_PROPOSAL.md`](archive/SKILLS_CONTRACT_PROPOSAL.md) + [`V2_IMPLEMENTATION_PLAN.md`](archive/V2_IMPLEMENTATION_PLAN.md); live records in plan §Live verification       | **Shipped** (P3 carry-over: deeper round-trip diffing) |
 
 
 ---
@@ -634,6 +758,6 @@ Daemon CLI: `start` (foreground; tray + toast by default, dashboard hidden until
 - Identity: `pid` required on bridged tools; optional `daemonId` when federated (ambiguous pid → `tdmcp.federation.ambiguous_pid`). Bridged tools always exclusive-enqueue (fail iff queue non-empty); session chill on `(mcp_session, pid)` locally and `(mcp_session, daemonId, pid)` when proxied; resurrection stacks until first success.
 - Perception: `capture` only; builders never self-grade look.
 - Paths: `OpPath` + optional `contextPath`; TD resolves; default base `/project1`.
-- Diagnostics: catalog-backed codes; free-string-only failures forbidden. Argument-shape failures use `tdmcp.args.*` codes as structured `isError` results; `-32602` reserved for unknown tool / malformed request (see [`TOOL_ERROR_PLAN.md`](TOOL_ERROR_PLAN.md)).
+- Diagnostics: catalog-backed codes; free-string-only failures forbidden. Argument-shape failures use `tdmcp.args.*` codes as structured `isError` results; `-32602` reserved for unknown tool / malformed request (see [`TOOL_ERROR_PLAN.md`](archive/TOOL_ERROR_PLAN.md)).
 - MCP success: flat tool fields (`node` / `path` / `result` / `steps` at top level); bridge mini-envelopes are passed through by mappers, not nested under the tool name. HTTP JSON fallback still wraps success in `{ ok, data }`.
 

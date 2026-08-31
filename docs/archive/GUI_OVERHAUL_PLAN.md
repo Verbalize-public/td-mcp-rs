@@ -1,8 +1,10 @@
 # GUI Overhaul Plan (v3) — Agent Handoff Spec
 
-Status: **approved, not started**. Owner: any agent with repo access.
-Companion docs: [`docs/GUI_MAP.md`](GUI_MAP.md) (curated map of the *current*
-GUI — read it first), [`CONSTITUTION.md`](../CONSTITUTION.md) (never-panic and
+> **Archived 2026-08-31** — fully shipped (phases 1-6, then passes 10-11; current GUI reference: [GUI_MAP.md](../GUI_MAP.md)).
+
+Status: **shipped** (2026-08; phases 1-6 plus later passes - see [GUI_MAP.md](../GUI_MAP.md)). Owner: n/a (done).
+Companion docs: [`docs/GUI_MAP.md`](../GUI_MAP.md) (curated map of the *current*
+GUI — read it first), [`CONSTITUTION.md`](../../CONSTITUTION.md) (never-panic and
 lint rules apply to all code written here).
 
 Origin: planning session 2026-08-25; plan audited once (findings baked in).

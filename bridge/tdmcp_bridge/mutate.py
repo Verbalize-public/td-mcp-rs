@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Any
 
 from .constants import _FLAG_NAMES
+from .palette import palette_payload
 from .paths import _absolutize_path, _get_par, _parent_and_name, resolve_op
 from .shader_lint import lint_dat_consumers
 from .suggest import _is_op_type_name, _suggest_names, _suggest_op_types
@@ -375,6 +376,14 @@ class MutateContext:
         """Children of ``root`` with opType == type_name (shader consumer scan)."""
         raise NotImplementedError
 
+    def load_tox(self, parent: Any, tox_path: str) -> Any | None:
+        """Load a ``.tox`` under ``parent``; returns the loaded COMP."""
+        raise NotImplementedError
+
+    def copy_ops(self, parent: Any, ops: list[Any]) -> list[Any]:
+        """Copy ``ops`` into ``parent``; returns the new operators."""
+        raise NotImplementedError
+
 
 class _TdMutateContext(MutateContext):
     """Live TD resolution via ``tdmcp_resolve`` / ``getattr(td, …)``."""
@@ -423,6 +432,30 @@ class _TdMutateContext(MutateContext):
         except Exception:  # noqa: BLE001 — scan quirks (e.g. from root) degrade
             return []
 
+    def load_tox(self, parent: Any, tox_path: str) -> Any | None:
+        """``COMP.loadTox`` creates the component as a child and returns it.
+
+        Older/odd builds have been seen returning nothing, so fall back to
+        diffing the child roster rather than trusting the return value alone.
+        """
+        load_fn = getattr(parent, "loadTox", None)
+        if not callable(load_fn):
+            raise AttributeError("target parent has no loadTox")
+        before = {id(c) for c in _children_of(parent)}
+        loaded = load_fn(tox_path)
+        if loaded is not None:
+            return loaded
+        for child in _children_of(parent):
+            if id(child) not in before:
+                return child
+        return None
+
+    def copy_ops(self, parent: Any, ops: list[Any]) -> list[Any]:
+        copy_fn = getattr(parent, "copyOPs", None)
+        if not callable(copy_fn):
+            raise AttributeError("target parent has no copyOPs")
+        return list(copy_fn(ops) or [])
+
 
 def apply_step(
     ctx: MutateContext,
@@ -447,6 +480,8 @@ def apply_step(
             return _step_connect(ctx, step, context_path, detail_level)
         if op == "disconnect":
             return _step_disconnect(ctx, step, context_path, detail_level)
+        if op == "place":
+            return _step_place(ctx, step, context_path, detail_level)
         return {
             "ok": False,
             "code": "tdmcp.mutate.step_failed",
@@ -460,6 +495,23 @@ def apply_step(
             "message": str(exc),
             "path": step.get("path"),
         }
+
+
+def _children_of(node: Any) -> list[Any]:
+    """Direct children as a list; never raises."""
+    try:
+        return list(getattr(node, "children", []) or [])
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def _rename_loaded(node: Any, wanted: str) -> None:
+    """Best-effort rename to the requested leaf; TD may still adjust it."""
+    try:
+        if getattr(node, "name", None) != wanted:
+            node.name = wanted
+    except Exception:  # noqa: BLE001 — a rename refusal surfaces as a lint, not a failure
+        pass
 
 
 def _rollback_create(created: Any) -> None:
@@ -582,6 +634,152 @@ def _step_create(
             ]
         except Exception:  # noqa: BLE001 — never change ok after materialization
             pass
+    return out
+
+
+def _step_place(
+    ctx: MutateContext,
+    step: dict[str, Any],
+    context_path: str | None,
+    detail_level: str,
+) -> dict[str, Any]:
+    """Load a Palette component (`.tox`) under ``path``'s parent.
+
+    The daemon has already resolved ``paletteId`` to ``toxPath`` and verified
+    the file exists, so everything here is about TouchDesigner's answer.
+    Mirrors ``_step_create``: materialize, then comment → values → flags, with
+    the same rollback and rename-lint contract.
+    """
+    path = step.get("path") or ""
+    tox_path = (step.get("toxPath") or "").strip()
+    palette_id = step.get("paletteId")
+    full = _absolutize_path(path, context_path)
+    parent_path, name = _parent_and_name(full)
+    if not name:
+        return {
+            "ok": False,
+            "code": "tdmcp.mutate.step_failed",
+            "message": "place path has no leaf name",
+            "path": full,
+        }
+    if not tox_path:
+        return {
+            "ok": False,
+            "code": "tdmcp.mutate.step_failed",
+            "message": "place step reached the bridge without a resolved toxPath",
+            "path": full,
+        }
+    parent = ctx.resolve(parent_path)
+    if parent is None:
+        return {
+            "ok": False,
+            "code": "tdmcp.op.not_found",
+            "message": f"parent not found: {parent_path}",
+            "path": full,
+        }
+
+    try:
+        loaded = ctx.load_tox(parent, tox_path)
+    except Exception as exc:  # noqa: BLE001 — TD raises for unreadable / bad-build tox
+        return {
+            "ok": False,
+            "code": "tdmcp.palette.load_failed",
+            "message": f"loadTox failed for {tox_path}: {exc}",
+            "path": full,
+        }
+    if loaded is None:
+        return {
+            "ok": False,
+            "code": "tdmcp.palette.load_failed",
+            "message": f"loadTox produced no component from {tox_path}",
+            "path": full,
+        }
+
+    # A stock palette .tox is a wrapper around the real component (plus an icon
+    # and a help DAT). Place the component, not the wrapper — otherwise the
+    # network gets a parameterless baseCOMP with an icon inside it.
+    node = loaded
+    unwrapped = False
+    payload = palette_payload(loaded)
+    if payload is not None:
+        try:
+            copied = ctx.copy_ops(parent, [payload])
+        except Exception as exc:  # noqa: BLE001
+            _rollback_create(loaded)
+            return {
+                "ok": False,
+                "code": "tdmcp.palette.load_failed",
+                "message": f"could not lift the component out of its palette wrapper: {exc}",
+                "path": full,
+            }
+        if not copied:
+            _rollback_create(loaded)
+            return {
+                "ok": False,
+                "code": "tdmcp.palette.load_failed",
+                "message": f"palette wrapper for {tox_path} yielded no component",
+                "path": full,
+            }
+        node = copied[0]
+        unwrapped = True
+        # The wrapper owns the original payload; drop it before renaming so the
+        # requested leaf name is free.
+        _rollback_create(loaded)
+
+    loaded = node
+    _rename_loaded(loaded, name)
+    raw_loaded = getattr(loaded, "path", None)
+    if isinstance(raw_loaded, str) and raw_loaded.strip():
+        placed_path = _absolutize_path(raw_loaded, None)
+    else:
+        placed_path = full
+
+    comment = step.get("comment")
+    if comment is not None:
+        err = _apply_comment(loaded, str(comment))
+        if err is not None:
+            err["path"] = placed_path
+            _rollback_create(loaded)
+            return err
+    values = step.get("values")
+    if values:
+        err = _apply_values(loaded, values)
+        if err is not None:
+            err["path"] = placed_path
+            _rollback_create(loaded)
+            return err
+    flags = step.get("flags")
+    if flags:
+        err = _apply_flags(loaded, flags)
+        if err is not None:
+            err["path"] = placed_path
+            _rollback_create(loaded)
+            return err
+
+    out: dict[str, Any] = {"ok": True, "path": placed_path}
+    if palette_id:
+        out["paletteId"] = palette_id
+    if detail_level == "detailed":
+        out["toxPath"] = tox_path
+        out["opType"] = getattr(loaded, "opType", None)
+        out["unwrapped"] = unwrapped
+        if comment is not None:
+            out["comment"] = str(comment)
+        if values:
+            out["values"] = values
+        if flags:
+            out["flags"] = flags
+    if placed_path != full:
+        # Same contract as create: the caller must use the path TD gave back.
+        out["lints"] = [
+            {
+                "severity": "lint",
+                "code": "tdmcp.op.renamed",
+                "message": f"requested '{full}', placed as '{placed_path}'",
+                "confidence": "high",
+                "suggestion": {"opPath": placed_path, "replace": placed_path},
+            }
+        ]
     return out
 
 
@@ -913,7 +1111,9 @@ def run_mutate_steps(
         results.append(result)
         if result.get("ok"):
             applied += 1
-            if (step.get("op") or "") == "create":
+            # place materializes a node just like create, so a TD rename must
+            # remap later steps' paths the same way.
+            if (step.get("op") or "") in ("create", "place"):
                 try:
                     requested = _absolutize_path(
                         step.get("path") or "", context_path

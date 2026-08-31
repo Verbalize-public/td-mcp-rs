@@ -7,6 +7,12 @@ Interactive harness for testing the TouchDesigner side of td-mcp-rs.
 - **Live host:** `td-sandbox/toe/_agent_tdmcprs_dev/` (owned; never lab `:9981`)
 - **Formal gate:** still [`E2E_CHECKLIST.md`](E2E_CHECKLIST.md) (12-row). This doc is the day-to-day loop.
 
+> **Platform note:** host paths below are from the original Windows dev host.
+> On macOS/Linux substitute the repo location and the data-dir equivalents
+> (`~/Library/Application Support/tdmcp-rs/` · `~/.local/share/tdmcp-rs/` — see
+> [`CONFIG.md`](CONFIG.md) / [`DELIVERY.md`](DELIVERY.md)). On Linux TouchDesigner
+> runs under Wine — see [`LINUX_SUPPORT.md`](LINUX_SUPPORT.md).
+
 ## Dual-MCP roles
 
 | Surface | Owns |

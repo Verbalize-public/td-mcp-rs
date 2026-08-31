@@ -1,6 +1,8 @@
 # Observability & Logging — Implementation Plan
 
-Companion to [`OBSERVABILITY.md`](OBSERVABILITY.md) (spec v2). This document is
+> **Archived 2026-08-31** — M1/M2/M4/M5/M6 and M3 (T3.1/T3.2/T3.4/T3.5) shipped; the only open item is T3.3 (`td.errors` polling), tracked in [OBSERVABILITY.md](../OBSERVABILITY.md).
+
+Companion to [`OBSERVABILITY.md`](../OBSERVABILITY.md) (spec v2). This document is
 the curated, task-level execution plan: exact files, signatures, schemas,
 wireframes, test matrices, and acceptance gates. Statuses mirror house style
 (**Planned** until shipped).
@@ -13,7 +15,7 @@ Conventions used below:
 - Rust snippets are sketches — final code passes
   `cargo clippy --workspace --all-targets -- -D warnings` (no
   `unwrap`/`expect`/`panic!` in lib paths, per
-  [`CONSTITUTION.md`](../CONSTITUTION.md)).
+  [`CONSTITUTION.md`](../../CONSTITUTION.md)).
 
 ---
 
@@ -99,7 +101,7 @@ pub struct LoggingSection {
 6. **Tests**: `crates/tdmcp-config` round-trip test asserting `[logging]`
    survives load→save; daemon config test asserting default
    `logging_dir == data_dir/logs`.
-7. **Docs**: [`CONFIG.md`](CONFIG.md) gains a `### [logging]` field table
+7. **Docs**: [`CONFIG.md`](../CONFIG.md) gains a `### [logging]` field table
    (shipped with M6 docs pass or immediately — either acceptable, tracked).
 
 ### T1.3 Record model — `crates/tdmcp-daemon/src/logrecord.rs` (new)
@@ -372,7 +374,7 @@ target="td_errors")` → flows to face + uplink free of charge.
 - Python unit: `tests/test_logtap.py` — tee write-through, drop-oldest,
   batch triggers, suppress() scoping, idempotent install. Runs in CI (pure
   stdlib mocks, pattern of `tests/test_execute_logs.py`).
-- Live rows appended to [`E2E_CHECKLIST.md`](E2E_CHECKLIST.md):
+- Live rows appended to [`E2E_CHECKLIST.md`](../E2E_CHECKLIST.md):
   print-from-unrelated-node appears in face ≤ 1 s; broken-node traceback shows
   as `error`; agent `execute_python` still returns `logs` identically
   (S3b/S3c parity re-run).
@@ -494,12 +496,12 @@ Procedure per crate (grep-driven, then human pass):
    `tdmcp-config` override application (debug), per spec.
 4. Delete: duplicate retry-loop warns (keep first + final), success-path info
    noise, `"stdio_proxy:"`-style prefixes (superseded by `src`), stale claims.
-5. Extend completeness test ([`TESTING.md`](TESTING.md) item 6) to scan log
+5. Extend completeness test ([`TESTING.md`](../TESTING.md) item 6) to scan log
    literals for `code:"…"` values against `diagnostics/catalog.yaml`.
 
-Docs touchpoints closing the effort: [`CONFIG.md`](CONFIG.md) `[logging]`
-table, [`CONTRACT.md`](CONTRACT.md) observability row (catalogue §), 
-[`E2E_CHECKLIST.md`](E2E_CHECKLIST.md) M3/M4 rows, README feature bullet,
+Docs touchpoints closing the effort: [`CONFIG.md`](../CONFIG.md) `[logging]`
+table, [`CONTRACT.md`](../CONTRACT.md) observability row (catalogue §), 
+[`E2E_CHECKLIST.md`](../E2E_CHECKLIST.md) M3/M4 rows, README feature bullet,
 repo `AGENTS.md` docs-reference table row for `OBSERVABILITY.md`.
 
 Release: workspace version `0.1.3 → 0.2.0` (root `Cargo.toml:25`); rebuild +

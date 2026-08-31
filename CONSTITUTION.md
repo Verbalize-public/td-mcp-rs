@@ -1,7 +1,7 @@
 # td-mcp-rs constitution
 
 Law of the land for this Rust workspace. Inspired by sibling
-[`touchdesigner-mcp-td/td-rs`](../touchdesigner-mcp-td/td-rs/docs/CONSTITUTION.md)
+`touchdesigner-mcp-td/td-rs` (sibling repo, outside this tree)
 engineering law — **scoped down** for a daemon (no porq / gate-lock / roadmap
 orchestration). Sources: [Rust API Guidelines](https://rust-lang.github.io/api-guidelines/),
 [Embark standard lints](https://github.com/EmbarkStudios/rust-ecosystem/issues/59),

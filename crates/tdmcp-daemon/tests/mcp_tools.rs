@@ -886,3 +886,165 @@ async fn transport_not_connected_clears_queue_for_exclusive() {
         let _ = reg.cancel_queue_keep_connected(34);
     }
 }
+
+// ---------------------------------------------------------------------------
+// mutate_nodes `place` — palette components
+// ---------------------------------------------------------------------------
+
+/// Build a router whose fake bridge echoes a canned mutate result.
+fn app_with(response: serde_json::Value) -> axum::Router {
+    let bridge: Arc<dyn BridgeRpc> = Arc::new(FakeBridgeRpc::responding(response));
+    build_mcp_router(AppState::new(
+        registry_with_pid(),
+        Catalog::fallback(),
+        bridge,
+        test_resource_provider().expect("resource provider"),
+    ))
+}
+
+async fn call_tool(app: axum::Router, body: serde_json::Value) -> serde_json::Value {
+    let req = Request::builder()
+        .method("POST")
+        .uri("/mcp/tools/call")
+        .header("content-type", "application/json")
+        .body(Body::from(body.to_string()))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    serde_json::from_slice(&bytes).unwrap()
+}
+
+#[tokio::test]
+async fn place_step_with_an_explicit_tox_path_reaches_the_bridge() {
+    // toxPath needs no index lookup, so this exercises the whole path without
+    // touching the developer's real palette store.
+    let app = app_with(json!({
+        "ok": true,
+        "applied": 2,
+        "failedAt": null,
+        "steps": [
+            {"ok": true, "path": "/project1/parts", "paletteId": null},
+            {"ok": true, "path": "/project1/out1"}
+        ]
+    }));
+    let v = call_tool(
+        app,
+        json!({
+            "name": "mutate_nodes",
+            "arguments": {
+                "pid": 34,
+                "steps": [
+                    {"op": "place", "path": "/project1/parts",
+                     "toxPath": "/palette/Tools/particlesGpu.tox",
+                     "comment": "stock GPU particles"},
+                    {"op": "connect", "src": "/project1/parts", "dst": "/project1/out1"}
+                ]
+            }
+        }),
+    )
+    .await;
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["data"]["applied"], 2);
+}
+
+#[tokio::test]
+async fn place_step_rejects_both_palette_id_and_tox_path() {
+    let app = app_with(json!({"ok": true}));
+    let v = call_tool(
+        app,
+        json!({
+            "name": "mutate_nodes",
+            "arguments": {
+                "pid": 34,
+                "steps": [{
+                    "op": "place", "path": "/project1/parts",
+                    "paletteId": "builtin:Tools/particlesGpu",
+                    "toxPath": "/palette/Tools/particlesGpu.tox"
+                }]
+            }
+        }),
+    )
+    .await;
+    assert_eq!(v["ok"], false);
+    let item = &v["items"][0];
+    assert_eq!(item["code"], "tdmcp.args.unknown_field", "{item}");
+    assert_eq!(item["span"]["field"], "steps[0].toxPath");
+}
+
+#[tokio::test]
+async fn place_step_rejects_neither_palette_id_nor_tox_path() {
+    let app = app_with(json!({"ok": true}));
+    let v = call_tool(
+        app,
+        json!({
+            "name": "mutate_nodes",
+            "arguments": {
+                "pid": 34,
+                "steps": [{"op": "place", "path": "/project1/parts"}]
+            }
+        }),
+    )
+    .await;
+    assert_eq!(v["ok"], false);
+    let item = &v["items"][0];
+    assert_eq!(item["code"], "tdmcp.args.missing_field", "{item}");
+    assert_eq!(item["span"]["field"], "steps[0].paletteId");
+}
+
+#[tokio::test]
+async fn palette_tools_are_advertised_with_schemas() {
+    let app = app_with(json!({"ok": true}));
+    let req = Request::builder()
+        .method("GET")
+        .uri("/mcp/tools/list")
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    let tools = v["tools"].as_array().expect("tools array");
+
+    let index = tools
+        .iter()
+        .find(|t| t["name"] == "palette_index")
+        .expect("palette_index advertised");
+    let actions = &index["inputSchema"]["$defs"]["PaletteAction"]["oneOf"];
+    let names: Vec<&str> = actions
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|a| a["const"].as_str())
+        .collect();
+    assert_eq!(
+        names,
+        vec!["scan", "list", "get", "describe", "ignore", "unignore", "forget", "stats"]
+    );
+    // Offline tool: no pid in the schema at all.
+    assert!(index["inputSchema"]["properties"]["pid"].is_null());
+
+    let probe = tools
+        .iter()
+        .find(|t| t["name"] == "palette_probe")
+        .expect("palette_probe advertised");
+    let required: Vec<&str> = probe["inputSchema"]["required"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(serde_json::Value::as_str)
+        .collect();
+    assert!(required.contains(&"pid"), "palette_probe is bridged");
+
+    // `place` is a first-class mutate step, not a separate tool.
+    let mutate = tools
+        .iter()
+        .find(|t| t["name"] == "mutate_nodes")
+        .expect("mutate_nodes advertised");
+    let schema = serde_json::to_string(&mutate["inputSchema"]).unwrap();
+    assert!(schema.contains("\"place\""));
+}

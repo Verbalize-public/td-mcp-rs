@@ -32,6 +32,8 @@ pub struct InstallInfo {
     pub toecollapse: Option<PathBuf>,
     /// Bundled python.exe when present.
     pub python: Option<PathBuf>,
+    /// Built-in Palette folder when present (`.tox` component library).
+    pub palette: Option<PathBuf>,
 }
 
 fn beside(exe: &Path, name: &str) -> Option<PathBuf> {
@@ -43,6 +45,28 @@ fn beside(exe: &Path, name: &str) -> Option<PathBuf> {
         }
     }
     None
+}
+
+/// Relative candidates for the built-in Palette folder under an install root.
+///
+/// Probed in order; all platforms try every candidate so the resolver stays
+/// testable off-platform. Same probe law as the tool pair: a candidate counts
+/// only if the directory actually exists.
+const PALETTE_CANDIDATES: &[&str] = &[
+    // macOS app bundle
+    "Contents/Resources/tfs/Samples/Palette",
+    // Windows / Linux versioned install root
+    "Samples/Palette",
+    "Config/Palette",
+];
+
+/// First existing built-in Palette folder under `root`, if any.
+#[must_use]
+pub fn palette_root_from_install(root: &Path) -> Option<PathBuf> {
+    PALETTE_CANDIDATES
+        .iter()
+        .map(|rel| root.join(rel))
+        .find(|p| p.is_dir())
 }
 
 /// Versioned install root for a TouchDesigner binary path.
@@ -68,12 +92,14 @@ pub fn install_root_from_exe(exe: &Path) -> PathBuf {
 /// Inspect one candidate exe: which official tools actually exist beside it.
 #[must_use]
 pub fn inspect_install(exe: &Path) -> InstallInfo {
+    let root = install_root_from_exe(exe);
     InstallInfo {
         exe: exe.to_path_buf(),
-        root: install_root_from_exe(exe),
         toeexpand: beside(exe, TOOL_NAMES[0]),
         toecollapse: beside(exe, TOOL_NAMES[1]),
         python: beside(exe, "python"),
+        palette: palette_root_from_install(&root),
+        root,
     }
 }
 
@@ -327,6 +353,33 @@ mod tests {
 
     fn no_env(_: &str) -> Option<String> {
         None
+    }
+
+    #[test]
+    fn palette_root_probes_candidates_in_order_and_requires_the_dir() {
+        let install = tempfile::tempdir().unwrap();
+        // Probe law: no directory, no claim.
+        assert!(palette_root_from_install(install.path()).is_none());
+
+        let mac = install
+            .path()
+            .join("Contents/Resources/tfs/Samples/Palette");
+        fs::create_dir_all(&mac).unwrap();
+        assert_eq!(palette_root_from_install(install.path()), Some(mac.clone()));
+
+        // A later candidate never wins over an earlier existing one.
+        fs::create_dir_all(install.path().join("Samples/Palette")).unwrap();
+        assert_eq!(palette_root_from_install(install.path()), Some(mac));
+
+        let win = tempfile::tempdir().unwrap();
+        let win_palette = win.path().join("Samples/Palette");
+        fs::create_dir_all(&win_palette).unwrap();
+        assert_eq!(palette_root_from_install(win.path()), Some(win_palette));
+
+        let cfg = tempfile::tempdir().unwrap();
+        let cfg_palette = cfg.path().join("Config/Palette");
+        fs::create_dir_all(&cfg_palette).unwrap();
+        assert_eq!(palette_root_from_install(cfg.path()), Some(cfg_palette));
     }
 
     #[cfg(windows)]

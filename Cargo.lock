@@ -5146,6 +5146,9 @@ dependencies = [
 name = "tdmcp-projectio"
 version = "0.1.4"
 dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
  "tempfile",
  "thiserror 2.0.19",
  "tracing",

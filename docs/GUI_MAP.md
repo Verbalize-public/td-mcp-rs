@@ -2,8 +2,8 @@
 
 Curated, hand-written map of the GUI. **Refactor complete** (iterations 1–4
 shipped, then the 2026-08 overhaul: Overview+Fleet merged into one Overview
-page, monolith split into modules, design-system v2 — spec in
-`docs/GUI_OVERHAUL_PLAN.md`). Last verified live: 2026-08
+page, monolith split into modules, design-system v2 — spec archived at
+`docs/archive/GUI_OVERHAUL_PLAN.md`). Last verified live: 2026-08
 (preview-harness screenshots + real daemon smoke).
 
 ---
@@ -281,7 +281,7 @@ per-OS `reveal_in_file_manager` (explorer/open/xdg-open),
    (ack'd per session on click), and the dashboard Overview errors card
    gains a `CRASH REPORTS · N — Open folder` row when any exist. No new
    admin endpoint: same-machine data-dir contract.
-9. ✅ Pass 9 — overhaul (spec: `docs/GUI_OVERHAUL_PLAN.md`):
+9. ✅ Pass 9 — overhaul (spec: `docs/archive/GUI_OVERHAUL_PLAN.md`):
    **Fleet tab merged into Overview** (sidebar is now Overview/Logs/
    Settings; `TDMCP_OPEN_DASH=fleet` aliases Overview); monolith split into
    15 focused modules; design-system v2 (brightened text tiers, BG_CARD,

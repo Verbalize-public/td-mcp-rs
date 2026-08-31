@@ -26,7 +26,7 @@ use crate::sys::stub as platform;
 #[cfg(windows)]
 use crate::sys::windows as platform;
 
-/// Budgets (DIALOGS.md §5.2): snapshot is on the watcher hot path.
+/// Budgets (docs/archive/DIALOGS.md §5.2): snapshot is on the watcher hot path.
 pub const SNAPSHOT_BUDGET: Duration = Duration::from_millis(150);
 /// Full-content extraction budget.
 pub const DESCRIBE_BUDGET: Duration = Duration::from_millis(500);
@@ -72,7 +72,7 @@ fn spawn_worker() -> mpsc::Sender<Job> {
         .name("tdmcp-dialogs".into())
         .spawn(move || {
             // Single dedicated OS thread owns every platform call; COM init for
-            // the future UIA module will live here too (DIALOGS.md §4).
+            // the future UIA module will live here too (docs/archive/DIALOGS.md §4).
             while let Ok(job) = rx.recv() {
                 match job {
                     Job::TopLevel { pid, resp } => {
@@ -121,7 +121,7 @@ fn ask<T>(
 /// Platform backend source: cached snapshots through the serialized worker.
 ///
 /// Fail-open everywhere: probe timeouts degrade to empty snapshots / typed
-/// errors, never block or worsen a healthy call (DIALOGS.md §7).
+/// errors, never block or worsen a healthy call (docs/archive/DIALOGS.md §7).
 pub struct PlatformDialogSource {
     worker: mpsc::Sender<Job>,
     cache: std::sync::Mutex<std::collections::HashMap<u32, (Instant, DialogSnapshot)>>,

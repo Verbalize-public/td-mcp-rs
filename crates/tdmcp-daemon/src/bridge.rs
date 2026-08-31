@@ -126,7 +126,12 @@ impl BridgeTimeouts {
     #[must_use]
     pub fn for_method(self, method: &str) -> Duration {
         match BridgeMethod::from_wire(method) {
-            Some(BridgeMethod::ExecutePython | BridgeMethod::MutateNodes) => self.script,
+            // palette_probe loads .tox files from disk and cooks them.
+            Some(
+                BridgeMethod::ExecutePython
+                | BridgeMethod::MutateNodes
+                | BridgeMethod::PaletteProbe,
+            ) => self.script,
             _ => self.call,
         }
     }

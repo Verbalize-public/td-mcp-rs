@@ -1,6 +1,8 @@
 # V2 Implementation Plan — Project I/O + Lifecycle + Dialogs
 
-Status: **EXECUTING** (approved rev 2). Spec of record for behavior:
+> **Archived 2026-08-31** — executed end to end; see HANDOFF_V2.md (same folder) and [CONTRACT.md](../CONTRACT.md).
+
+Status: **DONE** (executed end to end 2026-08-26). Spec of record for behavior:
 [`SKILLS_CONTRACT_PROPOSAL.md`](SKILLS_CONTRACT_PROPOSAL.md) (rev 2 cuts applied);
 dialogs mechanics: [`DIALOGS.md`](DIALOGS.md) rev 4. This document owns execution order,
 gates, testing cadence, and the **blocked ledger** (§5).

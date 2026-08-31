@@ -21,6 +21,7 @@ Also available as [`operate`](./SKILL.md).
 | Structure / params / errors / network | `inspect` (**default** — `paths[]` required) |
 | DAT text/table bodies / GLSL sources | `inspect` with `include: ["content"]` (opt-in; follows GLSL DAT refs; reports shader compile status) |
 | Create / set / delete / wire / **write DAT text** | `mutate_nodes` (`text` on create/set auto-lints consuming shaders in the return) |
+| Stock component exists for this? Find / place one | `palette_index` → `mutate_nodes` `place` — [`palette`](./reference/palette.md) |
 | Describe *why* a node exists / read that back | `mutate_nodes` `comment` on create/set; `inspect` returns it — [`node-comments`](./reference/node-comments.md) |
 | Arbitrary Python (not network walks) | `execute_python` — see hard rules |
 | Perception / look claims | `capture` |
@@ -29,6 +30,7 @@ Also available as [`operate`](./SKILL.md).
 | No TD running / start or stop one | `spawn_td` / `kill_td` — [`lifecycle`](./reference/lifecycle.md) |
 | Calls stalling, TD wedged, startup modal | `dialogs` — [`popups`](./reference/popups.md) |
 | Offline `.toe`/`.tox`, installs, bridge install | `td_installs` / `project_unpack` / `project_pack` / `project_lint` / `project_install_bridge` — [`project-io`](./reference/project-io.md) |
+| Build / refresh palette knowledge, blacklist a bad comp | `palette_probe` + `palette_index` `describe` — [`palette-scan`](./reference/palette-scan.md) |
 | On-demand operate cards | open the card's `.md` file (Resource index below) |
 
 Lookup routing: exact opType/class → `api_help`; parameter **names** on an
@@ -111,6 +113,14 @@ starts there. Depth: [`node-comments`](./reference/node-comments.md).
 
 Before `execute_python` or any TD expression/script, **see [`python-api.md`](./reference/python-api.md)** in this turn. Exact live names still go through
 `api_help`.
+
+### Look in the Palette before hand-building — HARD RULE
+
+Before building any non-trivial subsystem — particles, audio analysis, a widget
+set, a video player, a mapper — check `palette_index` for a stock component
+first. Derivative ships hundreds of them, already debugged and already carrying
+a designed custom-parameter API. Hand-building what the Palette already has is
+the most expensive mistake available here. Depth: [`palette`](./reference/palette.md).
 
 ### In/Out operator harness — HARD RULE
 
@@ -204,3 +214,5 @@ Look claims: [`look-grade`](./reference/look-grade.md).
 | Spawn / kill TD | [`lifecycle`](./reference/lifecycle.md) |
 | Popup triage | [`popups`](./reference/popups.md) |
 | Offline project I/O | [`project-io`](./reference/project-io.md) |
+| Palette components | [`palette`](./reference/palette.md) |
+| Palette scan / describe | [`palette-scan`](./reference/palette-scan.md) |

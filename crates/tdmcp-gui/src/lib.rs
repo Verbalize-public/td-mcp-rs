@@ -20,7 +20,7 @@ mod theme;
 mod tray;
 mod wire;
 
-// Dev-only fixture harness (see docs/GUI_OVERHAUL_PLAN.md §11).
+// Dev-only fixture harness (see docs/archive/GUI_OVERHAUL_PLAN.md §11).
 #[cfg(feature = "preview")]
 pub mod preview;
 

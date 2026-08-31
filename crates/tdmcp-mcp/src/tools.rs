@@ -142,6 +142,10 @@ pub enum ToolName {
     ProjectLint,
     /// Install/override the tdmcp bridge inside a packed project.
     ProjectInstallBridge,
+    /// Palette component roster: scan / list / get / describe / blacklist.
+    PaletteIndex,
+    /// Load palette components in a live TD and digest their interface.
+    PaletteProbe,
 }
 
 impl ToolName {
@@ -165,6 +169,8 @@ impl ToolName {
             Self::KillTd => "kill_td",
             Self::ProjectLint => "project_lint",
             Self::ProjectInstallBridge => "project_install_bridge",
+            Self::PaletteIndex => "palette_index",
+            Self::PaletteProbe => "palette_probe",
         }
     }
 
@@ -182,7 +188,7 @@ impl ToolName {
                 "Structural read for an explicit paths[] batch (required, non-empty; soft-capped at 256). No auto-recursion — caller chooses nodes. Empty include defaults to nodes+errors+warnings; params and content opt-in; non-empty include is an allowlist. When nodes is included, each ok node includes positional inputs/outputs peer lists ({path, name, opType} or null per connector; [] when empty). Params entries are {name, mode, val, expr?} (expr only when mode is EXPRESSION; val is evaluated and JSON-safe). Content (opt-in) returns DAT .text bodies (text+table) and GLSL shader stages by following DAT refs plus compileResult — no size cap; omit content key on non-eligible ops. DAT content also carries shader consumers[] diagnostics ({severity note|error, code tdmcp.shader.*, consumer, role, lines[]}; caps 2048 ops scanned / 64 consumers — see consumersTruncated); GLSL content carries classified compileState compiled|error. Reading compileResult forces a synchronous recompile of that consumer. Every node also returns comment (OP.comment) when non-empty — read it first, it is the operator's own account of its role (capped 1024 chars, commentTruncated when cut). Per-node summary includes a direct-child roster ({name, opType}, plus each child's comment when set — capped 160 chars); detailed adds path+family. Roster capped at 256 — when truncated see node.truncation. Bad paths return ok:false inline; siblings still succeed."
             }
             Self::MutateNodes => {
-                "Ordered create/set/delete/connect/disconnect steps; sequential apply, stop on first hard error; later steps skipped (tdmcp.batch.skipped_dependent). Fix from failedAt only. create/set accept text: DAT body write (applied first; non-DAT target = hard error tdmcp.mutate.not_dat; create rolls back). create/set also accept comment: OP.comment, the node's own account of what it does and why — any family, an empty string clears it, and inspect returns it. Comment every non-obvious node you create: it is how the next agent (and the user) reads the network. After each successful text write the tool lints consuming GLSL ops and attaches per-step shaderDiagnostics[] ({severity note|error, code tdmcp.shader.*, consumer, consumerOpType, role, message, lines[]} for errors); summary adds shaderNotes/shaderErrors counts. Lint reads compileResult, forcing a synchronous recompile of each consumer; never flips ok."
+                "Ordered create/set/delete/connect/disconnect/place steps; sequential apply, stop on first hard error; later steps skipped (tdmcp.batch.skipped_dependent). Fix from failedAt only. create/set accept text: DAT body write (applied first; non-DAT target = hard error tdmcp.mutate.not_dat; create rolls back). create/set also accept comment: OP.comment, the node's own account of what it does and why — any family, an empty string clears it, and inspect returns it. Comment every non-obvious node you create: it is how the next agent (and the user) reads the network. After each successful text write the tool lints consuming GLSL ops and attaches per-step shaderDiagnostics[] ({severity note|error, code tdmcp.shader.*, consumer, consumerOpType, role, message, lines[]} for errors); summary adds shaderNotes/shaderErrors counts. Lint reads compileResult, forcing a synchronous recompile of each consumer; never flips ok. place drops a Palette component (.tox) into the network: pass paletteId (resolved against the palette_index roster on the daemon — an unknown id fails tdmcp.palette.unknown_id before TD is touched) or an absolute toxPath, never both; comment/values/flags apply exactly as on create, and the placed COMP is referenceable by later steps in the same batch, so place and connect in one call. See tdmcp://docs/palette."
             }
             Self::Capture => {
                 "Perception capture. top=native TOP PNG; preview=any family via shared bridge OP Viewer TOP; chop_data=CHOP JSON; chop_image/pop=aliases of preview; auto=TOP→top, CHOP→chop_data, else preview. maxSize is hard-capped at 1536px longer side (tdmcp.perception.max_size_too_large); null (native) is only honored when native resolution is already under the cap."
@@ -218,6 +224,12 @@ impl ToolName {
             Self::ProjectInstallBridge => {
                 "Install/override the tdmcp bridge inside a packed .toe/.tox: backs up the original, rewrites the three bridge DAT bodies (bootstrap/callbacks/tdmcp_exec) with the daemon's embedded sources, verifies by targeted re-expand, then replaces atomically. When the project has no bridge, one is created from the shipped bootstrap.tox under an unambiguous host COMP (returns created:true); an ambiguous project fails tdmcp.project.bridge_subtree_missing instead of guessing. strategy defaults to force; ensure skips when payloads already match."
             }
+            Self::PaletteIndex => {
+                "TouchDesigner Palette component roster (.tox library: builtin install folder + the user's own). Offline, no pid. action=scan walks the palette roots and reconciles the index with disk; list returns one cheap line per entry (id, category, summary, cardStatus) filtered by select{ids,category,source,match glob,status,limit,offset}; get returns one entry plus its full card; describe writes a card (summary+tags+body) authored from palette_probe evidence — nothing generates cards, you write them; ignore/unignore manage the probe blacklist by id or glob; forget drops entries (select required); stats counts described/stale/undescribed/failed/ignored. Ids are {source}:{Category}/{Name}, e.g. builtin:Tools/particlesGpu. Place a component with mutate_nodes op=place. Read tdmcp://docs/palette first."
+            }
+            Self::PaletteProbe => {
+                "Load palette components into a scratch COMP in a live TD, digest their interface (opType, custom parameter pages, In/Out pins, child roster, extensions, About), and destroy them — the evidence you turn into cards via palette_index action=describe. Same select{} as palette_index; batch is capped small because one wedging component takes its whole batch with it. Blacklisted entries are skipped unless includeIgnored=true. Probe in a throwaway project, never the user's work. Read tdmcp://docs/palette-scan first."
+            }
         }
     }
 
@@ -239,6 +251,8 @@ impl ToolName {
         Self::KillTd,
         Self::ProjectLint,
         Self::ProjectInstallBridge,
+        Self::PaletteIndex,
+        Self::PaletteProbe,
     ];
 
     /// Parse a wire tool name.
@@ -261,6 +275,8 @@ impl ToolName {
             "kill_td" => Some(Self::KillTd),
             "project_lint" => Some(Self::ProjectLint),
             "project_install_bridge" => Some(Self::ProjectInstallBridge),
+            "palette_index" => Some(Self::PaletteIndex),
+            "palette_probe" => Some(Self::PaletteProbe),
             _ => None,
         }
     }
@@ -635,6 +651,29 @@ pub enum MutateStep {
         #[serde(default, rename = "dstInput")]
         dst_input: LenientU32,
     },
+    /// Place a Palette component (`.tox`) into the network.
+    ///
+    /// `paletteId` is resolved to a file on the daemon *before* the bridge is
+    /// touched, so an unknown id never reaches TouchDesigner.
+    Place {
+        /// Desired node path; the leaf is the name you want.
+        path: OpPath,
+        /// Indexed component id, e.g. `builtin:Tools/particlesGpu` (see `palette_index`). Exactly one of `paletteId` / `toxPath`.
+        #[serde(default, rename = "paletteId", skip_serializing_if = "Option::is_none")]
+        palette_id: Option<String>,
+        /// Absolute `.tox` path for a component outside the palette. Exactly one of `paletteId` / `toxPath`.
+        #[serde(default, rename = "toxPath", skip_serializing_if = "Option::is_none")]
+        tox_path: Option<String>,
+        /// Operator comment (`OP.comment`) — say which component this is and why it is here.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        comment: Option<String>,
+        /// Custom parameter values applied after load (`.par.*` only).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        values: Option<Map<String, Value>>,
+        /// Direct OP attribute writes (`node.<name> = val`); allowlist = TD Common Flags subset.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        flags: Option<Map<String, Value>>,
+    },
     /// Clear an input connector on `path`.
     Disconnect {
         /// Target operator path (destination side).
@@ -759,6 +798,94 @@ pub enum BridgeOutcome {
     QueueBusy,
     /// Transport / timeout / disconnect failure.
     Transport(BridgeRpcError),
+}
+
+/// Rewrite every `place` step's `paletteId` into an absolute `.tox` path.
+///
+/// Runs before the bridge call so an unknown id, a vanished file, or an
+/// ambiguous step fails on the daemon and never reaches TouchDesigner.
+fn resolve_place_steps(
+    catalog: &tdmcp_diagnostics::Catalog,
+    tool: ToolName,
+    steps: &mut [MutateStep],
+) -> Result<(), ToolCallError> {
+    // Validate every place step first: an ill-formed step is a schema-shaped
+    // error that must not depend on whether a config or an index exists.
+    let mut needs_lookup = false;
+    for (i, step) in steps.iter().enumerate() {
+        let MutateStep::Place {
+            palette_id,
+            tox_path,
+            ..
+        } = step
+        else {
+            continue;
+        };
+        match (non_empty(palette_id), non_empty(tox_path)) {
+            (Some(_), Some(_)) => {
+                return Err(coded_failure(
+                    catalog,
+                    tool,
+                    codes::ARGS_UNKNOWN_FIELD,
+                    &format!("steps[{i}].toxPath"),
+                    "place takes paletteId or toxPath, never both",
+                ))
+            }
+            (None, None) => {
+                return Err(coded_failure(
+                    catalog,
+                    tool,
+                    codes::ARGS_MISSING_FIELD,
+                    &format!("steps[{i}].paletteId"),
+                    "place requires paletteId (from palette_index) or an absolute toxPath",
+                ))
+            }
+            (Some(_), None) => needs_lookup = true,
+            (None, Some(_)) => {}
+        }
+    }
+    if !needs_lookup {
+        return Ok(()); // Nothing to look up: never pay for a config load.
+    }
+
+    let cfg = tdmcp_config::load(&tdmcp_config::default_config_path()).map_err(|e| {
+        coded_failure(
+            catalog,
+            tool,
+            codes::PALETTE_STORE_FAILED,
+            "steps",
+            format!("config load: {e}"),
+        )
+    })?;
+    for (i, step) in steps.iter_mut().enumerate() {
+        let MutateStep::Place {
+            palette_id,
+            tox_path,
+            ..
+        } = step
+        else {
+            continue;
+        };
+        let Some(id) = non_empty(palette_id) else {
+            continue;
+        };
+        let resolved = crate::palette::resolve_tox_path(&cfg, id).map_err(|e| {
+            coded_failure(
+                catalog,
+                tool,
+                e.code,
+                &format!("steps[{i}].paletteId"),
+                e.message,
+            )
+        })?;
+        *tox_path = Some(resolved.to_string_lossy().into_owned());
+    }
+    Ok(())
+}
+
+/// A trimmed non-empty view of an optional string field.
+fn non_empty(value: &Option<String>) -> Option<&str> {
+    value.as_deref().map(str::trim).filter(|s| !s.is_empty())
 }
 
 /// Optional MCP session identity for the session-chill gate.
@@ -999,6 +1126,135 @@ async fn dispatch_tool_inner(
             crate::project_install::run(&params, &tools)
                 .map_err(|e| coded_failure(catalog, tool, e.1, "targetPath", e.0))
         }
+        ToolName::PaletteIndex => {
+            let params: crate::palette::PaletteIndexParams = parse_args(catalog, tool, args)?;
+            crate::palette::run(&params)
+                .map_err(|e| coded_failure(catalog, tool, e.code, e.field, e.message))
+        }
+        ToolName::PaletteProbe => {
+            let params: crate::palette::PaletteProbeParams =
+                parse_args(catalog, tool, args.clone())?;
+            if let ControlFlow::Break(v) = maybe_proxy_bridged(
+                federation,
+                registry,
+                catalog,
+                "palette_probe",
+                args,
+                params.daemon_id.as_deref(),
+                params.pid,
+                session,
+            )
+            .await?
+            {
+                return Ok(v);
+            }
+            let cfg = tdmcp_config::load(&tdmcp_config::default_config_path()).map_err(|e| {
+                coded_failure(
+                    catalog,
+                    tool,
+                    codes::PALETTE_STORE_FAILED,
+                    "pid",
+                    format!("config load: {e}"),
+                )
+            })?;
+            // Plan on the daemon: the batch is chosen, checked against disk,
+            // and recorded as in-flight before TD is asked to load anything.
+            let plan = crate::palette::plan_probe(&cfg, &params)
+                .map_err(|e| coded_failure(catalog, tool, e.code, e.field, e.message))?;
+            let skipped: Vec<Value> = plan
+                .skipped
+                .iter()
+                .map(|(id, reason)| {
+                    serde_json::json!({ "paletteId": id, "status": "skipped", "reason": reason })
+                })
+                .collect();
+            if plan.targets.is_empty() {
+                // Nothing loadable is a legitimate end-of-loop, not a failure —
+                // but say *why* nothing ran, or an all-blacklisted selection
+                // looks like an empty palette.
+                let mut out = serde_json::json!({
+                    "ok": true,
+                    "results": [],
+                    "skipped": skipped,
+                    "skippedTotal": plan.skipped_total,
+                    "remaining": plan.remaining,
+                });
+                out["note"] = serde_json::json!(if plan.skipped_total > 0 {
+                    format!(
+                        "nothing probed: {} matching component(s) are on the blacklist or missing from disk — pass includeIgnored:true to probe them anyway, or clear them with palette_index action=unignore",
+                        plan.skipped_total
+                    )
+                } else {
+                    "nothing to probe: no component matched this selection — widen it, or check palette_index action=stats"
+                        .to_owned()
+                });
+                return Ok(out);
+            }
+            let _slot = begin_session_slot(
+                session,
+                catalog,
+                "palette_probe",
+                DAEMON_SCOPE_LOCAL,
+                params.pid,
+            )?;
+            let targets: Vec<Value> = plan
+                .targets
+                .iter()
+                .map(|t| {
+                    serde_json::json!({
+                        "paletteId": t.palette_id,
+                        "toxPath": t.tox_path.to_string_lossy(),
+                    })
+                })
+                .collect();
+            let outcome = enqueue_and_call(
+                registry,
+                bridge,
+                params.pid,
+                BridgeMethod::PaletteProbe,
+                serde_json::json!({
+                    "targets": targets,
+                    "detailLevel": params.detail_level.as_str(),
+                }),
+            )
+            .await;
+            // Only a timeout or a mid-call disconnect means the batch may have
+            // actually run and wedged TD — that is the signal the breadcrumb
+            // exists for. Everything else never reached TouchDesigner, so drop
+            // the breadcrumb rather than blame those components later.
+            let never_dispatched = matches!(
+                &outcome,
+                BridgeOutcome::QueueBusy
+                    | BridgeOutcome::Transport(
+                        BridgeRpcError::NotConnected { .. } | BridgeRpcError::Unknown { .. }
+                    )
+            );
+            if never_dispatched {
+                let _ = crate::palette::clear_inflight(&cfg);
+            }
+            let mut mapped = crate::outcomes::map_palette_probe_outcome(
+                catalog,
+                params.pid,
+                outcome,
+                params.diagnostic_level,
+            )?;
+            // Fold the ledger back in — including auto-ignore on repeat failure
+            // — and clear the in-flight breadcrumb.
+            let results = mapped
+                .get("results")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            if let Err(e) = crate::palette::record_probe(&cfg, &results) {
+                mapped["ledgerError"] = serde_json::json!(e.to_string());
+            }
+            if !skipped.is_empty() {
+                mapped["skipped"] = Value::Array(skipped);
+                mapped["skippedTotal"] = serde_json::json!(plan.skipped_total);
+            }
+            mapped["remaining"] = serde_json::json!(plan.remaining);
+            Ok(mapped)
+        }
         ToolName::ExecutePython => {
             let params: ExecutePythonParams = parse_args(catalog, tool, args.clone())?;
             if let ControlFlow::Break(v) = maybe_proxy_bridged(
@@ -1151,7 +1407,8 @@ async fn dispatch_tool_inner(
             )
         }
         ToolName::MutateNodes => {
-            let params: MutateNodesParams = parse_args(catalog, tool, args.clone())?;
+            let mut params: MutateNodesParams = parse_args(catalog, tool, args.clone())?;
+            resolve_place_steps(catalog, tool, &mut params.steps)?;
             if let ControlFlow::Break(v) = maybe_proxy_bridged(
                 federation,
                 registry,

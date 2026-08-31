@@ -1,5 +1,7 @@
 # Shader compile lint (`text` writes + consumer status) — research & implementation plan
 
+> **Archived 2026-08-31** — shipped; wire contract lives in [CONTRACT.md](../CONTRACT.md) (mutate_nodes / inspect sections).
+
 Status: **Shipped** (implemented 2026-08-23; see CONTRACT.md §`mutate_nodes`
 "Text writes & shader lint" and §`inspect` content tables for the wire
 contract). Prepared from codebase reconnaissance and

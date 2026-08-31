@@ -77,7 +77,7 @@ drift. Do not silence or delete that test to make it pass. Authoring contract:
 
 | Need | Go to |
 | --- | --- |
-| v1 contract / tools / OpPath | [`docs/CONTRACT.md`](docs/CONTRACT.md) |
+| Contract of record (tools, shapes, diagnostics) | [`docs/CONTRACT.md`](docs/CONTRACT.md) |
 | Install / quickstart | [`README.md`](README.md) |
 | Crate boundaries / topology | [`ARCHITECTURE.md`](ARCHITECTURE.md) |
 | Never-panic / lints / DRY | [`CONSTITUTION.md`](CONSTITUTION.md) |
@@ -86,15 +86,14 @@ drift. Do not silence or delete that test to make it pass. Authoring contract:
 | Config file | [`docs/CONFIG.md`](docs/CONFIG.md) |
 | Packaging | [`docs/DELIVERY.md`](docs/DELIVERY.md) |
 | Claude Code plugin (`.claude-plugin/`, `claude-skills/`) | [`docs/CLAUDE_CODE_PLUGIN.md`](docs/CLAUDE_CODE_PLUGIN.md) |
-| Logging / central sink / observability | [`docs/OBSERVABILITY.md`](docs/OBSERVABILITY.md) (spec) + [`docs/OBSERVABILITY_PLAN.md`](docs/OBSERVABILITY_PLAN.md) (execution plan) |
-| Tool-call arg-error diagnostics (`tdmcp.args.*`) | [`docs/TOOL_ERROR_PLAN.md`](docs/TOOL_ERROR_PLAN.md) |
-| GUI overhaul plan (active work spec) | [`docs/GUI_OVERHAUL_PLAN.md`](docs/GUI_OVERHAUL_PLAN.md) |
-| Payload limits audit / artifact-spool plan (base64 → file delivery) | [`docs/LIMITS_AUDIT.md`](docs/LIMITS_AUDIT.md) + [`docs/PAYLOAD_SPOOL_PLAN.md`](docs/PAYLOAD_SPOOL_PLAN.md) |
-| **Start here after a handoff** | [`docs/HANDOFF_V2.md`](docs/HANDOFF_V2.md) |
-| v2 tools spec (project I/O, lifecycle, dialogs) | [`docs/SKILLS_CONTRACT_PROPOSAL.md`](docs/SKILLS_CONTRACT_PROPOSAL.md) + [`docs/V2_IMPLEMENTATION_PLAN.md`](docs/V2_IMPLEMENTATION_PLAN.md) |
-| Dialogs design / dismiss ladder | [`docs/DIALOGS.md`](docs/DIALOGS.md) |
+| Logging / observability (spec; only `td.errors` polling open) | [`docs/OBSERVABILITY.md`](docs/OBSERVABILITY.md) |
+| GUI internals / current map | [`docs/GUI_MAP.md`](docs/GUI_MAP.md) |
+| **Active plans** — Linux/Wine support · payload spool · limits residue | [`docs/LINUX_SUPPORT.md`](docs/LINUX_SUPPORT.md) · [`docs/PAYLOAD_SPOOL_PLAN.md`](docs/PAYLOAD_SPOOL_PLAN.md) · [`docs/LIMITS_AUDIT.md`](docs/LIMITS_AUDIT.md) (§5–6 open rows) |
+| **Start here after a handoff** | [`docs/CONTRACT.md`](docs/CONTRACT.md) + the active plans above |
+| Shipped-plan archive (v2 spec, execution plans, dialogs annex, shader lint, GUI overhaul, handoff) | [`docs/archive/`](docs/archive/) |
 | Agent skill cards (authoring contract) | [`skills/README.md`](skills/README.md) |
 | Test layout / what runs where | [`docs/TESTING.md`](docs/TESTING.md) |
+| Palette awareness (tools, store, blacklist) | [`docs/CONTRACT.md`](docs/CONTRACT.md) § `palette_index` / `palette_probe` |
 | E2E acceptance rows | [`docs/E2E_CHECKLIST.md`](docs/E2E_CHECKLIST.md) |
 
 ### Build / check

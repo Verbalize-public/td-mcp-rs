@@ -223,6 +223,62 @@
         },
         {
           "additionalProperties": false,
+          "description": "Place a Palette component (`.tox`) into the network.\n\n`paletteId` is resolved to a file on the daemon *before* the bridge is\ntouched, so an unknown id never reaches TouchDesigner.",
+          "properties": {
+            "comment": {
+              "description": "Operator comment (`OP.comment`) — say which component this is and why it is here.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "flags": {
+              "additionalProperties": true,
+              "description": "Direct OP attribute writes (`node.<name> = val`); allowlist = TD Common Flags subset.",
+              "type": [
+                "object",
+                "null"
+              ]
+            },
+            "op": {
+              "const": "place",
+              "type": "string"
+            },
+            "paletteId": {
+              "description": "Indexed component id, e.g. `builtin:Tools/particlesGpu` (see `palette_index`). Exactly one of `paletteId` / `toxPath`.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "path": {
+              "$ref": "#/$defs/OpPath",
+              "description": "Desired node path; the leaf is the name you want."
+            },
+            "toxPath": {
+              "description": "Absolute `.tox` path for a component outside the palette. Exactly one of `paletteId` / `toxPath`.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "values": {
+              "additionalProperties": true,
+              "description": "Custom parameter values applied after load (`.par.*` only).",
+              "type": [
+                "object",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "op",
+            "path"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
           "description": "Clear an input connector on `path`.",
           "properties": {
             "input": {

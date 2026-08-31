@@ -27,6 +27,7 @@ BRIDGE_METHODS: tuple[str, ...] = (
     "mutate_nodes",
     "api_help",
     "editor_context",
+    "palette_probe",
     "ping",
 )
 
@@ -52,6 +53,19 @@ CAPTURE_VIEWER_NAME = "capture_viewer"
 # an unbounded PNG+base64 payload can blow the 16 MiB IPC frame and kill the
 # whole bridge session, not just the one call (docs/LIMITS_AUDIT.md §4.2).
 CAPTURE_MAX_SIZE = 1536
+
+# palette_probe caps. The batch cap is the load-bearing one: a probe loads
+# arbitrary components, and a component that wedges TD takes its whole batch
+# with it — so a batch stays small enough that the loss is cheap. Mirrored in
+# Rust as palette::PROBE_BATCH_MAX.
+PALETTE_PROBE_BATCH_LIMIT = 8
+PALETTE_CHILD_ROSTER_LIMIT = 64
+PALETTE_PAR_PAGE_LIMIT = 16
+PALETTE_PARS_PER_PAGE_LIMIT = 64
+PALETTE_SCRATCH_NAME = "tdmcp_probe"
+# A palette wrapper's `help` DAT is the component's own documentation and the
+# best raw material for a card — worth more budget than a node comment.
+PALETTE_HELP_MAX_CHARS = 4000
 
 # api_help batch / payload caps (mirrored in Rust tools.rs).
 API_HELP_QUERIES_LIMIT = 64

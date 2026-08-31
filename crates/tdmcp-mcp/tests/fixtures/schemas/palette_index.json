@@ -1,0 +1,289 @@
+{
+  "$defs": {
+    "LenientU32": {
+      "anyOf": [
+        {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "pattern": "^\\s*[0-9]+\\s*$",
+          "type": "string"
+        }
+      ],
+      "description": "Unsigned 32-bit integer; accepts a JSON number or a decimal numeric string."
+    },
+    "PaletteAction": {
+      "description": "`palette_index` sub-actions.",
+      "oneOf": [
+        {
+          "const": "scan",
+          "description": "Walk the palette roots and reconcile the index with disk.",
+          "type": "string"
+        },
+        {
+          "const": "list",
+          "description": "One line per entry: id, category, summary, card status.",
+          "type": "string"
+        },
+        {
+          "const": "get",
+          "description": "Full entry plus its card body.",
+          "type": "string"
+        },
+        {
+          "const": "describe",
+          "description": "Write a card (summary + tags + body) for one component.",
+          "type": "string"
+        },
+        {
+          "const": "ignore",
+          "description": "Add id globs to the probe blacklist.",
+          "type": "string"
+        },
+        {
+          "const": "unignore",
+          "description": "Remove id globs from the probe blacklist.",
+          "type": "string"
+        },
+        {
+          "const": "forget",
+          "description": "Drop entries and their cards from the index.",
+          "type": "string"
+        },
+        {
+          "const": "stats",
+          "description": "Roster counts by card status / category.",
+          "type": "string"
+        }
+      ]
+    },
+    "PaletteRootArg": {
+      "additionalProperties": false,
+      "description": "An extra palette root supplied by the caller.",
+      "properties": {
+        "path": {
+          "description": "Absolute folder path.",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/PaletteSourceArg",
+          "description": "Which half of the palette this root provides."
+        }
+      },
+      "required": [
+        "source",
+        "path"
+      ],
+      "type": "object"
+    },
+    "PaletteSelectorArg": {
+      "additionalProperties": false,
+      "description": "Which entries a bulk action applies to. Shared by `palette_index` and\n`palette_probe` so partial-palette selection is defined once.",
+      "properties": {
+        "category": {
+          "default": null,
+          "description": "Category prefix; `Tools` also matches `Tools/Sub`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "ids": {
+          "default": null,
+          "description": "Exact ids. Explicit ids bypass the blacklist — asking is deliberate.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "includeIgnored": {
+          "default": false,
+          "description": "Include blacklisted entries.",
+          "type": "boolean"
+        },
+        "limit": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LenientU32"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Max entries returned / probed."
+        },
+        "match": {
+          "default": null,
+          "description": "`*` / `?` glob over the id.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "offset": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LenientU32"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Skip this many matches first."
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PaletteSourceArg"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Restrict to one root."
+        },
+        "status": {
+          "$ref": "#/$defs/PaletteStatusArg",
+          "description": "Card / probe status."
+        }
+      },
+      "type": "object"
+    },
+    "PaletteSourceArg": {
+      "description": "Wire form of [`PaletteSource`].",
+      "oneOf": [
+        {
+          "const": "builtin",
+          "description": "Shipped with the TouchDesigner install.",
+          "type": "string"
+        },
+        {
+          "const": "user",
+          "description": "The user's own palette folder.",
+          "type": "string"
+        }
+      ]
+    },
+    "PaletteStatusArg": {
+      "description": "Card / probe status filter.",
+      "oneOf": [
+        {
+          "const": "all",
+          "description": "No status filter.",
+          "type": "string"
+        },
+        {
+          "const": "undescribed",
+          "description": "No card yet.",
+          "type": "string"
+        },
+        {
+          "const": "described",
+          "description": "Card present and current.",
+          "type": "string"
+        },
+        {
+          "const": "stale",
+          "description": "Card present but the `.tox` changed under it.",
+          "type": "string"
+        },
+        {
+          "const": "failed",
+          "description": "Last probe failed, or the entry is a wedge suspect.",
+          "type": "string"
+        },
+        {
+          "const": "ignored",
+          "description": "On the probe blacklist.",
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "additionalProperties": false,
+  "description": "Args for `palette_index`.",
+  "properties": {
+    "action": {
+      "$ref": "#/$defs/PaletteAction",
+      "description": "What to do."
+    },
+    "body": {
+      "default": null,
+      "description": "Card body Markdown (`describe`).",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "paletteId": {
+      "default": null,
+      "description": "Target id for `get` / `describe`.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "patterns": {
+      "default": null,
+      "description": "Id globs to add/remove from the blacklist (`ignore` / `unignore`).",
+      "items": {
+        "type": "string"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "roots": {
+      "description": "Extra palette roots to scan on top of the discovered ones (`scan`).",
+      "items": {
+        "$ref": "#/$defs/PaletteRootArg"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "select": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PaletteSelectorArg"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Which entries the action applies to (`list` / `forget`)."
+    },
+    "summary": {
+      "default": null,
+      "description": "One-line summary written into the index (`describe`). The retrieval\nsurface `list` shows — say what the component does, in search words.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "tags": {
+      "default": null,
+      "description": "Retrieval tags (`describe`).",
+      "items": {
+        "type": "string"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "action"
+  ],
+  "type": "object"
+}

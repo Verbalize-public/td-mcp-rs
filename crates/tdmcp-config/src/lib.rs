@@ -55,6 +55,8 @@ pub struct ConfigFile {
     pub dialogs: DialogsSection,
     /// Template / new-project defaults.
     pub project: ProjectSection,
+    /// Palette component library discovery + probe blacklist.
+    pub palette: PaletteSection,
 }
 
 /// `[server]` table.
@@ -266,6 +268,47 @@ pub struct ProjectSection {
     pub template_path: Option<PathBuf>,
 }
 
+/// `[palette]` table — TouchDesigner Palette component library.
+///
+/// The builtin root is discovered from the TD install; this table only covers
+/// the two things discovery cannot know: where the *user's* palette folder is,
+/// and which components must never be probed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PaletteSection {
+    /// User palette folder. `None` → `{documents}/Derivative/Palette`.
+    pub user_root: Option<PathBuf>,
+    /// Index + card store. `None` → `{data_dir}/palette`.
+    pub store_dir: Option<PathBuf>,
+    /// Id globs never probed. Seeded with components that open sockets or
+    /// expect absent hardware on load — probing those can wedge TD.
+    pub ignore: Vec<String>,
+}
+
+/// Palette ignore globs applied to a freshly created index.
+pub const DEFAULT_PALETTE_IGNORE: &[&str] = &[
+    "builtin:TDAbleton/*",
+    "builtin:TDBitwig/*",
+    "builtin:TDSynchro/*",
+    "builtin:TDVR/*",
+    "builtin:MetaQuest/*",
+    "builtin:Vive/*",
+    "builtin:WebRTC/*",
+];
+
+impl Default for PaletteSection {
+    fn default() -> Self {
+        Self {
+            user_root: None,
+            store_dir: None,
+            ignore: DEFAULT_PALETTE_IGNORE
+                .iter()
+                .map(|s| (*s).to_owned())
+                .collect(),
+        }
+    }
+}
+
 /// Field descriptions shared by docs, GUI tooltips, and the default template.
 #[derive(Debug, Clone, Copy)]
 pub struct FieldDesc {
@@ -424,6 +467,16 @@ pub const FIELD_DESCS: &[FieldDesc] = &[
         label: "Template .toe",
         help: "Template .toe for spawn_td createIfMissing. Empty = {data_dir}/template.toe (shipped fallback).",
     },
+    FieldDesc {
+        key: "palette.user_root",
+        label: "User palette folder",
+        help: "Your own .tox palette folder. Empty = {documents}/Derivative/Palette.",
+    },
+    FieldDesc {
+        key: "palette.store_dir",
+        label: "Palette store",
+        help: "Where the palette index + component cards live. Empty = {data_dir}/palette.",
+    },
 ];
 
 /// Default config file path (`{config_dir}/tdmcp-rs/config.toml`).
@@ -528,6 +581,7 @@ pub fn save(path: &Path, cfg: &ConfigFile) -> Result<()> {
     ensure_table(&mut doc, "official_tools");
     ensure_table(&mut doc, "dialogs");
     ensure_table(&mut doc, "project");
+    ensure_table(&mut doc, "palette");
 
     doc["dialogs"]["enabled"] = value(cfg.dialogs.enabled);
     doc["dialogs"]["intercept"] = value(cfg.dialogs.intercept);
@@ -611,6 +665,24 @@ pub fn save(path: &Path, cfg: &ConfigFile) -> Result<()> {
         "template_path",
         cfg.project.template_path.as_ref(),
     );
+
+    set_optional_path(
+        &mut doc["palette"],
+        "user_root",
+        cfg.palette.user_root.as_ref(),
+    );
+    set_optional_path(
+        &mut doc["palette"],
+        "store_dir",
+        cfg.palette.store_dir.as_ref(),
+    );
+    if let Some(table) = doc["palette"].as_table_mut() {
+        let mut arr = toml_edit::Array::new();
+        for pat in &cfg.palette.ignore {
+            arr.push(pat.as_str());
+        }
+        table.insert("ignore", value(arr));
+    }
 
     fs::write(path, doc.to_string()).with_context(|| format!("write config {}", path.display()))?;
     tracing::debug!(path = %path.display(), "config section values applied and saved");
@@ -929,6 +1001,36 @@ show_tray = true
         assert_eq!(cfg.logging.console_level, None);
         assert_eq!(cfg.logging.max_files, 14);
         assert_eq!(cfg.logging.retention_days, 30);
+    }
+
+    #[test]
+    fn save_round_trips_palette() {
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join("config.toml");
+        ensure_default(&path, true).expect("seed");
+
+        // The shipped template already carries the hostile-component blacklist.
+        let cfg = load(&path).expect("load");
+        assert!(cfg.palette.user_root.is_none());
+        assert!(cfg
+            .palette
+            .ignore
+            .iter()
+            .any(|p| p == "builtin:TDAbleton/*"));
+
+        let mut cfg = cfg;
+        let root = std::path::PathBuf::from("C:/Users/me/Documents/Derivative/Palette");
+        cfg.palette.user_root = Some(root.clone());
+        cfg.palette.ignore.push("user:Broken/*".into());
+        save(&path, &cfg).expect("save");
+
+        let again = load(&path).expect("reload");
+        assert_eq!(again.palette.user_root.as_deref(), Some(root.as_path()));
+        assert!(again.palette.ignore.iter().any(|p| p == "user:Broken/*"));
+        assert!(
+            again.palette.store_dir.is_none(),
+            "unset optional is dropped"
+        );
     }
 
     #[test]

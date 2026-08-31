@@ -1,7 +1,7 @@
 //! Offline TouchDesigner project I/O orchestrated over Derivative's official
 //! `toeexpand` / `toecollapse` tools.
 //!
-//! Reliability law (V2-0 probe-proven, see `docs/SKILLS_CONTRACT_PROPOSAL.md` §6.1):
+//! Reliability law (V2-0 probe-proven, see `docs/archive/SKILLS_CONTRACT_PROPOSAL.md` §6.1):
 //!
 //! - Official-tool exit codes lie in both directions. Success is judged solely by
 //!   filesystem evidence (expand dir + toc exist; packed file non-empty), never by
@@ -18,6 +18,7 @@
 
 pub mod error;
 pub mod ops;
+pub mod palette;
 pub mod resolve;
 pub mod runner;
 pub mod sidecar;

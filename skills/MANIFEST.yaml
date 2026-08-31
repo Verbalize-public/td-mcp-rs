@@ -246,3 +246,22 @@ popups:
   description: >-
     Detect and clear OS dialogs blocking TouchDesigner (fleet popups +
     dialogs tool), including startup version/compat warnings after spawn_td.
+
+palette:
+  template_path: touchdesigner/reference/palette.jinja.md
+  output_path: touchdesigner/reference/palette.md
+  title: Palette components
+  description: >-
+    Find and place TouchDesigner Palette components (.tox library) instead of
+    rebuilding them. Use before hand-building a particle system, audio
+    analyser, widget set, or any network a stock component already covers.
+
+palette-scan:
+  template_path: touchdesigner/reference/palette-scan.jinja.md
+  output_path: touchdesigner/reference/palette-scan.md
+  title: Palette scan and describe
+  description: >-
+    Build the palette knowledge base: scan the roster, probe components in a
+    throwaway TD, write their cards, and blacklist the ones that wedge. Use
+    when a component has no summary, or when adding your own .tox to the
+    palette.

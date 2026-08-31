@@ -42,7 +42,8 @@ scope: <path>  [(<family>:<opType>[, pars: <name>,...])]  nodes=<N> wires=<E> [e
 - `[...]` — free-text annotations for facts that aren't a parameter value: `[callback]` (DAT
   has authored script), `[ext]` (COMP has a promoted Python Extension), `[err]` (node has a
   live error — cross-check `inspect` errors before writing this), `[custom]` (custom
-  OP/palette entry, not a stock TD type).
+  OP, or a Palette component placed with `mutate_nodes` `place` — not a stock TD
+  type; name the `paletteId` in the `#` comment, see [`palette`](./palette.md)).
 - `# <comment>` — **last on the line**, the operator's own `OP.comment` as `inspect`
   returned it (first line only; trim to fit). Everything after `#` is free text, so no
   other block may follow it. Transcribe it, never invent it: a `#` in a sketch is a claim

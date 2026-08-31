@@ -197,6 +197,15 @@ def summarize_request(msg: dict[str, Any]) -> str:
         if first_op:
             return _short_text(f"{n}× {first_op}")
         return _short_text(f"mutate×{n}")
+    if method == "palette_probe":
+        targets = params.get("targets") or []
+        if isinstance(targets, list) and targets:
+            first = targets[0] if isinstance(targets[0], dict) else {}
+            name = str(first.get("paletteId") or "")
+            if len(targets) == 1 and name:
+                return _short_text(name)
+            return _short_text(f"probe×{len(targets)}")
+        return "palette_probe"
     if method == "ping":
         return "ping"
     return _short_text(method or "unknown")

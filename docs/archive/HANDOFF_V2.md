@@ -1,7 +1,9 @@
 # v2 Curated Handoff — for the next agent (historical, 1.0 shipped)
 
+> **Archived 2026-08-31** — historical handoff; contract of record: [CONTRACT.md](../CONTRACT.md).
+
 Recorded 2026-08-26. Branch `main`, HEAD `5b4b860`, working tree clean at that time.
-Retained as historical record; contract of record is now [`CONTRACT.md`](CONTRACT.md).
+Retained as historical record; contract of record is now [`CONTRACT.md`](../CONTRACT.md).
 Spec deviations below are dispositioned for 1.0 (see §Known spec deviations — dispositioned).
 
 ## What just finished (v2 unified plan — executed end to end)

@@ -1,8 +1,10 @@
 # OS dialogs support (`dialogs`) — shipped (v2), historical implementation spec retained
 
+> **Archived 2026-08-31** — shipped; historical implementation annex. Contract of record: [CONTRACT.md](../CONTRACT.md).
+
 Status: **Shipped V2-D — Windows + macOS.** Historical spec below; kept as the
 implementation annex for the `dialogs` tool. Spec of record for the released
-behavior is [`docs/CONTRACT.md`](CONTRACT.md) + live code (`crates/tdmcp-dialogs`,
+behavior is [`docs/CONTRACT.md`](../CONTRACT.md) + live code (`crates/tdmcp-dialogs`,
 `crates/tdmcp-daemon/src/dialogs.rs`, `crates/tdmcp-mcp/src/dialogs_tool.rs`).
 
 Rev 3: platform strategy is a **vendored in-house wrapper** over the OS APIs
@@ -24,7 +26,7 @@ Reserves already in the tree this feature fills:
 
 | Reserve | Location |
 | --- | --- |
-| `dialogs` tool row, **Planned** (P1, Win) | [`docs/CONTRACT.md`](CONTRACT.md) catalogue (line 222) |
+| `dialogs` tool row, **Planned** (P1, Win) | [`docs/CONTRACT.md`](../CONTRACT.md) catalogue (line 222) |
 | `fleet` `include=popups` — deferred/empty until P1 | CONTRACT.md line 270; `crates/tdmcp-mcp/src/fleet.rs:32-33` (`FleetInclude::Popups`); fixture `crates/tdmcp-mcp/tests/fixtures/schemas/fleet.json` |
 | `window_status: Option<String>` — "empty until P1 dialogs / hang probe" | `crates/tdmcp-core/src/registry.rs:33-35` (`ProcessAttrs`); surfaced via `crates/tdmcp-mcp/src/fleet.rs:45-47` |
 | Roadmap checkbox | `README.md:186` |
@@ -163,7 +165,7 @@ Unsafe policy (constitution carve-out, done properly):
   so `tdmcp-dialogs` opts out of wholesale workspace-lint inheritance and
   restates the workspace lints except `unsafe_code`; that change lands with a
   `RISKS.md` entry + constitution amendment note in the same PR, per
-  [CONSTITUTION.md](../CONSTITUTION.md). Clippy `undocumented_unsafe_blocks`
+  [CONSTITUTION.md](../../CONSTITUTION.md). Clippy `undocumented_unsafe_blocks`
   warned in-crate; every block carries a `// SAFETY:` comment.
 - Dependency cost: single `windows` crate dep, features `Win32_Foundation`,
   `Win32_UI_WindowsAndMessaging`, `Win32_UI_Accessibility`,

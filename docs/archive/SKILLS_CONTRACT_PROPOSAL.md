@@ -1,9 +1,11 @@
 # v2 Unified Tools & Skills Contract: Project I/O + Lifecycle + Dialogs — SHIPPED
 
-Status: **ACCEPTED & SHIPPED 2026-08-26.** Was the proposal that extended [`CONTRACT.md`](CONTRACT.md) v1 with eight
+> **Archived 2026-08-31** — shipped; contract of record: [CONTRACT.md](../CONTRACT.md).
+
+Status: **ACCEPTED & SHIPPED 2026-08-26.** Was the proposal that extended [`CONTRACT.md`](../CONTRACT.md) v1 with eight
 tools and three skills-layer cards, and **absorbed [`DIALOGS.md`](DIALOGS.md)** (kept as the
 full implementation annex for the `dialogs` tool; this document owned the unified scope,
-roadmap, and interaction contracts). Change-list in §8 **applied** — see [`V2_IMPLEMENTATION_PLAN.md`](V2_IMPLEMENTATION_PLAN.md) and [`HANDOFF_V2.md`](HANDOFF_V2.md) for live E2E V1-V10 PASS. Retained verbatim as historical record; contract of record is now [`CONTRACT.md`](CONTRACT.md).
+roadmap, and interaction contracts). Change-list in §8 **applied** — see [`V2_IMPLEMENTATION_PLAN.md`](V2_IMPLEMENTATION_PLAN.md) and [`HANDOFF_V2.md`](HANDOFF_V2.md) for live E2E V1-V10 PASS. Retained verbatim as historical record; contract of record is now [`CONTRACT.md`](../CONTRACT.md).
 
 Rev 2 (challenge pass) — simplification cuts applied throughout: `spawn_td` is surface-only
 (no auto-dismiss policy), no round-trip diffing in `project_pack` (targeted byte-verify lives
@@ -31,7 +33,7 @@ opendesigner's proven `td-official` backend, and edit only the small text gramma
 expand dir. Deep semantic analysis stays opendesigner's job (`td-cli check/lint` is delegated,
 never re-implemented). This adds offline project I/O, project linting, in-project bridge
 installation (closing the "four copies" manual-re-drags gap from
-[`scripts/pack_bootstrap_tox.md`](../scripts/pack_bootstrap_tox.md)), and deterministic
+[`scripts/pack_bootstrap_tox.md`](../../scripts/pack_bootstrap_tox.md)), and deterministic
 process lifecycle with spawn-owner awareness.
 
 The lifecycle work also unlocks [`DIALOGS.md`](DIALOGS.md): its watcher can only see pids that
@@ -321,10 +323,10 @@ Reliability law (carried verbatim from evidence):
 - Never redistribute Derivative binaries.
 
 Placement: new crate `tdmcp-projectio` (owns process spawning of official tools, staging,
-sniffing, grammar touch-points). Keeps `tdmcp-core` zero-I/O per [`ARCHITECTURE.md`](ARCHITECTURE.md);
+sniffing, grammar touch-points). Keeps `tdmcp-core` zero-I/O per [`ARCHITECTURE.md`](../../ARCHITECTURE.md);
 `tdmcp-daemon` remains composition root; `tdmcp-mcp` owns the new schemas.
 
-### 4.2 Config additions ([`CONFIG.md`](CONFIG.md))
+### 4.2 Config additions ([`CONFIG.md`](../CONFIG.md))
 
 ```toml
 [official_tools]
@@ -339,7 +341,7 @@ intercept = true     # fail-fast gate on bridged tool calls
 poll_ms   = 1000     # watcher cadence
 ```
 
-### 4.3 Diagnostics additions ([`catalog.yaml`](../crates/tdmcp-diagnostics/catalog.yaml))
+### 4.3 Diagnostics additions ([`catalog.yaml`](../../diagnostics/catalog.yaml))
 
 New families: `tdmcp.installs.*`, `tdmcp.project.*`, `tdmcp.lint.*`, `tdmcp.spawn.*`,
 `tdmcp.kill.*`, plus the annex's `tdmcp.dialog.*`

@@ -2,7 +2,7 @@
 //!
 //! Pure data + trait only (crate stays zero-I/O). Platform backends live in
 //! `tdmcp-dialogs` (Windows user32/UIA now, macOS later); `NullDialogSource`
-//! covers non-Windows targets and tests. Full mechanics: `docs/DIALOGS.md`.
+//! covers non-Windows targets and tests. Full mechanics: `docs/archive/DIALOGS.md`.
 
 use serde::{Deserialize, Serialize};
 
@@ -160,7 +160,7 @@ pub struct DismissOutcome {
 ///
 /// Justified single seam despite the constitution's single-impl-trait stance:
 /// it carries [`NullDialogSource`] for non-Windows/test targets plus the future
-/// macOS backend behind one narrow surface (see DIALOGS.md §5.1).
+/// macOS backend behind one narrow surface (see docs/archive/DIALOGS.md §5.1).
 pub trait DialogSource: Send + Sync {
     /// Cheap snapshot for the watcher/poll path (user32-only on Windows).
     fn snapshot(&self, pid: u32) -> DialogSnapshot;

@@ -203,6 +203,14 @@ mod tests {
             "describe_tools",
             "td_installs",
             "dialogs",
+            "spawn_td",
+            "kill_td",
+            "project_unpack",
+            "project_pack",
+            "project_lint",
+            "project_install_bridge",
+            "palette_index",
+            "palette_probe",
         ];
         for code in cat.codes() {
             let entry = cat.get(code).expect("code");

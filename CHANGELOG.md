@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- feat(palette): palette awareness — `palette_index` (offline roster: scan / list / get / describe / ignore / unignore / forget / stats) and `palette_probe` (bridged interface digests)
+- feat(mutate): `place` step — drop a Palette component into the network by `paletteId` or `toxPath`, wired in the same batch
+- feat(projectio): palette root discovery on `InstallInfo` + index/card store with fingerprint staleness and id globs
+- feat(config): `[palette]` section — `user_root`, `store_dir`, and a seeded probe blacklist
+- feat(skills): `palette` and `palette-scan` cards; "look in the Palette before hand-building" umbrella rule
+- feat(palette): unwrap the palette wrapper — probe digests the real component (custom pars, In/Out pins) and lifts its `help` DAT; `place` lifts the component out of the icon shell via `copyOPs`
+
+### Fixed
+- fix(palette): a fully blacklisted or empty probe selection now explains itself (`skipped` / `skippedTotal` / `note`) instead of returning a silent empty batch
+- fix(palette): probing an id absent from the index fails `tdmcp.palette.unknown_id` instead of quietly skipping it
+- fix(palette): only a timeout or mid-call disconnect strands the in-flight breadcrumb; a never-dispatched call clears it rather than flagging innocent components `suspect`
+- fix(palette): empty extension slots no longer report as a `NoneType` class
+
 ## v0.1.4 — 2026-08-30
 
 ### Added

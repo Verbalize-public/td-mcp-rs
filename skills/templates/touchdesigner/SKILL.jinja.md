@@ -21,6 +21,7 @@ Also available as {{ skill("operate") }}.
 | Structure / params / errors / network | `inspect` (**default** — `paths[]` required) |
 | DAT text/table bodies / GLSL sources | `inspect` with `include: ["content"]` (opt-in; follows GLSL DAT refs; reports shader compile status) |
 | Create / set / delete / wire / **write DAT text** | `mutate_nodes` (`text` on create/set auto-lints consuming shaders in the return) |
+| Stock component exists for this? Find / place one | `palette_index` → `mutate_nodes` `place` — {{ skill("palette") }} |
 | Describe *why* a node exists / read that back | `mutate_nodes` `comment` on create/set; `inspect` returns it — {{ skill("node-comments") }} |
 | Arbitrary Python (not network walks) | `execute_python` — see hard rules |
 | Perception / look claims | `capture` |
@@ -29,6 +30,7 @@ Also available as {{ skill("operate") }}.
 | No TD running / start or stop one | `spawn_td` / `kill_td` — {{ skill("lifecycle") }} |
 | Calls stalling, TD wedged, startup modal | `dialogs` — {{ skill("popups") }} |
 | Offline `.toe`/`.tox`, installs, bridge install | `td_installs` / `project_unpack` / `project_pack` / `project_lint` / `project_install_bridge` — {{ skill("project-io") }} |
+| Build / refresh palette knowledge, blacklist a bad comp | `palette_probe` + `palette_index` `describe` — {{ skill("palette-scan") }} |
 | On-demand operate cards | {% if _mode == "filesystem" %}open the card's `.md` file (Resource index below){% else %}MCP `resources/read` `tdmcp://docs/<id>`{% endif %} |
 
 Lookup routing: exact opType/class → `api_help`; parameter **names** on an
@@ -111,6 +113,14 @@ starts there. Depth: {{ skill("node-comments") }}.
 
 Before `execute_python` or any TD expression/script, **{{ skill_read("python-api") }}** in this turn. Exact live names still go through
 `api_help`.
+
+### Look in the Palette before hand-building — HARD RULE
+
+Before building any non-trivial subsystem — particles, audio analysis, a widget
+set, a video player, a mapper — check `palette_index` for a stock component
+first. Derivative ships hundreds of them, already debugged and already carrying
+a designed custom-parameter API. Hand-building what the Palette already has is
+the most expensive mistake available here. Depth: {{ skill("palette") }}.
 
 ### In/Out operator harness — HARD RULE
 
@@ -204,3 +214,5 @@ Look claims: {{ skill("look-grade") }}.
 | Spawn / kill TD | {{ skill("lifecycle") }} |
 | Popup triage | {{ skill("popups") }} |
 | Offline project I/O | {{ skill("project-io") }} |
+| Palette components | {{ skill("palette") }} |
+| Palette scan / describe | {{ skill("palette-scan") }} |

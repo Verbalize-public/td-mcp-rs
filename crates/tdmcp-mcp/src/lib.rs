@@ -16,6 +16,7 @@ mod editor_context;
 mod fleet;
 pub mod lifecycle;
 mod outcomes;
+pub mod palette;
 
 pub mod project_install;
 pub mod project_lint;

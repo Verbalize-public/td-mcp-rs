@@ -1,5 +1,5 @@
 //! UIA COM content fill-in for Qt-hosted dialogs where classic controls come
-//! up empty (DIALOGS.md §4). Runs ONLY on the dialogs worker thread; COM is
+//! up empty (docs/archive/DIALOGS.md §4). Runs ONLY on the dialogs worker thread; COM is
 //! initialized once there. Fail-open: every failure degrades to no data.
 
 #![allow(clippy::undocumented_unsafe_blocks)]

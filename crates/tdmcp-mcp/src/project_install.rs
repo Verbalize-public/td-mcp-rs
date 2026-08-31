@@ -386,6 +386,8 @@ fn code_for(e: &tdmcp_projectio::ProjectIoError) -> &'static str {
         RoundtripMismatch { .. } => "project.roundtrip_mismatch",
         BackupFailed { .. } => "project.backup_failed",
         BuildSkew { .. } => "project.build_skew",
+        // Palette store failures never originate here; keep the match total.
+        PaletteStore { .. } => "project.io_failed",
     }
 }
 

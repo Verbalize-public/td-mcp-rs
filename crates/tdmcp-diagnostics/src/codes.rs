@@ -89,6 +89,23 @@ pub const KILL_GRACEFUL_TIMEOUT: &str = "tdmcp.kill.graceful_timeout";
 /// TerminateProcess denied (elevation/UIPI).
 pub const KILL_ACCESS_DENIED: &str = "tdmcp.kill.access_denied";
 
+/// No palette root found (no TD install with a Palette folder, no user root).
+pub const PALETTE_NO_ROOTS: &str = "tdmcp.palette.no_roots";
+/// The palette index is empty or absent — nothing has been scanned yet.
+pub const PALETTE_NOT_INDEXED: &str = "tdmcp.palette.not_indexed";
+/// Requested paletteId is not in the index.
+pub const PALETTE_UNKNOWN_ID: &str = "tdmcp.palette.unknown_id";
+/// Indexed component's `.tox` is no longer on disk.
+pub const PALETTE_TOX_MISSING: &str = "tdmcp.palette.tox_missing";
+/// Component is on the probe blacklist and was not loaded.
+pub const PALETTE_IGNORED: &str = "tdmcp.palette.ignored";
+/// TouchDesigner failed to load the `.tox`.
+pub const PALETTE_LOAD_FAILED: &str = "tdmcp.palette.load_failed";
+/// Probe could not digest the component.
+pub const PALETTE_PROBE_FAILED: &str = "tdmcp.palette.probe_failed";
+/// Palette index / card store could not be read or written.
+pub const PALETTE_STORE_FAILED: &str = "tdmcp.palette.store_failed";
+
 /// Tool result failed to serialize (internal; never the caller's fault).
 pub const MCP_SERIALIZE_FAILED: &str = "tdmcp.mcp.serialize_failed";
 
@@ -271,6 +288,14 @@ pub const ALL: &[&str] = &[
     BRIDGE_MAIN_THREAD_TIMEOUT,
     BRIDGE_QUEUE_BUSY,
     MCP_SESSION_BUSY,
+    PALETTE_NO_ROOTS,
+    PALETTE_NOT_INDEXED,
+    PALETTE_UNKNOWN_ID,
+    PALETTE_TOX_MISSING,
+    PALETTE_IGNORED,
+    PALETTE_LOAD_FAILED,
+    PALETTE_PROBE_FAILED,
+    PALETTE_STORE_FAILED,
     MCP_SERIALIZE_FAILED,
     ARGS_MISSING_FIELD,
     ARGS_UNKNOWN_FIELD,

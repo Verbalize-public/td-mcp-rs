@@ -32,6 +32,14 @@ pub enum ProjectIoError {
     /// Exactly one of expand/collapse was configured explicitly.
     #[error("both expand_path and collapse_path must be set together")]
     ToolPairPartial,
+    /// Palette index/card store could not be read or written.
+    #[error("palette store error at {path}: {reason}")]
+    PaletteStore {
+        /// Store file acted on.
+        path: PathBuf,
+        /// What went wrong (parse failure, bad shape, io detail).
+        reason: String,
+    },
     /// Expand produced no usable artifacts (dir + toc absent).
     #[error("toeexpand did not produce expand artifacts next to {packed}")]
     ExpandOutputMissing {
