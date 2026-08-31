@@ -992,7 +992,7 @@ class MutateSummarizeTest(unittest.TestCase):
         self.assertIn("2", s)
 
 
-# --- text writes + shader lint (docs/SHADER_LINT.md §4) ----------------------
+# --- text writes + shader lint ----------------------------------------------
 
 _SUCCESS_RESULT = (
     "Vertex Shader Compile Results:\n\nCompiled Successfully\n\n"

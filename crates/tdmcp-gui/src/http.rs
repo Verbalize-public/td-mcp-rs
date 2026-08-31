@@ -16,7 +16,7 @@ pub(crate) fn http_get_blocking(url: &str, bearer: Option<&str>) -> Result<Strin
         .map_err(|e| e.to_string())?;
     rt.block_on(async {
         // Bounded so a dead host costs ~2s on the UI thread, not the OS TCP
-        // timeout (~20s on Windows) — see docs/archive/GUI_OVERHAUL_PLAN.md §2.
+        // timeout (~20s on Windows).
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(2))
             .build()

@@ -227,7 +227,6 @@ async fn malformed_json_body_gets_curated_envelope_not_raw_text() {
     // in production, over the DefaultBodyLimit layer main.rs adds — too
     // large) must not let axum answer with its own raw text body: every
     // failure on this route carries the same {ok:false, summary} envelope.
-    // See docs/LIMITS_AUDIT.md §4.5 / §5 Phase 1.3.
     let app = app_with(Arc::new(FakeBridgeRpc::responding(json!({}))));
     let req = Request::builder()
         .method("POST")

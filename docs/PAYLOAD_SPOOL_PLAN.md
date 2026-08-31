@@ -1,13 +1,14 @@
 # Payload Spool Plan — bounded payloads + artifact file delivery
 
-Status: **plan only — nothing implemented.** Written 2026-08-26 from a deep audit of
-how binary/large payloads ride the MCP stack. Builds directly on
-[`LIMITS_AUDIT.md`](LIMITS_AUDIT.md) (§2 margins, §4 live findings, §6 what
-landed): that work raised caps and fixed silent-loss bugs, but cap-raising can
-never remove the two immovable ceilings (IPC frame, rmcp SSE event) or the
-context cost of shipping megabytes of base64 through a model conversation.
-This plan closes that class properly: small payloads stay inline forever;
-large ones spill to daemon-managed temp files and travel as references.
+Status: **plan only — nothing implemented.**
+
+Context: the limits pass already raised caps (32 MiB IPC frame, 4 MiB script
+and result payloads) and fixed the silent-loss bugs, but two ceilings are
+immovable — the 32 MiB IPC frame and the 16 MiB rmcp SSE event — and
+cap-raising can never remove the context cost of shipping megabytes of
+base64 through a model conversation. This plan closes that class properly:
+small payloads stay inline forever; large ones spill to daemon-managed temp
+files and travel as references.
 
 ## 1. Problem statement — why base64 is structural here
 
@@ -17,7 +18,7 @@ Every byte TD sends rides **one JSON pipeline**; binary has no native lane:
 capture.py:227   raw = source.saveByteArray(".png")          # real bytes exist here
 capture.py:244   "imageBase64": base64.b64encode(raw)...     # +33%, becomes a Python str
 transport.py:82  body = json.dumps(msg)                      # full re-encode (copy #1)
-framing.rs       MAX_FRAME = 32 MiB                          # hard ceiling #1 (LIMITS_AUDIT Phase 1.4)
+framing.rs       MAX_FRAME = 32 MiB                          # hard ceiling #1 (landed cap)
 rmcp_handler.rs:287 ContentBlock::image(b64, mime)           # b64 shipped as-is
 main.rs SSE      16 MiB event cap, immovable (rmcp pub(crate)) # hard ceiling #2
 ```
@@ -31,7 +32,9 @@ in-memory copies per hop. The error path does the same:
 
 | # | Finding | Severity |
 |---|---------|----------|
-| **F1** | **`inspect include:["content"]` DAT text is unbounded.** `bridge/tdmcp_bridge/inspect.py:190 _dat_content` returns full `.text`; no cap exists bridge-side or Rust-side (the only content truncation test, `bridge/tests/test_inspect_summary.py:956`, covers shader *consumers*, not text). A multi-MB tableDAT overflows the IPC frame → same session-killing class as LIMITS_AUDIT §4.2 — or at best megabytes dumped into agent context. Same class as what Phase 0 fixed for `execute_python`/`capture`; inspect slipped through. | High (latent crash) |
+| **F1** | **`inspect include:["content"]` DAT text is unbounded.** `bridge/tdmcp_bridge/inspect.py:190 _dat_content` returns full `.text`; no cap exists bridge-side or Rust-side (the only content truncation test, `bridge/tests/test_inspect_summary.py:956`, covers shader *consumers*, not text). A multi-MB tableDAT overflows the IPC frame — the same session-killing class
+the limits pass fixed for `execute_python`/`capture` (inspect slipped
+through) — or at best megabytes dumped into agent context. | High (latent crash) |
 | **F2** | Transport ceilings force quality down, not just safety: `CAPTURE_MAX_SIZE=1536px` (`constants.py:46`) exists *only* because of pipe/SSE caps. Full-res looks at large comps are impossible today by design. | High (capability ceiling) |
 | **F3** | Every inline image lands in model context even when unwanted; non-vision clients get multi-MB dead-weight base64 blocks. | Medium |
 | **F4** | Latency/memory: GIL-held `json.dumps` of MB-scale strings per capture ×3 buffer copies across hops. | Medium |
@@ -51,9 +54,8 @@ Two refinements over "everything goes to files":
 2. **The bridge writes the file, not the wire.** TD Python has direct fs
    access: `saveByteArray` → `open(path,'wb').write(raw)` skips base64
    entirely; the JSON response shrinks to `{artifact:{id, path, bytes, mimeType}}`.
-   Agents consume screenshots exactly as they already do elsewhere — local
-   file reader (`read_image` in this harness downscales before the model sees
-   pixels). Efficiency vs today: removes the +33% expansion, three full
+   Agents consume screenshots exactly as they already do elsewhere — with
+   their own local file/image readers. Efficiency vs today: removes the +33% expansion, three full
    copies, all ceiling pressure; adds one sequential write + one local read.
    Strictly faster above ~100 KiB, identical below. Vision-token cost
    unchanged (same pixels).
@@ -168,8 +170,7 @@ succeeds via file where it previously rejected.
    machine). Explicit slave-side `deliver:"file"` → response carries
    `artifact.url` built from the slave's known address instead of a bare path.
    If the master/slave address book makes URL construction unreliable, ship
-   the inline-only rule and defer `url` behind a flag — decision recorded here
-   so it isn't re-litigated mid-implementation.
+   the inline-only rule and defer `url` behind a flag.
 3. GUI dashboard artifact browsing: **out of scope**.
 
 **Tests:** valid fetch 200 + correct mime; malformed id → curated 404;
@@ -189,8 +190,8 @@ running daemon; federated-pid capture still returns a usable result.
 2. `execute_python`: on `RESULT_MAX_BYTES` overflow, spill the **full** result
    to `{spool}/{pid}/<id>.txt` and return truncated preview +
    `artifact:{id,path,bytes,mimeType:"text/plain"}` beside the existing
-   truncation metadata (keeps LIMITS_AUDIT Phase 0.2's never-discard-work
-   contract, adds full-fidelity recovery).
+   truncation metadata (keeps the never-discard-work contract, adds
+   full-fidelity recovery).
 3. Verbatim description strings updated in `tools.rs` (mechanical lockstep).
 
 **Tests:** jpg mime/extension plumbing + result-spill shape; Rust promotion
@@ -204,9 +205,9 @@ Every phase ends with, in order, before the next starts:
 
 1. `cargo clippy --workspace --all-targets -- -D warnings`
 2. `cargo test --workspace` and `python -m pytest bridge/tests`
-3. **Parity sweep** (LIMITS_AUDIT §4 discipline): `constants.py` ↔ `tools.rs`
-   consts *and description strings* ↔ `bridge/fixtures/limits.json` ↔
-   `CONTRACT.md` rows.
+3. **Parity sweep** (shared values move in one change): `constants.py` ↔
+   `tools.rs` consts *and description strings* ↔ `bridge/fixtures/limits.json`
+   ↔ `CONTRACT.md` rows.
 4. **Live MCP pass** (repo hard rule: MCP-first, never PASS from code alone):
    `taskkill /IM tdmcp-daemon.exe /F` → `cargo build --workspace` →
    `tdmcp-daemon ensure` → restart TD instance(s) → drive the phase's live

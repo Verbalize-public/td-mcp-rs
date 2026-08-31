@@ -40,7 +40,7 @@ use tdmcp_mcp::{build_mcp_router, AppState, McpHandler};
 /// axum `/mcp/tools/call` / federation / admin routes). Matches rmcp's SSE
 /// response event cap and sits half of `tdmcp_ipc::framing::MAX_FRAME` (32
 /// MiB) so the daemon<->bridge IPC hop keeps headroom over the client-facing
-/// wire cap. See `docs/LIMITS_AUDIT.md` §3.1.
+/// wire cap.
 const WIRE_BODY_LIMIT_BYTES: usize = 16 * 1024 * 1024;
 
 /// Max time to wait for axum to drain after cancel before abandoning serve.
@@ -829,7 +829,8 @@ async fn run_daemon(
     // Keep tdmcp-mcp's outer safety-net ceilings (BRIDGE_TIMEOUT /
     // PROXY_TIMEOUT) above whatever script_timeout_secs is actually
     // configured to, so raising the config knob can't silently reintroduce
-    // the "hidden glass ceiling" docs/LIMITS_AUDIT.md §2.4 found.
+    // the hidden glass ceiling where the outer net fired before the
+    // configured budget.
     tdmcp_mcp::init_bridge_timeouts(cfg.bridge.script_timeout_secs.max(1));
     info!(
         call_timeout_secs = cfg.bridge.call_timeout_secs,
@@ -942,7 +943,7 @@ async fn run_daemon(
         // Axum's Json/Bytes extractors default to 2 MiB regardless of the
         // rmcp streamable body cap set above, so the same payload could
         // succeed on /mcp/rpc and get rejected on /mcp/tools/call and the
-        // federation/admin routes. See docs/LIMITS_AUDIT.md §4.5.
+        // federation/admin routes.
         .layer(DefaultBodyLimit::max(WIRE_BODY_LIMIT_BYTES))
         .layer(from_fn_with_state(auth_state, auth_and_loopback));
 

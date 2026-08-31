@@ -367,7 +367,7 @@ impl StdioProxy {
     /// Single-flight via `link.call_gate()`: a second call sent while a first
     /// is still outstanding on the same session can trip a session-reinit
     /// edge case in rmcp's client that fails the *first* call's pending
-    /// response too (see `docs/LIMITS_AUDIT.md` §4.1). Queueing here means a
+    /// response too. Queueing here means a
     /// slow call now delays unrelated calls up to its own budget instead of
     /// silently losing one of them.
     async fn forward_bounded<F, Fut, T>(

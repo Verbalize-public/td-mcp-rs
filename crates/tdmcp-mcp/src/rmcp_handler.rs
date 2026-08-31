@@ -207,7 +207,7 @@ fn tool_from_descriptor(d: crate::tools::ToolDescriptor) -> Tool {
 /// verbatim into a text block). Free for small results — some MCP clients
 /// only render `content[]`, not `structuredContent` — but for large ones it
 /// doubles wire size and eats directly into rmcp's fixed 16 MiB SSE event
-/// cap. See `docs/LIMITS_AUDIT.md` §2.2 / §5 Phase 1.5.
+/// cap.
 const DUPLICATE_TEXT_SKIP_BYTES: usize = 256 * 1024;
 
 /// Drop the duplicate `content[0]` text block when it's just a large

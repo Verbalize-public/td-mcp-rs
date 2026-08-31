@@ -1,8 +1,8 @@
 //! OS-dialog domain types + the platform seam for popup detection/dismissal.
 //!
 //! Pure data + trait only (crate stays zero-I/O). Platform backends live in
-//! `tdmcp-dialogs` (Windows user32/UIA now, macOS later); `NullDialogSource`
-//! covers non-Windows targets and tests. Full mechanics: `docs/archive/DIALOGS.md`.
+//! `tdmcp-dialogs` (Windows user32/UIA, macOS CGWindowList + Accessibility);
+//! `NullDialogSource` covers Linux and tests.
 
 use serde::{Deserialize, Serialize};
 
@@ -159,8 +159,8 @@ pub struct DismissOutcome {
 /// Platform seam: enumerate/describe/dismiss popups of a registered TD pid.
 ///
 /// Justified single seam despite the constitution's single-impl-trait stance:
-/// it carries [`NullDialogSource`] for non-Windows/test targets plus the future
-/// macOS backend behind one narrow surface (see docs/archive/DIALOGS.md §5.1).
+/// it carries [`NullDialogSource`] for Linux/test targets plus the real
+/// platform backends behind one narrow surface.
 pub trait DialogSource: Send + Sync {
     /// Cheap snapshot for the watcher/poll path (user32-only on Windows).
     fn snapshot(&self, pid: u32) -> DialogSnapshot;

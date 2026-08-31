@@ -1,6 +1,8 @@
 //! UIA COM content fill-in for Qt-hosted dialogs where classic controls come
-//! up empty (docs/archive/DIALOGS.md §4). Runs ONLY on the dialogs worker thread; COM is
-//! initialized once there. Fail-open: every failure degrades to no data.
+//! up empty (TouchDesigner's own dialogs are Qt-hosted, so pure user32 finds
+//! the window but reads no message text). Runs ONLY on the dialogs worker
+//! thread; COM is initialized once there. Fail-open: every failure degrades
+//! to no data.
 
 #![allow(clippy::undocumented_unsafe_blocks)]
 // SAFETY-bearing module: raw COM via windows-rs, confined to the enclave per

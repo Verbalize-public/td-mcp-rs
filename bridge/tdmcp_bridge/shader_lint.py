@@ -1,7 +1,7 @@
 """Shared shader-compile lint: consumer discovery + compileResult classifier.
 
 Best-effort enrichment only — every entry point degrades silently and never
-raises. Implements the live-verified TD patterns in docs/SHADER_LINT.md §2–§3:
+raises. Implements live-verified TD patterns:
 ``OP.errors()`` is silent for shader failures, so status comes exclusively
 from ``OP.compileResult`` (present on glslTOP/glslmultiTOP/glslMAT only).
 """
@@ -72,7 +72,7 @@ def _read_compile_result(n: Any) -> Any:
 
 
 def classify_compile_result(op_type: str, compile_result: Any) -> dict[str, Any]:
-    """Classify one ``compileResult`` read per docs/SHADER_LINT.md §3.
+    """Classify one ``compileResult`` read.
 
     Returns ``{severity, code, message[, lines]}``; callers add
     consumer/consumerOpType/role. ``compile_result=None`` means the attribute

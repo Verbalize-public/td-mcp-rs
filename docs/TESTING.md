@@ -1,7 +1,8 @@
 # Testing strategy
 
-Local-first. No CI planned yet — run `scripts/check.ps1` / `scripts/check.sh`
-before declaring a gate green.
+Local-first with CI: run `scripts/check.ps1` / `scripts/check.sh` before
+declaring a gate green; CI runs fmt/clippy/test on every push and the release
+workflow builds installers on `v*` tags (see [`DELIVERY.md`](DELIVERY.md)).
 
 ## Layers
 
@@ -18,7 +19,7 @@ before declaring a gate green.
 1. Exclusive queue fails when any shared task is queued.
 2. Resurrection stack persists when first post-reconnect task fails; clears only on success.
 3. Pid-reuse fingerprint mismatch clears that pid's state only.
-4. OpPath similar-name lint (bounded) — when implemented (P1).
+4. OpPath similar-name lints (`tdmcp.par.similar_name`, `tdmcp.op.similar_type`) — best-effort did-you-mean hints attached to hard failures, never redirecting the outcome (`mutate_forwards_similar_name_and_similar_type_lints`, `args_diag.rs` similar-field test, `error_surface.rs`).
 5. `mutate_nodes` sequential apply — stops at first hard failure (`failedAt`); later steps emit `tdmcp.batch.skipped_dependent`; pure `apply_step` seam unit-covered without TD (`bridge/tests/test_mutate.py` + `mcp_tools.rs`).
 6. Diagnostics catalog completeness — every emitted `code` has a catalog entry.
 6b. `api_help` — live API cards / classes index / thin module; soft-cap 32 queries; partial entry failure; FakeTdPeer round-trip (`bridge/tests/test_api_help.py` + `bridge_session.rs` + schema golden).
@@ -78,10 +79,8 @@ before declaring a gate green.
       probe runs arbitrary third-party code), scratch-COMP teardown even when a
       load raises, one bad component staying one bad row, and `place`
       rename-lint / rollback / alias remap.
-    Live rows P1–P10 in [`E2E_CHECKLIST.md`](E2E_CHECKLIST.md) are **recorded
-    PASS** (2026-08-31); that run is what found the palette-wrapper bug, so
-    treat the wrapper cases (`palette_payload`, `place` unwrap) as regression
-    guards, not hypotheticals.
+    Live rows P1–P10 in [`E2E_CHECKLIST.md`](E2E_CHECKLIST.md) — last verified
+    PASS 2026-08-31.
 
 ## Running
 

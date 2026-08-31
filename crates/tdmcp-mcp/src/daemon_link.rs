@@ -336,7 +336,7 @@ impl DaemonLink {
     /// request's stream, including the unrelated slow one, even though the
     /// daemon already computed its (curated) answer. Serializing forwarded
     /// calls through this gate avoids ever presenting rmcp with concurrent
-    /// requests on one session. See `docs/LIMITS_AUDIT.md` §4.1.
+    /// requests on one session.
     pub async fn call_gate(&self) -> CallGateGuard<'_> {
         self.call_gate.lock().await
     }

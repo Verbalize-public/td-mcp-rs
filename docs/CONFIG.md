@@ -142,7 +142,7 @@ masquerade as `tdmcp.bridge.lost`.
 
 ### `[logging]`
 
-Central JSONL sink (`docs/archive/OBSERVABILITY_PLAN.md` M1). `dir`/`filter` are
+Central JSONL sink. `dir`/`filter` are
 optional overrides — omit to use the defaults below. `filter` precedence for
 the file layer is `[logging].filter` > `RUST_LOG` > built-in default
 (`info,tdmcp_daemon=debug`); `console_level` follows the same precedence for

@@ -5,7 +5,7 @@ Interactive harness for testing the TouchDesigner side of td-mcp-rs.
 - **Fixtures:** [`fixtures/dev/`](../fixtures/dev/) — committed `e2e_kit.tox`, gitignored `session/`
 - **Pack recipe:** [`scripts/pack_e2e_kit.md`](../scripts/pack_e2e_kit.md)
 - **Live host:** `td-sandbox/toe/_agent_tdmcprs_dev/` (owned; never lab `:9981`)
-- **Formal gate:** still [`E2E_CHECKLIST.md`](E2E_CHECKLIST.md) (12-row). This doc is the day-to-day loop.
+- **Formal gate:** still [`E2E_CHECKLIST.md`](E2E_CHECKLIST.md) (core rows + per-feature sections). This doc is the day-to-day loop.
 
 > **Platform note:** host paths below are from the original Windows dev host.
 > On macOS/Linux substitute the repo location and the data-dir equivalents
@@ -67,7 +67,8 @@ Custom page **Bridge** (created at Start by `ensure_ui`):
 | `Status` | Phase string (`Disconnected` / `Connecting` / `Re-connecting` / `Connected` / `Connected ([N] Tasks)`) |
 | `Cancelqueued` | Pulse — drop **bridge-queued** tasks only (not in-flight `dispatch`, not daemon queue) |
 
-Daemon idle heartbeat (`ping` every 5s; dead after 15s silence) is answered on
+Daemon idle heartbeat (`ping` every 5s; dead after 20s silence — the
+separate 15s fleet-eviction TTL is not this clock) is answered on
 the bridge worker thread and does **not** appear in `task_table`. If the daemon
 dies or stops probing, Autoconnect moves Status to `Re-connecting` after the
 bridge idle-dead timeout.
@@ -132,7 +133,7 @@ Face: color-banded Text TOP `status_top` (Operator Viewer) + ASCII panel in `sta
 
 ## Dev smoke (baseline green)
 
-Cheapest probes before interactive work. Does **not** replace the 12-row E2E gate.
+Cheapest probes before interactive work. Does **not** replace the full E2E gate.
 
 | # | Surface | Check |
 | --- | --- | --- |
@@ -152,12 +153,13 @@ Cheapest probes before interactive work. Does **not** replace the 12-row E2E gat
 4. Do **not** overwrite committed `e2e_kit.tox` unless regenerating the baseline on purpose
    (`scripts/pack_e2e_kit.md`).
 
-## Resume next chat
+## Resuming a session
 
 1. Cold start steps 1–4.
-2. Prefer `session/latest.tox` over empty zone when the sidecar exists and resume is intended.
-3. Re-drop bootstrap if `tdmcp_rs` missing or fleet shows disconnected.
-4. Re-run dev smoke before new claims.
+2. Prefer `session/latest.tox` over an empty zone when the sidecar exists and
+   resume is intended.
+3. Re-drop bootstrap if `tdmcp_rs` is missing or `fleet` shows disconnected.
+4. Re-run the dev smoke before making new claims.
 
 ## Safety
 

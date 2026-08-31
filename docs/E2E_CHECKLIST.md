@@ -1,15 +1,27 @@
 # Live TD E2E checklist (manual)
 
-Run against a real TouchDesigner instance after Gate P0 builds green.
-Record date / TD version / pass-fail in a short note when you execute this.
+Run against a real TouchDesigner instance after builds are green. Record
+executions in the Verification log below (date / build / scope / result).
 
 For day-to-day interactive work (baseline kit, session tox resume, dual-MCP
 smoke), use [`DEV_ENV.md`](DEV_ENV.md) instead of this full gate.
 
+## Verification log
+
+| Date | Build | Scope | Result |
+| --- | --- | --- | --- |
+| 2026-07-29 | daemon 0.1.0, TD 099.2025.33070 (Windows) | core rows 1–12 | all pass |
+| 2026-07-31 | daemon 0.1.0 (Windows) | M1–M12, M13–M20, M23 (M5 re-run with the `mode`/`expr` criterion) | all pass |
+| 2026-08-01 | daemon 0.1.0 (Windows) | rows 11, 19 (shared OP Viewer preview; inspect batch) | pass |
+| 2026-08-26 | TD 2025.32460 (Windows) | v2 rows V1–V10 | all pass |
+| 2026-08-26 | macOS port | macOS rows V1–V10 | automated rows pass; live rows open |
+| 2026-08-31 | TD 2025.x (macOS) | palette rows P1–P10 | all pass |
+
 ## Dev smoke (shortcut)
 
 Owned host `_agent_tdmcprs_dev` + `fixtures/dev/e2e_kit.tox` + bootstrap drop.
-See [`DEV_ENV.md`](DEV_ENV.md) § Dev smoke. Does **not** replace rows 1–12 below.
+See [`DEV_ENV.md`](DEV_ENV.md) § Dev smoke. Does **not** replace rows 1–12
+below.
 
 | # | Check |
 | --- | --- |
@@ -48,7 +60,7 @@ See [`DEV_ENV.md`](DEV_ENV.md) § Dev smoke. Does **not** replace rows 1–12 be
 | 9 | Script failure returns `diagnostics` with `tdmcp.script.execution_failed` | ✅ |
 | 9b | Script failure after `print` includes `diagnostics.context.logs` | |
 | 10 | `capture` mode `top` on a non-black TOP → ok | ✅ |
-| 11 | `capture` mode `preview` on any non-TOP (zone COMP / CHOP / SOP) → PNG via shared `./capture_viewer` (may soft-fail `uniform_frame` for empty viewers); bridge host has `capture_viewer` child | ✅ (2026-08-01: SOP `preview` non-black `ok:true` via shared viewer) |
+| 11 | `capture` mode `preview` on any non-TOP (zone COMP / CHOP / SOP) → PNG via shared `./capture_viewer` (may soft-fail `uniform_frame` for empty viewers); bridge host has `capture_viewer` child | ✅ |
 | 12 | Black TOP → `tdmcp.perception.black_frame` | ✅ |
 | 12b | Constant TOP non-black solid (e.g. white) → `tdmcp.perception.uniform_frame` | |
 | 13 | Create ephemeral non-empty `constantCHOP` under `/project1/e2e_kit/zone` → `capture` mode `chop_data` → `ok`; top-level `channels` / `numChans` / `numSamples` (not nested); no `imageBase64` | ✅ |
@@ -57,11 +69,11 @@ See [`DEV_ENV.md`](DEV_ENV.md) § Dev smoke. Does **not** replace rows 1–12 be
 | 16 | Empty CHOP (`numChans` or `numSamples` 0) → `tdmcp.perception.empty_chop` | ✅ |
 | 17 | `capture` mode `chop_image` on non-empty CHOP → PNG via shared `capture_viewer` (alias of preview); no leftover `__tdmcp_tmp_chopimg__*` under parent | ✅ |
 | 18 | `capture` mode `pop` / `auto` on a POP or SOP → PNG via shared `capture_viewer` (may soft-fail `black_frame` / `uniform_frame`); no leftover `__tdmcp_tmp_pop__*` | ✅ |
-| 19 | `inspect` `paths:[a, b, missing]` → top-level `ok:true`; two ok entries + one `tdmcp.op.not_found` inline; no auto-recursion beyond direct-child roster | ✅ (2026-08-01) |
+| 19 | `inspect` `paths:[a, b, missing]` → top-level `ok:true`; two ok entries + one `tdmcp.op.not_found` inline; no auto-recursion beyond direct-child roster | ✅ |
 | 20 | `editor_context` with 2 network panes open → `panes` length ≥ 2; exactly one `focused:true`; focused entry has `ownerPath` | |
 | 21 | Select 2+ ops in the focused network → `editor_context` returns `selection` with those paths and exactly one `current:true` | |
 
-### `mutate_nodes` (P1)
+### `mutate_nodes`
 
 | # | Step | Pass? |
 | --- | --- | --- |
@@ -77,7 +89,7 @@ See [`DEV_ENV.md`](DEV_ENV.md) § Dev smoke. Does **not** replace rows 1–12 be
 | M10 | Structural errors/warnings clean after the whole pass (`inspect` default `errors`+`warnings` / classic `get_td_node_errors`); when a node warns, `node.warnings` is non-empty | ✅ |
 | M10b | Broken custom `enableExpr` (e.g. `app(1`) on a COMP → default `inspect` keeps coarse enable-parm `warnings[]`, attaches `parmExprIssues` (`kind: enableExpr`, `errorType`, `message`) + soft `diagnostics` (`tdmcp.par.enable_expr_failed`); top-level and node `ok: true` | |
 | M11 | `capture` top on a created TOP → non-black | ✅ |
-| M12 | Create bare `mathCHOP` → immediate `inspect` → `node.errors` non-empty (`Not enough sources`) | ✅ |
+| M12 | Create bare `mathCHOP` → immediate `inspect` → `node.errors` non-empty (`Not enough sources`). Contract: inspect does not force-cook; cook is caller/downstream | ✅ |
 | M13 | Batch: create `noiseTOP` + `nullTOP`, `connect` src→dst → `applied:3`; `capture` top on null **non-black** | ✅ |
 | M14 | `disconnect` that null’s input `0` → `ok`; re-`capture` → `tdmcp.perception.black_frame` | ✅ |
 | M15 | `connect` with `dstInput: 99` → `failedAt` + `tdmcp.wire.bad_index` | ✅ |
@@ -88,129 +100,26 @@ See [`DEV_ENV.md`](DEV_ENV.md) § Dev smoke. Does **not** replace rows 1–12 be
 | M19 | `set` with unrecognized flag name (e.g. `selected`) → `failedAt` + `tdmcp.flag.unknown`; later steps `tdmcp.batch.skipped_dependent`. (Wrong-bag: param name under `flags` keeps `tdmcp.flag.unknown` and may nest `tdmcp.flag.wrong_collection` — unit-covered; not a live gate.) | ✅ |
 | M20 | `set` `flags:{allowCooking:false}` on a non-COMP → `tdmcp.mutate.step_failed` (live-only; TD raises; not unit-testable via FakeNode) | ✅ |
 | M21 | Failing `mutate_nodes` MCP response is flat `{ok:false, summary, items, applied, failedAt, steps}` (no nested `data`) over axum + rmcp | |
-| M22 | Named-pipe mid-frame timeout disconnects cleanly (no silent desync / dead read thread); idle timeout still polls until IDLE_DEAD | |
+| M22 | Transport mid-frame timeout disconnects cleanly (no silent desync / dead read thread); idle timeout still polls until idle-dead | |
 | M23 | Pre-create occupant `nullTOP` at a path (e.g. `/project1/…/null1`). Batch: `create` same path + peer TOP + `connect` using the **requested** path → `ok`; create step has nested `tdmcp.op.renamed` and echoed path ≠ requested; connect wires the **renamed** node (inspect connections and/or `capture` on dst non-black), not the occupant | ✅ |
 
-**Run record (P0):** 2026-07-29, TouchDesigner 099.2025.33070 (Windows), two
-`_agent_tdmcprs_e2e*` sandbox projects, daemon `0.1.0` release build. All 12
-rows pass. See "Bugs found and fixed" below — none were pre-existing test
-gaps, all were live-only failures (never hit by the mocked/in-memory
-integration suite).
+### Observability
 
-**Run record (M12 inspect / cook history):** 2026-07-31, `NewProject.1.toe`
-(pid 2192), HTTP `/mcp/tools/call`. Bare `mathCHOP` at
-`/project1/agent_zone_test/m12_math` → first `inspect` returned
-`Not enough sources specified` when the bridge still force-cooked before read.
-**Current contract:** inspect does not force-cook; cook is caller/downstream.
-
-**Run record (`mutate_nodes` M1–M11):** 2026-07-31, TouchDesigner via
-`_agent_tdmcprs_dev.4.toe` (pid 19168), daemon `0.1.0` release rebuild.
-All M1–M11 pass over HTTP JSON `/mcp/tools/call`. Notes:
-- M5 (superseded criterion): previously passed on evaluated `resolutionw`
-  (~3554) alone — weak proxy. Re-run required: `inspect` params must show
-  `mode == "EXPRESSION"` and `expr == "absTime.seconds*4"` for `resolutionw`.
-
-**Run record (inspect params mode/expr M5):** 2026-07-31, pid 15448
-(`_agent_tdmcprs_dev.4.toe`), daemon after `xtask dist` + re-extract.
-`/project1/agent_mutate_live/m5_expr`: after
-`expressions:{resolutionw:"absTime.seconds*4"}`, `inspect` params returned
-`{"name":"resolutionw","mode":"EXPRESSION","expr":"absTime.seconds*4","val":107078}`.
-- M6: used `timerCHOP` + `pulse:["start"]` (noiseTOP has no pulse par).
-- Same-version `ensure` does **not** re-extract `diagnostics/catalog.yaml`
-  when `install.version` already matches — first M8 run fell back to
-  `layer:fleet` without mitigation until assets were re-extracted.
-  Prefer `tdmcp-daemon install --force` or `ensure --force` for same-version
-  rebuilds (historically: delete `%LOCALAPPDATA%/tdmcp-rs/install.version`).
-
-**Run record (`mutate_nodes` connect/disconnect M13–M17):** 2026-07-31,
-`eldenmess.3.toe` (pid 25300), zone `/project1/agent_mutate_probe`, daemon
-`0.1.0` release rebuild after adding wire steps. All M13–M17 pass over HTTP
-`/mcp/tools/call`. Dump: `tmp/mutate_wire_e2e_20260731_125953.jsonl`.
-Connect uses `src.outputConnectors[i].connect(dst.inputConnectors[j])`.
-
-**Run record (`mutate_nodes` flags M18–M20):** 2026-07-31,
-`_agent_tdmcprs_dev.4.toe` (pid 15448), daemon `0.1.0` release rebuild after
-adding `flags` to create/set. Forced re-extract (`install --force` / stamp
-delete) so bridge + catalog refreshed; loaded fresh
-`bootstrap.tox` into `/project1/tdmcp_rs`. All M18–M20 pass over HTTP
-`/mcp/tools/call`. Notes:
-- M18: `create` with `values`+`flags` applied 2 steps; `execute_python`
-  readback `viewer=true`/`display=true`; `capture` top `bytes=13569` non-black.
-- M19: `selected` → `tdmcp.flag.unknown` with catalog mitigation listing the
-  8 allowed flags; following `delete` skipped.
-- M20: `allowCooking:false` on noiseTOP → `tdmcp.mutate.step_failed` with TD
-  message "This flag can only be disabled for COMPs."
-
-**Run record (`mutate_nodes` create-rename M23):** 2026-07-31,
-`_agent_tdmcprs_dev.4.toe` (pid 15448), daemon `0.1.0` xtask dist after
-`tdmcp.op.renamed` + batch alias rewrite. Forced re-extract before `ensure`.
-Zone
-`/project1/m23_rename_zone`: occupant `null1`, batch create `null1` →
-`null2` with nested lint, create `noise1`, `connect` noise→requested
-`null1` remapped to `null2`. Occupant inputs stayed empty; `capture` top
-on `null2` non-black. HTTP `/mcp/tools/call`.
-
-### Observability (`docs/archive/OBSERVABILITY_PLAN.md`)
-
-M1 (central sink), M2 (bridge uplink), M4 (admin API + tray Logs view), and
-M5 (proxy ingest) are implemented and covered by non-live tests (Rust
-workspace + `bridge/tests/`). M3 (TD-side textport mirror / face LOGS
-upgrade) is **not implemented** — its own T3.1 live-verify gate (probes V1–V5
-against a real TD instance) never ran, so it was skipped rather than built
-against unverified assumptions about TD's `sys.stdout` semantics. The rows
-below are the M2/M4 acceptance criteria that need a live TD + a real Cursor
-(or manual stdio) session to confirm; none have been run yet.
+All observability milestones are implemented (central JSONL sink, bridge
+uplink, TD-side textport mirror + face LOGS upgrade, admin API + dashboard
+Logs tab, proxy ingest) with non-live test coverage (Rust workspace +
+`bridge/tests/`). The rows below are the live acceptance criteria; not yet
+executed against a real TD + client session.
 
 | # | Step | Pass? |
 | --- | --- | --- |
-| O1 | Bridge `print(...)` from a live TD session, with the tray Logs view open, appears centrally within ~1s of the batch flush (`_BATCH_INTERVAL_S=0.5`) with `src:"bridge"` and the correct pid | |
+| O1 | Bridge `print(...)` from a live TD session, with the dashboard Logs tab open, appears centrally within ~1s of the batch flush (`_BATCH_INTERVAL_S=0.5`) with `src:"bridge"` and the correct pid | |
 | O2 | A slow `execute_python` call with many bridge prints during the wait still returns its normal result — no timeout/disconnect caused by the log-event interleaving (mirrors the mocked regression in `bridge_session.rs`, live this time) | |
-| O3 | Tray Logs view: level chips (ALL/ERR/WRN) and source chips (DAEMON/BRIDGE/PROXY) filter the live list; changing a filter shows the tail under the new filter with no dropped/duplicated rows | |
-| O4 | Tray Logs view: reconnect a TD bridge mid-session (kill tox, re-handshake) — the log list keeps scrolling through the gap, cursor resume after the GUI window is hidden/reshown loses no lines | |
+| O3 | Logs tab: level chips (ALL/ERR/WRN) and source chips (DAEMON/BRIDGE/PROXY) filter the live list; changing a filter shows the tail under the new filter with no dropped/duplicated rows | |
+| O4 | Logs tab: reconnect a TD bridge mid-session (kill tox, re-handshake) — the log list keeps scrolling through the gap, cursor resume after the GUI window is hidden/reshown loses no lines | |
 | O5 | `tdmcp-daemon mcp` (stdio proxy) tool call, with the daemon up, produces at least one `src:"proxy"` line centrally (`kvs.proxyPid` matches the proxy process) | |
 | O6 | Stop the daemon mid-session, then make an MCP tool call through the proxy — the call still succeeds (reconnect/respawn heals it); the proxy's own uplink POSTs fail silently in the meantime (one rate-limited stderr note, not a wall of retries) | |
-| O7 | *(M3, once implemented)* `print` from an unrelated node/DAT appears in face LOGS within ~1s; a broken node's traceback shows as `error` in both face LOGS and the central sink | |
-
-## Bugs found and fixed during this run
-
-Live TD is the only environment that exercises the real named-pipe transport,
-a real GIL-bearing Python interpreter, and real TOP pixel data — the
-in-memory `tdmcp-daemon` integration tests (`rmcp_streamable_http.rs`,
-`bridge_session.rs`) cannot catch these by construction. All three are fixed
-in `bridge/tdmcp_bridge/__init__.py` and covered by `bridge/tests/test_bridge_queue.py`:
-
-1. **`_NamedPipeStream.read()` buffer offset bug.** `ReadFile`'s buffer
-   pointer was `ctypes.byref(self._buf, want)` (offset by the *size*, not a
-   real offset use case) while the copy-out read from offset `0` — every
-   frame's header decoded as zero bytes. Fixed by passing `self._buf`
-   directly. Without this fix every framed read after the first silently
-   returned empty/garbage, surfacing as `json.loads` `"Expecting value"`
-   errors on the Python side.
-2. **`disconnect()` froze TD.** Calling `CloseHandle` on a named pipe handle
-   from the main thread while the worker thread had a pending synchronous
-   `ReadFile` on that same handle is undefined behavior on Windows — observed
-   as a full TD freeze (confirmed via `Get-Process -Id <pid> | Responding`
-   returning `False`), because the call originated from a script running on
-   TD's main/cook thread. Fixed by cancelling the worker's pending I/O first
-   (`CancelSynchronousIo` targeting the worker's OS thread id on Windows;
-   `socket.shutdown(SHUT_RDWR)` on POSIX) and joining before `close()`.
-3. **`capture`'s black-frame heuristic never actually checked pixels.**
-   `len(saveByteArray(…)) < 200` was the entire check — a solid white
-   and solid black 256×256 Constant TOP both encode to the identical byte
-   count, so black frames were never detected. Fixed by sampling real pixel
-   data via `TOP.numpyArray()` and checking mean RGB near zero, with the old
-   byte-size check retained only as a last-resort fallback when
-   `numpyArray` is unavailable. Non-black solid frames now fail as
-   `tdmcp.perception.uniform_frame` (per-channel spatial max−min ≤ 2/255).
-   Bridge soft-fails that omit `message` no longer stomp catalog text with a
-   generic fallback.
-4. **`capture` image payload / format.** Agents need pixels in an MCP image
-   content block. Encode via `saveByteArray(".png")` as `imageBase64`
-   (`mimeType: image/png`, alpha retained) and promote to an MCP image block
-   (stripped from structured content to avoid double-payload). Optional
-   `maxSize` (default 256) downscales via a temp `resolutionTOP`. Black-frame
-   failures still attach the image so critics can see the frame. (Earlier
-   revisions used JPEG/`jpegBase64` and lost transparency.)
+| O7 | Face LOGS mirror: `print` from an unrelated node/DAT appears in face LOGS within ~1s; a broken node's traceback shows as `error` in both face LOGS and the central sink | |
 
 ## Client quirks (out of scope)
 
@@ -220,16 +129,15 @@ in `bridge/tdmcp_bridge/__init__.py` and covered by `bridge/tests/test_bridge_qu
 
 ## Notes
 
-- Lab port conventions from creative-operator still apply for corpus verify;
-  this daemon uses **pid**, not sticky ports.
-- Do not claim Gate P0 green without rows 1–9 at minimum.
-- Idle liveness: daemon heartbeats with wire `ping` every 5s; either side
-  treats the bridge as dead after 15s inbound silence (see CONTRACT
-  Disconnect / resurrection). Row **5b** verifies detection without an
-  intervening tool call. After loss, fleet eviction TTL is a separate **15s**
-  (worst-case idle path ≈ detection + TTL).
+- This daemon is addressed by **pid**, not sticky ports.
+- Do not claim the core gate green without rows 1–9 at minimum.
+- Idle liveness: the daemon heartbeats with wire `ping` every 5s; either side
+  treats the bridge as dead after **20s** inbound silence (see CONTRACT
+  Disconnect / resurrection). After loss, `fleet` eviction is a separate
+  **15s** TTL (worst-case idle path ≈ detection + TTL). Row **5b** verifies
+  detection without an intervening tool call.
 
-## v2 — Project I/O / Lifecycle / Dialogs (recorded 2026-08-26, TD 2025.32460)
+## v2 — Project I/O / Lifecycle / Dialogs
 
 | # | Check | Result |
 | --- | --- | --- |
@@ -240,18 +148,17 @@ in `bridge/tdmcp_bridge/__init__.py` and covered by `bridge/tests/test_bridge_qu
 | V5 | `spawn_td` installed project → handshake ~27 s, identity exact, fleet spawn provenance + windowStatus flows | PASS |
 | V6 | `kill_td graceful` → clean exit <8 s (no prompt on saved project); force path exercised earlier in session | PASS |
 | V7 | Real modal forced via ctypes thread → `execute_python` fails fast `tdmcp.dialog.blocking`; `dialogs dismiss` OK clears it; bridged call recovers (result 42) | PASS |
-| V8 | Helper-window false positives (ConsoleWindowClass/IME/MSCTFIME UI) filtered after live observation (`aee72da`) | PASS |
+| V8 | Helper-window false positives (ConsoleWindowClass/IME/MSCTFIME UI) filtered after live observation | PASS |
 | V9 | Final handoff smokes over `POST /mcp/rpc`: all 8 v2 tools listed; `td_installs` 3-row dedup; `dialogs list` per-pid on a non-TD process returns popups + `windowStatus`; `project_lint` on packed `.toe` — exposed missing auto-unpack wiring, fixed (staged temp-dir expand) and re-verified: `ok:true, targetKind:"packed"`, staging cleaned | PASS |
 | V10 | `project_install_bridge` create-from-scratch: bridge-less `.toe` (4,970 B) → `created:true`, 15,498 B, lint clean, real TD spawn handshakes, `inspect /project1/tdmcp_rs` shows all 10 children with correct opTypes; same loop green for `.tox` (update + create) after fixing `.toe`-hardcoded staging names; half-present bridge (`tdmcp_rs.n` listed, subtree gone) repaired to the same 15,498 B with no duplicate `.toc` entries, spawn + inspect green | PASS |
 
-Evidence transcripts: session log 2026-08-26; artifacts under
-`fixtures/v2-probes/r0/`. Known degraded subsets recorded in the blocked ledger
-of [`V2_IMPLEMENTATION_PLAN.md`](archive/V2_IMPLEMENTATION_PLAN.md) — none open.
+Artifacts: `fixtures/v2-probes/r0/`.
 
-## macOS — Project I/O / Lifecycle / Dialogs (port 2026-08-26)
+## macOS — Project I/O / Lifecycle / Dialogs (port)
 
 Shell probes: [`scripts/probes/v2-macos/`](../scripts/probes/v2-macos/). Run
-`run-smoke.sh` with daemon up; full V1–V10 need local TouchDesigner + sample `.toe`.
+`run-smoke.sh` with daemon up; full V1–V10 need local TouchDesigner + sample
+`.toe`.
 
 | # | Check | Result |
 | --- | --- | --- |
@@ -264,9 +171,9 @@ Shell probes: [`scripts/probes/v2-macos/`](../scripts/probes/v2-macos/). Run
 | V7 | `kill_td graceful` / force | probe (manual) |
 | V8 | `dialogs list` returns popups + `accessibilityGranted` | probe (manual) |
 | V9 | Intercept `tdmcp.dialog.blocking` during modal + dismiss recovery | probe (manual, TCC) |
-| V10 | `fleet` + `describe_tools` lists 16 tools | probe |
+| V10 | `fleet` + `describe_tools` lists the full tool set (palette tools included) | probe |
 
-## Palette awareness (recorded 2026-08-31, TD 2025.x on macOS)
+## Palette awareness
 
 Run against a live TouchDesigner spawned on a throwaway project
 (`/tmp/tdmcp-palette-e2e/palette_probe.toe`), driven over
@@ -286,21 +193,16 @@ Run against a live TouchDesigner spawned on a throwaway project
 | P9 | Own component: `COMP.save` into `[palette].user_root` → `scan` added it as `user:MyRig/myWidget` (total 282) with the builtin roster intact; probe reported `wrapped` absent and surfaced its own `Widget`/`Gain` page and `out1` pin; `place` landed it with `unwrapped:false` | PASS |
 | P10 | `/mcp/tools/list` → **18** tools including `palette_index` and `palette_probe` | PASS |
 
-### Fixed during this run
+Findings from this run (wrapper unwrapping, per-entry skip reporting,
+breadcrumb clearing policy, extension-slot dropping) are documented as
+shipped behavior in [`CONTRACT.md`](CONTRACT.md) § `palette_index` /
+`palette_probe`.
 
-| Finding | Fix |
-| --- | --- |
-| Every stock palette `.tox` is a **wrapper** (icon + help + the real component). The digest reported `customPars: []` / `inputs: []` for all 281, and `place` would have dropped a parameterless shell with an icon into the network | `palette_payload()` detection (no own pars + self-named COMP child), digest unwraps and lifts the `help` DAT, `place` lifts the payload out with `COMP.copyOPs` and destroys the shell (`wrapped` / `unwrapped` reported) |
-| A fully blacklisted selection returned `results:[] skipped:[]` — silent, and indistinguishable from an empty palette. The selector filtered ignored entries out before the skip-reason loop, making `skipped` dead code | Probe planning now matches blacklisted entries and rejects them per-entry, reporting `skipped[]` (capped) + `skippedTotal` + an explanatory `note` |
-| A probe naming an id absent from the index returned an empty batch instead of an error | `plan_probe` fails `tdmcp.palette.unknown_id` naming the bad ids |
-| Any failed dispatch stranded the in-flight breadcrumb, so the next `scan` accused components that never ran | Only `Timeout` / mid-call `Disconnected` strand it; queue-busy, unknown pid, and not-connected clear it |
-| An un-extended COMP reported `extensions: [{class: "NoneType"}]` | Empty extension slots are dropped |
+## Operational caveats
 
-### Dev-loop caveats (pre-existing, not palette-specific)
-
-- `tdmcp-daemon install` skips re-extraction when `install.version` matches, so
-  an edited `bridge/` package silently does **not** reach `{data_dir}`. Use
-  `install --force` after any bridge edit, and clear
+- `tdmcp-daemon install` skips re-extraction when `install.version` matches,
+  so an edited `bridge/` package silently does **not** reach `{data_dir}`.
+  Use `install --force` after any bridge edit, and clear
   `{data_dir}/bridge/tdmcp_bridge/__pycache__`.
-- `install` also **resets `config.toml`**, dropping local `[palette]` edits —
-  back it up across a forced install.
+- `install` also **resets `config.toml`**, dropping local edits (e.g.
+  `[palette]` ignore lists) — back it up across a forced install.

@@ -194,7 +194,7 @@ def _capture_top_image(
 
     # Hard pre-flight reject, mirroring SCRIPT_MAX_BYTES: a PNG+base64 payload
     # at unbounded native resolution can blow the 16 MiB IPC frame and kill
-    # the whole bridge session, not just this call (docs/LIMITS_AUDIT.md §4.2).
+    # the whole bridge session, not just this call.
     if max_size is not None:
         if int(max_size) > CAPTURE_MAX_SIZE:
             return {

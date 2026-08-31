@@ -891,7 +891,7 @@ class InspectContentTest(unittest.TestCase):
         self.assertEqual(out["content"]["stages"][0]["path"], "/project1/mat_pixel")
 
 
-# --- shader lint in content (docs/SHADER_LINT.md §5) -------------------------
+# --- shader lint in content --------------------------------------------------
 
 _FAILURE_RESULT = (
     "Pixel Shader Compile Results:\n\n"

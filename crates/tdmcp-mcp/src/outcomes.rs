@@ -1380,7 +1380,7 @@ mod tests {
     fn transport_maps_unknown_pid_to_its_own_code_not_bridge_lost() {
         // A never-registered (or TTL-evicted) pid must not reuse
         // tdmcp.bridge.lost's "wait for resurrection" mitigation — there is
-        // nothing to resurrect. See docs/LIMITS_AUDIT.md §4.6 / §5 Phase 2.4.
+        // nothing to resurrect.
         let catalog = Catalog::fallback();
         let err = map_script_outcome(
             &catalog,

@@ -309,7 +309,7 @@ def _attach_content(
     """Attach ``content`` when node is DAT or known GLSL op; omit otherwise.
 
     When ``lint_ctx`` is supplied, DAT content additionally carries the shared
-    shader-consumer diagnostics (docs/SHADER_LINT.md §3/§5).
+    shader-consumer diagnostics.
     """
     try:
         family = getattr(n, "family", None)
@@ -432,7 +432,7 @@ def handle_inspect(params: dict[str, Any]) -> dict[str, Any]:
 
     With ``content``: DAT nodes carry ``consumers[]`` shader diagnostics and
     GLSL nodes a classified ``compileState``. Reading ``compileResult`` forces
-    a synchronous recompile of that consumer (docs/SHADER_LINT.md §3).
+    a synchronous recompile of that consumer.
     """
     import td  # type: ignore  # noqa: F401 — ensure TD runtime is importable
 

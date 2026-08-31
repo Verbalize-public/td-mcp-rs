@@ -73,7 +73,9 @@ Clear `externaltox` on the COMP before save. Use `comp.save(path)` (not `saveTox
 ## Live pack (TD MCP)
 
 1. Create/start an **owned** TD project (lease port, not lab `:9981`). Preferred: `td-sandbox/toe/_agent_tdmcprs_dev/`.
-2. Run the pack script below via `execute_python_script`.
+2. Run the pack script below via this repo's `execute_python` tool (or
+   `execute_python_script` on the classic TD MCP server, if that's what's
+   connected).
 3. Confirm output size ≫ 1KB and file is binary (not the old ASCII placeholder).
 4. Rebuild `tdmcp-daemon` so `include_bytes!` / `include_dir!` pick up the new tox and `bridge/`.
 5. `cargo run -p xtask -- stamp-tox` — records the source hash so the
@@ -97,7 +99,7 @@ unchanged except `REPO`, which must be the Wine-visible form of this repo:
 REPO = r"Z:\home\acorbeau\Repos\td-mcp-rs"  # Linux repo via Wine z: mapping
 ```
 
-Run it through the live bridge (`execute_python_script` via the daemon's MCP
+Run it through the live bridge (`execute_python` via this daemon's MCP
 surface) after the G-L2 TCP handshake succeeds — the bridge must be up before
 the daemon can deliver the script to TD.
 

@@ -1,12 +1,9 @@
 # Observability & Logging — Spec
 
-Status: **shipped; one open item** (spec v2 — challenged & revised;
-implementation plan archived:
-[`OBSERVABILITY_PLAN.md`](archive/OBSERVABILITY_PLAN.md)). All milestones
-landed, including M3's stream-ownership coordination (T3.2), the face LOGS
-mirror upgrade (T3.4), and the logtap test suite (T3.5). The only open item is
-T3.3 (`td.errors` polling into the log tap — plan §T3.3; note `td.errors`
-does not exist on TD 2025.32460, use `op('/').errors(recurse=True)`).
+Status: **shipped.** All milestones landed, including M3's stream-ownership
+coordination, the face LOGS mirror upgrade, and the logtap test suite. The
+one deferred item is `td.errors` polling (§5.4 — `td.errors` does not exist
+on TD 2025.32460; the equivalent is `op('/').errors(recurse=True)`).
 Owner: daemon/GUI.
 Cross-refs: [`CONTRACT.md`](CONTRACT.md) (diagnostics catalog, `execute_python`
 logs), [`CONFIG.md`](CONFIG.md) (config surface — gains `[logging]`),
@@ -92,20 +89,18 @@ Every stored line is JSON with this shape (superset; unknown fields preserved):
   `tracing-subscriber` gains the `registry` feature (workspace pins features,
   which disables defaults). No `json` feature: a custom **SinkLayer** owns
   serialization once (`serde_json`) and feeds both the file writer and the
-  ring — single formatter, no double-format drift (plan T1.1/T1.4).
+  ring — single formatter, no double-format drift.
 - `tracing_init::init(&cfg)` builds a `Registry` with two layers:
   - **File layer**: `RollingFileAppender` — daily rotation,
     filename prefix `daemon`, suffix date, writer into `{cfg.logging.dir}`,
-    `max_log_files(cfg.logging.max_files)`; JSON format, filter
-    `EnvFilter::from(cfg.logging.filter)`.
+  `max_log_files(cfg.logging.max_files)`; JSON format, filter
+  `EnvFilter::from(cfg.logging.filter)`.
   - **Console layer**: existing `fmt().with_target(true).with_writer(stderr)`
     kept verbatim so terminal runs behave as today.
-- Filter resolution order (fixes the stale-doc bug): explicit config
-  `[logging].filter` → `RUST_LOG` env → built-in default
-  `"info,tdmcp_daemon=debug"` (file layer gets ≥ debug for tdmcp targets;
-  console keeps current defaults). `TDMCP_LOG` is either implemented as an
-  alias of the file-layer filter or removed from the doc comment — decide in
-  M1, no third option.
+- Filter resolution order: explicit config `[logging].filter` → `RUST_LOG` env
+  → built-in default `"info,tdmcp_daemon=debug"` (file layer gets ≥ debug for
+  tdmcp targets; console keeps current defaults). **There is deliberately no
+  `TDMCP_LOG`** — `RUST_LOG` / `[logging].filter` is the only filter knob.
 - In-memory tail for the GUI: one shared `Mutex<VecDeque<Record>>` ring
   (capacity 2048) with a monotonic `seq` stamped at insert; the file layer and
   the ring are fed by the same custom `Layer`. No broadcast channel — the GUI
@@ -165,7 +160,7 @@ Textport sees, then fan out to two sinks (local `./debug` DAT and daemon):
   "never fail for textport" rule, `execute.py:47`).
 - **Face LOGS upgrade** (`tox_callbacks.py:_debug_log_lines:139`): raise
   `_LOG_PANEL_LINES` (`tox_callbacks.py:37`) 14 → up to ~22, final value pinned
-  by the live fit probe (plan V5: 560×560 face @ font 10); each tail line
+  by the live fit probe (560×560 face @ font 10); each tail line
   renders `HH:MM:SS <glyph> msg` (`!` warn, `!!` error, plain info); keep the
   `( no logs )` idle marker (`tox_callbacks.py:401`). Face stays a tail view;
   full history remains in `./debug`.
@@ -185,11 +180,12 @@ Textport sees, then fan out to two sinks (local `./debug` DAT and daemon):
   `await_matching_response` and every other frame reader. Without this, a log
   burst during a long `execute_python` kills live bridges. Log events also
   count as inbound traffic for idle-dead accounting (they prove liveness).
-- **TD global errors** (`td.errors`): poll on the heartbeat cadence (5 s,
-  `default.toml:64`), **not** the 50 ms pump tick (main-thread cost); forward
-  new entries as `level:error` records with `target:"td_errors"`, deduped via
-  an LRU keyed `(op_path, text)` size 500. Cadence re-checked in M3 against
-  live TD (see `touchdesigner` skill before implementing).
+- **TD global errors**: polling node errors into the log tap is **deferred**
+  — `td.errors` does not exist on TD 2025.32460 (the equivalent is
+  `op('/').errors(recurse=True)`); when implemented, poll on the heartbeat
+  cadence (5 s), not the 50 ms pump tick (main-thread cost), forward new
+  entries as `level:error` records with `target:"td_errors"`, deduped via an
+  LRU keyed `(op_path, text)` size 500.
 
 ### 5.5 Admin API + GUI Logs view
 
@@ -203,14 +199,10 @@ Textport sees, then fan out to two sinks (local `./debug` DAT and daemon):
   PSK-required path list (`crates/tdmcp-daemon/src/middleware.rs:55-57`,
   `requires_psk_auth`) so LAN + psk deployments never expose logs unauthed;
   loopback behavior unchanged. `/admin/logs/ingest` joins the same list.
-- GUI: new `View::Logs` variant (`crates/tdmcp-gui/src/lib.rs:34`) entered via
-  a ghost button in the existing top-bar RTL action row (`.tox` ⚙ row,
-  `lib.rs:913-936`). **Hard layout constraint: the tray window is 380 px wide
-  × 600 max tall** (`crates/tdmcp-gui/src/theme.rs:39-41`) — the Logs view is
-  designed as a narrow single-column scrollback with level dots, tap-to-expand
-  detail, compact filter chips, and follow-pinned-to-bottom; heavy analysis is
-  delegated to "Open logs folder" in the real editor. Full UX spec:
-   [`OBSERVABILITY_PLAN.md`](archive/OBSERVABILITY_PLAN.md) §M4. Headless (`--no-gui`)
+- GUI: the dashboard's **Logs tab** (`crates/tdmcp-gui/src/dashboard/`,
+  `DashTab::Logs`) — full dashboard tab with level/source filter chips,
+  follow-pinned-to-bottom, and cursor-resume after hide/reshow. "Open logs
+  folder" sits beside the existing reveal actions. Headless (`--no-gui`)
   unaffected.
 - MCP-facing convenience (P1, optional): reuse `fleet include=logs` style — a
   `logs {tail}` tool row is deliberately **not** added in v1; agents read
@@ -250,21 +242,23 @@ Rules:
    (completeness test extended to scan log statements, mirroring the existing
    response-code test in [`TESTING.md`](TESTING.md)).
 9. Argument-shape tool failures carry `tdmcp.args.*` codes as structured
-   `isError` results — raw serde strings never reach agents; mapping in
-   [`TOOL_ERROR_PLAN.md`](archive/TOOL_ERROR_PLAN.md).
+   `isError` results — raw serde strings never reach agents; mapping lives in
+   `crates/tdmcp-mcp/src/args_diag.rs` and is specified in
+   [`CONTRACT.md`](CONTRACT.md).
 
-## 6. Milestones
+## 6. Shipped scope
 
-| M | Scope | Acceptance |
-| --- | --- | --- |
-| **M1 Sink** | §5.1 + §5.2: layered subscriber, JSON file layer, rotation, sweeps, delete fd-attach, resolve `TDMCP_LOG` question | Fresh `start` creates `{data_dir}/logs/daemon.<date>.log` with valid JSON lines on **Windows and Unix**; killing + restarting appends; 15th-old file swept |
-| **M2 Bridge uplink** | §5.4 forwarding half: Python sender, daemon ingest into sink/ring, batching + drop policy | Fake TD peer sends 1000 events; daemon file contains them in order with `src:"bridge"`, correct `pid`; flood drops oldest without backpressure stall |
-| **M3 TD mirror** | §5.4 local half: stdout/stderr tee, `./debug` ring, face LOGS upgrade, `td.errors` polling | Live TD: `print` from an unrelated node appears in face LOGS within ~1 s; traceback from a broken node shows as `error`; E2E_CHECKLIST rows written and pass |
-| **M4 GUI + API** | §5.5: admin endpoints, `View::Logs`, follow mode, open-folder | GUI shows live lines while a bridge connects/disconnects; cursor resume after reconnect loses no lines; headless build unaffected |
-| **M5 Proxy ingest** | §5.3 | With daemon up, `mcp` subcommand tool call produces `src:"proxy"` lines centrally; daemon-down call still succeeds |
-| **M6 Hygiene** | §5.7 audit across all crates, silent-crate baselines, docs updates ([`CONFIG.md`](CONFIG.md) `[logging]`, [`CONTRACT.md`](CONTRACT.md) observability row, README) | Census: every `error!` carries structured cause; grep finds no bare-prefix messages; completeness test green |
+| Milestone | Delivered |
+| --- | --- |
+| **M1 Sink** | Layered subscriber, JSON file layer, daily rotation, file-count + retention sweeps, fd-attach path deleted, `TDMCP_LOG` deliberately dropped |
+| **M2 Bridge uplink** | Python sender, daemon ingest into sink/ring, batching + drop policy, event-frame arm that keeps live sessions alive during an awaited tool reply |
+| **M3 TD mirror** | stdout/stderr tee, `./debug` ring, face LOGS upgrade, stream-ownership coordination with `execute_python` |
+| **M4 GUI + API** | `/admin/logs*` endpoints (PSK-required), dashboard Logs tab, follow mode, open-folder |
+| **M5 Proxy ingest** | stdio proxy uplink via `/admin/logs/ingest`, drop-on-full, rate-limited stderr fallback |
+| **M6 Hygiene** | Level conventions, silent-crate baselines, catalog-code completeness test |
 
-M1–M2 are the critical path; M3/M4/M5 parallelizable after M2; M6 last.
+Live acceptance for all of the above = [`E2E_CHECKLIST.md`](E2E_CHECKLIST.md)
+rows O1–O7 (pending).
 
 ## 7. Testing plan
 
@@ -285,33 +279,11 @@ M1–M2 are the critical path; M3/M4/M5 parallelizable after M2; M6 last.
 | JSON verbosity inflates disk vs plain fmt | Measure in M1; if > ~10 MiB/day at default filter, switch file layer to compact fmt + sidecar index rather than raising limits |
 | GUI poll jank with large backlog | Server-side `limit` clamp (512/req); GUI fetches pages on scroll-up only |
 
-## 9. Open questions
+## 9. Decided
 
-1. `TDMCP_LOG`: implement as alias (which layer?) or purge the mention? (M1 decision)
-2. Should `fleet` gain `include=logs` tail for remote slaves in P2, or is GUI-only viewing enough?
-3. `td.errors` polling cadence vs TD main-thread cost — needs a live-TD measurement session before M3 lands.
-
-## 10. Revision log
-
-**v2 (this revision)** — challenge pass over v1; outcomes:
-
-- **C1 (correctness, blocking):** v1 missed that non-`Response` IPC frames
-  disconnect the session mid-await (`bridge.rs:517-523`). Uplink now carries an
-  explicit hard requirement + regression test. §5.4.
-- **C2 (simplification):** broadcast channel dropped for a seq-stamped
-  `Mutex<VecDeque>` ring — the GUI is poll-based, broadcast bought nothing.
-  §5.1.
-- **C3 (UX grounding):** tray window is 380×600; Logs view scoped to a narrow
-  single-column design with external-folder escape hatch. §5.5, plan §M4.
-- **C4 (human factor):** JSONL stays canonical (no format toggle); a
-  `tdmcp-daemon logs [n]` CLI renderer covers human tailing instead. Plan §M1.
-- **C5–C7:** pin `tracing-appender >= 0.2.3` (`max_log_files`), per-layer
-  filters confirmed feasible via `Registry`, new `/admin/logs*` +
-  `/admin/logs/ingest` added to the PSK-required path list (`middleware.rs`).
-- **C8:** face LOGS line budget re-checked against 560×560 face at font 10 —
-  target ≤ 22 lines incl. timestamp prefix, measured live in M3.
-- **C9:** `debug()` capture uncertainty made an explicit M3 live-verify item.
-- **C11:** retention sweep runs periodically (24 h), not only at startup.
-  §5.2.
-- **C12:** GUI Settings gains no logging controls in v1 (reveal button only);
-  TOML remains the sole source of truth.
+1. **No `TDMCP_LOG`.** `RUST_LOG` / `[logging].filter` is the only filter knob.
+2. **No `logs` MCP tool row.** Agents read `execute_python` results and
+   diagnostics as today; humans use the dashboard Logs tab or
+   `tdmcp-daemon logs [n]`.
+3. **`td.errors` polling deferred** — does not exist on current TD builds;
+   `op('/').errors(recurse=True)` is the equivalent when it lands.

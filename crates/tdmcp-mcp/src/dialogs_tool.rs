@@ -2,7 +2,6 @@
 //!
 //! Local tool (no bridge dispatch; session-gate exempt). Requires the daemon
 //! dialogs backend; otherwise fails with `tdmcp.dialog.unsupported`.
-//! Full mechanics: `docs/archive/DIALOGS.md` §5.5.
 
 use schemars::JsonSchema;
 use serde::Deserialize;

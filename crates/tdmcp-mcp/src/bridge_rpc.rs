@@ -23,8 +23,7 @@ pub enum BridgeRpcError {
     /// seen it either (never registered, or its record already expired past
     /// the disconnected-pid TTL). Distinct from [`Self::NotConnected`] so the
     /// agent-facing mitigation doesn't suggest waiting for a resurrection
-    /// that has nothing to resurrect. See `docs/LIMITS_AUDIT.md` §4.6 / §5
-    /// Phase 2.4.
+    /// that has nothing to resurrect.
     #[error("pid {pid} was never registered (or its record expired) — call fleet")]
     Unknown {
         /// Target pid.

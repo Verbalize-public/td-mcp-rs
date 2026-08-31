@@ -1,4 +1,4 @@
-//! Daemon-side popup watcher (docs/archive/DIALOGS.md §5.3).
+//! Daemon-side popup watcher.
 //!
 //! Every `[dialogs].poll_ms`, sample registered pids whose bridge is
 //! `{Starting, Connected}` through the platform [`DialogSource`], refresh the

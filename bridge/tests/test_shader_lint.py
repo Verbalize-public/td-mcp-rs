@@ -1,7 +1,7 @@
 """Unit tests for the shared shader-compile lint seam (no live TD required).
 
-Classifier matrix uses the live-verified compileResult strings recorded in
-docs/SHADER_LINT.md §2 (V2/V4/V5) verbatim.
+Classifier matrix uses live-verified ``compileResult`` strings recorded
+verbatim below (success/failure formats, path+line embedding).
 """
 
 from __future__ import annotations
@@ -20,12 +20,12 @@ from tdmcp_bridge.shader_lint import (  # noqa: E402
     lint_dat_consumers,
 )
 
-# docs/SHADER_LINT.md V4 — glslTOP success string.
+# Live-verified glslTOP success string.
 SUCCESS_TOP = (
     "Vertex Shader Compile Results:\n\nCompiled Successfully\n\n"
     "=============\nPixel Shader Compile Results:\n\nCompiled Successfully\n"
 )
-# V4 — glslMAT appends the link section.
+# glslMAT appends the link section.
 SUCCESS_MAT = SUCCESS_TOP + "\n=============\n\nLinked Successfully\n"
 # V5 — failure lines carry full DAT path + line, last line is the summary.
 FAILURE_TOP = (

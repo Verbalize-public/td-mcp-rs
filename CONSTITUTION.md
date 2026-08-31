@@ -25,12 +25,14 @@ Enforcement: root `Cargo.toml` `[workspace.lints]` inherited by every crate via
 
 ## Safety and style
 
-- `unsafe_code` is **deny** at workspace level. Exactly one quarantined
-  carve-out exists: `crates/tdmcp-ipc/src/winsec.rs` (Windows pipe security
-  descriptor FFI; must expose safe functions only). Any further carve-out
-  needs a new amendment + `RISKS.md` entry in the same change.
-  (Amended 2026-08-23 from `forbid`: Win32 `CreateNamedPipe` security
-  descriptors have no safe wrapper in std/tokio.)
+- `unsafe_code` is **deny** at workspace level. Quarantined carve-outs are
+  the exception, not the rule: every one needs a new amendment **and** a
+  `RISKS.md` entry in the same change, all unsafe confined to one module with
+  a 100%-safe public surface. Current carve-outs live in
+  [`RISKS.md`](RISKS.md) (R9 `tdmcp-dialogs` FFI enclave, R10 GUI pointer
+  query). (History: downgraded `forbid`→`deny` 2026-08-23 for the Win32
+  pipe-security FFI; that module was later deleted when the bridge transport
+  moved to TCP.)
 - No `unwrap` / `expect` / `panic!` / `todo!` / `unimplemented!` in library
   code on release paths (exceptions only via `RISKS.md`).
 - Prefer `?` and typed errors: **`thiserror` in libs**; **`anyhow` only in
@@ -44,7 +46,9 @@ Enforcement: root `Cargo.toml` `[workspace.lints]` inherited by every crate via
 | `tdmcp-core` | domain types, `tdmcp-diagnostics` | `rmcp`, `axum`, IPC transports |
 | `tdmcp-config` | TOML config file I/O + defaults | `rmcp`, axum, egui, IPC |
 | `tdmcp-diagnostics` | catalog YAML, envelope types | MCP / IPC / axum |
-| `tdmcp-ipc` | framing, named pipe / UDS | MCP tool schemas, egui |
+| `tdmcp-ipc` | framing, TCP bridge transport | MCP tool schemas, egui |
+| `tdmcp-dialogs` | OS dialog detection/dismissal (Win32 + UIA, macOS CGWindowList/AX); the quarantined FFI enclave | MCP schemas, IPC wire, egui |
+| `tdmcp-projectio` | offline project I/O over official toeexpand/toecollapse, toc/sidecar codecs, palette store | MCP tool schemas, IPC transport, egui |
 | `tdmcp-mcp` | `rmcp`, core + diagnostics | egui, OS tray |
 | `tdmcp-daemon` | composition root; optional `tdmcp-gui` under `gui` feature | business logic (thin wiring only) |
 | `tdmcp-gui` | admin HTTP client, egui, `tdmcp-config` (lib consumed by daemon) | core queue internals, IPC wire |
@@ -106,3 +110,6 @@ Precedence: **CLI args > env vars > RC file > built-in defaults**.
 | --- | --- |
 | 2026-07-29 | Gate 0 constitution established (scoped from td-rs law) |
 | 2026-08-23 | Unsafe quarantine: `tdmcp-ipc::winsec` (RISKS R8); workspace `unsafe_code` forbid→deny |
+| 2026-08-26 | Dialogs FFI enclave: `tdmcp-dialogs` crate-level carve-out (RISKS R9) |
+| 2026-08-30 | R8 retired — `winsec.rs` deleted in the TCP transport migration |
+| 2026-08-31 | Linux glance pointer query: `tdmcp-gui` module-level carve-out (RISKS R10) |

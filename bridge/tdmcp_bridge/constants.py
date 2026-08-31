@@ -15,7 +15,7 @@ _READ_POLL_S = 1.0
 # Aligns with tdmcp-mcp BRIDGE_TIMEOUT (180s) when the daemon omits maxCallWaitSecs.
 DEFAULT_MAX_CALL_WAIT_S = 180.0
 # execute_python payload caps — keep framed JSON well under the 32 MiB IPC
-# MAX_FRAME (docs/LIMITS_AUDIT.md §3.2 / §5 Phase 3).
+# MAX_FRAME.
 SCRIPT_MAX_BYTES = 4 * 1024 * 1024
 RESULT_MAX_BYTES = 4 * 1024 * 1024
 
@@ -42,7 +42,7 @@ COMMENT_MAX_CHARS = 1024
 COMMENT_ROSTER_MAX_CHARS = 160
 _COMMENT_TRUNC_MARK = "…"
 
-# Shader lint caps (docs/SHADER_LINT.md §3).
+# Shader lint caps (scan/consumer budgets reported via truncation markers).
 SHADER_SCAN_LIMIT = 2048
 SHADER_CONSUMER_LIMIT = 64
 EDITOR_SELECTION_LIMIT = 256
@@ -51,7 +51,7 @@ CAPTURE_VIEWER_NAME = "capture_viewer"
 # Hard pre-flight reject for capture's `maxSize` (longer-side px before PNG
 # encode). `maxSize: null` means native resolution with no bound otherwise —
 # an unbounded PNG+base64 payload can blow the 16 MiB IPC frame and kill the
-# whole bridge session, not just the one call (docs/LIMITS_AUDIT.md §4.2).
+# whole bridge session, not just the one call.
 CAPTURE_MAX_SIZE = 1536
 
 # palette_probe caps. The batch cap is the load-bearing one: a probe loads

@@ -1060,7 +1060,7 @@ async fn call_timeout_does_not_idle_dead_session() {
 #[tokio::test]
 async fn never_registered_pid_is_unknown_not_not_connected() {
     // No handshake at all: BridgeSessions has neither a live session nor a
-    // registry entry for this pid. See docs/LIMITS_AUDIT.md §4.6 / §5 Phase 2.4.
+    // registry entry for this pid.
     use tdmcp_mcp::{BridgeRpc, BridgeRpcError};
 
     let registry = Arc::new(Mutex::new(PidRegistry::new()));

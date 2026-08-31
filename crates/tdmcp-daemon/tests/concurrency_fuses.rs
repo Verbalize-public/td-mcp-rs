@@ -5,8 +5,7 @@
 //! Subscribe to `Notify` **before** spawning the work that notifies
 //! (`let w = n.notified(); pin!(w); …; w.await`) — awaiting after spawn can miss.
 //!
-//! Ladder: Easy → Medium → Hard → Extreme. See docs/TESTING.md and
-//! docs/CONCURRENCY_FUSES_BASELINE.md.
+//! Ladder: Easy → Medium → Hard → Extreme. See docs/TESTING.md.
 
 #![allow(clippy::unwrap_used, reason = "test setup/assertions may panic")]
 #![allow(clippy::expect_used, reason = "test setup/assertions may panic")]

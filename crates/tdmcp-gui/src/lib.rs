@@ -20,7 +20,9 @@ mod theme;
 mod tray;
 mod wire;
 
-// Dev-only fixture harness (see docs/archive/GUI_OVERHAUL_PLAN.md §11).
+// Dev-only fixture harness: renders the real dashboard from injected
+// fixtures so every state can be pixel-verified without a live daemon
+// (scenes in `preview.rs`; run via examples/dashboard_preview.rs).
 #[cfg(feature = "preview")]
 pub mod preview;
 

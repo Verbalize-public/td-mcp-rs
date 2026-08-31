@@ -61,9 +61,9 @@ static DERIVED_PROXY_TIMEOUT: std::sync::OnceLock<Duration> = std::sync::OnceLoc
 /// Derive [`BRIDGE_TIMEOUT`] / [`PROXY_TIMEOUT`] from the daemon's
 /// `[bridge].script_timeout_secs` config: `script_timeout_secs + 60s`
 /// margin, each floored at its own historical constant so raising
-/// `script_timeout_secs` (e.g. toward the 600s in `docs/LIMITS_AUDIT.md`
-/// §3.4) can never silently re-open the "hidden glass ceiling" the outer
-/// safety net used to hit first (§2.4 / §5 Phase 2.1), and an unconfigured
+/// `script_timeout_secs` (e.g. toward a 600s target) can never silently
+/// re-open the hidden glass ceiling where the outer safety net hit first,
+/// and an unconfigured
 /// deployment never gets a *smaller* safety net than before. Call once,
 /// before serving; a second call is a silent no-op.
 pub fn init_bridge_timeouts(script_timeout_secs: u64) {
@@ -1897,7 +1897,7 @@ mod timeout_tests {
 
     #[test]
     fn derive_timeout_adds_margin_over_the_configured_script_budget() {
-        // 600s (docs/LIMITS_AUDIT.md §3.4 proposed script_timeout_secs) + 60s
+        // 600s (the proposed script_timeout_secs target) + 60s
         // margin must clear the historical 180s/130s floors comfortably.
         assert_eq!(
             derive_timeout(600, BRIDGE_TIMEOUT),

@@ -1,7 +1,7 @@
 //! Offline TouchDesigner project I/O orchestrated over Derivative's official
 //! `toeexpand` / `toecollapse` tools.
 //!
-//! Reliability law (V2-0 probe-proven, see `docs/archive/SKILLS_CONTRACT_PROPOSAL.md` §6.1):
+//! Reliability law (probe-proven against real TD):
 //!
 //! - Official-tool exit codes lie in both directions. Success is judged solely by
 //!   filesystem evidence (expand dir + toc exist; packed file non-empty), never by

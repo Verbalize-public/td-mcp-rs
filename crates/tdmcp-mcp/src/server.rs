@@ -145,9 +145,9 @@ async fn call_tool(
 ) -> Result<Json<Value>, (axum::http::StatusCode, Json<Value>)> {
     // A bare `Json<CallBody>` param would let axum answer oversized/malformed
     // bodies itself — a raw text body, breaking the curated `{ok:false,
-    // items[]}` envelope every other failure on this route carries (see
-    // docs/LIMITS_AUDIT.md §4.5). Catching the rejection here keeps the
-    // envelope uniform regardless of which layer rejected the request.
+    // items[]}` envelope every other failure on this route carries. Catching
+    // the rejection here keeps the envelope uniform regardless of which layer
+    // rejected the request.
     let Json(body) = match body {
         Ok(json) => json,
         Err(rejection) => {
