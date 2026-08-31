@@ -3,6 +3,14 @@
 ## Unreleased
 
 ### Added
+- feat(gui): new logo across the app — README header, sidebar brand mark,
+  tray-popup header, and tray/window/installer icons regenerated from
+  `logo.svg` via `packaging/gen_icons.py`
+- feat(gui): sidebar footer carries role badge + `v<ver> · up <t>` meta
+  (moved out of the dashboard top bar); sidebar header is now the centered
+  logo mark
+- feat(gui): Clear buttons for the ACTIVITY card and the Logs toolbar
+  (client-side view clears)
 - feat(palette): palette awareness — `palette_index` (offline roster: scan / list / get / describe / ignore / unignore / forget / stats) and `palette_probe` (bridged interface digests)
 - feat(mutate): `place` step — drop a Palette component into the network by `paletteId` or `toxPath`, wired in the same batch
 - feat(projectio): palette root discovery on `InstallInfo` + index/card store with fingerprint staleness and id globs

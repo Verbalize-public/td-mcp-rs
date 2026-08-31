@@ -204,3 +204,32 @@ fn dark_visuals() -> Visuals {
 fn zero_rounding(w: &mut egui::style::WidgetVisuals) {
     w.corner_radius = CornerRadius::ZERO;
 }
+
+// ---------------------------------------------------------------------------
+// Brand mark
+// ---------------------------------------------------------------------------
+
+/// Embedded brand mark — the node square of `logo.svg`, rendered to PNG by
+/// `packaging/gen_icons.py` (egui has no SVG loader, so the SVG is the source
+/// of truth and this PNG is the build artifact).
+const LOGO_MARK_PNG: &[u8] = include_bytes!("../assets/logo-mark.png");
+
+/// egui texture id the cached brand mark is stored under.
+const LOGO_TEX_ID: &str = "tdmcp_logo_mark";
+
+/// Sidebar/popup brand-mark texture: decoded once per context, then cached in
+/// egui memory. `None` = decode failed; callers fall back to the text brand.
+pub(crate) fn logo_texture(ctx: &egui::Context) -> Option<egui::TextureHandle> {
+    let id = egui::Id::new(LOGO_TEX_ID);
+    if let Some(tex) = ctx.memory_mut(|m| m.data.get_temp::<egui::TextureHandle>(id)) {
+        return Some(tex);
+    }
+    let icon = crate::tray::load_rgba(LOGO_MARK_PNG, None).ok()?;
+    let image = egui::ColorImage::from_rgba_unmultiplied(
+        [icon.width as usize, icon.height as usize],
+        &icon.rgba,
+    );
+    let tex = ctx.load_texture(LOGO_TEX_ID, image, egui::TextureOptions::LINEAR);
+    ctx.memory_mut(|m| m.data.insert_temp(id, tex.clone()));
+    Some(tex)
+}

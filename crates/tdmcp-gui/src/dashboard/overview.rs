@@ -180,6 +180,9 @@ fn daemon_card(app: &mut DashboardApp, ui: &mut egui::Ui) {
 fn activity_card(app: &mut DashboardApp, ui: &mut egui::Ui) {
     let count = app.error_ring.len();
     let attention = app.attention;
+    // The header's right slot can't borrow `app` (the body closure holds the
+    // mutable borrow), so the click is ferried out through a cell.
+    let clear_clicked = std::cell::Cell::new(false);
     super::widgets::card_with_header(
         ui,
         "ACTIVITY",
@@ -187,6 +190,12 @@ fn activity_card(app: &mut DashboardApp, ui: &mut egui::Ui) {
         |ui| {
             if count > 0 {
                 let _ = badge(ui, &count.to_string(), BadgeKind::Error);
+                if ghost_button(ui, "Clear", TEXT_DIM, WARN)
+                    .on_hover_text("Clear the activity list")
+                    .clicked()
+                {
+                    clear_clicked.set(true);
+                }
             }
         },
         |ui| {
@@ -234,6 +243,10 @@ fn activity_card(app: &mut DashboardApp, ui: &mut egui::Ui) {
             }
         },
     );
+    if clear_clicked.get() {
+        app.error_ring.clear();
+        app.snack("Activity cleared", crate::app::SnackTone::Ok);
+    }
 }
 
 fn error_row(ui: &mut egui::Ui, msg: &str, copied: &mut Option<String>) {

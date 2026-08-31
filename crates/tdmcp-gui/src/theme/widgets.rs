@@ -11,24 +11,25 @@ use super::{
     RADIUS_MD, RADIUS_SM, TEXT, TEXT_DIM, WARN,
 };
 
-/// Paint a 6px status LED (Ableton-style colored dot).
-pub fn status_led(ui: &mut egui::Ui, color: Color32) {
-    let (rect, _) = ui.allocate_exact_size(
+/// Paint a 6px status LED (Ableton-style colored dot). Returns the LED's
+/// hover response so callers can hang a tooltip on it.
+pub fn status_led(ui: &mut egui::Ui, color: Color32) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(
         egui::vec2(LED_SIZE + 2.0, LED_SIZE + 2.0),
         egui::Sense::hover(),
     );
     let center = rect.center();
     ui.painter().circle_filled(center, LED_SIZE * 0.5, color);
+    response
 }
 
 /// Status LED with a breathing halo while `active` (attention signal).
 /// Without `active` this is exactly [`status_led`].
-pub fn status_led_pulse(ui: &mut egui::Ui, color: Color32, active: bool) {
+pub fn status_led_pulse(ui: &mut egui::Ui, color: Color32, active: bool) -> egui::Response {
     if !active {
-        status_led(ui, color);
-        return;
+        return status_led(ui, color);
     }
-    let (rect, _) = ui.allocate_exact_size(
+    let (rect, response) = ui.allocate_exact_size(
         egui::vec2(LED_SIZE * 3.0, LED_SIZE * 3.0),
         egui::Sense::hover(),
     );
@@ -46,6 +47,7 @@ pub fn status_led_pulse(ui: &mut egui::Ui, color: Color32, active: bool) {
     );
     ui.painter()
         .circle_filled(rect.center(), LED_SIZE * 0.5, color);
+    response
 }
 
 /// Filled accent button — the settings primary action (Save).

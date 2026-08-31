@@ -1,53 +1,51 @@
-//! Dashboard sidebar: brand block (LED · name · role), nav items with
-//! attention badge, compact health-word footer.
+//! Dashboard sidebar: centered logo brand block, nav items with attention
+//! badge, health footer carrying role / version / uptime meta.
 
 use eframe::egui::{self, Color32, Sense};
 
 use super::DashTab;
 use crate::app::DashboardApp;
 use crate::theme::{
-    badge, font_label, font_meta, font_title, status_led, BadgeKind, ACCENT, BG_ACTIVE, BG_HOVER,
-    ERR, OK, TEXT, TEXT_DIM, WARN,
+    badge, font_label, font_meta, font_mono, font_title, status_led, BadgeKind, ACCENT, BG_ACTIVE,
+    BG_HOVER, ERR, OK, TEXT, TEXT_DIM, TEXT_FAINT, WARN,
 };
 
 /// Sidebar width (px).
 pub(crate) const SIDEBAR_W: f32 = 172.0;
+
+/// Brand-mark display size (px).
+const LOGO_SIZE: f32 = 44.0;
 
 pub(crate) fn sidebar(app: &mut DashboardApp, ui: &mut egui::Ui) {
     let snap = &app.prev_snapshot;
     let attention = snap.disconnected + snap.resurrected + snap.cancelled;
     let offline = app.status.is_none() || app.error.is_some();
 
-    // Brand block.
-    ui.add_space(6.0);
-    ui.horizontal(|ui| {
-        ui.add_space(14.0);
-        status_led(ui, ACCENT);
-        ui.add_space(6.0);
-        ui.label(
-            egui::RichText::new("td-mcp-rs")
-                .font(font_title())
-                .color(TEXT),
-        );
-    });
-    ui.horizontal(|ui| {
-        ui.add_space(14.0);
-        let role = app
-            .status
-            .as_ref()
-            .map(|s| s.role.to_ascii_lowercase())
-            .unwrap_or_else(|| "offline".to_owned());
-        let _ = badge(
-            ui,
-            &role,
-            if offline {
-                BadgeKind::Error
-            } else {
-                BadgeKind::Neutral
-            },
-        );
-    });
-    ui.add_space(18.0);
+    // Brand block: the logo mark alone, well centered — the app name lives in
+    // the window title, and role / version / uptime moved to the footer.
+    ui.add_space(10.0);
+    match crate::theme::logo_texture(ui.ctx()) {
+        Some(tex) => {
+            ui.vertical_centered(|ui| {
+                ui.add(egui::Image::new(&tex).fit_to_exact_size(egui::vec2(LOGO_SIZE, LOGO_SIZE)));
+            });
+        }
+        // Decode-failure fallback: keep the old text brand rather than an
+        // empty header.
+        None => {
+            ui.horizontal(|ui| {
+                ui.add_space(14.0);
+                status_led(ui, ACCENT);
+                ui.add_space(6.0);
+                ui.label(
+                    egui::RichText::new("td-mcp-rs")
+                        .font(font_title())
+                        .color(TEXT),
+                );
+            });
+        }
+    }
+    ui.add_space(14.0);
 
     for tab in DashTab::ALL {
         let selected = app.dash_tab == tab;
@@ -63,8 +61,47 @@ pub(crate) fn sidebar(app: &mut DashboardApp, ui: &mut egui::Ui) {
     }
 
     ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
-        // Status sticks to bottom with symmetric 12px breathing room — no separator line.
+        // Footer stack (painted bottom-up): version/uptime meta, role badge,
+        // then the health word — symmetric 12px breathing room at the very
+        // bottom, no separator line.
         ui.add_space(12.0);
+        // Version + uptime (hidden while the daemon is unreachable — the
+        // role badge already says "offline").
+        if let Some(s) = app.status.as_ref() {
+            let up = super::widgets::format_uptime(s.uptime_secs);
+            let meta = if up.is_empty() {
+                format!("v{}", s.version)
+            } else {
+                format!("v{} · up {}", s.version, up)
+            };
+            ui.horizontal(|ui| {
+                ui.add_space(14.0);
+                ui.label(
+                    egui::RichText::new(meta)
+                        .font(font_mono())
+                        .color(TEXT_FAINT),
+                );
+            });
+            ui.add_space(6.0);
+        }
+        ui.horizontal(|ui| {
+            ui.add_space(14.0);
+            let role = app
+                .status
+                .as_ref()
+                .map(|s| s.role.to_ascii_lowercase())
+                .unwrap_or_else(|| "offline".to_owned());
+            let _ = badge(
+                ui,
+                &role,
+                if offline {
+                    BadgeKind::Error
+                } else {
+                    BadgeKind::Neutral
+                },
+            );
+        });
+        ui.add_space(6.0);
         ui.horizontal(|ui| {
             ui.add_space(14.0);
             let (color, word) = if offline {

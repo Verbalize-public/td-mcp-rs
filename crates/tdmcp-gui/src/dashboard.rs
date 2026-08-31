@@ -101,22 +101,10 @@ pub fn render(app: &mut DashboardApp, ui: &mut egui::Ui) {
         )
         .show(ui, |ui| {
             // Left: page title. Right (RTL, first-added lands rightmost):
-            // health LED → identity meta → daemon lifecycle actions.
+            // health LED → daemon lifecycle actions. Identity meta (role /
+            // version / uptime) lives in the sidebar footer now; pid / bind
+            // stay on the LED tooltip below.
             let attention = app.attention;
-            // Trimmed to `up <t> · v<ver>`: the three action buttons need the
-            // width, and at the 800px minimum the old pid+bind form overflowed.
-            // pid / bind live in the LED tooltip below instead.
-            let meta = match app.status.as_ref() {
-                Some(s) => {
-                    let up = widgets::format_uptime(s.uptime_secs);
-                    if up.is_empty() {
-                        format!("v{}", s.version)
-                    } else {
-                        format!("up {} · v{}", up, s.version)
-                    }
-                }
-                None => "daemon unreachable".to_owned(),
-            };
             let led_tip = match app.status.as_ref() {
                 Some(s) => format!("pid {} · {}", s.pid, s.bind_address),
                 None => "daemon unreachable".to_owned(),
@@ -135,16 +123,10 @@ pub fn render(app: &mut DashboardApp, ui: &mut egui::Ui) {
                         .color(TEXT),
                 );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    status_led_pulse(ui, led_color, attention && app.error.is_none());
-                    // `status_led_pulse` paints directly and returns nothing, so
-                    // hang the tooltip on an explicitly allocated hover strip.
-                    ui.add_space(crate::theme::sp::XS);
-                    ui.label(
-                        egui::RichText::new(meta)
-                            .font(font_mono())
-                            .color(crate::theme::TEXT_FAINT),
-                    )
-                    .on_hover_text(led_tip);
+                    // The LED's own hover response carries the pid/bind
+                    // tooltip (identity meta moved to the sidebar footer).
+                    status_led_pulse(ui, led_color, attention && app.error.is_none())
+                        .on_hover_text(led_tip);
                     ui.add_space(crate::theme::sp::MD);
                     widgets::daemon_actions(app, ui);
                 });

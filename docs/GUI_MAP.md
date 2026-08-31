@@ -18,8 +18,8 @@ Two surfaces in one process (inside `tdmcp-daemon`, disabled with `--no-gui` /
   ACTIVITY/errors card; federation flows (add-slave, per-slave settings,
   role changes) run as modal overlays on top.
 - **Tray popup** (`popup.rs`): a frameless glance card anchored near the tray
-  (380 wide × 304 default, min 180, non-resizable). Header = LED · title ·
-  version + `⛶` dashboard / `⚙` settings; body = ATTENTION strip,
+  (380 wide × 304 default, min 180, non-resizable). Header = logo mark ·
+  title · version + `⛶` dashboard / `⚙` settings; body = ATTENTION strip,
   TOUCHDESIGNER mini list (capped), MCP client names; footer = the one
   mutation surface — Stop / Restart / Reveal .tox (Stop keeps its two-step
   confirm).
@@ -54,7 +54,8 @@ Two surfaces in one process (inside `tdmcp-daemon`, disabled with `--no-gui` /
 | `crates/tdmcp-gui/src/dashboard.rs` | dashboard shell + viewport; `DashTab {Overview, Logs, Settings}` router |
 | `crates/tdmcp-gui/src/dashboard/{nav,overview,fleet,logs,settings,widgets}.rs` | sidebar nav, pages, and shared painted pieces (`stat_card`, `fleet_row`, `card_with_header`, `daemon_actions`, `capped_rows`) |
 | `crates/tdmcp-gui/src/preview.rs` + `examples/dashboard_preview.rs` | fixture harness (§7); scenes: `overview-empty` · `overview-populated` · `overview-offline` · `overview-many` · `overview-narrow` · `modal-add-slave` · `stop-confirm` · `logs-filtered` · `settings-dirty` · `popup` · `popup-stop-confirm` |
-| `crates/tdmcp-gui/assets/icon-normal.png` / `icon-attention.png` | tray icons |
+| `crates/tdmcp-gui/assets/logo-mark.png` | sidebar/popup brand mark (cropped node from `logo.svg`, rendered by `packaging/gen_icons.py`) |
+| `crates/tdmcp-gui/assets/icon-normal.png` / `icon-attention.png` | tray icons (rendered from `logo.svg`; attention = orange corner badge) |
 
 Daemon-side launch point: `crates/tdmcp-daemon/src/main.rs` spawns the GUI
 thread after the admin listener is up; passes
@@ -127,13 +128,22 @@ Wire DTOs (camelCase serde): `StatusView`, `SessionsView`/`SessionRow`,
 ## 5. Views (what the user sees)
 
 ### Dashboard top bar
-Page title left; right (RTL): health LED (tooltip: attention breakdown) ·
-`up <t> · v<ver>` meta (tooltip: pid + bind) · daemon actions
-(`widgets::daemon_actions`) — Stop / Restart / Reveal .tox as bordered
-`action_button`s. Present on every tab.
+Page title left; right (RTL): health LED (tooltip: pid + bind) · daemon actions
+(`widgets::daemon_actions`) — New / Open / Reveal .tox, Stop / Restart as
+bordered `action_button`s. Identity meta (role / version / uptime) lives in the
+sidebar footer. Present on every tab.
+
+### Sidebar
+Centered brand mark (`theme::logo_texture`, cached per context; falls back to
+the text brand if decode fails) → nav items (Overview carries the live
+attention count pill) → bottom footer stack: health LED + word
+(`all good` / `attention` / `offline`, tooltip: attention breakdown), role
+badge (`standalone` / `master` / `slave` / `offline`), and a mono
+`v<ver> · up <t>` meta line (hidden while unreachable).
 
 ### Overview tab
-- Attention strip + errors card (recent daemon errors, crash reports).
+- Attention strip + errors card (recent daemon errors, crash reports; header
+  Clear empties the client-side error ring).
 - DAEMON card (identity: role, version, uptime; actions live in the top bar).
 - TOUCHDESIGNER card: fleet process rows grouped by owning daemon
   (`fleet.rs` — group rows / flat fallback), LED per bridge state,
@@ -144,7 +154,7 @@ Page title left; right (RTL): health LED (tooltip: attention breakdown) ·
 - Empty/loading states with guidance + CTA.
 
 ### Logs tab
-Toolbar: level chips + text filter + pause/auto-scroll + reveal-dir;
+Toolbar: level chips + text filter + pause/auto-scroll + clear + reveal-dir;
 keyboard shortcuts (F follow, Space pause, Esc close). Rows render LED
 letter + time + clipped message; click-to-expand detail with Ctrl+C copy.
 Client ring 2048, fetch 512 per poll while visible.
@@ -159,7 +169,7 @@ show_tray), BRIDGE (call/script/heartbeat/pong/idle timeouts), ADVANCED
 drives the "restart required" bar. Save/Discard are dirty-gated.
 
 ### Tray popup
-Header (LED · title · version · ⛶/⚙), ATTENTION strip (≤2 rows from the
+Header (logo mark · title · version · ⛶/⚙), ATTENTION strip (≤2 rows from the
 error ring), TOUCHDESIGNER mini list (capped 4 + "+N more"), MCP client
 names, pinned action footer (Stop / Restart / Reveal .tox). Body is a
 strictly read-only glance.

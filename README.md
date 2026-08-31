@@ -1,6 +1,8 @@
 <div align="center">
 
-# td-mcp-rs 🎛️
+<img src="logo.svg" alt="td-mcp-rs logo" width="88">
+
+# td-mcp-rs
 
 ### Your AI editor, inside your TouchDesigner project
 

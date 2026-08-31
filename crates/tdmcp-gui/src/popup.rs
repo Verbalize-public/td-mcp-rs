@@ -53,7 +53,16 @@ impl DashboardApp {
                 .max_rect(inset)
                 .layout(egui::Layout::left_to_right(egui::Align::Center)),
         );
-        status_led(&mut left_ui, ACCENT);
+        // Brand mark replaces the decorative accent LED (falls back to it if
+        // the embedded logo failed to decode).
+        match crate::theme::logo_texture(ui.ctx()) {
+            Some(tex) => {
+                left_ui.add(egui::Image::new(&tex).fit_to_exact_size(egui::vec2(18.0, 18.0)));
+            }
+            None => {
+                status_led(&mut left_ui, ACCENT);
+            }
+        }
         left_ui.add_space(crate::theme::sp::XS);
 
         let title = match self.status.as_ref().map(|s| s.role.as_str()) {

@@ -62,6 +62,15 @@ pub(crate) fn logs(app: &mut DashboardApp, ui: &mut egui::Ui) {
             }
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if ghost_button(ui, "Clear", TEXT_DIM, WARN)
+                .on_hover_text("Clear the visible log rows")
+                .clicked()
+            {
+                app.logs_view.buf.clear();
+                app.logs_view.expanded = None;
+                app.snack("Log view cleared", crate::app::SnackTone::Ok);
+            }
+            ui.add_space(crate::theme::sp::XS);
             if ghost_button(ui, "Open folder", TEXT_DIM, ACCENT).clicked() {
                 app.reveal_logs_dir();
             }
