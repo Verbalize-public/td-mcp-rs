@@ -13,7 +13,6 @@ your whole studio, with whatever assistant you already use.**
 [![License](https://img.shields.io/badge/License-MIT-3fb950?style=flat-square)](LICENSE)
 [![Version](https://img.shields.io/badge/version-0.1.4-6e7bff?style=flat-square)](CHANGELOG.md)
 [![Platform](https://img.shields.io/badge/Windows%20%C2%B7%20macOS-b58cff?style=flat-square)](#step-1--install-the-daemon)
-[![No account](https://img.shields.io/badge/no%20account%20%C2%B7%20no%20cloud%20%C2%B7%20no%20telemetry-ff8b3d?style=flat-square)](#private-by-design)
 [![Buy me a coffee](https://img.shields.io/badge/%E2%98%95_Buy_me_a_coffee-FFDD00?style=flat-square&logo=buymeacoffee&logoColor=000000)](https://buymeacoffee.com/asyade)
 
 <img src="docs/screens/overview-populated.png" alt="The td-mcp-rs dashboard showing a live TouchDesigner fleet across two machines" width="860">
