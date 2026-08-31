@@ -88,7 +88,10 @@ See [`docs/CONTRACT.md`](docs/CONTRACT.md):
 
 | Doc | Role |
 | --- | --- |
-| [`README.md`](README.md) | Install / quickstart |
+| [`README.md`](README.md) | Product overview + quickstart |
+| [`docs/INSTALL.md`](docs/INSTALL.md) | Per-harness MCP setup + troubleshooting |
+| [`docs/FEDERATION.md`](docs/FEDERATION.md) | Federation user guide (setup, security model, limits) |
+| [`docs/RECIPES.md`](docs/RECIPES.md) | Prompt cookbook for end users |
 | [`docs/CONFIG.md`](docs/CONFIG.md) | TOML config + Settings GUI |
 | [`docs/CONTRACT.md`](docs/CONTRACT.md) | v1 contract, tool catalogue, phases |
 | [`CONSTITUTION.md`](CONSTITUTION.md) | Rust engineering law |

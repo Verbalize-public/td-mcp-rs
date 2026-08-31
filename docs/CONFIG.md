@@ -65,7 +65,7 @@ link (fresh session) and returns `tdmcp.daemon.unreachable` with `budgetMs`.
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `port` | `9860` | HTTP listen port (MCP + admin) |
-| `bind_address` | `127.0.0.1` | Listen address. Use `0.0.0.0` for LAN remote access. Non-loopback requires `[auth] mode = "psk"` with a non-empty `psk`. |
+| `bind_address` | `127.0.0.1` | Listen address. Use `0.0.0.0` for LAN remote access. A PSK is **not** required for a non-loopback bind (zero-setup LAN federation is deliberate) — without one, anything on the LAN can call this daemon. Set `[auth] mode = "psk"` unless the network is fully trusted. |
 
 ### `[auth]`
 

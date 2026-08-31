@@ -78,7 +78,10 @@ drift. Do not silence or delete that test to make it pass. Authoring contract:
 | Need | Go to |
 | --- | --- |
 | Contract of record (tools, shapes, diagnostics) | [`docs/CONTRACT.md`](docs/CONTRACT.md) |
-| Install / quickstart | [`README.md`](README.md) |
+| Product overview / pitch / quickstart | [`README.md`](README.md) |
+| Install detail — per-harness MCP setup, troubleshooting | [`docs/INSTALL.md`](docs/INSTALL.md) |
+| Federation user guide (setup, security model, limits) | [`docs/FEDERATION.md`](docs/FEDERATION.md) |
+| User-facing prompt cookbook (what to ask for) | [`docs/RECIPES.md`](docs/RECIPES.md) |
 | Crate boundaries / topology | [`ARCHITECTURE.md`](ARCHITECTURE.md) |
 | Never-panic / lints / DRY | [`CONSTITUTION.md`](CONSTITUTION.md) |
 | Accepted panic/unsafe exceptions | [`RISKS.md`](RISKS.md) |
