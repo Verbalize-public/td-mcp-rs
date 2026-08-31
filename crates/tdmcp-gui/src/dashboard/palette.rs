@@ -964,6 +964,18 @@ pub(crate) fn analyse_modal(app: &mut DashboardApp, ctx: &egui::Context) {
         );
         ui.add_space(sp::MD);
 
+        // The GUI only does the mechanical half — it has no LLM, so cards are
+        // never written here. Say so up front: this is a best-effort, partial
+        // pass, and the describe loop belongs to the agent.
+        crate::theme::banner(
+            ui,
+            crate::theme::BannerTone::Warn,
+            "Beta · best-effort. This runs only the mechanical half — rescan, probe \
+             evidence, thumbnails. It writes no cards: your agent should do that, from \
+             the brief this run produces (tdmcp://docs/palette-scan).",
+        );
+        ui.add_space(sp::MD);
+
         if !running && !finished {
             ui.label(
                 egui::RichText::new(

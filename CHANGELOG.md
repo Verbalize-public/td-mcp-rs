@@ -17,6 +17,8 @@
 - feat(config): `[palette]` section — `user_root`, `store_dir`, and a seeded probe blacklist
 - feat(skills): `palette` and `palette-scan` cards; "look in the Palette before hand-building" umbrella rule
 - feat(palette): unwrap the palette wrapper — probe digests the real component (custom pars, In/Out pins) and lifts its `help` DAT; `place` lifts the component out of the icon shell via `copyOPs`
+- feat(palette): `palette_probe {thumbnails: true}` renders a 256px PNG per component into `{store}/thumbs/` (wrapper icon art first, shared-viewer fallback); `list`/`get` expose the stored path as `thumb`, and a black/uniform frame is reported rather than stored
+- feat(gui): Palette dashboard section — browsable roster (search + card-state filters over the same selector the tools use), rendered thumbnails, a ready-to-paste "Copy reference" agent brief per component, and an Analyse run (rescan → probe → thumbnails) that ends in a handoff brief; cards are never written here — that stays the agent's job
 
 ### Fixed
 - fix(palette): a fully blacklisted or empty probe selection now explains itself (`skipped` / `skippedTotal` / `note`) instead of returning a silent empty batch

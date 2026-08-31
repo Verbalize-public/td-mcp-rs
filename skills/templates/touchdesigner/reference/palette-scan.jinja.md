@@ -70,6 +70,13 @@ grouped by page, `inputs`/`outputs` (its In/Out operators), `childCount`, and
 interface and drops the internals, which is usually what you want — a card
 describes how to *drive* a component, not how it is built.
 
+`thumbnails: true` also renders a 256px PNG per component into the store's
+`thumbs/` folder — Derivative's own icon art for stock wrappers, a viewer
+rasterization for unwrapped `.tox` files. It serves the GUI's palette browser,
+not your cards, so skip it unless a human is going to look at the roster; each
+rendered picture costs a little bridge time inside the same load → digest →
+destroy window. A black or uniform frame is reported, not stored.
+
 **5. Write the card** from the digest, one `describe` per component:
 
 ```json

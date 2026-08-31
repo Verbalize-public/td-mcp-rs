@@ -14,6 +14,7 @@ your whole studio, with whatever assistant you already use.**
 [![Version](https://img.shields.io/badge/version-0.1.4-6e7bff?style=flat-square)](CHANGELOG.md)
 [![Platform](https://img.shields.io/badge/Windows%20%C2%B7%20macOS-b58cff?style=flat-square)](#step-1--install-the-daemon)
 [![No account](https://img.shields.io/badge/no%20account%20%C2%B7%20no%20cloud%20%C2%B7%20no%20telemetry-ff8b3d?style=flat-square)](#private-by-design)
+[![Buy me a coffee](https://img.shields.io/badge/%E2%98%95_Buy_me_a_coffee-FFDD00?style=flat-square&logo=buymeacoffee&logoColor=000000)](https://buymeacoffee.com/asyade)
 
 <img src="docs/screens/overview-populated.png" alt="The td-mcp-rs dashboard showing a live TouchDesigner fleet across two machines" width="860">
 
@@ -110,16 +111,7 @@ Four steps, about five minutes. Windows and macOS.
 
 ### Step 1 · Install the daemon
 
-**The easy way — a real installer.** Grab the latest from the
-[Releases page](https://github.com/Verbalize-public/td-mcp-rs/releases):
-
-| Your OS | Download | Then |
-| --- | --- | --- |
-| Windows | `tdmcp-rs-*-x64-setup.exe` | Run it. If SmartScreen appears: **More info → Run anyway**. |
-| macOS | `tdmcp-rs-*.dmg` | Drag to Applications, then **right-click → Open** the first time. |
-
-> These builds are not code-signed yet, which is why your OS asks twice. The
-> source is right here if you'd rather read it first.
+**From pre-built binary** - Available soon
 
 **The from-source way** — needs [Rust](https://rustup.rs) (`rustup` installer,
 then restart your terminal). This puts `tdmcp-daemon` on your `PATH`, which
@@ -498,10 +490,11 @@ which assistants are connected, and what just happened.
 - [x] Offline `.toe` / `.tox` editing via Derivative's own tools
 - [x] Bridge injection into existing projects
 - [x] Popup detection and dismissal (Win32 + UIA, macOS Accessibility)
-- [x] Palette awareness — index, probe, place, blacklist
+- [x] Palette awareness — index, probe, place, blacklist, plus a dashboard
+      section that browses the roster with rendered thumbnails
 - [x] Federation — master/slave fleets over the LAN, PSK-protected
 - [x] Built-in operate manual, served over MCP or exported to files
-- [x] Tray dashboard with Logs / Settings, plus headless mode
+- [x] Tray dashboard with Palette / Logs / Settings, plus headless mode
 - [x] Self-contained delivery — one binary, one drop-in `.tox`
 - [x] Claude Code plugin, plus Windows and macOS installers
 

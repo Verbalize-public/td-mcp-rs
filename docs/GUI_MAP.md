@@ -153,8 +153,9 @@ sidebar footer. Present on every tab.
 
 ### Sidebar
 Centered brand mark (`theme::logo_texture`, cached per context; falls back to
-the text brand if decode fails) → nav items (Overview carries the live
-attention count pill) → bottom footer stack: health LED + word
+the text brand if decode fails) → nav items (Overview carries the live fleet
+attention count pill; Palette carries the failed-probe count) → bottom footer
+stack: health LED + word
 (`all good` / `attention` / `offline`, tooltip: attention breakdown), role
 badge (`standalone` / `master` / `slave` / `offline`), and a mono
 `v<ver> · up <t>` meta line (hidden while unreachable).
@@ -170,6 +171,25 @@ badge (`standalone` / `master` / `slave` / `offline`), and a mono
   slave self-view (master url/id, Go-standalone confirm).
 - MCP CLIENTS card: session rows — client name/version, connected-for.
 - Empty/loading states with guidance + CTA.
+
+### Palette tab
+Toolbar: search + card-state chips (all / carded / undescribed / stale /
+failed / ignored — mapped onto the tool's `select`), and RTL `Rescan` /
+`Analyse…` actions (Analyse includes the thumbnail pass). Left panel: virtualized category tree
+(`ScrollArea::show_rows`) — uppercase section-header category rows with counts
+and a ▾/▸ disclosure; component rows carry a thumbnail tile (stored PNG, or a
+painted monogram placeholder when none exists) and a status dot
+(carded · undescribed · stale · failed/suspect · ignored, the last dimmed).
+Detail pane: rendered preview (256px) + identity, PINS / PARS lines from the
+probe digest, the card body via the in-house Markdown renderer (`card_text`:
+bold lead-ins, inline mono, fenced blocks as mono panels, bullets), and the
+action row — `Copy reference` (agent-ready brief with the literal `place`
+step), `Copy place step`, and a `[⋯]` menu (Copy id / Copy card markdown /
+Reveal .tox / Ignore · Unignore). The Analyse modal
+(`widgets::modal_shell`) runs rescan → probe (batches of 3, cancellable,
+explicit-id targets, throwaway-pid offer when the fleet is empty) →
+thumbnails, then offers a handoff brief; a Warn banner states up front that
+the GUI writes no cards — that half belongs to the agent.
 
 ### Logs tab
 Toolbar: level chips + text filter + pause/auto-scroll + clear + reveal-dir;

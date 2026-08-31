@@ -198,6 +198,22 @@ breadcrumb clearing policy, extension-slot dropping) are documented as
 shipped behavior in [`CONTRACT.md`](CONTRACT.md) § `palette_index` /
 `palette_probe`.
 
+## Palette GUI
+
+Run against the live daemon with a spawned throwaway TouchDesigner
+(pid-scoped, never the user's project), plus the preview harness with no
+daemon at all. Same rebuild loop as the palette table.
+
+| # | Check | Result |
+| --- | --- | --- |
+| P11 | `palette_probe {thumbnails: true}` → 256px PNGs in `{store}/thumbs/<slug>.png` (76 stored from wrapper icon art); `list` / `get` expose the stored path as `thumb`; `thumbnailBase64` is stripped from the reply; a black/uniform viewer frame is reported (`thumbnailNote`) and **not** stored; a digest is never downgraded by a thumbnail failure | PASS |
+| P12 | Dashboard Palette tab against the live daemon: roster renders across the categories with the stored thumbnails, card-state filters drive the same `select` the tools use; preview scenes `palette-tree` / `palette-empty` / `palette-analyse` verified with no daemon (`TDMCP_PREVIEW_SCENE`) | PASS |
+| P13 | Analyse run (rescan → probe → thumbnails → agent handoff) driven from the modal, plus "Copy reference" → agent runs the `place` step verbatim | manual — the bulk loop mechanics were exercised over `POST /mcp/tools/call` (batch of 3, blacklist filtered, `remaining`-driven stop); the modal run and the paste-into-agent step remain human checks |
+
+Findings from this run: the bulk loop must drive **explicit ids** from the
+roster — `select {status: "all"}` never advances past its first page, so the
+GUI computes its target list instead of re-issuing the same selector.
+
 ## Operational caveats
 
 - `tdmcp-daemon install` skips re-extraction when `install.version` matches,
