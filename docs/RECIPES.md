@@ -1,58 +1,55 @@
-# Recipes — what to actually say
+# Recipes — what to say
 
-td-mcp-rs doesn't add a new interface to learn. You talk to your assistant,
-and it operates TouchDesigner. This page is a set of prompts that work, ordered
-from *"just look at this for me"* to *"build the whole thing"* — so you can
-start wherever you're comfortable and move up when you feel like it.
+There is no new interface to learn. You talk to your assistant, and it
+operates TouchDesigner. These are prompts that work, ordered from *"just look
+at this"* to *"build the whole thing"*.
 
 **Contents**
 
-- [Five things worth knowing first](#five-things-worth-knowing-first)
+- [Before you start](#before-you-start)
 - [Level 1 · Look and explain](#level-1--look-and-explain)
-- [Level 2 · An extension of your hand](#level-2--an-extension-of-your-hand)
+- [Level 2 · Small precise edits](#level-2--small-precise-edits)
 - [Level 3 · Delegate a chunk](#level-3--delegate-a-chunk)
 - [Level 4 · End to end](#level-4--end-to-end)
 - [Teach it your Palette](#teach-it-your-palette)
 - [Debugging](#debugging)
 - [Project and file wrangling](#project-and-file-wrangling)
 - [Across machines](#across-machines)
-- [Keeping it honest](#keeping-it-honest)
+- [Making it check its work](#making-it-check-its-work)
 
 ---
 
-## Five things worth knowing first
+## Before you start
 
-**1 · You don't need to name the tools.** *"Why is this black?"* is a fine
-prompt. Naming them (*"call `inspect` on `/project1`"*) only helps when the
-assistant is being lazy or has wandered off.
+**You don't need to name the tools.** *"Why is this black?"* is a fine prompt.
+Naming them (*"call `inspect` on `/project1`"*) only helps when the assistant
+has wandered off.
 
-**2 · "This node" works.** The assistant can see which network pane you have
-open and what's selected, so pointing at your screen with words is legitimate:
-*"the node I've got selected"*, *"this network"*, *"the one I'm looking at"*.
+**"This node" works.** The assistant can see which network pane you have open
+and what's selected, so *"the node I've got selected"* or *"the one I'm
+looking at"* resolves correctly.
 
-**3 · Ask it to look before it claims.** The single most useful habit:
-*"…then screenshot it and tell me what you actually see."* Without that, an
-assistant will happily tell you a black render looks great.
+**Ask it to look before it claims.** Add *"…then screenshot it and tell me
+what you see."* Without that, an assistant will tell you a black render looks
+great.
 
-**4 · Give it somewhere to work.** *"Build it in a new COMP called `bloom_v2`"*
-is much better than turning it loose in your root network. It's biased towards
-this anyway, but saying so makes it certain — and makes it trivial to delete
-if you hate the result.
+**Give it somewhere to work.** *"Build it in a new COMP called `bloom_v2`"* is
+better than turning it loose in your root network, and makes the result
+trivial to delete.
 
-**5 · Save first, the first few times.** It's operating your live project.
-Nothing here is destructive by design, but you'll experiment more freely with
-a save behind you.
+**Save first, the first few times.** It operates your live project. Nothing
+here is destructive by design, but you'll experiment more freely with a save
+behind you.
 
 ---
 
 ## Level 1 · Look and explain
 
-Nothing is modified. This is the safest way to get a feel for it — and the
-fastest way to learn TouchDesigner from a project you didn't write.
+Nothing is modified.
 
 > *"What's in this project? Give me the structure."*
 
-> *"Walk me through what this network actually does, node by node."*
+> *"Walk me through what this network does, node by node."*
 
 > *"What is this feedback loop doing, and why does it need the Level TOP?"*
 
@@ -64,23 +61,20 @@ fastest way to learn TouchDesigner from a project you didn't write.
 
 > *"Screenshot the output of `render1` and describe what you see."*
 
-> *"What's the difference between a POP and a SOP, and which should I be using
+> *"What's the difference between a POP and a SOP, and which should I use
 > here?"*
 
 > *"Read the GLSL in this shader DAT and explain what each block does."*
 
-**Why the answers are good:** the assistant reads your actual network — names,
-wiring, parameter values, error text, DAT bodies — and cross-references a
-built-in TouchDesigner manual (operator families, cooking, GLSL ground truth,
-network conventions). It's answering about *your* project, not summarising a
-forum post.
+The answers come from your actual network — names, wiring, parameter values,
+error text, DAT bodies — cross-referenced against a built-in TouchDesigner
+manual (operator families, cooking, GLSL ground truth, network conventions).
 
 ---
 
-## Level 2 · An extension of your hand
+## Level 2 · Small precise edits
 
-Small, precise, exactly-what-you-said edits. Faster than reaching for the
-mouse, and no risk of the assistant improvising.
+Exactly what you said, no improvising. Faster than reaching for the mouse.
 
 > *"Add a Level TOP after `noise1`, set gamma to 0.8, wire it into `out1`."*
 
@@ -98,14 +92,14 @@ mouse, and no risk of the assistant improvising.
 
 > *"Turn this hard-coded 0.5 into a reference to the slider I just added."*
 
-Edits go through in one ordered batch. If step four fails, you're told which
-step and why — you never end up with half a network and no explanation.
+Edits go through in one ordered batch. If step four fails you're told which
+step and why, so you never end up with half a network and no explanation.
 
 ---
 
 ## Level 3 · Delegate a chunk
 
-You describe the outcome; it figures out the operators.
+You describe the outcome; it picks the operators.
 
 > *"Build an audio-reactive particle system in a new COMP. Use something from
 > the Palette rather than hand-rolling it."*
@@ -128,14 +122,13 @@ Worth adding to any of these:
 > *"…then screenshot the result. If it doesn't look like what I asked for, fix
 > it and screenshot again."*
 
-That loop — build, look, correct — is the whole point. Let it run twice before
-you step in.
+Let that build-look-correct loop run twice before you step in.
 
 ---
 
 ## Level 4 · End to end
 
-Nothing open, nothing set up. Ask for the finished thing.
+Nothing open, nothing set up.
 
 > *"Start TouchDesigner on a new project, build me a generative visual driven
 > by microphone input, and show me what it looks like."*
@@ -143,16 +136,16 @@ Nothing open, nothing set up. Ask for the finished thing.
 > *"Open `show_v3.toe`, find whatever is causing the frame drops, fix it, save
 > as `show_v4.toe` and tell me what you changed."*
 
-> *"Create a reusable `.tox` for our standard output chain — colour correction,
-> LUT, safe-area overlay — with custom parameters for everything, then save it
-> to the shared folder."*
+> *"Create a reusable `.tox` for our standard output chain — colour
+> correction, LUT, safe-area overlay — with custom parameters for everything,
+> then save it to the shared folder."*
 
-> *"Spin up TouchDesigner, load each of these four project files in turn, check
-> them for errors, and give me a one-line verdict on each."*
+> *"Spin up TouchDesigner, load each of these four project files in turn,
+> check them for errors, and give me a one-line verdict on each."*
 
 For this level, point `[project] template_path` in `config.toml` at a template
-`.toe` that already contains the bridge — then *"make a new project"* means a
-project the assistant can immediately work in. See
+`.toe` that already contains the bridge — then *"make a new project"* gives
+the assistant a project it can immediately work in. See
 [`CONFIG.md`](CONFIG.md#project-template-create-new).
 
 ---
@@ -161,19 +154,18 @@ project the assistant can immediately work in. See
 
 TouchDesigner ships hundreds of finished components, and you probably have a
 folder of your own. An assistant that knows about them stops rebuilding
-`particlesGpu` badly from scratch.
+`particlesGpu` from scratch.
 
 **One time, to build the catalogue:**
 
 > *"Scan my palette and tell me what's in it."*
 
 > *"Learn my palette — start with the TOP and CHOP categories, and write up
-> what each component actually does."*
+> what each component does."*
 
 It indexes the components, opens them safely in a scratch container to read
 their real inputs, outputs and custom parameters, then writes a description of
-each. This happens a slice at a time and only on your machine — nothing about
-your library ships with the tool or leaves the computer.
+each. This happens a slice at a time, on your machine only.
 
 **Afterwards:**
 
@@ -189,8 +181,8 @@ that isn't there, and loading one can hang TouchDesigner:
 
 > *"Blacklist that component so you never load it again."*
 
-A handful of known-problematic ones are excluded out of the box. The list is
-yours to edit; see [`CONFIG.md`](CONFIG.md#palette).
+A handful of known-problematic ones are excluded by default. The list is yours
+to edit; see [`CONFIG.md`](CONFIG.md#palette).
 
 ---
 
@@ -207,7 +199,7 @@ yours to edit; see [`CONFIG.md`](CONFIG.md#palette).
 
 > *"Why does this only break when I load the project fresh?"*
 
-The useful pattern is to let it *look* rather than reason from memory:
+Let it look rather than reason from memory:
 
 > *"Don't guess — inspect the chain, read the actual parameter values, and
 > capture the output at each stage."*
@@ -220,8 +212,7 @@ can establish rather than assume.
 
 ## Project and file wrangling
 
-These work on closed project files — TouchDesigner doesn't even need to be
-running.
+These work on closed project files, with TouchDesigner not running.
 
 > *"Install the tdmcp bridge into every `.toe` in this folder."*
 
@@ -231,7 +222,7 @@ running.
 > *"Check these project files for problems before I take them to the venue."*
 
 > *"Which TouchDesigner versions do I have installed, and which one is
-> actually usable?"*
+> usable?"*
 
 And on running instances:
 
@@ -239,8 +230,8 @@ And on running instances:
 
 > *"Close the TouchDesigner running `test.toe`, leave the other one alone."*
 
-That last one matters: everything is addressed by process id, so *"the other
-one"* is unambiguous even with four instances open.
+Everything is addressed by process id, so *"the other one"* is unambiguous
+even with four instances open.
 
 ---
 
@@ -263,22 +254,19 @@ With [federation](FEDERATION.md) set up:
 
 ---
 
-## Keeping it honest
-
-Assistants are confident. These phrases are the antidote, and they cost you
-nothing:
+## Making it check its work
 
 | Say this | Because |
 | --- | --- |
 | *"Screenshot it and tell me what you see."* | Perception is explicit — without asking, it may never look. |
 | *"Don't guess — inspect it first."* | Redirects from memory to your actual network. |
 | *"Show me the parameter values you read."* | Turns a claim into evidence. |
-| *"Build it in a new COMP called `x`."* | Contains the blast radius. |
+| *"Build it in a new COMP called `x`."* | Contains the damage. |
 | *"What did you change? List it."* | A review pass before you accept anything. |
-| *"That's still wrong — look again and fix it."* | The correction loop is where the quality comes from. Two rounds is normal. |
+| *"That's still wrong — look again and fix it."* | Two correction rounds is normal. |
 
 **When it goes off the rails:** stop it, undo in TouchDesigner
-(<kbd>Ctrl/Cmd</kbd>+<kbd>Z</kbd> still works — these are ordinary operator
+(<kbd>Ctrl/Cmd</kbd>+<kbd>Z</kbd> works — these are ordinary operator
 changes), and be more specific about where it may build. Deleting the COMP it
 was told to work in resets everything.
 

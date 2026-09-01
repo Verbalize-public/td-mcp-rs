@@ -65,7 +65,7 @@ link (fresh session) and returns `tdmcp.daemon.unreachable` with `budgetMs`.
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `port` | `9860` | HTTP listen port (MCP + admin) |
-| `bind_address` | `127.0.0.1` | Listen address. Use `0.0.0.0` for LAN remote access. A PSK is **not** required for a non-loopback bind (zero-setup LAN federation is deliberate) — without one, anything on the LAN can call this daemon. Set `[auth] mode = "psk"` unless the network is fully trusted. |
+| `bind_address` | `127.0.0.1` | Listen address. Use `0.0.0.0` for LAN remote access. A PSK is **not** required for a non-loopback bind, so zero-setup LAN federation works; without one, anything on the LAN can call this daemon. Set `[auth] mode = "psk"` unless the network is fully trusted. |
 
 ### `[auth]`
 
@@ -161,8 +161,7 @@ than failing startup.
 `tdmcp-daemon logs [N]` prints the tail of the newest `daemon.*.log` in the
 resolved directory, human-formatted (`HH:MM:SS.SSS LEVEL SRC TARGET msg
 {kvs}`) — the JSONL files themselves are the machine-readable format.
-There is deliberately no `TDMCP_LOG` env var — `RUST_LOG` plus `[logging]`
-cover the need.
+There is no `TDMCP_LOG` env var; `RUST_LOG` plus `[logging]` cover the need.
 
 ### `[advanced]`
 
@@ -260,9 +259,8 @@ somewhere other than TD's default `{documents}/Derivative/Palette`.
 existing index keeps whatever you curated — edit it with `palette_index`
 `action: ignore` / `unignore`, not by editing this file). The shipped entries
 are components whose startup scripts open network sockets or expect absent
-hardware: loading one during a bulk scan can wedge TouchDesigner. Probe one
-deliberately with `palette_probe` `includeIgnored: true` if you actually need
-it.
+hardware: loading one during a bulk scan can wedge TouchDesigner. To probe
+one anyway, use `palette_probe` `includeIgnored: true`.
 
 The store holds `index.json` (the roster) and `cards/*.md` (agent-written
 component cards). It is safe to delete — `palette_index action=scan` rebuilds

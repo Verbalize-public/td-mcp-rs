@@ -1,7 +1,7 @@
 # Open work
 
-The single honest list of what is not done yet. Big items have their own plan
-file; small ones are fully specified here.
+What is not done yet. Big items have their own plan file; small ones are
+fully specified here.
 
 ## In flight — Linux / Wine support
 
@@ -14,7 +14,7 @@ gone, the bridge speaks TCP loopback everywhere). Open:
   follow-up parked from P0 (move the self-probe respawn watchdog into
   `daemon_link.rs`'s healthy branch).
 - **P3 — Unsupported surfacing.** What a user sees/gets on an unsupported
-  platform (docs, diagnostics, honest degrade). GUI-stack failures already
+  platform (docs, diagnostics, clean degrade). GUI-stack failures already
   degrade to headless serving and the tray is `ksni` (no GTK dependency);
   the `dialogs`-on-Linux coded error (L-8) still lands here.
 - **P4 — CI + packaging + docs.** Linux build in CI, packaging, doc updates
@@ -43,9 +43,8 @@ Leftovers from the limits audit (all smaller fixes are landed):
 3. **Bridge timeout config defaults.** Raising
    `call_timeout_secs`/`script_timeout_secs`/`heartbeat`/`pong`/`idle_dead`
    defaults (target 600 s script timeout) is fully specified but blocked on a
-   live soak test — a long-tail call was only verified live up to ~70 s;
-   shipping an unverified number is exactly the class of bug this work
-   exists to avoid.
+   live soak test — a long-tail call was only verified live up to ~70 s, and
+   shipping an unverified number is the bug class this work exists to avoid.
 4. **Body-limit rejection envelope (partial).** Curated JSON rejection on
    oversized bodies landed on `/mcp/tools/call` only; federation/admin routes
    still return axum's raw `413`. Only daemon-to-daemon / GUI traffic hits

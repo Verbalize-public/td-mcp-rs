@@ -1,10 +1,9 @@
 # Install guide
 
-Everything needed to get td-mcp-rs running, whichever AI assistant you use.
-If you just want the short version, the
-[README quick start](../README.md#quick-start) is four steps.
+Full setup for any MCP assistant. The short version is the
+[README quick start](../README.md#quick-start).
 
-There are only ever three moving pieces:
+There are three pieces:
 
 ```text
   1. the daemon          2. your assistant           3. the bridge
@@ -71,14 +70,13 @@ Download the newest build from the
    xattr -cr /Applications/tdmcp.app
    ```
 
-> **Why the warnings?** These builds aren't code-signed or notarized yet —
-> certificates cost money and the project is free. Signing is on the
-> [roadmap](../README.md#roadmap); the source is all here in the meantime.
+> The builds aren't code-signed or notarized yet, which is what triggers
+> those warnings. Signing is on the [roadmap](../README.md#roadmap).
 
 ### Option B — from source with Cargo
 
-Works on every platform, and puts the binary on your `PATH` — which makes
-every editor config below a single word instead of a long path.
+Works on every platform, and puts the binary on your `PATH`, so every editor
+config below is a single word instead of a long path.
 
 1. Install Rust from [rustup.rs](https://rustup.rs), then **close and reopen
    your terminal** so `cargo` is on your `PATH`.
@@ -103,7 +101,7 @@ every editor config below a single word instead of a long path.
 
    This unpacks the Python bridge, the diagnostics catalog, the operate manual
    and `bootstrap.tox` into your data directory, resets `config.toml` to
-   defaults, and records the binary path so restarts and autostart find it.
+   defaults, and records the binary path for restarts and autostart.
 
 4. Check it:
 
@@ -115,8 +113,7 @@ every editor config below a single word instead of a long path.
 > tray entirely: `cargo install --path crates/tdmcp-daemon --no-default-features`
 > builds a binary with no GUI linked in at all.
 
-> Package-manager installs that need no Rust toolchain are planned — `cargo`
-> is the source path for now.
+> Package-manager installs are planned; `cargo` is the source path for now.
 
 ### Option C — a plain build, no install
 
@@ -141,10 +138,9 @@ tdmcp-daemon start
 A tray icon appears. **Left-click** for a glance card, **double-click** for the
 dashboard, **right-click** for the menu.
 
-You normally never have to do this by hand — your editor starts the daemon
-automatically the first time it makes a tool call. To have it start with your
-computer, open **Settings → Always on** in the dashboard and restart the
-daemon.
+You rarely need to do this by hand: your editor starts the daemon on its first
+tool call. To start it with your computer, open **Settings → Always on** in the
+dashboard and restart the daemon.
 
 ---
 
@@ -176,10 +172,10 @@ too, and save you escaping backslashes.
 
 ## Step 2 — connect your assistant
 
-Every one of these does the same thing: run the command `tdmcp-daemon` with
-the single argument `mcp`. Nothing else — no port, no token, no project path.
-Wherever you see `tdmcp-daemon` below, substitute the full path from the table
-above if it isn't on your `PATH`.
+Each of these does the same thing: run `tdmcp-daemon` with the single argument
+`mcp`. No port, no token, no project path. Wherever you see `tdmcp-daemon`
+below, substitute the full path from the table above if it isn't on your
+`PATH`.
 
 > Editors move their config files between versions. If a path here doesn't
 > match what you see, use the editor's own **Add MCP server** UI — the setting
@@ -187,7 +183,7 @@ above if it isn't on your `PATH`.
 
 ### Claude Code
 
-**The plugin (recommended).** It registers the MCP server *and* installs the
+**The plugin (recommended).** It registers the MCP server and installs the
 TouchDesigner skill pack, so Claude reaches for the right tool without being
 told:
 
@@ -209,8 +205,7 @@ confirm the skill is active.
 claude mcp add tdmcp-rs -- tdmcp-daemon mcp
 ```
 
-You'll get the tools but not the built-in TouchDesigner skill pack, so Claude
-will be a good deal less fluent. Prefer the plugin.
+This gives you the tools but not the skill pack. Prefer the plugin.
 
 Details: [`CLAUDE_CODE_PLUGIN.md`](CLAUDE_CODE_PLUGIN.md).
 
@@ -313,9 +308,8 @@ custom context server:
 }
 ```
 
-Zed's agent settings panel also has an **Add Custom Server** button that
-writes this for you — worth preferring, since Zed has changed this schema
-before.
+Zed's agent settings panel has an **Add Custom Server** button that writes
+this for you. Prefer it — Zed has changed this schema before.
 
 ### Claude Desktop
 
@@ -377,8 +371,8 @@ MCP tools are only used in Continue's **Agent** mode.
 
 ### Any other MCP client
 
-If it speaks MCP over stdio, it works. You are always describing the same
-thing in that client's own dialect:
+If it speaks MCP over stdio, it works. You're describing the same thing in
+that client's own dialect:
 
 | Field | Value |
 | --- | --- |
@@ -388,10 +382,10 @@ thing in that client's own dialect:
 | Arguments | `mcp` |
 | Environment | *(none needed)* |
 
-There's also a **Streamable HTTP** endpoint if your client prefers URLs —
-`http://127.0.0.1:9860/mcp` — but you must then start the daemon yourself
-(`tdmcp-daemon start`), because nothing is there to launch it on demand. The
-stdio command handles that for you.
+There is also a **Streamable HTTP** endpoint at `http://127.0.0.1:9860/mcp`
+if your client prefers URLs. With it you must start the daemon yourself
+(`tdmcp-daemon start`), since nothing launches it on demand. The stdio command
+handles that for you.
 
 A copy-paste starting point lives at
 [`mcp.tdmcp.example.json`](../mcp.tdmcp.example.json).
@@ -400,8 +394,8 @@ A copy-paste starting point lives at
 
 ## Step 3 — install the bridge in TouchDesigner
 
-The daemon can't reach into TouchDesigner without a small component inside the
-project. It's a one-time drag per project.
+The daemon reaches TouchDesigner through a small component inside the project.
+One drag per project.
 
 ### The manual way
 
@@ -416,15 +410,13 @@ project. It's a one-time drag per project.
 2. **Drag `bootstrap.tox` into a TouchDesigner network.** A component named
    `tdmcp_rs` appears.
 
-3. Watch its face. It connects on its own within a second or two and turns
-   green. Red or amber means it can't reach the daemon — see
-   [Troubleshooting](#troubleshooting).
+3. Its face turns green within a second or two. Red or amber means it can't
+   reach the daemon — see [Troubleshooting](#troubleshooting).
 
-4. **Save the project.** The bridge is now part of it; you never have to do
-   this again for this file.
+4. **Save the project.** The bridge is part of it from now on.
 
-The component is inert when the daemon isn't running: it retries quietly and
-costs nothing. It's safe to leave in a project you ship.
+With the daemon stopped the component just retries quietly and costs nothing,
+so it is safe to leave in a project you ship.
 
 ### The automatic way
 
@@ -435,8 +427,8 @@ Once any assistant is connected, ask it:
 > *"Install the bridge into every .toe in this folder."*
 
 That's the `project_install_bridge` tool. It works on closed project files,
-backs up the original first, and verifies the result — no TouchDesigner
-window needed.
+backs up the original first, and verifies the result. No TouchDesigner window
+needed.
 
 You can also have the assistant create projects that already contain it, by
 pointing `[project] template_path` in `config.toml` at a template `.toe` with
@@ -455,16 +447,15 @@ the bridge inside. Then *"make me a new project"* just works. See
    > *"Use td-mcp-rs: list the TouchDesigner instances, then show me what's
    > inside my project."*
 
-You should get back a fleet listing with a real process id, then an actual
-description of your network — operator names you recognise, not generic
-advice.
+You should get back a fleet listing with a real process id, then a description
+of your network using operator names you recognise.
 
-Then try the real test:
+Then the fuller test:
 
 > *"Add a Noise TOP and a Level TOP inside a new COMP called `test_tdmcp`,
 > wire them together, then screenshot the result and tell me what you see."*
 
-If it builds it, looks at it, and describes the actual image, everything is
+If it builds the network, looks at it, and describes the image, everything is
 working.
 
 ---
@@ -486,12 +477,12 @@ tdmcp-daemon install --force
 `config.toml` to defaults** — note down any settings you've changed first.
 
 The bridge inside your saved projects updates itself: the `.tox` is only a
-dialer, and it reloads the Python package from disk on every connection. You
-do not need to re-drag it after an update.
+dialer and reloads the Python package from disk on every connection. You don't
+need to re-drag it after an update.
 
-If a daemon is already running, `install` restarts it onto the new binary
-automatically. If the file is locked (Windows), stop the daemon first via the
-tray (**Stop**), then re-run.
+If a daemon is already running, `install` restarts it onto the new binary. If
+the file is locked (Windows), stop the daemon from the tray (**Stop**) and
+re-run.
 
 ---
 
@@ -518,22 +509,22 @@ tray (**Stop**), then re-run.
 
 ### My editor doesn't list any td-mcp-rs tools
 
-- **Restart the editor completely** after editing its config. Most only read
-  MCP config at startup.
+- **Restart the editor** after editing its config. Most only read MCP config
+  at startup.
 - Check you're in the mode that can call tools — Cursor **Agent**, Copilot
   **Agent**, Continue **Agent**. Ask/Chat modes can't.
 - Check the JSON is valid — a trailing comma silently disables the whole file
   in most editors.
-- Run the command by hand: `tdmcp-daemon mcp`. It should sit there quietly
-  waiting for input (that's correct — press <kbd>Ctrl</kbd>+<kbd>C</kbd>). If
-  it says *command not found*, your editor can't find it either: use the
-  absolute path.
+- Run the command by hand: `tdmcp-daemon mcp`. It should sit waiting for
+  input — that's correct, press <kbd>Ctrl</kbd>+<kbd>C</kbd>. If it says
+  *command not found*, your editor can't find it either: use the absolute
+  path.
 
 ### "command not found" / the editor can't launch the binary
 
 GUI apps don't inherit your shell's `PATH`. Use the full absolute path from
-[Where the binary lands](#where-the-binary-lands). On Windows include the
-`.exe` and prefer forward slashes.
+[Where the binary lands](#where-the-binary-lands). On Windows, include the
+`.exe` and use forward slashes.
 
 ### `tdmcp.daemon.unreachable`
 
@@ -543,23 +534,23 @@ The background service isn't running or is restarting. Check with:
 tdmcp-daemon status
 ```
 
-If it's down, `tdmcp-daemon start`. The stdio proxy reconnects on its own once
-the daemon is healthy — your next tool call should succeed. If the daemon
-keeps dying, `tdmcp-daemon logs 100` will say why.
+If it's down, run `tdmcp-daemon start`. The stdio proxy reconnects once the
+daemon is healthy, so your next tool call should succeed. If the daemon keeps
+dying, `tdmcp-daemon logs 100` says why.
 
 ### The daemon won't start — port already in use
 
-Something else holds port `9860`. Either stop it, or change the port in
-**Settings → Port** (or `[server] port` in `config.toml`) and restart. Your
-editor config doesn't change — it never mentions the port.
+Something else holds port `9860`. Stop it, or change the port in **Settings →
+Port** (or `[server] port` in `config.toml`) and restart. Your editor config
+doesn't change; it never mentions the port.
 
 ### The `tdmcp_rs` component in TouchDesigner never turns green
 
 - Is the daemon actually running? Check the tray icon or `tdmcp-daemon status`.
 - The bridge connects on `127.0.0.1:9861`. A local firewall or endpoint
   security tool blocking loopback will break it — allow `tdmcp-daemon`.
-- Open TouchDesigner's **Textport** (Alt+T / ⌥T) and look for `tdmcp` lines;
-  they name the failure directly.
+- Open TouchDesigner's **Textport** (Alt+T / ⌥T) and look for `tdmcp` lines —
+  they name the failure.
 - Check the dashboard's **Logs** page with filter `bridge`.
 
 ### My TouchDesigner doesn't appear in the fleet
@@ -574,13 +565,13 @@ editor config doesn't change — it never mentions the port.
 ### Everything hangs, or I get `tdmcp.dialog.blocking`
 
 TouchDesigner has a modal dialog open — a build-upgrade prompt, a missing-file
-warning, a crash report. Nothing can reach it until that's dismissed. Ask
-your assistant:
+warning, a crash report. Nothing reaches it until that's dismissed. Ask your
+assistant:
 
 > *"What dialogs are open on that pid? Dismiss them."*
 
-td-mcp-rs deliberately never auto-dismisses startup dialogs, because "would
-you like to save?" is not its decision to make.
+Startup dialogs are never auto-dismissed: "would you like to save?" is not the
+tool's call to make.
 
 **macOS:** describing and dismissing dialogs needs Accessibility permission.
 **System Settings → Privacy & Security → Accessibility** → enable
@@ -588,18 +579,17 @@ you like to save?" is not its decision to make.
 
 ### `queue_busy`
 
-Two tool calls tried to use the same TouchDesigner at once. This is by
-design — TouchDesigner has one main thread and interleaving would corrupt
-state. The assistant should retry; if it's looping, tell it to make one call
-at a time.
+Two tool calls tried to use the same TouchDesigner at once. TouchDesigner has
+one main thread, and interleaving would corrupt state. The assistant should
+retry; if it's looping, tell it to make one call at a time.
 
 ### The assistant gives good TouchDesigner advice but never calls a tool
 
-It doesn't know the tools exist for this task. Say so explicitly:
+It doesn't know the tools apply here. Say so explicitly:
 
 > *"Use the td-mcp-rs tools. Call `fleet` first, then `inspect`."*
 
-On Claude Code, install the **plugin** rather than the bare MCP server — the
+On Claude Code, install the **plugin** rather than the bare MCP server; the
 bundled skill pack is what makes tool use automatic.
 
 ### Something else
@@ -607,9 +597,8 @@ bundled skill pack is what makes tool use automatic.
 - `tdmcp-daemon logs 200` — the tail of the daemon log, human-readable.
 - Dashboard → **Logs** — filter and search live, including bridge and
   assistant traffic.
-- Every error carries a stable `tdmcp.*` code; searching this repo for that
-  code finds the exact meaning in
-  [`diagnostics/catalog.yaml`](../diagnostics/catalog.yaml).
+- Every error carries a stable `tdmcp.*` code. Search this repo for it to find
+  the meaning in [`diagnostics/catalog.yaml`](../diagnostics/catalog.yaml).
 - Still stuck? [Open an issue](https://github.com/Verbalize-public/td-mcp-rs/issues)
   with the code, the log tail, and your OS.
 
@@ -617,7 +606,6 @@ bundled skill pack is what makes tool use automatic.
 
 ## Next
 
-- **[Recipes](RECIPES.md)** — what to actually say, from one-liners to full
-  builds.
+- **[Recipes](RECIPES.md)** — what to say, from one-liners to full builds.
 - **[Federation](FEDERATION.md)** — controlling several machines from one seat.
 - **[Config reference](CONFIG.md)** — every setting explained.

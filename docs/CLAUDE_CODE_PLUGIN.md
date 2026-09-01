@@ -1,10 +1,9 @@
 # Claude Code plugin
 
 td-mcp-rs ships a self-contained [Claude Code](https://claude.com/claude-code)
-plugin from this same repo — no separate marketplace repo, no hand-edited MCP
-JSON. It adds a first-class install path alongside the existing
-[`mcp.tdmcp.example.json`](../mcp.tdmcp.example.json) flow that Cursor (and
-any other MCP-compatible harness) keeps using unchanged.
+plugin from this repo — no separate marketplace repo, no hand-edited MCP JSON.
+It sits alongside the [`mcp.tdmcp.example.json`](../mcp.tdmcp.example.json)
+flow, which Cursor and any other MCP harness keep using unchanged.
 
 ## Layout
 
