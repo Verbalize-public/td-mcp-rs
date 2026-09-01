@@ -23,12 +23,29 @@ daemon-side and fails calls fast instead of letting them time out blind.
 
 ## macOS
 
-Window listing works unprivileged (CGWindowList), but **describe and dismiss
-need Accessibility (TCC)**. The `list` response carries
-`accessibilityGranted`; when false it also carries `permissionHint`. Ungranted
-means you can see that TD is blocked and by what window title, but cannot read
-buttons or click them — hand that to the user rather than looping.
-`tdmcp.dialog.permission_denied` is the code you get if you try anyway.
+Everything runs on the **Accessibility** TCC grant alone — Screen Recording is
+not needed. Enumeration, titles and dialog classification come from the
+Accessibility API; `list` reports `accessibilityGranted`, and when it is false
+also a `permissionHint`. Without the grant you get nothing at all (not even
+titles), and `tdmcp.dialog.permission_denied` is the code `describe`/`dismiss`
+return if you try anyway.
+
+Two real limits on TouchDesigner's **own** dialogs — TD draws its UI itself, so
+it publishes almost nothing to the accessibility tree:
+
+- **Button labels and body text are usually unreadable.** `describe` reports the
+  dialog, its title and its severity, but often zero buttons. Native dialogs TD
+  opens (file pickers, system alerts) are fully readable — this limit is
+  specific to TD-drawn windows.
+- **Some TD dialogs cannot be dismissed programmatically** (`THREAD CONFLICT` is
+  the known case: no cancel button, no labelled button, no close widget).
+  `dismiss` returns `tdmcp.dialog.dismiss_failed` rather than faking success.
+  Treat these as detect-and-surface: tell the user, let them click.
+
+If TD wedges hard enough to stop answering accessibility queries altogether,
+detection degrades rather than going blind: popups are still reported from the
+window server, with the title `(untitled - app not answering accessibility)`.
+That is a strong signal the main thread is stuck, not merely busy.
 
 ## Safety rails
 

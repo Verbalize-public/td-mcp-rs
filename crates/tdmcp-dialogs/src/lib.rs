@@ -2,8 +2,11 @@
 //!
 //! Platform backends behind one narrow `sys` facade; everything above the
 //! facade (classification, dismiss ladder, budgets) is portable and
-//! unit-tested without an OS. Windows ships first (user32 now, UIA content
-//! fill-in next); macOS implements the same facade via CGWindowList + AX.
+//! unit-tested without an OS. Windows uses user32 plus a UIA content fill-in
+//! for Qt-hosted dialogs; macOS implements the same facade Accessibility-first
+//! (AX windows/roles/subroles), needing only the Accessibility TCC grant, with
+//! CGWindowList as the degraded fallback for an app that has stopped answering
+//! AX at all.
 //!
 //! # Unsafe policy (constitution carve-out)
 //!
@@ -156,7 +159,11 @@ impl PlatformDialogSource {
         };
         let popups = windows
             .iter()
-            .filter(|w| !classify::is_chrome_title(&w.title))
+            .filter(|w| w.is_dialog != Some(false))
+            // A positive backend verdict outranks the title guard: real macOS
+            // dialogs frequently carry NO window title, and the guard treats an
+            // empty title as chrome.
+            .filter(|w| w.is_dialog == Some(true) || !classify::is_chrome_title(&w.title))
             .filter(|w| !classify::is_system_helper(&w.class))
             .map(classify::popup_from_window)
             .collect::<Vec<_>>();
@@ -198,7 +205,11 @@ impl PlatformDialogSource {
         };
         windows
             .iter()
-            .filter(|w| !classify::is_chrome_title(&w.title))
+            .filter(|w| w.is_dialog != Some(false))
+            // A positive backend verdict outranks the title guard: real macOS
+            // dialogs frequently carry NO window title, and the guard treats an
+            // empty title as chrome.
+            .filter(|w| w.is_dialog == Some(true) || !classify::is_chrome_title(&w.title))
             .filter(|w| !classify::is_system_helper(&w.class))
             .map(classify::popup_from_window)
             .collect()
