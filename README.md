@@ -119,7 +119,59 @@ Four steps, about five minutes. Windows and macOS.
 
 ### Step 1 · Install the daemon
 
-**From pre-built binary** - Available soon
+**From a pre-built binary** — grab [v0.1.4 from the releases
+page](https://github.com/Verbalize-public/td-mcp-rs/releases/latest):
+
+| Platform | Download |
+| --- | --- |
+| macOS · Apple Silicon | `tdmcp-rs-0.1.4-aarch64-apple-darwin.dmg` |
+| macOS · Intel | `tdmcp-rs-0.1.4-x86_64-apple-darwin.dmg` |
+| Windows · x64 | `tdmcp-rs-0.1.4-x86_64-pc-windows-gnu.zip` |
+
+Each download is one self-contained binary — no runtime, no DLLs, nothing else
+to install. The one-click Windows installer (`.exe`) is arriving soon; until
+then, the manual steps below take about a minute.
+
+<details>
+<summary><b>Manual install</b> — no Rust toolchain needed</summary>
+
+**macOS (DMG)** — mount, copy, unblock, link:
+
+```bash
+hdiutil attach tdmcp-rs-0.1.4-*.dmg
+cp -R /Volumes/td-mcp-rs*/tdmcp.app /Applications/
+hdiutil detach /Volumes/td-mcp-rs*
+xattr -cr /Applications/tdmcp.app    # unsigned build — clears the Gatekeeper block
+sudo ln -sf /Applications/tdmcp.app/Contents/MacOS/tdmcp-daemon /usr/local/bin/tdmcp-daemon
+```
+
+**macOS (tar.gz)** — or skip the bundle and drop the bare binary on your `PATH`:
+
+```bash
+tar -xzf tdmcp-rs-0.1.4-*.tar.gz
+sudo cp tdmcp-daemon /usr/local/bin/ && xattr -cr /usr/local/bin/tdmcp-daemon
+```
+
+**Windows (zip)** — expand somewhere stable and add it to `PATH`
+(or just use the full path in the editor configs below):
+
+```powershell
+Expand-Archive tdmcp-rs-0.1.4-x86_64-pc-windows-gnu.zip -DestinationPath "$env:LOCALAPPDATA\Programs\tdmcp-rs"
+& "$env:LOCALAPPDATA\Programs\tdmcp-rs\tdmcp-daemon.exe" install
+```
+
+</details>
+
+Finish either path with one command — it unpacks the bridge + assets:
+
+```bash
+tdmcp-daemon install
+```
+
+> Builds are not code-signed yet (on the roadmap). macOS Gatekeeper blocks the
+> first launch — `xattr -cr` or System Settings ▸ Privacy & Security clears it.
+> Windows SmartScreen may show *"More info → Run anyway"*. Verify downloads
+> against `SHA256SUMS.txt` on the release page.
 
 **The from-source way** — needs [Rust](https://rustup.rs) (`rustup` installer,
 then restart your terminal). This puts `tdmcp-daemon` on your `PATH`, which
@@ -131,9 +183,6 @@ cd td-mcp-rs
 cargo install --path crates/tdmcp-daemon    # ~5 min, one time
 tdmcp-daemon install                        # unpack assets + prepare the bridge
 ```
-
-> A packaged, no-Rust-required install for every platform is on the roadmap —
-> `cargo` is the source path for now.
 
 Start it once — `tdmcp-daemon start`, or launch **tdmcp** from your Start menu
 / Applications — and a tray icon appears. **Left-click** it for a glance card,
