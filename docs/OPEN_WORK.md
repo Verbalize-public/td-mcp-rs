@@ -1,51 +1,31 @@
-# Open work
+# Current limitations
 
-What is not done yet. Big items have their own plan file; small ones are
-fully specified here.
+These are known constraints, not a delivery schedule.
 
-## In flight — Linux / Wine support
+- Linux runs Windows TD through Wine. Runner/GPU/CodeMeter compatibility
+  depends on the installation; native dialog inspection/dismissal is unavailable.
+  See [Linux/Wine](LINUX_SUPPORT.md).
+- Capture images travel inline through MCP. Individual DAT/shader text previews
+  are capped at 64 KiB. Replies over the 32 MiB IPC budget fail without dropping
+  the bridge, but there is no artifact spool or universal preview/pagination
+  policy for large results.
+- Bridge call budgets are live, but stdio proxy ceilings remain independent
+  environment settings. See [Configuration](CONFIG.md#stdio-proxy-ceilings).
+- Federation is one coordinator with directly joined computers, not a mesh.
+  Scanning is local IPv4 /24 discovery, not routing or firewall configuration.
+- Fleet connection status does not expose the TD main-thread pump's age.
+- Some oversized admin/federation HTTP requests return plain HTTP 413 instead
+  of the MCP diagnostic envelope.
+- Windows signing and macOS Developer ID/notarization need publisher
+  credentials. Native release installers must be verified on their own OS.
+- Windows setup still stops processes by executable name. Path-scoped upgrade
+  shutdown and cleanup of autostart registrations on uninstall need native
+  verification before changing this behavior.
+- The dependency gate currently rejects licenses already present in the GUI
+  dependency tree (font licenses, BSL-1.0, CC0-1.0, Unlicense, and MPL-2.0).
+  Distribution notices and explicit license-policy decisions are still needed.
+  Linux's Wayland titlebar dependency also uses the unmaintained `ttf-parser`
+  (`RUSTSEC-2026-0192`); it has not been suppressed in the gate.
 
-Full spec + phases + live gates: [`LINUX_SUPPORT.md`](LINUX_SUPPORT.md).
-
-Shipped: the TCP-transport migration for all OSes (P0/P1/P1b — named pipes are
-gone, the bridge speaks TCP loopback everywhere). Open:
-
-- **P2 — Linux lifecycle.** `spawn_td` / `kill_td` under Wine, plus one
-  follow-up parked from P0 (move the self-probe respawn watchdog into
-  `daemon_link.rs`'s healthy branch).
-- **P3 — Unsupported surfacing.** What a user sees/gets on an unsupported
-  platform (docs, diagnostics, clean degrade). GUI-stack failures already
-  degrade to headless serving and the tray is `ksni` (no GTK dependency);
-  the `dialogs`-on-Linux coded error (L-8) still lands here.
-- **P4 — CI + packaging + docs.** Linux build in CI, packaging, doc updates
-  (CONTRACT / CONFIG / DELIVERY amendments).
-- **P5 — Live E2E under Wine** (needs the user: gates G-L2–G-L4).
-
-## Planned — bounded payloads + artifact spool
-
-Full design + phases: [`PAYLOAD_SPOOL_PLAN.md`](PAYLOAD_SPOOL_PLAN.md).
-Nothing implemented yet. Phase 0 (bound `inspect` DAT content with
-`tdmcp.op.content_truncated`) is the correctness fix; phases 1–3 add the
-artifact spool, HTTP serving + federation rule, and `format` / result spill.
-
-## Deferred — limits residue
-
-Leftovers from the limits audit (all smaller fixes are landed):
-
-1. **Proxy ceilings → config.** `TDMCP_PROXY_*_TIMEOUT_MS` env-only knobs
-   (`crates/tdmcp-mcp/src/daemon_link.rs`) should become `[proxy]` config
-   keys with docs and back-compat (CONFIG.md addition).
-2. **Fleet pump-staleness visibility.** `fleet` only says
-   `connected`/`disconnected`; an agent cannot tell "busy, still alive" from
-   "about to time out". Add last-heartbeat age / TD main-thread pump
-   staleness. Touches the live bridge (`tox_callbacks.py` pump timestamp) →
-   requires `scripts/pack_bootstrap_tox.md` re-run + live-instance reload.
-3. **Bridge timeout config defaults.** Raising
-   `call_timeout_secs`/`script_timeout_secs`/`heartbeat`/`pong`/`idle_dead`
-   defaults (target 600 s script timeout) is fully specified but blocked on a
-   live soak test — a long-tail call was only verified live up to ~70 s, and
-   shipping an unverified number is the bug class this work exists to avoid.
-4. **Body-limit rejection envelope (partial).** Curated JSON rejection on
-   oversized bodies landed on `/mcp/tools/call` only; federation/admin routes
-   still return axum's raw `413`. Only daemon-to-daemon / GUI traffic hits
-   those today — low priority.
+Report a reproducible failure with daemon/TD versions, OS, affected PID,
+the tool request, and relevant logs. Do not include keys or private projects.

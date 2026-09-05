@@ -13,7 +13,6 @@
 #![allow(clippy::expect_used, reason = "test setup/assertions may panic")]
 #![allow(clippy::panic, reason = "test assertions may panic")]
 
-use std::net::TcpListener;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::time::Duration;
@@ -22,8 +21,7 @@ use tdmcp_daemon::{health_ok, read_daemon_lock_pid};
 use tempfile::tempdir;
 
 fn free_port() -> u16 {
-    let listener = TcpListener::bind("127.0.0.1:0").expect("bind ephemeral");
-    listener.local_addr().expect("local_addr").port()
+    tdmcp_test_support::unique_test_port().expect("unique test port")
 }
 
 fn daemon_bin() -> PathBuf {

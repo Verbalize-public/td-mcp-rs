@@ -782,6 +782,34 @@ class InspectContentTest(unittest.TestCase):
         self.assertTrue(content["isTable"])
         self.assertEqual(content["text"], body)
 
+    def test_dat_preview_exact_boundary_preserves_shape(self) -> None:
+        body = "x" * tdmcp_bridge.INSPECT_TEXT_MAX_BYTES
+        node = _fake_dat(text=body)
+        content = tdmcp_bridge.build_inspect_node(node, want_content=True)["content"]
+        self.assertEqual(content["text"], body)
+        self.assertEqual(content["bytes"], len(body))
+        self.assertNotIn("totalBytes", content)
+        self.assertNotIn("textTruncation", content)
+
+    def test_dat_preview_truncates_without_splitting_utf8_or_mutating_source(self) -> None:
+        limit = tdmcp_bridge.INSPECT_TEXT_MAX_BYTES
+        body = "x" * (limit - 1) + "€" + "rest"
+        node = _fake_dat(text=body)
+        content = tdmcp_bridge.build_inspect_node(node, want_content=True)["content"]
+        self.assertEqual(content["text"], "x" * (limit - 1))
+        self.assertEqual(content["bytes"], limit - 1)
+        self.assertEqual(content["totalBytes"], len(body.encode("utf-8")))
+        self.assertEqual(content["textTruncation"]["limit"], limit)
+        self.assertEqual(content["textTruncation"]["code"], "tdmcp.op.content_truncated")
+        self.assertEqual(node.text, body)
+
+    def test_dat_preview_empty_text(self) -> None:
+        node = _fake_dat(text="")
+        content = tdmcp_bridge.build_inspect_node(node, want_content=True)["content"]
+        self.assertEqual(content["text"], "")
+        self.assertEqual(content["bytes"], 0)
+        self.assertNotIn("textTruncation", content)
+
     def test_non_eligible_omits_content(self) -> None:
         node = _fake_node([], family="TOP", op_type="noiseTOP")
         out = tdmcp_bridge.build_inspect_node(node, want_nodes=False, want_content=True)
@@ -855,6 +883,18 @@ class InspectContentTest(unittest.TestCase):
         )
         out = tdmcp_bridge.build_inspect_node(node, want_nodes=False, want_content=True)
         self.assertEqual(out["content"]["stages"], [])
+
+    def test_glsl_followed_stage_uses_same_preview_cap(self) -> None:
+        limit = tdmcp_bridge.INSPECT_TEXT_MAX_BYTES
+        pixel = _fake_dat(text="x" * (limit + 1))
+        node = _fake_node(
+            [], family="TOP", op_type="glslTOP",
+            par=SimpleNamespace(pixeldat=_FakeShaderPar(pixel)),
+        )
+        stage = tdmcp_bridge.build_inspect_node(node, want_content=True)["content"]["stages"][0]
+        self.assertEqual(stage["bytes"], limit)
+        self.assertEqual(stage["totalBytes"], limit + 1)
+        self.assertEqual(stage["textTruncation"]["code"], "tdmcp.op.content_truncated")
 
     def test_glsl_broken_follow_stage_error(self) -> None:
         bad = SimpleNamespace(
@@ -954,7 +994,7 @@ class InspectShaderLintContentTest(unittest.TestCase):
         self.assertEqual(consumers[0]["role"], "pixel")
 
     def test_dat_content_truncation_passes_through(self) -> None:
-        dat = _fake_dat(path="/project1/code")
+        dat = _fake_dat(path="/project1/code", text="x" * (tdmcp_bridge.INSPECT_TEXT_MAX_BYTES + 1))
         td_stub = _LintTdStub()
         limit = tdmcp_bridge.SHADER_CONSUMER_LIMIT
         td_stub.register(
@@ -971,6 +1011,7 @@ class InspectShaderLintContentTest(unittest.TestCase):
         self.assertEqual(
             content["truncation"]["code"], "tdmcp.shader.consumers_truncated"
         )
+        self.assertEqual(content["textTruncation"]["code"], "tdmcp.op.content_truncated")
 
     def test_dat_content_lint_failure_omits_consumers(self) -> None:
         dat = _fake_dat(path="/project1/code")

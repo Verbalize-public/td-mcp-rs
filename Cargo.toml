@@ -32,14 +32,15 @@ rust-version = "1.92"
 repository = "https://github.com/Verbalize-public/td-mcp-rs"
 
 [workspace.dependencies]
-tdmcp-core = { path = "crates/tdmcp-core" }
-tdmcp-config = { path = "crates/tdmcp-config" }
-tdmcp-diagnostics = { path = "crates/tdmcp-diagnostics" }
-tdmcp-ipc = { path = "crates/tdmcp-ipc" }
-tdmcp-mcp = { path = "crates/tdmcp-mcp" }
-tdmcp-projectio = { path = "crates/tdmcp-projectio" }
-tdmcp-dialogs = { path = "crates/tdmcp-dialogs" }
-tdmcp-test-support = { path = "crates/tdmcp-test-support" }
+tdmcp-core = { path = "crates/tdmcp-core", version = "0.1.4" }
+tdmcp-config = { path = "crates/tdmcp-config", version = "0.1.4" }
+tdmcp-diagnostics = { path = "crates/tdmcp-diagnostics", version = "0.1.4" }
+tdmcp-ipc = { path = "crates/tdmcp-ipc", version = "0.1.4" }
+tdmcp-mcp = { path = "crates/tdmcp-mcp", version = "0.1.4" }
+tdmcp-projectio = { path = "crates/tdmcp-projectio", version = "0.1.4" }
+tdmcp-dialogs = { path = "crates/tdmcp-dialogs", version = "0.1.4" }
+tdmcp-gui = { path = "crates/tdmcp-gui", version = "0.1.4" }
+tdmcp-test-support = { path = "crates/tdmcp-test-support", version = "0.1.4" }
 
 anyhow = "1"
 async-trait = "0.1"
@@ -90,7 +91,9 @@ tracing-appender = "0.2"
 tray-icon = "0.24"
 # Linux tray = ksni (pure-Rust StatusNotifierItem over DBus, zbus-backed);
 # no GTK / libappindicator needed (their absence crashed the daemon, L-10).
-ksni = { version = "0.3", features = ["blocking"] }
+# Match AccessKit/notify-rust's async-io backend; mixing zbus runtimes panics
+# in the accessibility worker on Linux.
+ksni = { version = "0.3", default-features = false, features = ["blocking", "async-io"] }
 
 # Glance-popup outside-click close: Xlib XQueryPointer poll on a private
 # connection (pointer state outside our window is invisible to winit; RISKS

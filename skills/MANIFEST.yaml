@@ -13,9 +13,8 @@ operate:
   output_path: touchdesigner/SKILL.md
   title: TouchDesigner operate
   description: >-
-    Operate a live TouchDesigner project through td-mcp-rs. Read before
-    inspecting, creating, wiring, or mutating nodes/networks/components/
-    parameters, planning a build, writing Python, or porting GLSL.
+    Inspect, build, debug, and capture TouchDesigner projects through td-mcp-rs.
+    Entry point for live operator work, scripting, and offline project tools.
 
 opsketch-notation:
   template_path: touchdesigner/reference/opsketch-notation.jinja.md

@@ -26,7 +26,7 @@ struct TestDaemon {
     child: Child,
     port: u16,
     log_path: std::path::PathBuf,
-    _daemon_id: String,
+    daemon_id: String,
     _data_dir: tempfile::TempDir,
     _config_dir: tempfile::TempDir,
 }
@@ -56,11 +56,7 @@ impl TestDaemon {
 }
 
 fn pick_free_port() -> u16 {
-    std::net::TcpListener::bind("127.0.0.1:0")
-        .expect("probe port")
-        .local_addr()
-        .expect("local addr")
-        .port()
+    tdmcp_test_support::unique_test_port().expect("unique test port")
 }
 
 /// Bridge port for a daemon: free and distinct from its HTTP port (a
@@ -170,15 +166,18 @@ fn spawn_daemon(
         child,
         port,
         log_path,
-        _daemon_id: daemon_id.to_owned(),
+        daemon_id: daemon_id.to_owned(),
         _data_dir: data_dir,
         _config_dir: config_dir,
     }
 }
 
 async fn wait_health(daemon: &mut TestDaemon, auth: Option<&str>, budget: Duration) {
-    let url = format!("{}/mcp/health", daemon.base_url());
-    let client = reqwest::Client::new();
+    let url = format!("{}/admin/status", daemon.base_url());
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(1))
+        .build()
+        .expect("readiness client");
     let deadline = Instant::now() + budget;
     loop {
         if let Ok(Some(status)) = daemon.child.try_wait() {
@@ -190,14 +189,17 @@ async fn wait_health(daemon: &mut TestDaemon, auth: Option<&str>, budget: Durati
             req = req.header("Authorization", format!("Bearer {psk}"));
         }
         if let Ok(resp) = req.send().await {
-            if auth.is_some() {
-                if resp.status().is_success() {
+            if resp.status().is_success() {
+                if let Ok(status) = resp.json::<Value>().await {
+                    assert_eq!(
+                        status["pid"].as_u64(),
+                        Some(u64::from(daemon.child.id())),
+                        "readiness reached a different process on port {}: {status}",
+                        daemon.port
+                    );
+                    assert_eq!(status["daemonId"], daemon.daemon_id);
                     return;
                 }
-            } else if resp.status() == reqwest::StatusCode::UNAUTHORIZED
-                || resp.status().is_success()
-            {
-                return;
             }
         }
         assert!(
@@ -402,4 +404,105 @@ async fn slave_daemon_registers_with_master() {
         .await
         .expect("config");
     assert_eq!(cfg.status(), reqwest::StatusCode::OK);
+}
+
+#[tokio::test]
+async fn settings_switch_federation_roles_without_restarting() {
+    let mut coordinator = spawn_daemon("standalone", "none", "", "", "", "coordinator-live");
+    let mut member = spawn_daemon("standalone", "none", "", "", "", "member-live");
+    wait_health(&mut coordinator, None, Duration::from_secs(20)).await;
+    wait_health(&mut member, None, Duration::from_secs(20)).await;
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(3))
+        .build()
+        .unwrap();
+    let result: Value = client
+        .post(format!("{}/admin/config", coordinator.base_url()))
+        .json(&serde_json::json!({"federation": {"role": "master"}}))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(result["restartRequired"], serde_json::json!([]));
+    client.post(format!("{}/admin/config", member.base_url()))
+        .json(&serde_json::json!({"federation": {"role": "slave", "masterUrl": coordinator.base_url()}}))
+        .send().await.unwrap().error_for_status().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let fleet: Value = client
+            .get(format!(
+                "{}/admin/federation/slaves",
+                coordinator.base_url()
+            ))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        if fleet["slaves"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|s| s["daemonId"] == "member-live")
+        {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "member never registered: {fleet}"
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let status: Value = client
+        .get(format!("{}/admin/status", member.base_url()))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(status["pid"], member.child.id());
+    assert_eq!(status["role"], "slave");
+
+    // Bad edits leave disk and runtime untouched.
+    let before = std::fs::read(member._config_dir.path().join("config.toml")).unwrap();
+    for patch in [
+        serde_json::json!({"auth": {"mode": "typo"}}),
+        serde_json::json!({"bridge": {"callTimeoutSecs": "wrong"}}),
+    ] {
+        let reply = client
+            .post(format!("{}/admin/config", member.base_url()))
+            .json(&patch)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(reply.status(), reqwest::StatusCode::BAD_REQUEST);
+    }
+    assert_eq!(
+        std::fs::read(member._config_dir.path().join("config.toml")).unwrap(),
+        before
+    );
+    client
+        .post(format!("{}/admin/config", coordinator.base_url()))
+        .json(&serde_json::json!({"federation": {"role": "standalone"}}))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap();
+    let status: Value = client
+        .get(format!("{}/admin/status", coordinator.base_url()))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(status["role"], "standalone");
+    assert_eq!(status["pid"], coordinator.child.id());
 }

@@ -21,7 +21,7 @@ const SETTINGS_ROW_H: f32 = 26.0;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum AddSlaveStep {
     Idle,
-    ProbeFailed(String),
+    Working,
     Configured,
     ConfigureFailed(String),
 }
@@ -202,89 +202,79 @@ impl DashboardApp {
         self.scan_results.clear();
     }
 
-    /// One-click add-slave: probe → configure in sequence, surfacing the
-    /// failed step. Bounded by the 2s/3s HTTP timeouts so a dead host never
-    /// hangs the UI.
+    /// Probe and configure without blocking window input or repaint.
     pub(crate) fn run_add_pipeline(&mut self) {
-        use AddSlaveStep as S;
+        if self.add_slave_job.is_running() {
+            return;
+        }
         let host = self.add_slave_host.trim().to_owned();
         if host.is_empty() {
-            self.add_slave_step = S::ConfigureFailed("enter host".to_owned());
+            self.add_slave_step = AddSlaveStep::ConfigureFailed("Enter a host".to_owned());
             return;
         }
-        let probe_url = format!(
-            "http://{host}:{}/admin/federation/status",
-            self.add_slave_port
-        );
-        let probe = match http_get_blocking(&probe_url, None)
-            .map_err(|e| format!("probe failed: {e}"))
-            .and_then(|body| {
-                serde_json::from_str::<FederationProbe>(&body)
-                    .map_err(|_| "probe reply is not a federation daemon".to_owned())
-            }) {
-            Ok(p) => p,
-            Err(e) => {
-                self.add_slave_probe = None;
-                self.add_slave_step = S::ProbeFailed(e);
-                return;
-            }
-        };
-        let is_master = probe.role == "master";
-        self.add_slave_probe = Some(probe);
-        if is_master {
-            self.add_slave_step =
-                S::ConfigureFailed("target is a master — cannot act as slave".to_owned());
-            return;
-        }
-
-        // Configure the probed daemon as a slave via its /admin/config.
-        let (master_url, master_psk) = self.master_federation_values();
-        let body = json!({
-            "federation": {
-                "role": "slave",
-                "masterUrl": master_url,
-                "masterPsk": master_psk,
-            }
-        });
-        let config_url = format!("http://{host}:{}/admin/config", self.add_slave_port);
+        let port = self.add_slave_port;
         let bearer = nonempty_opt(&self.add_slave_psk);
-        match http_post_blocking(&config_url, bearer.as_deref(), Some(&body)) {
-            Ok(v)
-                if v.get("ok")
-                    .and_then(serde_json::Value::as_bool)
-                    .unwrap_or(false) =>
-            {
-                self.add_slave_step = S::Configured;
-                self.snack("Slave configured — restart it to apply", SnackTone::Ok);
+        let (master_url, master_psk) = self.master_federation_values();
+        let result = self.add_slave_job.start("tdmcp-join", move || {
+            let base = format!("http://{host}:{port}");
+            let response = http_get_blocking(&format!("{base}/admin/federation/status"), None)
+                .map_err(|e| format!("Probe failed: {e}"))?;
+            let probe: FederationProbe = serde_json::from_str(&response)
+                .map_err(|_| "This host did not return a federation status".to_owned())?;
+            if probe.role == "master" {
+                return Err(
+                    "This computer already coordinates a fleet. Change its role locally first."
+                        .into(),
+                );
             }
-            Ok(v) => {
-                let msg = v
-                    .get("error")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or("config save rejected")
-                    .to_owned();
-                self.add_slave_step = S::ConfigureFailed(msg);
-            }
-            Err(e) => {
-                self.add_slave_step = S::ConfigureFailed(format!("config failed: {e}"));
+            http_post_blocking(
+                &format!("{base}/admin/config"),
+                bearer.as_deref(),
+                Some(&json!({"federation": {
+                    "role": "slave", "masterUrl": master_url, "masterPsk": master_psk
+                }})),
+            )?;
+            Ok(probe)
+        });
+        self.add_slave_step = match result {
+            Ok(()) => AddSlaveStep::Working,
+            Err(e) => AddSlaveStep::ConfigureFailed(e),
+        };
+    }
+
+    pub(crate) fn poll_add_pipeline(&mut self) {
+        if let Some(result) = self.add_slave_job.poll() {
+            match result {
+                Ok(probe) => {
+                    self.add_slave_probe = Some(probe);
+                    self.add_slave_step = AddSlaveStep::Configured;
+                    self.last_poll = None;
+                    self.snack(
+                        "Computer configured — waiting for it to join",
+                        SnackTone::Ok,
+                    );
+                }
+                Err(error) => self.add_slave_step = AddSlaveStep::ConfigureFailed(error),
             }
         }
     }
 
     /// URL + psk to advertise to a new slave (hostname + local port).
     pub(crate) fn master_federation_values(&self) -> (String, String) {
-        let hostname = self
-            .status
-            .as_ref()
-            .map(|s| s.hostname.clone())
-            .filter(|h| !h.is_empty())
+        let hostname = local_ip()
+            .or_else(|| {
+                self.status
+                    .as_ref()
+                    .map(|s| s.hostname.clone())
+                    .filter(|h| !h.is_empty())
+            })
             .unwrap_or_else(|| "localhost".to_owned());
         (
             format!(
                 "http://{hostname}:{}",
                 crate::http::port_from_base(&self.admin_base)
             ),
-            self.draft.auth.psk.clone(),
+            local_master_psk(&self.settings_loaded_snapshot).unwrap_or_default(),
         )
     }
 
@@ -359,10 +349,7 @@ impl DashboardApp {
                 let hostname = target.hostname.clone();
                 self.slave_settings_error = None;
                 self.fleet_panel = FleetPanel::None;
-                notify(
-                    "Slave settings",
-                    &format!("{hostname} saved — applies after slave restart"),
-                );
+                notify("Slave settings", &format!("{hostname}: timeouts applied"));
                 self.snack("Slave settings saved", SnackTone::Ok);
             }
             Ok(v) => {
@@ -469,7 +456,13 @@ impl DashboardApp {
         }
         match &self.add_slave_step {
             S::Idle => {}
-            S::ProbeFailed(e) | S::ConfigureFailed(e) => {
+            S::Working => {
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.label("Connecting and configuring…");
+                });
+            }
+            S::ConfigureFailed(e) => {
                 ui.horizontal(|ui| {
                     ui.add_space(SIDE_MARGIN);
                     ui.colored_label(ERR, e.clone());
@@ -479,7 +472,10 @@ impl DashboardApp {
                 ui.horizontal(|ui| {
                     ui.add_space(SIDE_MARGIN);
                     status_led(ui, OK);
-                    ui.colored_label(OK, "Configured — restart the slave to apply.");
+                    ui.colored_label(
+                        OK,
+                        "Configured. It will appear in the fleet when connected.",
+                    );
                 });
             }
         }
@@ -565,7 +561,7 @@ impl DashboardApp {
         ui.horizontal(|ui| {
             ui.add_space(SIDE_MARGIN);
             ui.label(
-                egui::RichText::new("Changes apply after the slave restarts.")
+                egui::RichText::new("Call timeouts apply to new requests when saved.")
                     .font(font_meta())
                     .color(TEXT_DIM),
             );
@@ -618,7 +614,7 @@ impl DashboardApp {
             ui.add_space(SIDE_MARGIN);
             if self.confirm_go_standalone {
                 ui.label(
-                    egui::RichText::new("Go standalone? the daemon restarts to apply.")
+                    egui::RichText::new("Leave the coordinator and control this computer locally?")
                         .font(font_meta())
                         .color(WARN),
                 );
@@ -631,7 +627,9 @@ impl DashboardApp {
                     self.confirm_go_standalone = false;
                 }
             } else if ghost_button(ui, "Go standalone", TEXT_DIM, WARN)
-                .on_hover_text("role=standalone; saves config and restarts this daemon")
+                .on_hover_text(
+                    "Disconnect from the coordinator; local TouchDesigner stays connected",
+                )
                 .clicked()
             {
                 self.confirm_go_standalone = true;
@@ -641,7 +639,7 @@ impl DashboardApp {
 
     fn go_standalone(&mut self) {
         self.ensure_base();
-        let bearer = local_master_psk(&self.draft);
+        let bearer = local_master_psk(&self.settings_loaded_snapshot);
         let body = json!({ "federation": { "role": "standalone" } });
         let url = format!("{}/admin/config", self.admin_base);
         match http_post_blocking(&url, bearer.as_deref(), Some(&body)) {
@@ -651,8 +649,9 @@ impl DashboardApp {
                     .unwrap_or(false) =>
             {
                 self.confirm_go_standalone = false;
-                self.slave_self_message = Some("role saved — restarting".to_owned());
-                self.restart_daemon();
+                self.slave_self_message = Some("Disconnected from coordinator".to_owned());
+                self.open_settings();
+                self.last_poll = None;
             }
             Ok(v) => {
                 self.confirm_go_standalone = false;

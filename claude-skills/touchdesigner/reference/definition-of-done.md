@@ -1,83 +1,39 @@
 # Definition of Done (structural)
 
-Observable runtime evidence only — never PASS from code, parameter values, or
-docs alone. Look / FPS claims use [`look-grade`](./look-grade.md).
+Verify the requested behavior at the surface it affects. Use
+[`look-grade`](./look-grade.md) for visual and performance claims.
 
-## Verdicts
+## Evidence
 
-| Verdict | Meaning |
-|---------|---------|
-| `PASS` | Evidence matches the claim |
-| `FAIL` | Evidence contradicts the claim, or evidence is not good enough to trust a PASS |
-| `BLOCKED` | Surface unreachable / unreadable (e.g. bridge timeout) — record diagnostics; do not upgrade to PASS |
-| `SKIP` | No runtime surface for this claim, or deliberate cost-reduction already decided |
+| Result | Meaning |
+| --- | --- |
+| Verified | Current inspection or capture supports the claim |
+| Failed | Current evidence contradicts the requested behavior |
+| Unverified | The relevant surface was unavailable or the check was not run; explain why |
 
-## Doubt → FAIL
+Do not turn missing evidence into a success or claim a defect solely because
+a check could not run. A node comment records intent; it is not proof.
 
-If you are not sure the claim is true from **this turn's** live evidence, verdict
-is **FAIL** — not PASS, not a soft skip.
+## Check the changed network
 
-Treat as insufficient (→ **FAIL**) when evidence is any of:
+- Inspect the touched parent COMP after the final mutation. Account for
+  errors and warnings, separating existing issues from changes you made.
+- Confirm the intended parameters, wires, and component boundaries.
+- Capture the output for appearance claims and view the resulting image.
+- For new reusable components, check relative references, In/Out pins, and
+  the exposed control parameters.
+- Keep the changed nodes readable and free of accidental overlap. Re-layout
+  only the relevant subtree, at a useful point in the task.
+- Stop repeating a failed probe after three attempts without new evidence.
 
-- Missing (never inspected / never captured for a claim that needs it)
-- Ambiguous (two readings equally plausible; path unresolved)
-- Stale (pre-mutation capture/inspect reused after a mutate that could change it)
-- Unreadable (timeout, truncated beyond use, corrupt payload)
-- Black / empty when a look surface was claimed (see look-grade)
-- Inferred only from authored code, default params, memory, docs, or an
-  operator's own `comment` (a comment is a previous author's claim, not
-  runtime evidence — [`node-comments`](./node-comments.md))
-
-`SKIP` is only for claims with **no** runtime surface, or an explicit
-cost-reduction decision already made. `BLOCKED` is for unreachable surfaces —
-still not a PASS.
-
-## Final grid pass
-
-Once the network logic is complete and verified, do **one** layout pass:
-reposition nodes so data flow reads left-to-right (or top-to-bottom) at a
-glance, with zero overlapping operators. Depth:
-[`network-design`](./network-design.md) (Layout section).
-
-- **One pass only** — never reorganize iteratively after each mutation; it is
-  a heavy cosmetic operation that burns tokens with no logic value.
-- **Skip during complex multi-step plans** — defer the grid pass until the
-  final step before claiming done.
-- **Required before `PASS`** — a network left as spaghetti with overlapping
-  nodes is not done.
-
-## Structural checklist
-
-- [ ] Final `inspect` on the touched network **parent** (COMP / container mutated
-      under) — errors/warnings clean before claiming done
-- [ ] Structure / children / params / errors / wires used `inspect` (not Python
-      walks as the primary read)
-- [ ] Non-trivial network (>3 nodes / COMP hub / branched) described in
-      OpSketch before building or mutating ([`opsketch-notation`](./opsketch-notation.md))
-- [ ] Any `execute_python` / expression / script preceded by
-      [`python-api`](./python-api.md)
-- [ ] Relative refs + In/Out rules held ([`network-design`](./network-design.md),
-      [`component-checklist`](./component-checklist.md))
-- [ ] Every non-self-evident node created this session carries a `comment`, and
-      no surviving comment is contradicted by the final `inspect`
-      ([`node-comments`](./node-comments.md))
-- [ ] Final grid pass: touched subtree reorganized — readable flow, zero
-      overlapping nodes — one pass at the end, not iteratively
-      ([`network-design`](./network-design.md) layout section)
-- [ ] Custom COMP: About page populated, In/Out pins present, custom pars clean
-      ([`component-checklist`](./component-checklist.md))
-- [ ] Look claims: non-black `capture` (store-first, `maxSize: 256`) verified
-      against [`look-grade`](./look-grade.md)
-- [ ] Stop after 3 failed probes with no new evidence
+Scale verification to the task. A parameter adjustment does not require
+packaging a component or reorganizing an unrelated network.
 
 ## Related
 
-- OpSketch language: [`opsketch-notation`](./opsketch-notation.md)
-- Wiring notes: [`python-api`](./python-api.md)
-- Look / FPS grading: [`look-grade`](./look-grade.md)
-- Layout conventions: [`network-design`](./network-design.md)
-- Operator comments: [`node-comments`](./node-comments.md)
-
----
+- [`network-design`](./network-design.md) — layout and relative references
+- [`component-checklist`](./component-checklist.md) — reusable components
+- [`look-grade`](./look-grade.md) — visual verification
+- [`node-comments`](./node-comments.md) — durable design intent
 
 **Canonical:** [`definition-of-done`](./definition-of-done.md)

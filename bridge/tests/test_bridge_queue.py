@@ -614,6 +614,23 @@ class MaxCallWaitFromHandshakeTest(unittest.TestCase):
 class MainThreadWaitTimeoutTest(QueuedServeTest):
     """Worker unwedged when process_pending never runs (hung / paused timeline)."""
 
+    def test_request_budget_overrides_handshake_without_reconnecting(self) -> None:
+        worker = threading.Thread(
+            target=tdmcp_bridge.serve_queued,
+            args=(self.bridge_stream,),
+            kwargs={"idle_dead_s": 5.0, "max_call_wait_s": 0.02},
+            daemon=True,
+        )
+        worker.start()
+        self._send_request(92, "execute_python", {"script": "result = 42", "_tdmcp_wait_secs": 2})
+        self._wait_pending()
+        time.sleep(0.08)
+        self.assertEqual(tdmcp_bridge.process_pending(), 1)
+        reply = self._recv_response()
+        self.assertEqual(reply["result"]["result"], 42)
+        self._send_request(93, "ping")
+        self.assertTrue(self._recv_response()["result"]["pong"])
+
     def test_response_slot_timeout_writes_error_and_continues(self) -> None:
         worker = threading.Thread(
             target=tdmcp_bridge.serve_queued,

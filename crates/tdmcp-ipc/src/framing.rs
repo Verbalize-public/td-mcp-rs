@@ -115,4 +115,24 @@ mod tests {
         }
         assert!(buf.is_empty());
     }
+
+    #[test]
+    fn oversized_header_is_rejected_without_a_body() {
+        let size = MAX_FRAME + 1;
+        let header = (size as u32).to_le_bytes();
+        let mut buf = BytesMut::from(header.as_slice());
+        assert!(matches!(
+            try_decode::<Message>(&mut buf),
+            Err(FrameError::TooLarge(n)) if n == size
+        ));
+        assert_eq!(buf.as_ref(), header);
+    }
+
+    #[test]
+    fn maximum_header_waits_for_body_without_consuming_it() {
+        let header = (MAX_FRAME as u32).to_le_bytes();
+        let mut buf = BytesMut::from(header.as_slice());
+        assert!(try_decode::<Message>(&mut buf).unwrap().is_none());
+        assert_eq!(buf.as_ref(), header);
+    }
 }

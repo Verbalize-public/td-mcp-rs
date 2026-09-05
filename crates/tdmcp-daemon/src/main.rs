@@ -26,8 +26,8 @@ use tdmcp_daemon::autostart;
 use tdmcp_daemon::bridge::{run_ipc_accept, BridgeSessions};
 use tdmcp_daemon::config::{Config, ConfigOverrides};
 use tdmcp_daemon::ensure::{
-    daemon_lock_path, ensure_daemon, health_ok, refuse_if_daemon_owned, request_shutdown,
-    running_version, wait_until_unhealthy, EnsureOptions,
+    daemon_is_headless, daemon_lock_path, ensure_daemon, health_ok, refuse_if_daemon_owned,
+    request_shutdown, running_version, wait_until_unhealthy, EnsureOptions,
 };
 use tdmcp_daemon::federation::{spawn_slave_loop, FederationRuntime};
 use tdmcp_daemon::idle::{idle_exit_timeout, run_idle_watcher};
@@ -61,6 +61,9 @@ struct Cli {
 enum Commands {
     /// Start the daemon (foreground).
     Start {
+        /// Wait for a previous daemon to release its listeners during restart.
+        #[arg(long, hide = true)]
+        wait_for_pid: Option<u32>,
         /// HTTP listen port (MCP + admin).
         #[arg(long, env = "TDMCP_PORT")]
         port: Option<u16>,
@@ -172,6 +175,7 @@ fn main() -> Result<()> {
         Cli::parse()
     };
     let command = cli.command.unwrap_or(Commands::Start {
+        wait_for_pid: None,
         port: None,
         data_dir: None,
         bridge_dir: None,
@@ -180,12 +184,23 @@ fn main() -> Result<()> {
     });
     match command {
         Commands::Start {
+            wait_for_pid,
             port,
             data_dir,
             bridge_dir,
             catalog,
             no_gui,
         } => {
+            if let Some(pid) = wait_for_pid {
+                let deadline = Instant::now() + Duration::from_secs(15);
+                while tdmcp_daemon::ensure::pid_alive(pid) {
+                    anyhow::ensure!(
+                        Instant::now() < deadline,
+                        "previous daemon {pid} did not exit; restart aborted"
+                    );
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+            }
             let cfg = Config::load(ConfigOverrides {
                 port,
                 data_dir,
@@ -194,6 +209,11 @@ fn main() -> Result<()> {
                 no_gui,
             })?;
             // Ensure embedded assets exist under data_dir (no-op when current).
+            tdmcp_projectio::wine::configure(tdmcp_projectio::wine::WineConfig {
+                executable: cfg.file.official_tools.wine_exe.clone(),
+                prefix: cfg.file.official_tools.wine_prefix.clone(),
+            })
+            .map_err(|_| anyhow::anyhow!("Wine configuration already initialized"))?;
             let _ = install::ensure_installed(&cfg.data_dir, false)?;
             let log_handles = tdmcp_daemon::tracing_init::init(&cfg)?;
             // Before any worker thread spawns: panics on every thread land in
@@ -226,10 +246,10 @@ fn main() -> Result<()> {
                     );
                 }
             }
-            // Install always resets the TOML config to the shipped defaults.
+            // Asset refreshes and upgrades must preserve user settings and identity.
             let config_path = tdmcp_config::default_config_path();
-            tdmcp_config::ensure_default(&config_path, true)?;
-            println!("config reset → {}", config_path.display());
+            tdmcp_config::ensure_default(&config_path, false)?;
+            println!("config preserved → {}", config_path.display());
 
             // Copy the current binary into {data_dir}/bin/ and record the
             // absolute path in config so spawn / restart / autostart use the
@@ -251,6 +271,7 @@ fn main() -> Result<()> {
                 &data_dir,
                 &daemon_bin,
                 &config_path,
+                force,
             ))?;
             Ok(())
         }
@@ -535,20 +556,28 @@ async fn restart_running_daemon(
     data_dir: &Path,
     daemon_bin: &Path,
     config_path: &Path,
+    force: bool,
 ) -> Result<()> {
     let expected = env!("CARGO_PKG_VERSION");
     if !health_ok(port).await {
         println!("daemon not running on port {port} — next start loads {expected}");
         return Ok(());
     }
-    if running_version(port).await.as_deref() == Some(expected) {
+    if !force && running_version(port).await.as_deref() == Some(expected) {
         println!("running daemon already at {expected} on port {port}");
         return Ok(());
     }
 
     println!("restarting running daemon on port {port} to load {expected}");
-    let _ = request_shutdown(port).await;
+    let no_gui = daemon_is_headless(port).await;
+    request_shutdown(port)
+        .await
+        .context("stop daemon for installation")?;
     wait_until_unhealthy(port, Duration::from_secs(5)).await;
+    anyhow::ensure!(
+        !health_ok(port).await,
+        "daemon did not stop after installation; restart it manually"
+    );
 
     let _ = ensure_daemon(EnsureOptions {
         port,
@@ -556,7 +585,7 @@ async fn restart_running_daemon(
         exe: Some(daemon_bin.to_path_buf()),
         timeout: Duration::from_secs(15),
         poll_only: false,
-        no_gui: false,
+        no_gui,
         idle_exit_secs: None,
         force_install: false,
         ipc_port: None,
@@ -795,7 +824,6 @@ async fn run_daemon(
         .clone()
         .or_else(|| std::env::current_exe().ok())
         .unwrap_or_else(|| PathBuf::from("tdmcp-daemon"));
-    autostart::reconcile_best_effort(cfg.always_on, &exe);
 
     // First fallible step: know immediately whether we lost the singleton
     // race or the port is unavailable, before spending time on catalog load,
@@ -803,6 +831,13 @@ async fn run_daemon(
     // classify this and close itself with a specific message instead of
     // lingering as a backing-less tray process.
     let listener = preflight_bind(&cfg).await?;
+    // A temporary/config-isolated daemon must not remove or replace the user's
+    // global login entry. Failed listener startups must not change it either.
+    if cfg.config_path == tdmcp_config::user_config_path() {
+        autostart::reconcile_best_effort(cfg.always_on, &exe);
+    } else if cfg.always_on {
+        warn!("autostart skipped for custom configuration; register its explicit launch command with the OS");
+    }
 
     let catalog = match Catalog::load_path(&cfg.catalog_path) {
         Ok(c) => {
@@ -831,7 +866,12 @@ async fn run_daemon(
     // configured to, so raising the config knob can't silently reintroduce
     // the hidden glass ceiling where the outer net fired before the
     // configured budget.
-    tdmcp_mcp::init_bridge_timeouts(cfg.bridge.script_timeout_secs.max(1));
+    tdmcp_mcp::init_bridge_timeouts(
+        cfg.bridge
+            .script_timeout_secs
+            .max(cfg.bridge.call_timeout_secs)
+            .max(1),
+    );
     info!(
         call_timeout_secs = cfg.bridge.call_timeout_secs,
         script_timeout_secs = cfg.bridge.script_timeout_secs,
@@ -840,9 +880,11 @@ async fn run_daemon(
         idle_dead_secs = cfg.bridge.idle_dead_secs,
         "bridge timeout budgets"
     );
+    let federation = FederationRuntime::from_config(&cfg);
     let sessions = BridgeSessions::new(registry.clone())
         .with_heartbeat(heartbeat)
         .with_timeouts(timeouts)
+        .with_settings(federation.settings.clone())
         .with_log_sink(log_sink.clone());
     let bridge: Arc<dyn tdmcp_mcp::BridgeRpc> = Arc::new(sessions.clone());
 
@@ -878,7 +920,6 @@ async fn run_daemon(
             .map_err(|e| anyhow::anyhow!("initialize embedded skills resource provider: {e}"))?,
     );
 
-    let federation = FederationRuntime::from_config(&cfg);
     let federation_for_slave = federation.clone();
     let fed_ctx = tdmcp_mcp::FederationCtx {
         local_daemon_id: federation.daemon_id.clone(),
@@ -1010,21 +1051,9 @@ async fn run_daemon(
         run_ipc_accept(bridge_listener, bridge_dir, ipc_registry, ipc_sessions).await;
     });
 
-    let _slave_handle = if cfg.federation_role == "slave" {
-        Some(spawn_slave_loop(
-            federation_for_slave,
-            slave_app,
-            shutdown.clone(),
-        ))
-    } else {
-        let _ = federation_for_slave;
-        None
-    };
+    let _slave_handle = spawn_slave_loop(federation_for_slave, slave_app, shutdown.clone());
 
-    let idle_handle = if cfg.keep_alive || cfg.federation_role == "slave" {
-        info!(role = %cfg.federation_role, keep_alive = cfg.keep_alive, "idle exit disabled");
-        None
-    } else if let Some(timeout) = idle_exit_timeout() {
+    let idle_handle = if let Some(timeout) = idle_exit_timeout() {
         info!(idle_secs = timeout.as_secs(), "idle exit armed");
         let idle_bridges = sessions.clone();
         let idle_shutdown = shutdown.clone();

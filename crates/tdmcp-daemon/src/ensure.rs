@@ -78,7 +78,7 @@ pub async fn ensure_daemon(opts: EnsureOptions) -> Result<EnsureResult> {
     install::ensure_installed(&opts.data_dir, opts.force_install)?;
 
     if health_ok(opts.port).await {
-        if !opts.no_gui && daemon_is_headless(opts.port).await {
+        if !opts.poll_only && !opts.no_gui && daemon_is_headless(opts.port).await {
             info!(
                 port = opts.port,
                 "healthy headless daemon but tray requested — restarting with tray"
@@ -170,7 +170,7 @@ pub async fn ensure_daemon(opts: EnsureOptions) -> Result<EnsureResult> {
 }
 
 /// GET `/admin/status` and return whether the live daemon is headless.
-async fn daemon_is_headless(port: u16) -> bool {
+pub async fn daemon_is_headless(port: u16) -> bool {
     let url = format!("http://127.0.0.1:{port}/admin/status");
     match tokio::time::timeout(Duration::from_millis(800), crate::http_util::get_json(&url)).await {
         Ok(Ok(v)) => v.get("noGui").and_then(|x| x.as_bool()).unwrap_or(false),

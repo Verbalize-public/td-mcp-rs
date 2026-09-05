@@ -1,39 +1,29 @@
 # Mutation zones (TD)
 
-Build in a purposefully-named component from the first mutation. Package per
-[`component-checklist`](./component-checklist.md) +
-[`custom-parameters`](./custom-parameters.md). Do not stage in a throwaway
-container and promote later.
+Choose the smallest verified subtree that contains the requested change.
 
-## How to get a zone
+| Situation | Target |
+| --- | --- |
+| User names a path | Resolve it with `inspect` and work there |
+| New experiment or subsystem | Create a descriptively named Base/Container COMP |
+| User refers to the editor selection | Read `editor_context`, then confirm with `inspect` |
 
-| Kind | When | How it becomes verified |
-|------|------|-------------------------|
-| **Self-created (default)** | New experiment / COMP | Create a descriptively-named Base/Container (often under `/project1`). Confirm with `inspect`. |
-| **User-authorized subtree** | User names an existing path | Resolve live with `inspect`; refuse if missing / ambiguous. |
-| **Editor-hinted** | User is browsing a network; no path named yet | Call `editor_context` → take focused pane `ownerPath` (and optional `selection`) as a **hint only**. Still confirm with `inspect` before mutating; do not treat pane focus as authorization. |
+Preserve unrelated nodes. The user's request can authorize modifying or
+replacing existing nodes; do not ask again for routine changes already in
+scope. Confirm before deleting work when the intended scope is unclear.
 
-## Preview
+For reusable networks, keep references relative and expose family-appropriate
+In/Out pins. For visual output, set the COMP viewer to its terminal TOP and
+verify that output with `capture`.
 
-1. Terminal visual on a named "Out [FAMILY NAME]" component (each family get a dedicated "In"/"Out" component) / null inside the zone.
-2. Zone COMP: `par.opviewer = './out1'` (`./` = child inside this COMP); `viewer = True`.
-3. Look claims: `capture` tool on the terminal
-
-## Safety
-
-- Never destroy nodes you did not create without explicit approval by the user.
-- Never mutate outside the current zone explicit authorization.
-- **ALWAYS** sketch in OpSketch before mutating.
-  ([`opsketch-notation`](./opsketch-notation.md)).
+Use OpSketch when a network's branches or component boundaries benefit from
+an explicit design. Small edits can be applied directly.
 
 ## Related
 
-- [`opsketch-notation`](./opsketch-notation.md) — sketch before mutating
-- [`network-design`](./network-design.md) — naming and layout conventions
+- [`opsketch-notation`](./opsketch-notation.md) — network sketches
+- [`network-design`](./network-design.md) — naming, layout, relative paths
 - [`component-checklist`](./component-checklist.md) — reusable COMP packaging
 - [`custom-parameters`](./custom-parameters.md) — control API
 
-
----
-
-**Canonical:** [`mutation-zones`](./mutation-zones.md) 
+**Canonical:** [`mutation-zones`](./mutation-zones.md)

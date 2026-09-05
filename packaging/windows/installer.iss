@@ -2,7 +2,8 @@
 ; Build (from repo root):
 ;   ISCC.exe /DVersion=v0.1.4 packaging/windows/installer.iss
 ; Payload source: staging\tdmcp-daemon.exe (CI extracts the packaged zip there;
-; for a local dry run: cargo run -p xtask -- dist dist && expand to staging\).
+; for a local dry run: cargo run -p xtask -- package --out dist, then extract
+; the Windows zip to staging\).
 
 #define AppName "td-mcp-rs"
 #define AppEx "tdmcp-daemon.exe"
@@ -29,10 +30,12 @@ OutputBaseFilename=tdmcp-rs-{#AppVer}-x64-setup
 SetupIconFile=app.ico
 UninstallDisplayName={#AppName}
 CloseApplications=yes
+ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 
 [Files]
 Source: "..\..\staging\{#AppEx}"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\staging\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppEx}"

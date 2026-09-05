@@ -14,7 +14,9 @@ pub fn reconcile(always_on: bool, exe: &Path) -> Result<()> {
     let enabled = auto
         .is_enabled()
         .with_context(|| "query OS autostart state")?;
-    if always_on && !enabled {
+    if always_on {
+        // Refresh the executable path too: an enabled entry may still point
+        // at an old installer location after an upgrade.
         auto.enable().with_context(|| "enable OS autostart")?;
         info!(exe = %exe.display(), "autostart enabled");
     } else if !always_on && enabled {

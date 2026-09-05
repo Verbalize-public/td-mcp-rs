@@ -89,9 +89,9 @@ drift. Do not silence or delete that test to make it pass. Authoring contract:
 | Config file | [`docs/CONFIG.md`](docs/CONFIG.md) |
 | Packaging | [`docs/DELIVERY.md`](docs/DELIVERY.md) |
 | Claude Code plugin (`.claude-plugin/`, `claude-skills/`) | [`docs/CLAUDE_CODE_PLUGIN.md`](docs/CLAUDE_CODE_PLUGIN.md) |
-| Logging / observability (spec; only `td.errors` polling deferred) | [`docs/OBSERVABILITY.md`](docs/OBSERVABILITY.md) |
+| Logs and troubleshooting | [`docs/OBSERVABILITY.md`](docs/OBSERVABILITY.md) |
 | GUI internals / current map | [`docs/GUI_MAP.md`](docs/GUI_MAP.md) |
-| **What is not done yet** (Linux/Wine · payload spool · limits residue) | [`docs/OPEN_WORK.md`](docs/OPEN_WORK.md) → [`docs/LINUX_SUPPORT.md`](docs/LINUX_SUPPORT.md) · [`docs/PAYLOAD_SPOOL_PLAN.md`](docs/PAYLOAD_SPOOL_PLAN.md) |
+| Current limitations | [`docs/OPEN_WORK.md`](docs/OPEN_WORK.md) · [`docs/LINUX_SUPPORT.md`](docs/LINUX_SUPPORT.md) |
 | Day-to-day live-TD dev harness | [`docs/DEV_ENV.md`](docs/DEV_ENV.md) |
 | **Start here after a handoff** | [`docs/CONTRACT.md`](docs/CONTRACT.md) + [`docs/OPEN_WORK.md`](docs/OPEN_WORK.md) |
 | Agent skill cards (authoring contract) | [`skills/README.md`](skills/README.md) |

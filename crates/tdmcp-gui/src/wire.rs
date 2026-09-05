@@ -71,6 +71,10 @@ pub(crate) fn clip_line(s: &str, max_chars: usize) -> String {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct StatusView {
+    #[serde(default)]
+    pub(crate) restart_required: Vec<String>,
+    #[serde(default)]
+    pub(crate) federation_connection: String,
     pub(crate) version: String,
     pub(crate) pid: u32,
     #[serde(default)]

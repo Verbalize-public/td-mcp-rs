@@ -28,6 +28,29 @@ entries:
         id: play-state
         uri: tdmcp://docs/play-state
 
+  - code: tdmcp.bridge.response_too_large
+    layer: fleet
+    message: "Bridge response exceeds the 32 MiB JSON frame budget; connection retained"
+    mitigation:
+      - "The operation may already have run; inspect its state before retrying any mutation"
+      - "Read fewer paths/fields per call, or return a smaller script result"
+      - "Do not restart TD or the daemon for this error"
+    references:
+      - kind: tool
+        id: inspect
+
+  - code: tdmcp.bridge.response_invalid
+    layer: fleet
+    message: "Bridge response cannot be encoded as valid JSON; connection retained"
+    mitigation:
+      - "The operation may already have run; inspect its state before retrying any mutation"
+      - "Check for NaN/infinity, invalid Unicode, over 64 nested containers, or non-JSON objects"
+      - "Return integers outside the signed/unsigned 64-bit range as strings to avoid precision loss"
+      - "Report a reproducible request if this came from a built-in read tool"
+    references:
+      - kind: tool
+        id: inspect
+
   - code: tdmcp.bridge.cancelled
     layer: fleet
     message: "Queued or in-flight bridge work was cancelled"
@@ -622,12 +645,24 @@ entries:
         id: td-glsl-ground-truth
         uri: tdmcp://docs/td-glsl-ground-truth
 
+  - code: tdmcp.op.content_truncated
+    layer: structure
+    message: "DAT or shader source preview is truncated; the DAT itself is unchanged"
+    mitigation:
+      - "Read further slices with execute_python: result = op(path).text[start:end]"
+      - "Use totalBytes for the original UTF-8 size; bytes describes the returned preview"
+    references:
+      - kind: tool
+        id: inspect
+      - kind: tool
+        id: execute_python
+
   - code: tdmcp.perception.black_frame
     layer: perception
-    message: "Captured TOP frame is black — perception fail"
+    message: "Captured TOP frame is black — compare with the intended output"
     mitigation:
       - "Re-inspect wiring and zone face"
-      - "Re-capture; look claim stays FAIL until fixed"
+      - "A black frame may be intentional; inspect wiring only if content was expected"
       - "If the TOP should have content, cook it — op('…').cook(force=True) via execute_python"
       - "`resources/read` `tdmcp://docs/look-grade`"
     references:
@@ -642,10 +677,10 @@ entries:
 
   - code: tdmcp.perception.uniform_frame
     layer: perception
-    message: "Captured TOP frame is a uniform solid color — perception fail"
+    message: "Captured TOP frame is a uniform solid color — compare with the intended output"
     mitigation:
       - "Re-inspect wiring and zone face"
-      - "Re-capture; look claim stays FAIL until fixed"
+      - "Solid colors and masks can be correct; assess the requested result, not image variance alone"
       - "SOP/MAT/DAT viewer capture reflects TD's default viewport framing; use a Render TOP chain for a true look claim"
       - "`resources/read` `tdmcp://docs/look-grade`"
     references:

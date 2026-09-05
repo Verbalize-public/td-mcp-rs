@@ -17,6 +17,9 @@ static BRIDGE: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../../bridge");
 /// Embedded diagnostics catalog.
 const CATALOG_YAML: &str = include_str!("../../../diagnostics/catalog.yaml");
 
+/// Retain the project's license even when installing from a standalone binary.
+const PROJECT_LICENSE: &str = include_str!("../../../LICENSE");
+
 /// Shipped bootstrap tox (thin dialer — handshake → FS load of `bridge/`).
 const BOOTSTRAP_TOX: &[u8] = include_bytes!("../embedded/bootstrap.tox");
 
@@ -41,7 +44,7 @@ pub enum InstallOutcome {
 }
 
 /// Ensure `{data_dir}` contains bridge/, diagnostics/catalog.yaml, bootstrap.tox,
-/// skills/, and an `install.version` stamp matching this binary.
+/// skills/, LICENSE, and an `install.version` stamp matching this binary.
 ///
 /// When `force` is true, always re-extract even if the stamp and marker files
 /// already match this binary version (same-version bridge/catalog refresh).
@@ -49,16 +52,97 @@ pub fn ensure_installed(data_dir: &Path, force: bool) -> Result<InstallOutcome> 
     fs::create_dir_all(data_dir)
         .with_context(|| format!("create data dir {}", data_dir.display()))?;
 
+    // An OS lock survives neither a crash nor process exit. Keep the lock file
+    // itself in place so concurrent installers always lock the same inode.
+    let lock = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(data_dir.join("install.lock"))
+        .context("open asset install lock")?;
+    lock.lock().context("lock asset installation")?;
+
     let stamp_path = data_dir.join(STAMP_NAME);
     let version = env!("CARGO_PKG_VERSION");
     if !force && assets_current(data_dir, &stamp_path, version) {
         return Ok(InstallOutcome::AlreadyCurrent);
     }
 
-    extract_all(data_dir)?;
-    fs::write(&stamp_path, version)
-        .with_context(|| format!("write install stamp {}", stamp_path.display()))?;
+    let stage = tempfile::Builder::new()
+        .prefix(".install-stage-")
+        .tempdir_in(data_dir)
+        .context("stage runtime assets")?;
+    extract_all(stage.path())?;
+    fs::write(stage.path().join(STAMP_NAME), version).context("stage install stamp")?;
+    let mut names = vec![
+        "bridge",
+        "skills",
+        "diagnostics",
+        "bootstrap.tox",
+        "bootstrap.py",
+        "LICENSE",
+    ];
+    // This file is a user-customizable project, not a managed runtime asset.
+    if !data_dir.join("template.toe").exists() {
+        names.push("template.toe");
+    }
+    names.push(STAMP_NAME);
+    publish_assets(stage.path(), data_dir, &names)?;
     Ok(InstallOutcome::Extracted)
+}
+
+/// Prepare everything before touching the installation; restore old entries
+/// on a normal filesystem error. This is not a crash-atomic multi-file commit.
+fn publish_assets(stage: &Path, data_dir: &Path, names: &[&str]) -> Result<()> {
+    let backup = tempfile::Builder::new()
+        .prefix(".install-backup-")
+        .tempdir_in(data_dir)
+        .context("prepare asset rollback")?;
+    let mut moved = Vec::new();
+    let result: Result<()> = (|| {
+        for name in names {
+            let dest = data_dir.join(name);
+            let old = dest.symlink_metadata().is_ok();
+            if old {
+                fs::rename(&dest, backup.path().join(name))
+                    .with_context(|| format!("back up installed asset {name}"))?;
+            }
+            moved.push((*name, old));
+            fs::rename(stage.join(name), &dest)
+                .with_context(|| format!("publish installed asset {name}"))?;
+        }
+        Ok(())
+    })();
+    if let Err(error) = result {
+        let mut rollback_errors = Vec::new();
+        for (name, old) in moved.into_iter().rev() {
+            let dest = data_dir.join(name);
+            if dest.symlink_metadata().is_ok() {
+                // Move the new asset back into staging, never recursively
+                // delete a possibly unfamiliar destination during rollback.
+                if let Err(e) = fs::rename(&dest, stage.join(name)) {
+                    rollback_errors.push(format!("remove replacement {name}: {e}"));
+                    continue;
+                }
+            }
+            if old {
+                if let Err(e) = fs::rename(backup.path().join(name), &dest) {
+                    rollback_errors.push(format!("restore {name}: {e}"));
+                }
+            }
+        }
+        if !rollback_errors.is_empty() {
+            let recovery = backup.keep();
+            return Err(error.context(format!(
+                "rollback incomplete ({}); previous assets retained at {}",
+                rollback_errors.join("; "),
+                recovery.display()
+            )));
+        }
+        return Err(error.context("previous runtime assets restored"));
+    }
+    Ok(())
 }
 
 fn assets_current(data_dir: &Path, stamp_path: &Path, version: &str) -> bool {
@@ -72,6 +156,7 @@ fn assets_current(data_dir: &Path, stamp_path: &Path, version: &str) -> bool {
         && data_dir.join("diagnostics").join("catalog.yaml").is_file()
         && data_dir.join("bootstrap.tox").is_file()
         && data_dir.join("template.toe").is_file()
+        && data_dir.join("LICENSE").is_file()
         && data_dir
             .join("skills")
             .join("touchdesigner")
@@ -80,20 +165,13 @@ fn assets_current(data_dir: &Path, stamp_path: &Path, version: &str) -> bool {
 }
 
 fn extract_all(data_dir: &Path) -> Result<()> {
+    fs::write(data_dir.join("LICENSE"), PROJECT_LICENSE).context("write project license")?;
     let bridge_dir = data_dir.join("bridge");
-    if bridge_dir.exists() {
-        fs::remove_dir_all(&bridge_dir)
-            .with_context(|| format!("remove old bridge {}", bridge_dir.display()))?;
-    }
     fs::create_dir_all(&bridge_dir)
         .with_context(|| format!("create bridge dir {}", bridge_dir.display()))?;
     extract_dir(&BRIDGE, &bridge_dir)?;
 
     let skills_dir = data_dir.join("skills");
-    if skills_dir.exists() {
-        fs::remove_dir_all(&skills_dir)
-            .with_context(|| format!("remove old skills {}", skills_dir.display()))?;
-    }
     fs::create_dir_all(&skills_dir)
         .with_context(|| format!("create skills dir {}", skills_dir.display()))?;
     render_skills_to(&skills_dir)?;
@@ -109,11 +187,13 @@ fn extract_all(data_dir: &Path) -> Result<()> {
     fs::write(&tox_path, BOOTSTRAP_TOX)
         .with_context(|| format!("write bootstrap tox {}", tox_path.display()))?;
 
-    // Shipped template toe for create-new (do not overwrite user-replaced file
-    // on AlreadyCurrent fast-path; force=true still overwrites via extract_all).
+    // Users can customize this starter from the dashboard. Never erase their
+    // project on an upgrade or forced refresh of managed assets.
     let template_path = data_dir.join("template.toe");
-    fs::write(&template_path, TEMPLATE_TOE)
-        .with_context(|| format!("write template toe {}", template_path.display()))?;
+    if !template_path.exists() {
+        fs::write(&template_path, TEMPLATE_TOE)
+            .with_context(|| format!("write template toe {}", template_path.display()))?;
+    }
 
     // Also ship bootstrap.py next to the tox for the interim dialer path.
     if let Some(entry) = BRIDGE.get_file("bootstrap.py") {
@@ -219,12 +299,17 @@ pub fn copy_daemon_binary(data_dir: &Path) -> Result<PathBuf> {
 /// executes it, but renaming it is allowed; a unique backup name avoids
 /// colliding with a still-locked backup from a previous install.
 fn replace_binary(src: &Path, dest: &Path) -> Result<()> {
+    let parent = dest.parent().context("installed binary has no parent")?;
+    let stage = tempfile::NamedTempFile::new_in(parent)
+        .context("stage daemon binary")?
+        .into_temp_path();
+    fs::copy(src, &stage).with_context(|| format!("copy daemon binary to {}", dest.display()))?;
     if dest.exists() {
         let backup = unique_backup_path(dest);
         fs::rename(dest, &backup)
             .with_context(|| format!("rename {} → {}", dest.display(), backup.display()))?;
-        match fs::copy(src, dest) {
-            Ok(_) => {
+        match fs::rename(&stage, dest) {
+            Ok(()) => {
                 // Best-effort: the old image may still be locked by a running
                 // process; sweep_old_backups retries on the next install.
                 let _ = fs::remove_file(&backup);
@@ -232,15 +317,18 @@ fn replace_binary(src: &Path, dest: &Path) -> Result<()> {
             }
             Err(e) => {
                 // Restore the previous binary so install never leaves a gap.
-                let _ = fs::rename(&backup, dest);
+                if let Err(restore) = fs::rename(&backup, dest) {
+                    bail!("publish daemon binary failed: {e}; restore failed: {restore}; previous binary retained at {}", backup.display());
+                }
                 Err(anyhow::anyhow!(
-                    "copy daemon binary to {} failed: {e}",
+                    "publish daemon binary to {} failed: {e}",
                     dest.display()
                 ))
             }
         }
     } else {
-        fs::copy(src, dest).with_context(|| format!("copy daemon binary to {}", dest.display()))?;
+        fs::rename(&stage, dest)
+            .with_context(|| format!("publish daemon binary to {}", dest.display()))?;
         Ok(())
     }
 }
@@ -343,6 +431,27 @@ pub fn render_skills_to(dest: &Path) -> Result<Vec<(String, PathBuf)>> {
 mod tests {
     use super::*;
     use tempfile::tempdir;
+
+    #[test]
+    fn standalone_install_includes_license_and_repairs_older_installation() {
+        let data = tempdir().unwrap();
+        assert_eq!(
+            ensure_installed(data.path(), false).unwrap(),
+            InstallOutcome::Extracted
+        );
+        let license = data.path().join("LICENSE");
+        assert_eq!(fs::read_to_string(&license).unwrap(), PROJECT_LICENSE);
+        fs::remove_file(&license).unwrap();
+        assert_eq!(
+            ensure_installed(data.path(), false).unwrap(),
+            InstallOutcome::Extracted
+        );
+        assert_eq!(fs::read_to_string(&license).unwrap(), PROJECT_LICENSE);
+        assert_eq!(
+            ensure_installed(data.path(), false).unwrap(),
+            InstallOutcome::AlreadyCurrent
+        );
+    }
 
     /// `bootstrap.tox` is TouchDesigner's opaque binary component format —
     /// nothing outside TD can parse or diff its contents against source. It
@@ -456,6 +565,19 @@ mod tests {
     }
 
     #[test]
+    fn force_preserves_custom_template() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        ensure_installed(tmp.path(), false).expect("install");
+        let template = tmp.path().join("template.toe");
+        fs::write(&template, b"user's customized project").expect("customize");
+        ensure_installed(tmp.path(), true).expect("refresh");
+        assert_eq!(
+            fs::read(template).expect("read"),
+            b"user's customized project"
+        );
+    }
+
+    #[test]
     fn force_reextracts_when_already_current() {
         let dir = tempdir().expect("tempdir");
         let data = dir.path();
@@ -474,6 +596,65 @@ mod tests {
                 .trim(),
             env!("CARGO_PKG_VERSION")
         );
+    }
+
+    #[test]
+    fn asset_publish_failure_restores_previous_entries_and_stamp() {
+        let dir = tempdir().expect("tempdir");
+        let data = dir.path().join("installed");
+        let stage = dir.path().join("staged");
+        fs::create_dir_all(data.join("bridge")).expect("old bridge");
+        fs::create_dir_all(stage.join("bridge")).expect("new bridge");
+        fs::write(data.join("bridge/source.py"), "old").expect("old source");
+        fs::write(stage.join("bridge/source.py"), "new").expect("new source");
+        fs::write(data.join("bootstrap.tox"), "old tox").expect("old tox");
+        fs::write(data.join(STAMP_NAME), "old version").expect("old stamp");
+        // Missing staged tox fails after the bridge has already been swapped.
+        let error = publish_assets(&stage, &data, &["bridge", "bootstrap.tox", STAMP_NAME])
+            .expect_err("missing staged asset");
+        assert!(error
+            .to_string()
+            .contains("previous runtime assets restored"));
+        assert_eq!(
+            fs::read_to_string(data.join("bridge/source.py")).expect("source"),
+            "old"
+        );
+        assert_eq!(
+            fs::read_to_string(data.join("bootstrap.tox")).expect("tox"),
+            "old tox"
+        );
+        assert_eq!(
+            fs::read_to_string(data.join(STAMP_NAME)).expect("stamp"),
+            "old version"
+        );
+    }
+
+    #[test]
+    fn concurrent_asset_installers_publish_once() {
+        let dir = tempdir().expect("tempdir");
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(4));
+        let workers: Vec<_> = (0..4)
+            .map(|_| {
+                let data = dir.path().to_path_buf();
+                let barrier = barrier.clone();
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    ensure_installed(&data, false).expect("concurrent install")
+                })
+            })
+            .collect();
+        let extracted = workers
+            .into_iter()
+            .filter_map(|worker| {
+                (worker.join().expect("worker") == InstallOutcome::Extracted).then_some(())
+            })
+            .count();
+        assert_eq!(extracted, 1);
+        assert!(assets_current(
+            dir.path(),
+            &dir.path().join(STAMP_NAME),
+            env!("CARGO_PKG_VERSION")
+        ));
     }
 
     #[test]

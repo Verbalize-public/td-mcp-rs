@@ -14,6 +14,10 @@ _READ_POLL_S = 1.0
 # Upper bound for worker wait on main-thread process_pending (handshake may lower).
 # Aligns with tdmcp-mcp BRIDGE_TIMEOUT (180s) when the daemon omits maxCallWaitSecs.
 DEFAULT_MAX_CALL_WAIT_S = 180.0
+# Framed JSON body bytes — must match tdmcp-ipc/src/framing.rs.
+MAX_FRAME_BYTES = 32 * 1024 * 1024
+# Leave room under serde_json's 128-container depth for MCP/federation wrappers.
+MAX_JSON_DEPTH = 64
 # execute_python payload caps — keep framed JSON well under the 32 MiB IPC
 # MAX_FRAME.
 SCRIPT_MAX_BYTES = 4 * 1024 * 1024
@@ -33,6 +37,7 @@ BRIDGE_METHODS: tuple[str, ...] = (
 
 INSPECT_PATHS_LIMIT = 256
 CHILDREN_ROSTER_LIMIT = 256
+INSPECT_TEXT_MAX_BYTES = 64 * 1024
 
 # Operator comment echo caps (inspect). `OP.comment` is an unbounded str — a
 # 5000-char comment is accepted by TD — so the read surface truncates rather
@@ -50,8 +55,7 @@ EDITOR_PANES_LIMIT = 64
 CAPTURE_VIEWER_NAME = "capture_viewer"
 # Hard pre-flight reject for capture's `maxSize` (longer-side px before PNG
 # encode). `maxSize: null` means native resolution with no bound otherwise —
-# an unbounded PNG+base64 payload can blow the 16 MiB IPC frame and kill the
-# whole bridge session, not just the one call.
+# an unbounded PNG+base64 payload can exceed the 32 MiB IPC frame budget.
 CAPTURE_MAX_SIZE = 1536
 
 # palette_probe caps. The batch cap is the load-bearing one: a probe loads
@@ -112,5 +116,3 @@ _FLAG_NAMES = frozenset(
         "viewer",
     }
 )
-
-

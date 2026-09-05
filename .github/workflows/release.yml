@@ -13,6 +13,8 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  # Rehearse the entire native packaging pipeline without publishing a release.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -24,24 +26,38 @@ concurrency:
 jobs:
   assert:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
-      - name: Tag must equal [workspace.package] version
+      - name: Read version and validate release tags
+        id: version
         run: |
           TAG_VERSION="${GITHUB_REF_NAME#v}"
-          CARGO_VERSION="$(grep -m1 '^version = "' Cargo.toml | sed 's/^version = "\(.*\)"$/\1/')"
-          if [ "$TAG_VERSION" != "$CARGO_VERSION" ]; then
+          CARGO_VERSION="$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["workspace"]["package"]["version"])')"
+          if [ "$GITHUB_EVENT_NAME" = push ] && [ "$TAG_VERSION" != "$CARGO_VERSION" ]; then
             echo "::error::tag ${GITHUB_REF_NAME} but Cargo.toml says ${CARGO_VERSION} — fix one side, delete the tag, retag"
             exit 1
           fi
-          echo "releasing ${CARGO_VERSION}"
+          echo "version=${CARGO_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "packaging ${CARGO_VERSION}"
+
+  checks:
+    needs: assert
+    uses: ./.github/workflows/ci.yml
+    with:
+      dependencies: true
 
   build:
-    needs: assert
+    needs: [assert, checks]
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
         include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-24.04
           - target: x86_64-pc-windows-msvc
             os: windows-latest
           - target: aarch64-apple-darwin
@@ -59,8 +75,11 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
+      - name: Native platform tests
+        if: runner.os != 'Linux'
+        run: cargo test --locked --workspace
       - name: Package binaries
-        run: cargo run -p xtask -- package --target ${{ matrix.target }} --out dist
+        run: cargo run --locked -p xtask -- package --target ${{ matrix.target }} --out dist
 
       # --- macOS: .app bundle + DMG; signs/notarizes when secrets exist ---
       - name: Build app bundle + DMG (macOS)
@@ -68,12 +87,16 @@ jobs:
         run: |
           packaging/macos/make_app.sh \
             "target/${{ matrix.target }}/release/tdmcp-daemon" \
-            "${{ github.ref_name }}" "${{ matrix.target }}" dist
-      - name: Smoke test archive (macOS)
-        if: runner.os == 'macOS'
+            "${{ needs.assert.outputs.version }}" "${{ matrix.target }}" dist
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Smoke test archive (Unix)
+        if: runner.os != 'Windows'
         run: |
-          tar -xzf dist/tdmcp-rs-*-${{ matrix.target }}.tar.gz -C /tmp
-          /tmp/tdmcp-daemon --version
+          mkdir -p staging
+          tar -xzf dist/tdmcp-rs-*-${{ matrix.target }}.tar.gz -C staging
+          python3 scripts/package_smoke.py --distribution staging/tdmcp-daemon
 
       # --- Windows: one extraction feeds the smoke test and the installer ---
       - name: Stage installer payload (Windows)
@@ -81,7 +104,7 @@ jobs:
         shell: pwsh
         run: |
           Expand-Archive -Path dist/tdmcp-rs-*.zip -DestinationPath staging -Force
-          ./staging/tdmcp-daemon.exe --version
+          python scripts/package_smoke.py --distribution staging/tdmcp-daemon.exe
       - name: Build installer (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -91,15 +114,24 @@ jobs:
             choco install innosetup -y --no-progress
             $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           }
-          & $iscc "/DVersion=${{ github.ref_name }}" packaging/windows/installer.iss
+          & $iscc "/DVersion=${{ needs.assert.outputs.version }}" packaging/windows/installer.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@v4
         with:
           name: dist-${{ matrix.target }}
-          path: dist/
+          path: |
+            dist/*.zip
+            dist/*.tar.gz
+            dist/*.dmg
+            dist/*-setup.exe
+          if-no-files-found: error
+          retention-days: 3
 
   publish:
     needs: build
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: write
       id-token: write
@@ -112,8 +144,7 @@ jobs:
       - name: Aggregate SHA256SUMS across platforms
         working-directory: dist
         run: |
-          rm -f SHA256SUMS.txt
-          sha256sum tdmcp-rs-*.zip tdmcp-rs-*.tar.gz > SHA256SUMS.txt
+          sha256sum tdmcp-rs-*.zip tdmcp-rs-*.tar.gz tdmcp-rs-*.dmg tdmcp-rs-*-setup.exe > SHA256SUMS.txt
           cat SHA256SUMS.txt
       # Attestations are public-repo-only on this plan; auto-enable when the
       # repo goes public. Private repos rely on the SHA256SUMS above.
@@ -125,4 +156,5 @@ jobs:
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: gh release create "${{ github.ref_name }}" dist/* --verify-tag --generate-notes

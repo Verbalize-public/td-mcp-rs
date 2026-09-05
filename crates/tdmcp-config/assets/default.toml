@@ -6,8 +6,9 @@
 #   Linux:   $XDG_CONFIG_HOME/tdmcp-rs/config.toml  (or ~/.config/…)
 #
 # Edit with the tray dashboard gear icon, or by hand.
-# Changes apply after the next daemon restart.
-# `tdmcp-daemon install --force` resets this file to the shipped defaults.
+# Dashboard saves apply federation, call timeouts and keep-alive immediately.
+# Listener/process settings and manual file edits need a daemon restart.
+# Installation and upgrades preserve this file, including --force.
 
 [server]
 # HTTP listen port for MCP + admin (default: 9860).

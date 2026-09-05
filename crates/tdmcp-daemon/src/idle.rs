@@ -90,7 +90,7 @@ pub async fn run_idle_watcher_with_grace(
 
         let bridge_count = bridges.connected_count().await;
         let mcp_count = mcp_sessions.len();
-        let busy = bridge_count > 0 || mcp_count > 0;
+        let busy = bridges.idle_exit_disabled() || bridge_count > 0 || mcp_count > 0;
         let in_startup_grace = started.elapsed() < startup_grace;
 
         if busy || in_startup_grace {

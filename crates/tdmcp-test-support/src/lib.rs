@@ -1,6 +1,9 @@
-//! Fake TD bridge peer for integration tests.
+//! Fake TD bridge peers and shared integration-test helpers.
 
 #![warn(missing_docs)]
+
+mod ports;
+pub use ports::unique_test_port;
 
 use std::io;
 use std::pin::Pin;

@@ -117,16 +117,19 @@ pub struct ToolSource {
 /// Env-var lookup seam (`std::env::var` in production, scripted in tests).
 pub type EnvLookup<'a> = &'a dyn Fn(&str) -> Option<String>;
 
-/// Reads from real process environment.
+/// Process environment, falling back to immutable Wine startup defaults.
 pub fn std_env(name: &str) -> Option<String> {
-    std::env::var(name).ok().filter(|v| !v.is_empty())
+    std::env::var(name)
+        .ok()
+        .filter(|v| !v.is_empty())
+        .or_else(|| crate::wine::config_default(name))
 }
 
 const ENV_EXPAND: &str = "TDMCP_TOEEXPAND";
 const ENV_COLLAPSE: &str = "TDMCP_TOECOLLAPSE";
 const ENV_TD_EXE: &str = "TDMCP_TOUCHDESIGNER_EXE";
-/// Linux only: explicit Wine prefix override (`[official_tools] wine_prefix`,
-/// promoted to env by `tdmcp_config::load`). Unset = autodetect (see
+/// Linux only: explicit Wine prefix override, with startup configuration as
+/// fallback. Unset = autodetect (see
 /// [`linux_scan_roots`]). Shared with [`crate::wine`], which honors the same
 /// override at invocation time.
 pub(crate) const ENV_WINE_PREFIX: &str = "TDMCP_WINE_PREFIX";

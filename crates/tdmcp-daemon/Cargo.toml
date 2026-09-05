@@ -38,15 +38,16 @@ tdmcp-dialogs = { workspace = true }
 tdmcp-diagnostics = { workspace = true }
 tdmcp-ipc = { workspace = true }
 tdmcp-mcp = { workspace = true }
-tdmcp-gui = { path = "../tdmcp-gui", optional = true }
+tdmcp-projectio = { workspace = true }
+tdmcp-gui = { workspace = true, optional = true }
 tokio-util = { workspace = true }
 
 reqwest = { workspace = true }
+tempfile = { workspace = true }
 
 [dev-dependencies]
 futures = { workspace = true }
 tdmcp-test-support = { workspace = true }
-tempfile = { workspace = true }
 tokio-util = { workspace = true }
 tower = { workspace = true }
 

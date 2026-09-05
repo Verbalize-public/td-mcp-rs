@@ -7,6 +7,7 @@
 #![warn(missing_docs)]
 
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
@@ -509,6 +510,13 @@ pub fn default_config_path() -> PathBuf {
             return PathBuf::from(trimmed);
         }
     }
+    user_config_path()
+}
+
+/// Standard per-user path, ignoring `TDMCP_CONFIG_PATH`. OS integrations belong
+/// to this installation, not to temporary/test daemons with custom config.
+#[must_use]
+pub fn user_config_path() -> PathBuf {
     dirs::config_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join(APP_DIR_NAME)
@@ -526,8 +534,7 @@ pub fn ensure_default(path: &Path, force: bool) -> Result<bool> {
         fs::create_dir_all(parent)
             .with_context(|| format!("create config dir {}", parent.display()))?;
     }
-    fs::write(path, DEFAULT_TOML)
-        .with_context(|| format!("write default config {}", path.display()))?;
+    atomic_write(path, DEFAULT_TOML)?;
     Ok(true)
 }
 
@@ -535,51 +542,221 @@ pub fn ensure_default(path: &Path, force: bool) -> Result<bool> {
 pub fn load(path: &Path) -> Result<ConfigFile> {
     if !path.is_file() {
         tracing::debug!(path = %path.display(), "config file missing — using defaults");
-        let file = ConfigFile::default();
-        apply_wine_env(&file);
-        return Ok(file);
+        return Ok(ConfigFile::default());
     }
     let text =
         fs::read_to_string(path).with_context(|| format!("read config {}", path.display()))?;
     let file: ConfigFile = toml_edit::de::from_str(&text)
         .with_context(|| format!("parse config {}", path.display()))?;
     tracing::debug!(path = %path.display(), "config loaded");
-    apply_wine_env(&file);
     Ok(file)
 }
-
-/// Linux only: promote `[official_tools] wine_exe`/`wine_prefix` into
-/// `TDMCP_WINE_EXE`/`TDMCP_WINE_PREFIX` process env so `tdmcp-projectio`'s
-/// Wine invocation and Wine-prefix scan — both plain env readers, matching
-/// every other `TDMCP_*` official-tool override — pick them up without
-/// threading config through every call site. No-op when unset; a no-op on
-/// Windows/macOS regardless.
-#[cfg(all(not(windows), not(target_os = "macos")))]
-fn apply_wine_env(cfg: &ConfigFile) {
-    if let Some(exe) = &cfg.official_tools.wine_exe {
-        std::env::set_var("TDMCP_WINE_EXE", exe);
-    }
-    if let Some(prefix) = &cfg.official_tools.wine_prefix {
-        std::env::set_var("TDMCP_WINE_PREFIX", prefix);
-    }
-}
-
-#[cfg(any(windows, target_os = "macos"))]
-fn apply_wine_env(_cfg: &ConfigFile) {}
 
 /// True when `bind_address` is IPv4/IPv6 loopback (`127.0.0.1` or `::1`).
 #[must_use]
 pub fn is_loopback_bind(bind_address: &str) -> bool {
-    matches!(bind_address.trim(), "127.0.0.1" | "::1")
+    bind_address
+        .trim()
+        .parse::<std::net::IpAddr>()
+        .is_ok_and(|ip| ip.is_loopback())
 }
 
 /// PSK is optional even on a non-loopback bind (local-network federation is
 /// meant to work with zero setup); this only catches the internally-broken
 /// combination of explicitly choosing `auth.mode = "psk"` with no secret set.
 pub fn validate_remote_auth(file: &ConfigFile) -> Result<()> {
+    anyhow::ensure!(
+        matches!(file.auth.mode.as_str(), "none" | "psk"),
+        "auth.mode must be none or psk"
+    );
     if file.auth.mode == "psk" && file.auth.psk.trim().is_empty() {
         anyhow::bail!("auth.mode = \"psk\" requires a non-empty auth.psk");
     }
+    Ok(())
+}
+
+/// Validate editable settings before writing or applying them.
+pub fn validate(file: &ConfigFile) -> Result<()> {
+    validate_remote_auth(file)?;
+    anyhow::ensure!(
+        file.server.port != 0,
+        "server.port must be between 1 and 65535"
+    );
+    file.server
+        .bind_address
+        .parse::<std::net::IpAddr>()
+        .context("server.bind_address must be an IP address")?;
+    anyhow::ensure!(
+        file.bridge.port != 0,
+        "bridge.port must be between 1 and 65535"
+    );
+    anyhow::ensure!(
+        is_loopback_bind(&file.bridge.host),
+        "bridge.host must be a loopback IP address"
+    );
+    anyhow::ensure!(
+        matches!(
+            file.federation.role.as_str(),
+            "standalone" | "master" | "slave"
+        ),
+        "federation.role must be standalone, master or slave"
+    );
+    if file.federation.role == "slave" {
+        let url = url::Url::parse(&file.federation.master_url)
+            .context("federation.master_url must be an HTTP(S) URL")?;
+        anyhow::ensure!(
+            matches!(url.scheme(), "http" | "https")
+                && url.host_str().is_some()
+                && url.username().is_empty()
+                && url.password().is_none()
+                && url.query().is_none()
+                && url.fragment().is_none()
+                && url.path() == "/",
+            "federation.master_url must be an HTTP(S) origin, such as http://192.168.1.10:9860"
+        );
+    }
+    for (name, secs) in [
+        ("call_timeout_secs", file.bridge.call_timeout_secs),
+        ("script_timeout_secs", file.bridge.script_timeout_secs),
+        (
+            "heartbeat_interval_secs",
+            file.bridge.heartbeat_interval_secs,
+        ),
+        ("pong_timeout_secs", file.bridge.pong_timeout_secs),
+        ("idle_dead_secs", file.bridge.idle_dead_secs),
+    ] {
+        anyhow::ensure!(
+            (1..=86400).contains(&secs),
+            "bridge.{name} must be between 1 and 86400 seconds"
+        );
+    }
+    anyhow::ensure!(
+        file.dialogs.poll_ms >= 50,
+        "dialogs.poll_ms must be at least 50"
+    );
+    Ok(())
+}
+
+/// Apply a partial JSON document, accepting snake_case and camelCase field names.
+/// Unknown fields, duplicate aliases and invalid types are errors, never silent no-ops.
+pub fn merge_patch(cfg: &ConfigFile, patch: &serde_json::Value) -> Result<ConfigFile> {
+    fn merge(target: &mut serde_json::Value, patch: &serde_json::Value, path: &str) -> Result<()> {
+        let target = target
+            .as_object_mut()
+            .context("settings sections must be objects")?;
+        let patch = patch
+            .as_object()
+            .context("settings patch must be an object")?;
+        let mut seen = std::collections::HashSet::new();
+        for (key, value) in patch {
+            let normalized: String = key
+                .chars()
+                .flat_map(|c| {
+                    if c.is_ascii_uppercase() {
+                        vec!['_', c.to_ascii_lowercase()]
+                    } else {
+                        vec![c]
+                    }
+                })
+                .collect();
+            anyhow::ensure!(
+                seen.insert(normalized.clone()),
+                "duplicate setting {path}{normalized}"
+            );
+            let current = target
+                .get_mut(&normalized)
+                .with_context(|| format!("unknown setting {path}{key}"))?;
+            if current.is_object() {
+                merge(current, value, &format!("{path}{normalized}."))?;
+            } else {
+                *current = value.clone();
+            }
+        }
+        Ok(())
+    }
+    let mut value = serde_json::to_value(cfg)?;
+    merge(&mut value, patch, "")?;
+    let updated = serde_json::from_value(value).context("invalid setting value")?;
+    validate(&updated)?;
+    Ok(updated)
+}
+
+/// Only changed fields, for updates that preserve unrelated edits by other clients.
+pub fn diff(a: &ConfigFile, b: &ConfigFile) -> Result<serde_json::Value> {
+    fn changed(a: &serde_json::Value, b: &serde_json::Value) -> serde_json::Value {
+        match (a.as_object(), b.as_object()) {
+            (Some(a), Some(b)) => serde_json::Value::Object(
+                b.iter()
+                    .filter(|(key, value)| a.get(*key) != Some(*value))
+                    .map(|(key, value)| {
+                        (
+                            key.clone(),
+                            changed(a.get(key).unwrap_or(&serde_json::Value::Null), value),
+                        )
+                    })
+                    .collect(),
+            ),
+            _ => b.clone(),
+        }
+    }
+    Ok(changed(
+        &serde_json::to_value(a)?,
+        &serde_json::to_value(b)?,
+    ))
+}
+
+/// Saved settings which cannot be applied to a running daemon.
+#[must_use]
+pub fn restart_required_fields(a: &ConfigFile, b: &ConfigFile) -> Vec<&'static str> {
+    let mut fields = Vec::new();
+    for (changed, name) in [
+        (a.server != b.server, "server"),
+        (a.auth != b.auth, "auth"),
+        (
+            a.federation.daemon_id != b.federation.daemon_id,
+            "federation.daemon_id",
+        ),
+        (a.daemon.show_tray != b.daemon.show_tray, "daemon.show_tray"),
+        (a.daemon.always_on != b.daemon.always_on, "daemon.always_on"),
+        (
+            a.bridge.host != b.bridge.host || a.bridge.port != b.bridge.port,
+            "bridge endpoint",
+        ),
+        (
+            a.bridge.heartbeat_interval_secs != b.bridge.heartbeat_interval_secs
+                || a.bridge.pong_timeout_secs != b.bridge.pong_timeout_secs
+                || a.bridge.idle_dead_secs != b.bridge.idle_dead_secs,
+            "bridge heartbeat",
+        ),
+        (a.advanced != b.advanced, "advanced paths"),
+        (a.logging != b.logging, "logging"),
+        (a.dialogs != b.dialogs, "dialogs"),
+        (a.official_tools != b.official_tools, "official tools"),
+    ] {
+        if changed {
+            fields.push(name);
+        }
+    }
+    fields
+}
+
+fn atomic_write(path: &Path, text: &str) -> Result<()> {
+    let parent = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    fs::create_dir_all(parent)?;
+    let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
+    if let Ok(metadata) = fs::metadata(path) {
+        temporary
+            .as_file()
+            .set_permissions(metadata.permissions())?;
+    }
+    temporary.write_all(text.as_bytes())?;
+    temporary.as_file().sync_all()?;
+    temporary
+        .persist(path)
+        .with_context(|| format!("replace config {}", path.display()))?;
     Ok(())
 }
 
@@ -608,9 +785,12 @@ pub fn save(path: &Path, cfg: &ConfigFile) -> Result<()> {
         DEFAULT_TOML.to_owned()
     };
 
-    let mut doc = existing
-        .parse::<DocumentMut>()
-        .unwrap_or_else(|_| DocumentMut::new());
+    let mut doc = existing.parse::<DocumentMut>().with_context(|| {
+        format!(
+            "parse existing config {}; repair it before saving",
+            path.display()
+        )
+    })?;
 
     ensure_table(&mut doc, "server");
     ensure_table(&mut doc, "auth");
@@ -735,7 +915,7 @@ pub fn save(path: &Path, cfg: &ConfigFile) -> Result<()> {
         table.insert("ignore", value(arr));
     }
 
-    fs::write(path, doc.to_string()).with_context(|| format!("write config {}", path.display()))?;
+    atomic_write(path, &doc.to_string())?;
     tracing::debug!(path = %path.display(), "config section values applied and saved");
     Ok(())
 }
@@ -778,6 +958,76 @@ fn set_optional_str(table_item: &mut Item, key: &str, val: Option<&str>) {
 #[allow(clippy::unwrap_used, clippy::expect_used, reason = "unit tests")]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reading_wine_settings_does_not_change_process_environment() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let path = tmp.path().join("config.toml");
+        let before_exe = std::env::var_os("TDMCP_WINE_EXE");
+        let before_prefix = std::env::var_os("TDMCP_WINE_PREFIX");
+        let mut cfg = ConfigFile::default();
+        cfg.official_tools.wine_exe = Some("/test/runner".into());
+        cfg.official_tools.wine_prefix = Some("/test/prefix".into());
+        save(&path, &cfg).expect("save");
+        assert_eq!(load(&path).expect("load"), cfg);
+        assert_eq!(std::env::var_os("TDMCP_WINE_EXE"), before_exe);
+        assert_eq!(std::env::var_os("TDMCP_WINE_PREFIX"), before_prefix);
+    }
+
+    #[test]
+    fn patch_rejects_unknown_invalid_and_duplicate_settings() {
+        let cfg = ConfigFile::default();
+        for patch in [
+            serde_json::json!({"bridge": {"callTimeoutSecs": "50"}}),
+            serde_json::json!({"bridge": {"callTimeoutSecs": 0}}),
+            serde_json::json!({"bridge": {"callTimeoutSecs": 50, "call_timeout_secs": 60}}),
+            serde_json::json!({"bridge": {"callTimoutSecs": 50}}),
+            serde_json::json!({"bridge": []}),
+            serde_json::json!({"auth": {"mode": "typo"}}),
+            serde_json::json!({"federation": {"role": "slave", "masterUrl": "file:///tmp/test"}}),
+        ] {
+            assert!(merge_patch(&cfg, &patch).is_err(), "{patch}");
+        }
+        let updated = merge_patch(&cfg, &serde_json::json!({"bridge": {"callTimeoutSecs": 90}, "project": {"template_path": "/tmp/new.toe"}})).unwrap();
+        assert_eq!(updated.bridge.call_timeout_secs, 90);
+        assert_eq!(
+            updated.project.template_path,
+            Some(PathBuf::from("/tmp/new.toe"))
+        );
+        assert!(restart_required_fields(&cfg, &updated).is_empty());
+        assert_eq!(
+            merge_patch(&cfg, &diff(&cfg, &updated).unwrap()).unwrap(),
+            updated
+        );
+    }
+
+    #[test]
+    fn save_does_not_destroy_malformed_config() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        fs::write(&path, "[broken").unwrap();
+        assert!(save(&path, &ConfigFile::default()).is_err());
+        assert_eq!(fs::read_to_string(path).unwrap(), "[broken");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn saved_secrets_are_private_and_permissions_survive_replacement() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        save(&path, &ConfigFile::default()).unwrap();
+        assert_eq!(
+            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o640)).unwrap();
+        save(&path, &ConfigFile::default()).unwrap();
+        assert_eq!(
+            fs::metadata(path).unwrap().permissions().mode() & 0o777,
+            0o640
+        );
+    }
     use tempfile::tempdir;
 
     #[test]

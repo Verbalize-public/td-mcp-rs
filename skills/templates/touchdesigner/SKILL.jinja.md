@@ -1,218 +1,89 @@
 ---
 name: touchdesigner
 description: >-
-  TouchDesigner operate umbrella for td-mcp-rs.
-  MUST READ before any TouchDesigner work: inspecting, creating, wiring,
-  or mutating nodes/networks/components/parameters, elaborating a plan,
-  writing Python, or porting GLSL for TouchDesigner.
+  Inspect, build, debug, and capture TouchDesigner projects through td-mcp-rs.
+  Use for live operators, parameters, Python, GLSL, Palette components, and
+  .toe/.tox project operations when the td-mcp-rs tools are available.
 ---
 
 # TouchDesigner (td-mcp-rs)
 
-This skill is the sole TD entrypoint — read this body before other TD cards.
-Also available as {{ skill("operate") }}.
+Use live evidence to choose the next operation. Read the references relevant
+to the task; there is no need to load the entire manual.
 
-## Quick tool routing
+## Working loop
 
-| Task | Tool |
-|------|------|
-| List TD processes, pick a `pid` | `fleet` |
-| Where is the user looking / selection | `editor_context` (hint only) |
-| Structure / params / errors / network | `inspect` (**default** — `paths[]` required) |
-| DAT text/table bodies / GLSL sources | `inspect` with `include: ["content"]` (opt-in; follows GLSL DAT refs; reports shader compile status) |
-| Create / set / delete / wire / **write DAT text** | `mutate_nodes` (`text` on create/set auto-lints consuming shaders in the return) |
-| Stock component exists for this? Find / place one | `palette_index` → `mutate_nodes` `place` — {{ skill("palette") }} |
-| Describe *why* a node exists / read that back | `mutate_nodes` `comment` on create/set; `inspect` returns it — {{ skill("node-comments") }} |
-| Arbitrary Python (not network walks) | `execute_python` — see hard rules |
-| Perception / look claims | `capture` |
-| TD Python / opType cards | `api_help` |
-| Tool manifest | `describe_tools` |
-| No TD running / start or stop one | `spawn_td` / `kill_td` — {{ skill("lifecycle") }} |
-| Calls stalling, TD wedged, startup modal | `dialogs` — {{ skill("popups") }} |
-| Offline `.toe`/`.tox`, installs, bridge install | `td_installs` / `project_unpack` / `project_pack` / `project_lint` / `project_install_bridge` — {{ skill("project-io") }} |
-| Build / refresh palette knowledge, blacklist a bad comp | `palette_probe` + `palette_index` `describe` — {{ skill("palette-scan") }} |
-| On-demand operate cards | {% if _mode == "filesystem" %}open the card's `.md` file (Resource index below){% else %}MCP `resources/read` `tdmcp://docs/<id>`{% endif %} |
+1. Call `fleet`. Select the intended connected `pid`; include `daemonId`
+   for a remote or ambiguous target. Inspect the project/path before editing.
+   If the task needs a new process, use `spawn_td` and
+   {{ skill("lifecycle") }}.
+2. Use `inspect` for structure, parameters, wires, and errors. Add
+   `include: ["content"]` for DAT text and shader sources.
+   `editor_context` supplies a location hint, not permission to edit.
+3. Apply changes with `mutate_nodes`. Keep bridged calls sequential on each
+   pid. Explain a complex or branched network with OpSketch before building;
+   a small parameter fix needs no separate design ceremony.
+4. Inspect the changed parent COMP. For visual claims, capture the output
+   and examine the image. Report observed failures and unverified behavior
+   separately; successful execution alone does not prove the result.
 
-Lookup routing: exact opType/class → `api_help`; parameter **names** on an
-existing node → `inspect`; conceptual family → tables below +
-{{ skill("operator-families") }}. Network understanding → always `inspect`
-first.
+## Choose the tool
 
-## Target identification
+| Need | Tool / reference |
+| --- | --- |
+| Processes and connection state | `fleet` |
+| Parameters, hierarchy, wires, DAT text, errors | `inspect` |
+| Create, set, delete, connect, place a .tox, write DAT text | `mutate_nodes` |
+| Exact operator types and Python members | `api_help` |
+| Python beyond the structured tools | `execute_python`; read {{ skill("python-api") }} first |
+| Rendered output or CHOP samples | `capture`; {{ skill("look-grade") }} |
+| Stock components | `palette_index` → `mutate_nodes` with `op: "place"`; {{ skill("palette") }} |
+| Start / stop TouchDesigner | `spawn_td` / `kill_td`; {{ skill("lifecycle") }} |
+| Blocking dialogs | `dialogs`; {{ skill("popups") }} |
+| Offline projects and bridge installation | {{ skill("project-io") }} |
+| Tool schemas | `describe_tools` |
 
-1. `fleet` → pick a connected `pid` (and `daemonId` when the fleet shows multiple daemons). Pass `pid` on every call; pass `daemonId` when federated / ambiguous.
-   No connected pid? Start one with `spawn_td` — never wait for a human.
-   Depth: {{ skill("lifecycle") }}.
-2. Resolve a mutation zone: prefer a self-created named COMP over polluting an
-   existing network; user-named subtree; or `editor_context` `ownerPath` as a
-   **hint only** — confirm with `inspect` before mutating. Depth:
-   {{ skill("mutation-zones") }}.
-3. Prefer `detailLevel: summary` / `diagnosticLevel: summary`. Store-first for
-   `capture` — only inject image artifacts when the current model can see them;
-   otherwise delegate to a vision-capable helper. Depth:
-   {{ skill("look-grade") }}.
+## Constraints that prevent common failures
 
-## Operator families (quick table)
+- Use explicit pids; there is no persistent selected target.
+- Keep bridged requests sequential per pid. Busy means wait, not reconnect.
+  Read {{ skill("tooling-concurrency") }} for queue/recovery behavior.
+- Confirm the target subtree. Keep experiments in a named COMP and limit
+  edits to the user's task. See {{ skill("mutation-zones") }}.
+- Prefer structured tools over Python network walks. In `execute_python`,
+  use `td.noiseTOP` or a type string; `me`, bare `parent`, and bare operator
+  classes are not injected.
+- Check the Palette before building a substantial subsystem that may
+  already exist. Explain non-obvious nodes with `comment`.
+- Reusable COMPs use relative references and In/Out operators.
+- Check play state when updates or captures appear stale.
+- After three failed probes without new evidence, stop repeating them and
+  report the blocker. A new diagnosis can justify a different probe.
 
-| Family | Data | Runs on | Reach for it when |
-|--------|------|---------|-------------------|
-| **TOP** | images/textures | GPU | video, compositing, feedback, shaders, output |
-| **CHOP** | channels | CPU (some GPU) | motion, audio, control, LFOs, device I/O |
-| **POP** | points + attributes | GPU | 3D geometry, particles — modern 3D default |
-| **SOP** | polygons/surfaces | CPU | legacy 3D meshes, booleans, NURBS |
-| **DAT** | text/tables | CPU | scripts, callbacks, config |
-| **MAT** | materials | GPU | shading rendered geometry |
-| **COMP** | networks/containers | — | structure, UI, 3D scene |
+## References by task
 
-Pull-based cook: a node cooks only when downstream needs it *and* an
-input/parameter changed. Moving values: expression > export > bind > script.
-Depth: {{ skill("operator-families") }} / {{ skill("primer/cook-and-families") }}.
-
-## Hard rules
-
-### Sequential bridged tools
-
-- Call bridged tools **one at a time**; wait for each result before the next.
-- `fleet` / `describe_tools` stay available during an in-flight call.
-- On `tdmcp.mcp.session_busy` or `tdmcp.bridge.queue_busy`: wait, then retry —
-  do **not** disconnect or restart. After 3 consecutive failures, hand off to
-  the user.
-
-Depth: {{ skill("tooling-concurrency") }}.
-
-### OpSketch before non-trivial networks — HARD RULE
-
-When thinking about, planning, building, or mutating a network of more than
-3 nodes (or any non-trivial operator: COMP hub, multi-family chain, data-flow
-with branches), **describe it in OpSketch first** — before creating or
-mutating anything. Use the sketch to validate the design, then build from it.
-
-Depth: {{ skill("opsketch-notation") }} (+ gating, examples).
-
-### `inspect` over `execute_python` for networks — HARD RULE
-
-`inspect` is the primary tool for network analysis. Do **not** use
-`execute_python` as the main network inspector. For DAT `.text` bodies and
-GLSL shader sources, prefer `inspect` with `include: ["content"]` (follows
-shader DAT refs + `compileResult`; DAT content also reports shader
-`consumers[]` compile status) over hand-rolled Python reads. After any
-mutation pass, a **final `inspect` on the touched network parent** is mandatory
-before claiming done.
-
-### Comment what you build — HARD RULE
-
-Every operator you create that is not self-evident gets a `comment` in the
-**same `mutate_nodes` batch that creates it** — COMP hubs, terminal nulls that
-other nodes reference, feedback loops, magic constants, GLSL ops, DAT
-callbacks. `opType` and node name say what a node *is*; the comment is the only
-place *why* survives the end of this session. `inspect` returns comments on
-every node and on each child-roster entry, so reading an unfamiliar network
-starts there. Depth: {{ skill("node-comments") }}.
-
-### Python cheatsheet before Python — HARD RULE
-
-Before `execute_python` or any TD expression/script, **{{ skill_read("python-api") }}** in this turn. Exact live names still go through
-`api_help`.
-
-### Look in the Palette before hand-building — HARD RULE
-
-Before building any non-trivial subsystem — particles, audio analysis, a widget
-set, a video player, a mapper — check `palette_index` for a stock component
-first. Derivative ships hundreds of them, already debugged and already carrying
-a designed custom-parameter API. Hand-building what the Palette already has is
-the most expensive mistake available here. Depth: {{ skill("palette") }}.
-
-### In/Out operator harness — HARD RULE
-
-Reusable COMP boundaries use dedicated In/Out operators — never path-parameter
-inputs or reaching into another COMP's internals. Depth:
-{{ skill("component-checklist") }}.
-
-### Relative references — HARD RULE
-
-Never use absolute `/project1/...` inside a reusable network. Prefer relative
-paths: `parent().par.Foo`, `parent().op('null_out')`, bare sibling names,
-`./child`, `../cousin`. Depth: {{ skill("network-design") }}.
-
-### Play state before "why isn't it updating" — HARD RULE
-
-Paused transport stalls most cooks; captures can look stale. Check play state
-before debugging a network or grading a capture. Depth:
-{{ skill("play-state") }}.
-
-## Custom component basics
-
-Custom parameters are the COMP **control** API — small, curated, page-grouped.
-In/Out ops create wiring pins; do not duplicate them as OP-path parameters.
-Before scripting custom pars: {{ skill_read("custom-parameters") }}.
-Packaging / About / reuse: {{ skill("component-checklist") }}.
-
-## Threading & pipeline
-
-TD Python runs on the main thread only — use `run(code, delayFrames=0)` to hand
-work back safely. See also {{ skill("play-state") }} and
-{{ skill("primer/scripting-surfaces") }}.
-
-## Python / scripting quick intro
-
-**Gate:** {{ skill_read("python-api") }} before any `execute_python` or authored
-expression — it documents the sandbox scope (`td` / `op` / `result` / closed
-aliases; no `me` / `parent` / bare opTypes), `.eval()` discipline, and the
-create/wire pattern. Prefer `editor_context` for pane/selection; `inspect` for
-network rosters.
-
-## GLSL awareness (quick)
-
-Frag-only → GLSL TOP; vert+frag → GLSL MAT; multi-buffer → one TOP per buffer +
-Feedback. Everything else — bridge wrapper, uniforms, res traps, port
-procedure — lives in {{ skill("glsl") }}, {{ skill("td-glsl-ground-truth") }},
-{{ skill("shadertoy-conversion") }}, and {{ skill("primer/glsl-and-render") }}.
-
-## Definition of Done
-
-Observable runtime evidence only — never PASS from code or docs alone.
-Doubt → **FAIL**.
-
-| Verdict | Meaning |
-|---------|---------|
-| `PASS` | Evidence matches claim |
-| `FAIL` | Evidence contradicts claim (incl. black frame) |
-| `BLOCKED` | Surface unreachable / capture unreadable |
-| `SKIP` | No runtime surface, or deliberate cost-reduction |
-
-Depth: {{ skill("definition-of-done") }} (full checklist + doubt rules).
-Look claims: {{ skill("look-grade") }}.
-
-## Resource index (deepen here)
-
-| Need | Resource |
-|------|----------|
-| This umbrella | {{ skill("operate") }} |
-| OpSketch | {{ skill("opsketch-notation") }} (+ gating, examples) |
-| Python | {{ skill("python-api") }} |
-| Custom pars | {{ skill("custom-parameters") }} |
-| Mutation zones | {{ skill("mutation-zones") }} |
-| Network / relative refs | {{ skill("network-design") }} |
-| Operator comments | {{ skill("node-comments") }} |
-| Components | {{ skill("component-checklist") }} |
-| Families | {{ skill("operator-families") }} |
-| POP | {{ skill("pops") }} |
-| GLSL dialect | {{ skill("glsl") }} |
-| Shadertoy port | {{ skill("shadertoy-conversion") }} |
-| GLSL traps | {{ skill("td-glsl-ground-truth") }} |
-| Structural DoD | {{ skill("definition-of-done") }} |
-| Look / capture | {{ skill("look-grade") }} |
-| Parallel / session_busy | {{ skill("tooling-concurrency") }} |
-| Paused / stale | {{ skill("play-state") }} |
-| Cook / families depth | {{ skill("primer/cook-and-families") }} |
-| Editor / layout | {{ skill("primer/editor-and-layout") }} |
-| Params / channels | {{ skill("primer/parameters-and-channels") }} |
-| Scripting surfaces | {{ skill("primer/scripting-surfaces") }} |
-| tox / toe | {{ skill("primer/tox-toe-components") }} |
-| GLSL / render chain | {{ skill("primer/glsl-and-render") }} |
+| Task | Read |
+| --- | --- |
+| Plan a network | {{ skill("opsketch-notation") }}, {{ skill("network-design") }} |
+| Explain design intent | {{ skill("node-comments") }} |
+| Build a reusable component | {{ skill("component-checklist") }}, {{ skill("custom-parameters") }} |
+| Choose an operator family | {{ skill("operator-families") }} |
+| GPU geometry and particles | {{ skill("pops") }} |
+| Write / port shaders | {{ skill("glsl") }}, {{ skill("td-glsl-ground-truth") }}, {{ skill("shadertoy-conversion") }} |
+| Verify the result | {{ skill("definition-of-done") }}, {{ skill("look-grade") }} |
+| Paused / stale output | {{ skill("play-state") }} |
+| Curate the Palette library | {{ skill("palette-scan") }} |
+| Cook behavior | {{ skill("primer/cook-and-families") }} |
+| Editor layout | {{ skill("primer/editor-and-layout") }} |
+| Parameters and channels | {{ skill("primer/parameters-and-channels") }} |
+| Scripts and callbacks | {{ skill("primer/scripting-surfaces") }} |
+| Project / component files | {{ skill("primer/tox-toe-components") }} |
+| Render pipelines | {{ skill("primer/glsl-and-render") }} |
 | Performance | {{ skill("primer/performance") }} |
-| Spawn / kill TD | {{ skill("lifecycle") }} |
-| Popup triage | {{ skill("popups") }} |
-| Offline project I/O | {{ skill("project-io") }} |
-| Palette components | {{ skill("palette") }} |
-| Palette scan / describe | {{ skill("palette-scan") }} |
+
+## Related
+
+- {{ skill("operate") }} — this entry point
+- {{ skill("python-api") }} — scripting scope and API details
+
+**Canonical:** {{ skill("operate") }}

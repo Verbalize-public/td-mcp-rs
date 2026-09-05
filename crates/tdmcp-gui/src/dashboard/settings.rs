@@ -11,16 +11,25 @@ use crate::theme::{
 use crate::wire::ScanPurpose;
 
 /// Fixed label-column width for `row_wide`.
-const LABEL_COL_W: f32 = 266.0;
+const LABEL_COL_W: f32 = 190.0;
 
-pub(crate) fn settings(app: &mut DashboardApp, ui: &mut egui::Ui) {
+fn settings_actions(app: &mut DashboardApp, ui: &mut egui::Ui) {
+    if app.settings_save.is_running() {
+        ui.horizontal(|ui| {
+            ui.spinner();
+            ui.label("Saving settings…");
+        });
+    }
     let dirty = app.config_dirty();
 
-    // Action toolbar: Reset · Discard left, unsaved-changes pill + Save right.
-    ui.horizontal(|ui| {
-        if ghost_button(ui, "Reset to defaults", TEXT_DIM, WARN).clicked() {
-            app.reset_settings();
-        }
+    // Save first, with wrapping: critical controls must stay reachable even
+    // when the OS gives us less than the requested minimum window width.
+    ui.horizontal_wrapped(|ui| {
+        ui.add_enabled_ui(dirty, |ui| {
+            if filled_button(ui, "Save").clicked() {
+                app.save_settings();
+            }
+        });
         ui.add_enabled_ui(dirty, |ui| {
             if ghost_button(ui, "Discard changes", TEXT_DIM, TEXT).clicked() {
                 app.discard_settings();
@@ -30,13 +39,9 @@ pub(crate) fn settings(app: &mut DashboardApp, ui: &mut egui::Ui) {
         if dirty {
             let _ = crate::theme::badge(ui, "unsaved changes", crate::theme::BadgeKind::Warn);
         }
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.add_enabled_ui(dirty, |ui| {
-                if filled_button(ui, "Save").clicked() {
-                    app.save_settings();
-                }
-            });
-        });
+        if ghost_button(ui, "Reset to defaults", TEXT_DIM, WARN).clicked() {
+            app.reset_settings();
+        }
     });
 
     // Sticky one-click restart prompt after a restart-requiring save.
@@ -50,14 +55,46 @@ pub(crate) fn settings(app: &mut DashboardApp, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             if filled_button(ui, "Restart to apply").clicked() {
                 app.restart_daemon();
-                app.needs_restart = false;
-            }
-            if ghost_button(ui, "Dismiss", TEXT_DIM, TEXT).clicked() {
-                app.needs_restart = false;
             }
         });
     }
+    if let Some(err) = &app.settings_error {
+        ui.colored_label(ERR, err);
+    }
     ui.add_space(8.0);
+}
+
+pub(crate) fn federation(app: &mut DashboardApp, ui: &mut egui::Ui) {
+    settings_actions(app, ui);
+    if let Some(status) = &app.status {
+        if !status.federation_connection.is_empty() {
+            ui.label(
+                egui::RichText::new(&status.federation_connection)
+                    .font(font_label())
+                    .color(TEXT),
+            );
+            ui.add_space(8.0);
+        }
+    } else {
+        banner(
+            ui,
+            BannerTone::Warn,
+            "Daemon unreachable — connection status unavailable",
+        );
+    }
+    egui::ScrollArea::vertical().id_salt("federation_settings").auto_shrink(false).show(ui, |ui| {
+        section_card(ui, "CONNECT COMPUTERS", false, |ui| federation_card(app, ui));
+        let restart = app.draft.server != app.settings_loaded_snapshot.server
+            || app.draft.auth != app.settings_loaded_snapshot.auth;
+        section_card(ui, "NETWORK ACCESS", restart, |ui| network_card(app, ui));
+        ui.label(egui::RichText::new(
+            "Joined computers and their TouchDesigner processes appear in Overview. Sharing gives remote clients control of this computer: use a trusted network and an access key."
+        ).font(font_meta()).color(TEXT_DIM));
+    });
+}
+
+pub(crate) fn settings(app: &mut DashboardApp, ui: &mut egui::Ui) {
+    settings_actions(app, ui);
 
     // Which sections hold restart-required fields that differ from the
     // loaded snapshot (mirrors restart_required_fields_changed).
@@ -66,11 +103,9 @@ pub(crate) fn settings(app: &mut DashboardApp, ui: &mut egui::Ui) {
     let network_restart = d.server.bind_address != l.server.bind_address
         || d.auth.mode != l.auth.mode
         || d.auth.psk != l.auth.psk;
-    let fed_restart = d.federation.role != l.federation.role
-        || d.federation.master_url != l.federation.master_url
-        || d.federation.master_psk != l.federation.master_psk;
 
     egui::ScrollArea::vertical()
+        .id_salt("general_settings")
         .auto_shrink(false)
         .show(ui, |ui| {
             section_card(ui, "GENERAL", false, |ui| {
@@ -84,14 +119,11 @@ pub(crate) fn settings(app: &mut DashboardApp, ui: &mut egui::Ui) {
                 );
                 ui.label(
                     egui::RichText::new(
-                        "Some changes need a restart — you'll get a one-click prompt after saving.",
+                        "Federation, call timeouts and keep alive apply when saved. Network listeners and advanced process settings need a restart.",
                     )
                     .font(font_meta())
                     .color(TEXT_DIM),
                 );
-                if let Some(err) = &app.settings_error {
-                    ui.colored_label(ERR, err.clone());
-                }
             });
 
             section_card(ui, "SERVER", server_restart, |ui| {
@@ -105,7 +137,6 @@ pub(crate) fn settings(app: &mut DashboardApp, ui: &mut egui::Ui) {
             });
 
             section_card(ui, "NETWORK", network_restart, |ui| network_card(app, ui));
-            section_card(ui, "FEDERATION", fed_restart, |ui| federation_card(app, ui));
 
             section_card(ui, "DAEMON", false, |ui| {
                 row_wide(
@@ -407,12 +438,7 @@ fn network_card(app: &mut DashboardApp, ui: &mut egui::Ui) {
         "Auth PSK (optional)",
         "Leave blank to allow anyone on your network to connect. Set a PSK to require it.",
         |ui| {
-            let resp = ui.add_sized(
-                egui::vec2(ui.available_width().min(320.0), 22.0),
-                egui::TextEdit::singleline(&mut app.draft.auth.psk)
-                    .font(font_mono())
-                    .password(!app.show_psk),
-            );
+            let resp = secret_edit(ui, &mut app.draft.auth.psk, &mut app.show_psk, true);
             if resp.changed() {
                 app.draft.auth.mode = if app.draft.auth.psk.trim().is_empty() {
                     "none"
@@ -420,22 +446,6 @@ fn network_card(app: &mut DashboardApp, ui: &mut egui::Ui) {
                     "psk"
                 }
                 .to_owned();
-            }
-            if ghost_button(
-                ui,
-                if app.show_psk { "hide" } else { "show" },
-                TEXT_DIM,
-                TEXT,
-            )
-            .clicked()
-            {
-                app.show_psk = !app.show_psk;
-            }
-            if ghost_button(ui, "copy", TEXT_DIM, ACCENT)
-                .on_hover_text("Copy to clipboard — paste into another machine's Master PSK")
-                .clicked()
-            {
-                ui.ctx().copy_text(app.draft.auth.psk.clone());
             }
         },
     );
@@ -482,7 +492,7 @@ fn federation_card(app: &mut DashboardApp, ui: &mut egui::Ui) {
         "Role",
         DashboardApp::field_help("federation.role"),
         |ui| {
-            const OPTIONS: [&str; 3] = ["Solo", "Master", "Join master"];
+            const OPTIONS: [&str; 3] = ["This computer", "Coordinate", "Join"];
             const ROLES: [&str; 3] = ["standalone", "master", "slave"];
             let current = app.draft.federation.role.clone();
             let selected = ROLES.iter().position(|r| *r == current).unwrap_or(0);
@@ -493,13 +503,24 @@ fn federation_card(app: &mut DashboardApp, ui: &mut egui::Ui) {
                 if i > 0 && tdmcp_config::is_loopback_bind(&app.draft.server.bind_address) {
                     app.set_sharing(true);
                     app.role_change_note = Some(
-                        "network sharing enabled · role change applies after restart".to_owned(),
+                        "Network sharing enabled. Restart once to open the LAN listener; later federation changes apply on Save.".to_owned(),
                     );
                 } else {
-                    app.role_change_note = Some("role change applies after restart".to_owned());
+                    app.role_change_note = Some("Federation changes apply when saved.".to_owned());
                 }
             }
         },
+    );
+    ui.label(
+        egui::RichText::new(match app.draft.federation.role.as_str() {
+            "master" => {
+                "Connect your AI client here to control TouchDesigner on every joined computer."
+            }
+            "slave" => "Share this computer's TouchDesigner instances with a coordinator.",
+            _ => "Control TouchDesigner on this computer only.",
+        })
+        .font(font_meta())
+        .color(TEXT_DIM),
     );
     if let Some(note) = &app.role_change_note {
         ui.label(
@@ -530,7 +551,7 @@ fn federation_card(app: &mut DashboardApp, ui: &mut egui::Ui) {
         row_wide(
             ui,
             "This machine's URL",
-            "Share with a machine that wants to join as a slave.",
+            "Share with a computer that wants to join this coordinator.",
             |ui| {
                 ui.label(
                     egui::RichText::new(&this_url)
@@ -551,14 +572,14 @@ fn federation_card(app: &mut DashboardApp, ui: &mut egui::Ui) {
                         .font(font_meta())
                         .color(TEXT_DIM),
                 );
-            } else if ghost_button(ui, "Scan for masters", TEXT_DIM, ACCENT).clicked() {
+            } else if ghost_button(ui, "Find coordinators", TEXT_DIM, ACCENT).clicked() {
                 app.start_scan(tdmcp_config::DEFAULT_PORT, ScanPurpose::JoinMaster);
             }
         });
         app.draw_scan_results(ui, ScanPurpose::JoinMaster);
         row_wide(
             ui,
-            "Master URL",
+            "Coordinator URL",
             DashboardApp::field_help("federation.master_url"),
             |ui| {
                 ui.add_sized(
@@ -570,34 +591,24 @@ fn federation_card(app: &mut DashboardApp, ui: &mut egui::Ui) {
         );
         row_wide(
             ui,
-            "Master PSK (optional)",
+            "Coordinator key",
             DashboardApp::field_help("federation.master_psk"),
             |ui| {
-                let resp = ui.add_sized(
-                    egui::vec2(ui.available_width().min(280.0), 22.0),
-                    egui::TextEdit::singleline(&mut app.draft.federation.master_psk)
-                        .font(font_mono())
-                        .password(!app.show_master_psk),
+                let resp = secret_edit(
+                    ui,
+                    &mut app.draft.federation.master_psk,
+                    &mut app.show_master_psk,
+                    false,
                 );
                 if app.focus_master_psk {
                     resp.request_focus();
                     app.focus_master_psk = false;
                 }
-                if ghost_button(
-                    ui,
-                    if app.show_master_psk { "hide" } else { "show" },
-                    TEXT_DIM,
-                    TEXT,
-                )
-                .clicked()
-                {
-                    app.show_master_psk = !app.show_master_psk;
-                }
             },
         );
         ui.label(
             egui::RichText::new(
-                "Only needed if the master requires a PSK — copy it from the master's Settings, Federation card.",
+                "Only needed if the coordinator requires a key. Copy its incoming key from Federation → Network access.",
             )
             .font(font_meta())
             .color(TEXT_DIM),
@@ -619,6 +630,7 @@ fn section_card(
         .corner_radius(egui::CornerRadius::same(6))
         .inner_margin(egui::Margin::same(14))
         .show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
             ui.horizontal(|ui| {
                 ui.label(
                     egui::RichText::new(title)
@@ -636,8 +648,17 @@ fn section_card(
     ui.add_space(10.0);
 }
 
-/// Wide settings row: fixed label column, control fills the rest.
+/// Two columns when there is room; stack label/control on narrow windows.
 fn row_wide(ui: &mut egui::Ui, label: &str, help: &str, add: impl FnOnce(&mut egui::Ui)) {
+    if ui.available_width() < 480.0 {
+        ui.vertical(|ui| {
+            ui.label(egui::RichText::new(label).font(font_label()).color(TEXT))
+                .on_hover_text(help);
+            ui.horizontal_wrapped(add);
+        });
+        ui.add_space(8.0);
+        return;
+    }
     let h = 30.0;
     let full = ui.available_width();
     let (rect, response) = ui.allocate_exact_size(egui::vec2(full, h), egui::Sense::hover());
@@ -674,4 +695,70 @@ fn path_edit_wide(ui: &mut egui::Ui, text: &mut String, read_only: bool) {
             .font(font_mono())
             .interactive(!read_only),
     );
+}
+
+/// Reserve action widths before sizing the input, so keys remain editable on
+/// narrow windows and high-DPI desktops without clipping show/copy controls.
+fn secret_edit(
+    ui: &mut egui::Ui,
+    value: &mut String,
+    shown: &mut bool,
+    copy: bool,
+) -> egui::Response {
+    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        if copy && ghost_button(ui, "copy", TEXT_DIM, ACCENT).clicked() {
+            ui.ctx().copy_text(value.clone());
+        }
+        if ghost_button(ui, if *shown { "hide" } else { "show" }, TEXT_DIM, TEXT).clicked() {
+            *shown = !*shown;
+        }
+        ui.add_sized(
+            egui::vec2(ui.available_width().max(24.0), 22.0),
+            egui::TextEdit::singleline(value)
+                .font(font_mono())
+                .password(!*shown),
+        )
+    })
+    .inner
+}
+
+#[cfg(test)]
+mod layout_tests {
+    use super::*;
+
+    #[test]
+    fn form_controls_stay_inside_narrow_and_wide_rows() {
+        for width in [260.0, 320.0, 480.0, 800.0] {
+            let ctx = egui::Context::default();
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(width, 400.0),
+                )),
+                ..Default::default()
+            };
+            let _ = ctx.run_ui(input, |ui| {
+                egui::CentralPanel::default().show(ui, |ui| {
+                    let bounds = ui.available_rect_before_wrap();
+                    row_wide(ui, "Wine executable", "Runner path", |ui| {
+                        let rect = ui
+                            .add_sized(
+                                egui::vec2(ui.available_width(), 22.0),
+                                egui::TextEdit::singleline(&mut String::new()),
+                            )
+                            .rect;
+                        assert!(rect.width() > 0.0);
+                        assert!(rect.left() >= bounds.left());
+                        assert!(rect.right() <= bounds.right() + 0.1);
+                        if bounds.width() < 480.0 {
+                            assert!(
+                                rect.left() - bounds.left() < 1.0,
+                                "narrow form did not stack"
+                            );
+                        }
+                    });
+                });
+            });
+        }
+    }
 }

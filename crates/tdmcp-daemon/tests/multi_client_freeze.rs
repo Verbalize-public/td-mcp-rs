@@ -96,22 +96,20 @@ impl TestDaemon {
 
 fn pick_free_port() -> u16 {
     if let Ok(p) = std::env::var("TDMCP_FREEZE_PORT") {
-        if let Ok(port) = p.trim().parse::<u16>() {
+        if let Some(port) = p.trim().parse::<u16>().ok().filter(|port| *port > 0) {
             return port;
         }
     }
-    std::net::TcpListener::bind("127.0.0.1:0")
-        .expect("probe port")
-        .local_addr()
-        .expect("local addr")
-        .port()
+    tdmcp_test_support::unique_test_port().expect("unique test port")
 }
 
 /// Bridge port for the daemon: free and distinct from its HTTP port (a
 /// conflicting bridge bind fatally exits the daemon, T-3).
 fn free_ipc_port(http_port: u16) -> u16 {
     loop {
-        let port = pick_free_port();
+        // TDMCP_FREEZE_PORT overrides HTTP only. Reusing pick_free_port here
+        // would return that same override forever and hang before startup.
+        let port = tdmcp_test_support::unique_test_port().expect("bridge port");
         if port != http_port {
             return port;
         }

@@ -146,7 +146,7 @@ Nothing open, nothing set up.
 For this level, point `[project] template_path` in `config.toml` at a template
 `.toe` that already contains the bridge — then *"make a new project"* gives
 the assistant a project it can immediately work in. See
-[`CONFIG.md`](CONFIG.md#project-template-create-new).
+[`CONFIG.md`](CONFIG.md#common-settings).
 
 ---
 
@@ -182,7 +182,7 @@ that isn't there, and loading one can hang TouchDesigner:
 > *"Blacklist that component so you never load it again."*
 
 A handful of known-problematic ones are excluded by default. The list is yours
-to edit; see [`CONFIG.md`](CONFIG.md#palette).
+to edit; see [`CONFIG.md`](CONFIG.md#common-settings).
 
 ---
 

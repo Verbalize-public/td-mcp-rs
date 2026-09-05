@@ -142,6 +142,7 @@ fn copy_binary(src: &Path, out_dir: &Path) -> Result<PathBuf> {
 fn build_release_daemon_with_gui(workspace: &Path, target: Option<&str>) -> Result<PathBuf> {
     let mut args = vec![
         "build".to_string(),
+        "--locked".to_string(),
         "--release".to_string(),
         "-p".to_string(),
         "tdmcp-daemon".to_string(),
@@ -268,7 +269,7 @@ fn package(target: Option<String>, out: PathBuf) -> Result<()> {
     let version = parse_workspace_version(&toml)?;
 
     let stem = artifact_stem(&version, &triple);
-    let archive = stage_and_compress(&bin_src, &out_dir, &stem)?;
+    let archive = stage_and_compress(&bin_src, &workspace.join("LICENSE"), &out_dir, &stem)?;
     println!("{}", archive.display());
 
     let sums = rewrite_sha256_sums(&out_dir)?;
@@ -286,20 +287,27 @@ fn resolve_out_dir(workspace: &Path, out: &Path) -> PathBuf {
     }
 }
 
-/// Copy the binary into a staging dir (archive root layout: one `tdmcp-daemon`)
-/// and compress it with the platform's built-in archiver.
+/// Stage the binary and project license, then compress with the native archiver.
 ///
 /// No zip/tar crates on purpose: GitHub runners and dev boxes both ship
 /// `Compress-Archive` / bsdtar, and a dependency-free xtask builds fast in CI.
-fn stage_and_compress(bin_src: &Path, out_dir: &Path, stem: &str) -> Result<PathBuf> {
-    let stage = out_dir.join(format!(".stage-{stem}"));
-    let _ = fs::remove_dir_all(&stage);
-    fs::create_dir_all(&stage)
-        .with_context(|| format!("create staging dir {}", stage.display()))?;
+fn stage_and_compress(
+    bin_src: &Path,
+    license_src: &Path,
+    out_dir: &Path,
+    stem: &str,
+) -> Result<PathBuf> {
+    let staging = tempfile::Builder::new()
+        .prefix(".package-")
+        .tempdir_in(out_dir)?;
+    let stage = staging.path();
 
     let staged_bin = stage.join(release_binary_name("tdmcp-daemon"));
     fs::copy(bin_src, &staged_bin)
         .with_context(|| format!("copy {} → {}", bin_src.display(), staged_bin.display()))?;
+    let staged_license = stage.join("LICENSE");
+    fs::copy(license_src, &staged_license)
+        .with_context(|| format!("copy project license {}", license_src.display()))?;
 
     let is_windows = cfg!(windows);
     let archive_name = if is_windows {
@@ -308,19 +316,23 @@ fn stage_and_compress(bin_src: &Path, out_dir: &Path, stem: &str) -> Result<Path
         format!("{stem}.tar.gz")
     };
     let archive = out_dir.join(&archive_name);
-    let _ = fs::remove_file(&archive);
+    let temporary = tempfile::Builder::new()
+        .prefix(".archive-")
+        .suffix(if is_windows { ".zip" } else { ".tar.gz" })
+        .tempfile_in(out_dir)?
+        .into_temp_path();
 
     let status = if is_windows {
-        // `\*` — archive the CONTENTS at zip root, not the staging folder itself.
+        // Pass paths as data, not PowerShell source; apostrophes and wildcard
+        // characters in a user's checkout must not change the command.
         Command::new("pwsh")
+            .env("TDMCP_PACKAGE_BINARY", &staged_bin)
+            .env("TDMCP_PACKAGE_LICENSE", &staged_license)
+            .env("TDMCP_PACKAGE_ARCHIVE", &temporary)
             .args([
                 "-NoProfile",
                 "-Command",
-                &format!(
-                    "Compress-Archive -Path '{}\\*' -DestinationPath '{}' -Force",
-                    stage.display(),
-                    archive.display()
-                ),
+                "Compress-Archive -LiteralPath @($env:TDMCP_PACKAGE_BINARY, $env:TDMCP_PACKAGE_LICENSE) -DestinationPath $env:TDMCP_PACKAGE_ARCHIVE -Force -ErrorAction Stop",
             ])
             .status()
             .context("Compress-Archive")?
@@ -331,21 +343,23 @@ fn stage_and_compress(bin_src: &Path, out_dir: &Path, stem: &str) -> Result<Path
             .to_owned();
         Command::new("tar")
             .args(["-czf"])
-            .arg(&archive)
+            .arg(&temporary)
             .arg("-C")
-            .arg(&stage)
+            .arg(stage)
             .arg(&file_name)
+            .arg("LICENSE")
             .status()
             .context("tar -czf")?
     };
     if !status.success() {
         bail!("archiving {} failed", archive.display());
     }
-    let _ = fs::remove_dir_all(&stage);
-
-    if !archive.is_file() {
+    if !temporary.is_file() || fs::metadata(&temporary)?.len() == 0 {
         bail!("archive missing after compression: {}", archive.display());
     }
+    temporary
+        .persist(&archive)
+        .with_context(|| format!("publish {}", archive.display()))?;
     Ok(archive)
 }
 
@@ -354,10 +368,11 @@ fn stage_and_compress(bin_src: &Path, out_dir: &Path, stem: &str) -> Result<Path
 fn sha256_hex(path: &Path) -> Result<String> {
     let hex = if cfg!(windows) {
         let out = Command::new("pwsh")
+            .env("TDMCP_HASH_FILE", path)
             .args([
                 "-NoProfile",
                 "-Command",
-                &format!("(Get-FileHash -Algorithm SHA256 '{}').Hash", path.display()),
+                "(Get-FileHash -Algorithm SHA256 -LiteralPath $env:TDMCP_HASH_FILE -ErrorAction Stop).Hash",
             ])
             .output()
             .context("Get-FileHash")?;
@@ -445,48 +460,44 @@ fn is_packaged_archive(file_name: &str) -> bool {
 
 /// Extract the `[workspace.package] version` value from root `Cargo.toml`.
 fn parse_workspace_version(content: &str) -> Result<String> {
-    const SECTION: &str = "[workspace.package]";
-    let section_start = content
-        .find(SECTION)
-        .context("Cargo.toml missing [workspace.package]")?;
-    let section = &content[section_start + SECTION.len()..];
-    let section_end = section.find("\n[").unwrap_or(section.len());
-    for line in section[..section_end].lines() {
-        let trimmed = line.trim();
-        if let Some(rest) = trimmed.strip_prefix("version") {
-            let rest = rest.trim_start();
-            if let Some(value) = rest.strip_prefix('=') {
-                let value = value.trim().trim_matches('"');
-                return Ok(value.to_owned());
+    let doc: toml_edit::DocumentMut = content.parse().context("parse Cargo.toml")?;
+    doc.get("workspace")
+        .and_then(|v| v.get("package"))
+        .and_then(|v| v.get("version"))
+        .and_then(toml_edit::Item::as_str)
+        .map(str::to_owned)
+        .context("[workspace.package] has no string version key")
+}
+
+/// Keep the release and its internal path dependencies on the same version,
+/// preserving comments and unrelated manifest values.
+fn bump_workspace_version(content: &str, new_version: &str) -> Result<String> {
+    parse_workspace_version(content)?;
+    let mut doc: toml_edit::DocumentMut = content.parse().context("parse Cargo.toml")?;
+    let value = doc["workspace"]["package"]["version"]
+        .as_value_mut()
+        .context("workspace version must be a value")?;
+    let decor = value.decor().clone();
+    *value = toml_edit::Value::from(new_version);
+    *value.decor_mut() = decor;
+    if let Some(deps) = doc["workspace"]
+        .get_mut("dependencies")
+        .and_then(toml_edit::Item::as_table_mut)
+    {
+        for (name, dependency) in deps.iter_mut() {
+            let Some(dependency) = dependency.as_table_like_mut() else {
+                continue;
+            };
+            let owned = dependency
+                .get("path")
+                .and_then(toml_edit::Item::as_str)
+                .is_some_and(|path| path == format!("crates/{name}"));
+            if owned && name.starts_with("tdmcp-") {
+                dependency.insert("version", toml_edit::value(new_version));
             }
         }
     }
-    bail!("[workspace.package] has no version key")
-}
-
-/// Replace only the `[workspace.package] version` value, preserving everything
-/// else byte-for-byte. Assumes the canonical `version = "x.y.z"` formatting
-/// this repo's root manifest uses.
-fn bump_workspace_version(content: &str, new_version: &str) -> Result<String> {
-    const SECTION: &str = "[workspace.package]";
-    const MARKER: &str = "version = \"";
-    let section_start = content
-        .find(SECTION)
-        .context("Cargo.toml missing [workspace.package]")?;
-    let marker_at = content[section_start..]
-        .find(MARKER)
-        .context("[workspace.package] has no version key")?
-        + section_start;
-    let value_start = marker_at + MARKER.len();
-    let value_end = content[value_start..]
-        .find('"')
-        .context("version value not terminated")?
-        + value_start;
-    let mut out = String::with_capacity(content.len() + 16);
-    out.push_str(&content[..value_start]);
-    out.push_str(new_version);
-    out.push_str(&content[value_end..]);
-    Ok(out)
+    Ok(doc.to_string())
 }
 
 /// Bump `major.minor.patch`; prerelease/build tags are rejected because the
@@ -735,6 +746,75 @@ mod tests {
     use super::*;
 
     #[test]
+    fn archive_contains_binary_and_project_license_with_literal_paths() {
+        let temp = tempfile::tempdir().unwrap();
+        let out = temp.path().join("archive's [literal] path");
+        fs::create_dir(&out).unwrap();
+        let binary = temp.path().join(release_binary_name("tdmcp-daemon"));
+        let license = temp.path().join("LICENSE");
+        fs::write(&binary, b"binary fixture").unwrap();
+        fs::write(&license, b"project license fixture").unwrap();
+        let archive = stage_and_compress(&binary, &license, &out, "tdmcp-rs-test").unwrap();
+        let extracted = out.join("extracted");
+        fs::create_dir(&extracted).unwrap();
+        let status = if cfg!(windows) {
+            Command::new("pwsh")
+                .env("TDMCP_TEST_ARCHIVE", &archive)
+                .env("TDMCP_TEST_EXTRACTED", &extracted)
+                .args([
+                    "-NoProfile",
+                    "-Command",
+                    "Expand-Archive -LiteralPath $env:TDMCP_TEST_ARCHIVE -DestinationPath $env:TDMCP_TEST_EXTRACTED -ErrorAction Stop",
+                ])
+                .status()
+                .unwrap()
+        } else {
+            Command::new("tar")
+                .arg("-xzf")
+                .arg(&archive)
+                .arg("-C")
+                .arg(&extracted)
+                .status()
+                .unwrap()
+        };
+        assert!(status.success());
+        assert_eq!(
+            fs::read(extracted.join(release_binary_name("tdmcp-daemon"))).unwrap(),
+            b"binary fixture"
+        );
+        assert_eq!(
+            fs::read(extracted.join("LICENSE")).unwrap(),
+            b"project license fixture"
+        );
+        assert_eq!(fs::read_dir(&extracted).unwrap().count(), 2);
+    }
+
+    #[test]
+    fn missing_license_preserves_previous_archive_and_cleans_staging() {
+        let temp = tempfile::tempdir().unwrap();
+        let binary = temp.path().join(release_binary_name("tdmcp-daemon"));
+        fs::write(&binary, b"binary fixture").unwrap();
+        let out = temp.path().join("out");
+        fs::create_dir(&out).unwrap();
+        let previous = out.join(if cfg!(windows) {
+            "tdmcp-rs-test.zip"
+        } else {
+            "tdmcp-rs-test.tar.gz"
+        });
+        fs::write(&previous, b"previous archive").unwrap();
+        let error = stage_and_compress(
+            &binary,
+            &temp.path().join("absent-license"),
+            &out,
+            "tdmcp-rs-test",
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("project license"));
+        assert_eq!(fs::read(&previous).unwrap(), b"previous archive");
+        assert_eq!(fs::read_dir(&out).unwrap().count(), 1);
+    }
+
+    #[test]
     fn artifact_stem_format() {
         assert_eq!(
             artifact_stem("0.1.4", "x86_64-pc-windows-msvc"),
@@ -791,6 +871,28 @@ mod tests {
     #[test]
     fn bump_workspace_version_errors_when_missing() {
         assert!(bump_workspace_version("[package]\nversion = \"1.0.0\"\n", "1.0.1").is_err());
+    }
+
+    #[test]
+    fn bump_keeps_internal_dependencies_in_sync_without_touching_other_versions() {
+        let content = "[workspace.package]\nversion='0.1.4' # current\n\n[workspace.dependencies]\ntdmcp-core = { path = 'crates/tdmcp-core', version = '0.1.4' }\nexternal = { path = 'vendor/external', version = '0.1.4' }\nserde = '1'\n";
+        assert_eq!(parse_workspace_version(content).unwrap(), "0.1.4");
+        let bumped = bump_workspace_version(content, "0.2.0").unwrap();
+        let doc: toml_edit::DocumentMut = bumped.parse().unwrap();
+        assert_eq!(
+            doc["workspace"]["package"]["version"].as_str(),
+            Some("0.2.0")
+        );
+        assert_eq!(
+            doc["workspace"]["dependencies"]["tdmcp-core"]["version"].as_str(),
+            Some("0.2.0")
+        );
+        assert_eq!(
+            doc["workspace"]["dependencies"]["external"]["version"].as_str(),
+            Some("0.1.4")
+        );
+        assert!(bumped.contains("# current"));
+        assert!(bumped.contains("serde = '1'"));
     }
 
     #[test]

@@ -48,48 +48,34 @@ pub const BRIDGE_TIMEOUT: Duration = Duration::from_secs(180);
 /// Historical fixed fallback — see [`init_bridge_timeouts`].
 pub const PROXY_TIMEOUT: Duration = Duration::from_secs(130);
 
-/// Process-wide override for [`BRIDGE_TIMEOUT`] / [`PROXY_TIMEOUT`], set once
-/// at daemon startup by [`init_bridge_timeouts`]. `OnceLock` rather than
-/// threading a value through `dispatch_tool` → `enqueue_and_call` /
-/// `maybe_proxy_bridged` (a dozen call sites) for what is explicitly an
-/// outer safety net, not the primary timeout path. Each keeps its own
-/// historical fallback (180s / 130s) when uninitialized, so tests — which
-/// never call `init_bridge_timeouts` — see unchanged behavior.
-static DERIVED_BRIDGE_TIMEOUT: std::sync::OnceLock<Duration> = std::sync::OnceLock::new();
-static DERIVED_PROXY_TIMEOUT: std::sync::OnceLock<Duration> = std::sync::OnceLock::new();
+/// Reloadable outer safety ceilings. In-flight calls retain their original budget.
+static DERIVED_BRIDGE_TIMEOUT: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(BRIDGE_TIMEOUT.as_secs());
+static DERIVED_PROXY_TIMEOUT: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(PROXY_TIMEOUT.as_secs());
 
-/// Derive [`BRIDGE_TIMEOUT`] / [`PROXY_TIMEOUT`] from the daemon's
-/// `[bridge].script_timeout_secs` config: `script_timeout_secs + 60s`
-/// margin, each floored at its own historical constant so raising
-/// `script_timeout_secs` (e.g. toward a 600s target) can never silently
-/// re-open the hidden glass ceiling where the outer safety net hit first,
-/// and an unconfigured
-/// deployment never gets a *smaller* safety net than before. Call once,
-/// before serving; a second call is a silent no-op.
-pub fn init_bridge_timeouts(script_timeout_secs: u64) {
-    let _ = DERIVED_BRIDGE_TIMEOUT.set(derive_timeout(script_timeout_secs, BRIDGE_TIMEOUT));
-    let _ = DERIVED_PROXY_TIMEOUT.set(derive_timeout(script_timeout_secs, PROXY_TIMEOUT));
+/// Apply the largest configured call budget, plus an outer safety margin.
+pub fn init_bridge_timeouts(max_timeout_secs: u64) {
+    DERIVED_BRIDGE_TIMEOUT.store(
+        derive_timeout(max_timeout_secs, BRIDGE_TIMEOUT).as_secs(),
+        std::sync::atomic::Ordering::Relaxed,
+    );
+    DERIVED_PROXY_TIMEOUT.store(
+        derive_timeout(max_timeout_secs, PROXY_TIMEOUT).as_secs(),
+        std::sync::atomic::Ordering::Relaxed,
+    );
 }
 
-/// `script_timeout_secs + 60s` margin, floored at `floor`. Pure so
-/// [`init_bridge_timeouts`]'s arithmetic is testable without touching the
-/// process-wide `OnceLock`s it feeds.
-fn derive_timeout(script_timeout_secs: u64, floor: Duration) -> Duration {
-    Duration::from_secs(script_timeout_secs.saturating_add(60)).max(floor)
+fn derive_timeout(timeout_secs: u64, floor: Duration) -> Duration {
+    Duration::from_secs(timeout_secs.saturating_add(60)).max(floor)
 }
 
 fn effective_bridge_timeout() -> Duration {
-    DERIVED_BRIDGE_TIMEOUT
-        .get()
-        .copied()
-        .unwrap_or(BRIDGE_TIMEOUT)
+    Duration::from_secs(DERIVED_BRIDGE_TIMEOUT.load(std::sync::atomic::Ordering::Relaxed))
 }
 
 fn effective_proxy_timeout() -> Duration {
-    DERIVED_PROXY_TIMEOUT
-        .get()
-        .copied()
-        .unwrap_or(PROXY_TIMEOUT)
+    Duration::from_secs(DERIVED_PROXY_TIMEOUT.load(std::sync::atomic::Ordering::Relaxed))
 }
 
 /// Soft-cap on `inspect` `paths[]` (bridge enforces; mirrored in docs).

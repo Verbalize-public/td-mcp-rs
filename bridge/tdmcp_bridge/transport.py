@@ -8,7 +8,15 @@ import struct
 import time
 from typing import Any
 
-from .constants import IDLE_DEAD_S
+from .constants import IDLE_DEAD_S, MAX_FRAME_BYTES, MAX_JSON_DEPTH
+
+
+class FrameTooLarge(ValueError):
+    """A JSON body exceeds the shared daemon/bridge frame budget."""
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"not a JSON number: {value}")
 
 class MidFrameTimeout(TimeoutError):
     """No byte progress while a frame was already partially consumed.
@@ -28,6 +36,7 @@ def _read_frame(stream, *, idle_dead_s: float = IDLE_DEAD_S) -> dict[str, Any]:
         TimeoutError: underlying stream read timed out (idle poll at frame boundary).
         MidFrameTimeout: no byte progress for ``idle_dead_s`` after the header
             (or mid-body) — stream is stuck/desynced.
+        ValueError: oversized frame, invalid JSON, or non-object envelope.
     """
     try:
         header = stream.read(4)
@@ -40,6 +49,10 @@ def _read_frame(stream, *, idle_dead_s: float = IDLE_DEAD_S) -> dict[str, Any]:
             raise EOFError("short header")
         raise EOFError("short header")
     (length,) = struct.unpack("<I", header)
+    if length > MAX_FRAME_BYTES:
+        # Reject before reading/allocating the body. The caller must close
+        # this stream: its unread body cannot be treated as another header.
+        raise FrameTooLarge(f"frame exceeds {MAX_FRAME_BYTES} bytes: {length}")
     # Header consumed ⇒ mid-frame even before any body bytes arrive. Tolerate
     # short poll stalls; only die after idle_dead_s with no progress.
     body = bytearray()
@@ -58,7 +71,10 @@ def _read_frame(stream, *, idle_dead_s: float = IDLE_DEAD_S) -> dict[str, Any]:
             raise EOFError("short body")
         body += chunk
         last_progress = time.monotonic()
-    return json.loads(bytes(body).decode("utf-8"))
+    msg = json.loads(body, parse_constant=_reject_json_constant)
+    if not isinstance(msg, dict):
+        raise ValueError("frame envelope must be a JSON object")
+    return msg
 
 
 def _mid_frame_dead_s(stream, default: float = IDLE_DEAD_S) -> float:
@@ -76,8 +92,61 @@ def _apply_read_timeout(stream, seconds: float) -> None:
     if callable(setter):
         setter(seconds)
 
+def _check_json_shape(value: Any, depth: int = 0) -> None:
+    """Keep Python-only nesting/integers within Rust's JSON representation.
+
+    Recursion is bounded even for a cycle. Integers beyond i64/u64 would
+    otherwise silently round to floats in serde_json, or fail to parse.
+    """
+    if isinstance(value, (dict, list, tuple)):
+        if depth >= MAX_JSON_DEPTH:
+            raise ValueError(f"JSON nesting exceeds {MAX_JSON_DEPTH} containers")
+        for item in value.values() if isinstance(value, dict) else value:
+            _check_json_shape(item, depth + 1)
+    elif isinstance(value, int) and not -(1 << 63) <= value <= (1 << 64) - 1:
+        raise ValueError("JSON integer exceeds i64/u64; return it as a string")
+
+
+def _encode_body(msg: dict[str, Any]) -> bytearray:
+    """Bound the accumulated encoding, including aggregate/escaped text.
+
+    A single encoder chunk (e.g. one string) can still be large; this is a
+    wire budget, not a limit on memory used by the handler that made it.
+    Never put Python's NaN/Infinity extensions on Rust's strict JSON wire.
+    """
+    _check_json_shape(msg)
+    body = bytearray()
+    # UTF-8 is the actual wire encoding. Besides avoiding six-byte escapes
+    # for Unicode, encoding here rejects lone surrogates Rust cannot read.
+    for chunk in json.JSONEncoder(allow_nan=False, ensure_ascii=False).iterencode(msg):
+        encoded = chunk.encode("utf-8")
+        if len(body) + len(encoded) > MAX_FRAME_BYTES:
+            raise FrameTooLarge(f"response exceeds {MAX_FRAME_BYTES} JSON bytes")
+        body.extend(encoded)
+    return body
+
+
 def _write_frame(stream, msg: dict[str, Any]) -> None:
-    body = json.dumps(msg).encode("utf-8")
+    try:
+        body = _encode_body(msg)
+    except (TypeError, ValueError, OverflowError, RecursionError) as exc:
+        if msg.get("type") != "response":
+            raise
+        too_large = isinstance(exc, FrameTooLarge)
+        # Nothing has been written yet. Replace the unusable response with
+        # a correlated error so subsequent calls can use the same stream.
+        # The operation already ran: never imply that retrying is safe.
+        body = _encode_body({
+            "type": "response",
+            "id": msg.get("id"),
+            "error": {
+                "code": "tdmcp.bridge.response_too_large" if too_large else "tdmcp.bridge.response_invalid",
+                "message": (
+                    f"Bridge response exceeds {MAX_FRAME_BYTES} JSON bytes. " if too_large
+                    else "Bridge response cannot be encoded as valid JSON. "
+                ) + "The operation may already have run; inspect its state before retrying any mutation.",
+            },
+        })
     header = struct.pack("<I", len(body))
     n = stream.write(header)
     if n != len(header):

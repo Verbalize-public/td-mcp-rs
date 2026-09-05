@@ -12,6 +12,7 @@ from .constants import (
     ENABLE_EXPR_EVAL_LIMIT,
     ENABLE_PARM_WARN_MARKERS,
     INSPECT_PATHS_LIMIT,
+    INSPECT_TEXT_MAX_BYTES,
     _COMMENT_TRUNC_MARK,
     _ENABLE_EXPR_FAILED_CODE,
     _ENABLE_EXPR_MITIGATION,
@@ -211,16 +212,36 @@ def _text_bytes(text: str) -> int:
     return len(text.encode("utf-8"))
 
 
+def _text_preview(raw: Any) -> dict[str, Any]:
+    """Bound DAT/shader source text without splitting a UTF-8 character."""
+    text = "" if raw is None else str(raw)
+    encoded = text.encode("utf-8")
+    total = len(encoded)
+    if total <= INSPECT_TEXT_MAX_BYTES:
+        return {"bytes": total, "text": text}
+    preview = encoded[:INSPECT_TEXT_MAX_BYTES].decode("utf-8", errors="ignore")
+    return {
+        "bytes": _text_bytes(preview),
+        "text": preview,
+        "totalBytes": total,
+        "textTruncation": {
+            "field": "text",
+            "limit": INSPECT_TEXT_MAX_BYTES,
+            "code": "tdmcp.op.content_truncated",
+            "message": "Text preview truncated; the DAT itself is unchanged",
+            "mitigation": ["Read further slices with execute_python: result = op(path).text[start:end]"],
+        },
+    }
+
+
 def _dat_content(n: Any) -> dict[str, Any]:
     """Shape DAT body from ``.text`` / ``isText`` / ``isTable``."""
     raw = getattr(n, "text", None)
-    text = "" if raw is None else str(raw)
     return {
         "kind": "dat",
         "isText": bool(getattr(n, "isText", False)),
         "isTable": bool(getattr(n, "isTable", False)),
-        "bytes": _text_bytes(text),
-        "text": text,
+        **_text_preview(raw),
     }
 
 
@@ -252,9 +273,7 @@ def _shader_stage_from_ref(role: str, ref: Any) -> dict[str, Any] | None:
         return stage
     try:
         raw = getattr(ref, "text", None)
-        text = "" if raw is None else str(raw)
-        stage["bytes"] = _text_bytes(text)
-        stage["text"] = text
+        stage.update(_text_preview(raw))
     except Exception as exc:  # noqa: BLE001 — surface follow error, keep node ok
         stage["error"] = str(exc) or type(exc).__name__
     return stage
@@ -519,4 +538,3 @@ def handle_inspect(params: dict[str, Any]) -> dict[str, Any]:
             ],
         }
     return out
-

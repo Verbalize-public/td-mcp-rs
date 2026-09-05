@@ -30,12 +30,19 @@ pub fn run(scene: &str) -> anyhow::Result<()> {
     } else {
         ("td-mcp-rs — Dashboard", [1040.0, 760.0])
     };
-    let options = eframe::NativeOptions {
+    let mut options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title(title)
             .with_inner_size(size),
         ..Default::default()
     };
+    #[cfg(target_os = "linux")]
+    if crate::using_x11_backend() {
+        use winit::platform::x11::EventLoopBuilderExtX11 as _;
+        options.event_loop_builder = Some(Box::new(|builder| {
+            builder.with_x11();
+        }));
+    }
     eframe::run_native(
         "tdmcp-preview",
         options,
@@ -92,7 +99,8 @@ fn build(scene: &str) -> anyhow::Result<DashboardApp> {
         height: 1,
     };
     let mut app = DashboardApp::new(
-        "http://127.0.0.1:9860".to_owned(),
+        // Fixture controls must never stop/reconfigure a real local daemon.
+        "http://127.0.0.1:0".to_owned(),
         tmp.clone(),
         blank_icon,
         crate::tray::RgbaIcon {

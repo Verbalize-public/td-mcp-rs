@@ -92,6 +92,18 @@ def _top(arr: FakeNdarray | None) -> SimpleNamespace:
 
 
 class CaptureClassifyTest(unittest.TestCase):
+    def test_valid_solid_capture_is_success_with_advisory(self) -> None:
+        for rgb, kind in [((0.0, 0.0, 0.0), "black"), ((1.0, 1.0, 1.0), "uniform")]:
+            with self.subTest(kind=kind):
+                node = _top(_solid(rgb))
+                node.width = node.height = 2
+                node.path = "/project1/constant"
+                node.saveByteArray = lambda *_args: b"png" * 200
+                result = tdmcp_bridge._capture_top_image(None, node, node.path, None)
+                self.assertTrue(result["ok"])
+                self.assertEqual(result["frameClassification"], kind)
+                self.assertTrue(result["imageBase64"])
+
     def test_black_solid(self) -> None:
         kind, mean = tdmcp_bridge._classify_frame(_top(_solid((0.0, 0.0, 0.0))), b"x" * 500)
         self.assertEqual(kind, "black")

@@ -15,6 +15,8 @@ pub const IPC_PORT_ENV: &str = "TDMCP_IPC_PORT";
 /// Resolved runtime config.
 #[derive(Debug, Clone)]
 pub struct Config {
+    /// File snapshot before CLI/environment overrides, used by live settings.
+    pub file: ConfigFile,
     /// Path to the TOML config file that was loaded (or ensured).
     pub config_path: PathBuf,
     /// Listen port.
@@ -102,8 +104,9 @@ impl Config {
         mut file: ConfigFile,
         overrides: ConfigOverrides,
     ) -> Result<Self> {
-        cfgfile::validate_remote_auth(&file)?;
+        cfgfile::validate(&file)?;
         let _ = cfgfile::ensure_daemon_id(&config_path, &mut file)?;
+        let file_snapshot = file.clone();
 
         let default_data = crate::install::default_data_dir();
         let data_dir = overrides
@@ -140,6 +143,7 @@ impl Config {
             .with_context(|| format!("create data dir {}", data_dir.display()))?;
 
         Ok(Self {
+            file: file_snapshot,
             config_path,
             port,
             bind_address: file.server.bind_address,

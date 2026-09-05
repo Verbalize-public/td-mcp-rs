@@ -60,11 +60,7 @@ impl TestDaemon {
 }
 
 fn pick_free_port() -> u16 {
-    std::net::TcpListener::bind("127.0.0.1:0")
-        .expect("probe port")
-        .local_addr()
-        .expect("local addr")
-        .port()
+    tdmcp_test_support::unique_test_port().expect("unique test port")
 }
 
 /// Bridge port for a daemon: free and distinct from its HTTP port (a

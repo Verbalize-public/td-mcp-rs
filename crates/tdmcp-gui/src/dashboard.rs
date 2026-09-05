@@ -27,6 +27,7 @@ const GUTTER: f32 = 16.0;
 pub enum DashTab {
     #[default]
     Overview,
+    Federation,
     Palette,
     Logs,
     Settings,
@@ -36,14 +37,16 @@ impl DashTab {
     fn label(self) -> &'static str {
         match self {
             DashTab::Overview => "Overview",
+            DashTab::Federation => "Federation",
             DashTab::Palette => "Palette",
             DashTab::Logs => "Logs",
             DashTab::Settings => "Settings",
         }
     }
 
-    const ALL: [DashTab; 4] = [
+    const ALL: [DashTab; 5] = [
         DashTab::Overview,
+        DashTab::Federation,
         DashTab::Palette,
         DashTab::Logs,
         DashTab::Settings,
@@ -72,6 +75,9 @@ pub fn builder(window_icon: &egui::IconData) -> egui::ViewportBuilder {
 
 /// Render the dashboard into its viewport's root ui. Called every frame while open.
 pub fn render(app: &mut DashboardApp, ui: &mut egui::Ui) {
+    // Tiling WMs may ignore the requested native minimum, particularly at
+    // high DPI. Keep navigation and lifecycle actions reachable in that case.
+    let compact = ui.available_width() < 780.0;
     if ui.input(|i| i.viewport().close_requested()) {
         // Hide via visibility — do not destroy the pre-created viewport (reopen
         // breaks if the native window is allowed to close).
@@ -82,24 +88,26 @@ pub fn render(app: &mut DashboardApp, ui: &mut egui::Ui) {
         app.dashboard_open = false;
     }
 
-    egui::Panel::left("dash_sidebar")
-        .exact_size(nav::SIDEBAR_W)
-        .frame(
-            egui::Frame::NONE
-                .fill(crate::theme::BG_PANEL)
-                .stroke(egui::Stroke::new(1.0, BORDER))
-                .inner_margin(egui::Margin {
-                    left: 0,
-                    right: 0,
-                    top: 14,
-                    // Sole gap between the sidebar footer and the window
-                    // bottom — the footer adds no spacing of its own.
-                    bottom: 12,
-                }),
-        )
-        .show(ui, |ui| {
-            nav::sidebar(app, ui);
-        });
+    if !compact {
+        egui::Panel::left("dash_sidebar")
+            .exact_size(nav::SIDEBAR_W)
+            .frame(
+                egui::Frame::NONE
+                    .fill(crate::theme::BG_PANEL)
+                    .stroke(egui::Stroke::new(1.0, BORDER))
+                    .inner_margin(egui::Margin {
+                        left: 0,
+                        right: 0,
+                        top: 14,
+                        // Sole gap between the sidebar footer and the window
+                        // bottom — the footer adds no spacing of its own.
+                        bottom: 12,
+                    }),
+            )
+            .show(ui, |ui| {
+                nav::sidebar(app, ui);
+            });
+    }
 
     egui::Panel::top("dash_topbar")
         .exact_size(TOPBAR_H)
@@ -127,18 +135,34 @@ pub fn render(app: &mut DashboardApp, ui: &mut egui::Ui) {
                 OK
             };
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                ui.label(
-                    egui::RichText::new(app.dash_tab.label())
-                        .font(font_display())
-                        .color(TEXT),
-                );
+                if compact {
+                    egui::ComboBox::from_id_salt("dashboard_page")
+                        .selected_text(app.dash_tab.label())
+                        .show_ui(ui, |ui| {
+                            for tab in DashTab::ALL {
+                                ui.selectable_value(&mut app.dash_tab, tab, tab.label());
+                            }
+                        });
+                } else {
+                    ui.label(
+                        egui::RichText::new(app.dash_tab.label())
+                            .font(font_display())
+                            .color(TEXT),
+                    );
+                }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     // The LED's own hover response carries the pid/bind
                     // tooltip (identity meta moved to the sidebar footer).
                     status_led_pulse(ui, led_color, attention && app.error.is_none())
                         .on_hover_text(led_tip);
                     ui.add_space(crate::theme::sp::MD);
-                    widgets::daemon_actions(app, ui);
+                    if compact {
+                        ui.menu_button("Actions", |ui| {
+                            ui.vertical(|ui| widgets::daemon_actions(app, ui));
+                        });
+                    } else {
+                        widgets::daemon_actions(app, ui);
+                    }
                 });
             });
         });
@@ -156,9 +180,18 @@ pub fn render(app: &mut DashboardApp, ui: &mut egui::Ui) {
         )
         .show(ui, |ui| match app.dash_tab {
             DashTab::Overview => overview::overview(app, ui),
+            DashTab::Federation => {
+                ui.add_enabled_ui(!app.settings_save.is_running(), |ui| {
+                    settings::federation(app, ui)
+                });
+            }
             DashTab::Palette => palette::palette(app, ui),
             DashTab::Logs => logs::logs(app, ui),
-            DashTab::Settings => settings::settings(app, ui),
+            DashTab::Settings => {
+                ui.add_enabled_ui(!app.settings_save.is_running(), |ui| {
+                    settings::settings(app, ui)
+                });
+            }
         });
 
     palette::analyse_modal(app, ui.ctx());

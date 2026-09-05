@@ -1,335 +1,87 @@
 # Configuration
 
-td-mcp-rs reads a curated TOML file as the source of truth for daemon settings.
-Cursor / IDE `mcp.json` should stay minimal (`args: ["mcp"]`) — do not put port,
-idle, or path overrides there.
+Use **Settings** for daemon options and **Federation** for connections.
+Save validates changes before writing; Discard restores your last loaded
+settings. Reset changes the draft only—Save is still required. Reset retains
+the daemon identity and installed executable path.
 
-## File location
+## Files and precedence
 
-| OS | Path |
+| OS | Configuration | Runtime data |
+| --- | --- | --- |
+| Windows | `%APPDATA%/tdmcp-rs/config.toml` | `%LOCALAPPDATA%/tdmcp-rs/` |
+| macOS | `~/Library/Application Support/tdmcp-rs/config.toml` | `~/Library/Application Support/tdmcp-rs/` |
+| Linux | `$XDG_CONFIG_HOME/tdmcp-rs/config.toml` (default `~/.config/`) | `$XDG_DATA_HOME/tdmcp-rs/` (default `~/.local/share/`) |
+
+`TDMCP_CONFIG_PATH` selects another file. Explicit CLI/environment overrides
+take precedence over file settings, then built-in defaults.
+
+Installation creates missing configuration and preserves existing values,
+including with `install --force`. Saves use atomic replacement and retain
+comments and unknown TOML keys. Malformed files are reported, not replaced.
+
+The [commented default file](../crates/tdmcp-config/assets/default.toml)
+is the full field reference. Do not edit `federation.daemon_id`: it identifies
+this computer across restarts.
+
+## When changes take effect
+
+| Saved through the dashboard or admin API | Effect |
 | --- | --- |
-| Windows | `%APPDATA%\tdmcp-rs\config.toml` |
-| macOS | `~/Library/Application Support/tdmcp-rs/config.toml` |
-| Linux | `$XDG_CONFIG_HOME/tdmcp-rs/config.toml` or `~/.config/tdmcp-rs/config.toml` |
+| Federation role, coordinator URL/key | Reconnect automatically |
+| Bridge call and script timeout | New calls use the new budget, including connected TD processes |
+| Keep alive | Next idle check |
+| Project template and palette settings | Read by the relevant operation |
+| HTTP/bridge listener, authentication | Restart required |
+| Tray, autostart, paths, logging, dialogs, official tools | Restart required |
+| Bridge heartbeat/pong/idle-dead settings | Restart required |
 
-The **data directory** (bridge, catalog, bootstrap `.tox`) stays separate under
-the OS local data dir (`%LOCALAPPDATA%\tdmcp-rs\` on Windows, etc.). The config
-path never depends on a value inside the config file.
+Manual edits to the file require a restart. Pending restart settings are
+compared against the running daemon's startup settings; reverting them removes
+the restart requirement. A restart disconnects MCP/bridge sessions temporarily.
 
-Internal / test override: set `TDMCP_CONFIG_PATH` to an absolute file path so
-tests never touch the user config.
+## Common settings
 
-## Creating and resetting
+- `server.port`: HTTP MCP/admin port, default **9860**.
+- `server.bind_address`: default `127.0.0.1`; `0.0.0.0` permits LAN access.
+- `auth.mode`: `none` or `psk`; `auth.psk` is the incoming Bearer key.
+- `daemon.keep_alive`: default true. False allows idle exit when no clients,
+  bridges, or federation role need the daemon.
+- `daemon.always_on`: register startup at user login for the standard per-user
+  configuration. Custom-config/test daemons do not modify that global entry;
+  register their explicit launch command separately if needed.
+- `bridge.port`: default **9861**, loopback only; the bootstrap must dial it.
+- `bridge.call_timeout_secs`: default **45**.
+- `bridge.script_timeout_secs`: default **120**.
+- `project.template_path`: optional starter .toe; otherwise
+  `{dataDir}/template.toe`. New-project creation never overwrites its target.
+- `official_tools`: optional TD/expand/collapse paths and Linux Wine overrides.
+  Set expand and collapse paths together.
+- `palette`: optional user folder, store directory, and ignored component globs.
 
-| Action | Config file behavior |
-| --- | --- |
-| First `start` / `ensure` / `mcp` | Create-if-missing from the embedded template |
-| `tdmcp-daemon install` (any) | **Always** overwrite with the shipped defaults |
-| `install --force` | Same config reset + re-extract embedded assets |
-| Tray Settings → Reset | Force-write defaults (same template) |
+Keep-alive and autostart are different: one prevents idle exit; the other
+starts the daemon when you log in. See [Linux/Wine](LINUX_SUPPORT.md) for
+runner configuration and [Federation](FEDERATION.md) for networking.
 
-The template is `crates/tdmcp-config/assets/default.toml`, embedded via
-`include_str!`.
+## Stdio proxy ceilings
 
-## Precedence
+The stdio proxy also bounds calls to recover from wedged HTTP sessions.
+Its environment-only ceilings are independent of bridge settings:
+`TDMCP_PROXY_CALL_TIMEOUT_MS` and `TDMCP_PROXY_SCRIPT_TIMEOUT_MS`.
+If you raise bridge budgets beyond those ceilings, raise the proxy ceilings
+too and restart the assistant's MCP connection. Check
+[daemon_link.rs](../crates/tdmcp-mcp/src/daemon_link.rs) for exact defaults.
 
-1. CLI flags / env (`--port`, `TDMCP_PORT`, `--data-dir`, `TDMCP_DATA_DIR`,
-   `--bridge-dir`, `--catalog`, `--no-gui` / `TDMCP_NO_GUI`)
-2. TOML config file
-3. Built-in defaults
+## Admin API
 
-`keep_alive` and `always_on` are **config/GUI only** (no CLI flags).
+`GET /admin/config` returns configuration. `POST /admin/config` accepts a
+partial object using snake_case or camelCase field names. Unknown fields,
+duplicate aliases, invalid types, and invalid values are rejected before
+writing. Success includes `config` and a `restartRequired` list.
 
-`TDMCP_IDLE_EXIT_SECS` remains a test/escape hatch for the idle timeout length
-(`0` disables idle exit even when `keep_alive = false`; irrelevant when
-`keep_alive = true` since idle exit is already disabled).
-
-### Stdio proxy per-call ceilings (env only)
-
-The stdio proxy (`tdmcp-daemon mcp`) bounds every forwarded call with a
-wall-clock ceiling so a wedged daemon session surfaces as an error instead of
-hanging the MCP client forever. Defaults sit above the `[bridge]` budgets
-(45s / 120s) so live calls are never cut early. On expiry the proxy heals the
-link (fresh session) and returns `tdmcp.daemon.unreachable` with `budgetMs`.
-
-| Env | Default | Meaning |
-| --- | --- | --- |
-| `TDMCP_PROXY_CALL_TIMEOUT_MS` | `105000` | Ceiling for short tools (`inspect` / `capture` / `fleet` / …) |
-| `TDMCP_PROXY_SCRIPT_TIMEOUT_MS` | `180000` | Ceiling for `execute_python` / `mutate_nodes` |
-| `TDMCP_PROXY_LIST_TIMEOUT_MS` | `30000` | Ceiling for `tools/list` |
-
-## Fields
-
-### `[server]`
-
-| Key | Default | Meaning |
-| --- | --- | --- |
-| `port` | `9860` | HTTP listen port (MCP + admin) |
-| `bind_address` | `127.0.0.1` | Listen address. Use `0.0.0.0` for LAN remote access. A PSK is **not** required for a non-loopback bind, so zero-setup LAN federation works; without one, anything on the LAN can call this daemon. Set `[auth] mode = "psk"` unless the network is fully trusted. |
-
-### `[auth]`
-
-| Key | Default | Meaning |
-| --- | --- | --- |
-| `mode` | `none` | `none` (no Bearer) or `psk` (`Authorization: Bearer`). |
-| `psk` | `""` | Shared secret for incoming MCP + federation + remote `/admin/config`. |
-
-### `[federation]`
-
-| Key | Default | Meaning |
-| --- | --- | --- |
-| `role` | `standalone` | `standalone` \| `master` \| `slave`. |
-| `daemon_id` | *(auto UUID)* | Stable daemon identity; generated on first start; do not copy across machines. |
-| `master_url` | `""` | Slave only: master base URL (e.g. `http://192.168.1.100:9860`). |
-| `master_psk` | `""` | Slave only: PSK to present to the master (master’s `auth.psk`). |
-
-`role = "slave"` disables idle auto-exit (same effect as `keep_alive`).
-
-### Federation auth & admin surface
-
-**Auth matrix**
-
-| Hop | Bearer |
-| --- | --- |
-| Slave → master register / fleet-push | Master's `auth.psk` (slave config field `master_psk`) |
-| Client → any daemon `/mcp/rpc` | That daemon's `auth.psk` (skip if `mode=none`) |
-| Master → slave tool proxy | Slave's `auth.psk` as register body `authToken` (empty if slave `mode=none`); stored in `SlaveRegistry` |
-| Master → slave `/admin/config` | Same stored `authToken` |
-
-`master_psk` meaning: PSK to present to the master (the master's `auth.psk`).
-
-**Middleware allowlist**
-
-| Path | Remote (`0.0.0.0`) | Auth |
-| --- | --- | --- |
-| `/mcp/rpc`, `/mcp/health`, `/mcp/tools/*` | Allowed | Bearer if `auth.mode=psk` |
-| `/admin/federation/*` (except status probe) | Allowed | Bearer if psk |
-| `/admin/config` GET/POST | Allowed | Bearer if psk |
-| `/admin/federation/status` | Allowed | **Unauth minimal probe** `{ok,version,role,hostname,daemonId,port}` |
-| `/admin/status` | Loopback only (or auth) | Not the LAN scan oracle |
-| `/admin/shutdown`, `/admin/restart`, `/admin/mcp-sessions*` | **Loopback only** | N/A remote |
-
-`daemon_id` conflict: re-registering the same `daemonId` from the same advertised
-base URL overwrites; from a different host/port it is rejected with a diagnostic.
-
-### `[daemon]`
-
-| Key | Default | Meaning |
-| --- | --- | --- |
-| `keep_alive` | `true` | When `true`, never auto-exit after idle (no MCP sessions and no TD bridges). When `false`, idle exit uses ~30s (or `TDMCP_IDLE_EXIT_SECS`). |
-| `always_on` | `false` | When `true`, register OS login autostart for `tdmcp-daemon start`. Reconciled once at daemon start. |
-| `show_tray` | `true` | When `false`, run headless (gui builds). CLI `--no-gui` still forces headless. |
-
-### `[bridge]`
-
-TCP loopback endpoint + IPC call budgets and idle heartbeat. Changes apply after the next daemon restart.
-`idle_dead_secs` is also forwarded to connecting Python bridges via handshake
-`idleDeadSecs` so both sides share the same silence budget.
-
-| Key | Default | Meaning |
-| --- | --- | --- |
-| `host` | `127.0.0.1` | TCP bind host for the daemon↔bridge listener (loopback only in v1) |
-| `port` | `9861` | TCP bind port for the daemon↔bridge listener |
-| `call_timeout_secs` | `45` | Wait for `ping` / `inspect` / `capture` responses |
-| `script_timeout_secs` | `120` | Wait for `execute_python` / `mutate_nodes` |
-| `heartbeat_interval_secs` | `5` | Idle bridge ping cadence |
-| `pong_timeout_secs` | `8` | Max wait for a heartbeat pong |
-| `idle_dead_secs` | `20` | Tear down after this much inbound silence |
-
-A call timeout fails the **wait** (`tdmcp.bridge.timeout`); it does not tear down
-the bridge. Stale late responses are discarded on the next call so they cannot
-masquerade as `tdmcp.bridge.lost`.
-
-### `[logging]`
-
-Central JSONL sink. `dir`/`filter` are
-optional overrides — omit to use the defaults below. `filter` precedence for
-the file layer is `[logging].filter` > `RUST_LOG` > built-in default
-(`info,tdmcp_daemon=debug`); `console_level` follows the same precedence for
-the stderr layer, falling back to the historical per-target defaults when
-unset. An invalid explicit filter falls through to the next source rather
-than failing startup.
-
-| Key | Default | Meaning |
-| --- | --- | --- |
-| `dir` | *(unset)* | Log directory override; unset = `{data_dir}/logs` |
-| `filter` | *(unset)* | `EnvFilter` string for the file layer |
-| `max_files` | `14` | Daily rotated files kept on disk |
-| `retention_days` | `30` | Sweep threshold (startup + every 24h) |
-| `console_level` | *(unset)* | Separate `EnvFilter` for the stderr layer |
-
-`tdmcp-daemon logs [N]` prints the tail of the newest `daemon.*.log` in the
-resolved directory, human-formatted (`HH:MM:SS.SSS LEVEL SRC TARGET msg
-{kvs}`) — the JSONL files themselves are the machine-readable format.
-There is no `TDMCP_LOG` env var; `RUST_LOG` plus `[logging]` cover the need.
-
-### `[advanced]`
-
-Optional path overrides. Omit (or leave blank in the GUI) to use defaults under
-the data directory.
-
-| Key | Default | Meaning |
-| --- | --- | --- |
-| `data_dir` | *(unset)* | Install / data root |
-| `bridge_dir` | *(unset)* | Python bridge package directory |
-| `catalog_path` | *(unset)* | `diagnostics/catalog.yaml` path |
-| `daemon_bin` | *(unset)* | Path to the installed daemon binary (auto-set by `install`; used for spawn / restart / autostart instead of `current_exe()`) |
-
-## Keep alive vs idle exit
-
-Idle exit (when not keep-alive) cancels a shared shutdown token and sets the
-process quit flag; the composition root drains axum and ends on the main thread.
-Background / tokio paths do **not** call `process::exit`.
-
-## Always on (autostart)
-
-When `always_on` is true at daemon start, the process registers itself with the
-OS login mechanism via the `auto-launch` crate:
-
-| OS | Mechanism |
-| --- | --- |
-| Windows | Current-user Run registry key |
-| macOS | Launch Agent |
-| Linux | XDG autostart (`.desktop`) |
-
-Turning `always_on` off and restarting removes the registration. Changes are not
-applied until the next start.
-
-## Settings GUI
-
-1. Left-click the tray icon to open the dashboard.
-2. Click **⚙** (gear) in the header.
-3. Edit fields → **Save** or **Discard** (both return to the fleet view).
-4. **Reset** rewrites the file from the shipped template.
-5. Restart the daemon for changes to take effect.
-
-## Example
-
-```toml
-[server]
-port = 9860
-
-[daemon]
-keep_alive = true
-always_on = false
-show_tray = true
-
-[bridge]
-host = "127.0.0.1"
-port = 9861
-call_timeout_secs = 45
-script_timeout_secs = 120
-heartbeat_interval_secs = 5
-pong_timeout_secs = 8
-idle_dead_secs = 20
-
-[advanced]
-# data_dir = "C:/path/to/tdmcp-rs-data"
-# daemon_bin = "C:/path/to/tdmcp-daemon.exe"
+```json
+{"bridge": {"scriptTimeoutSecs": 180}, "daemon": {"keepAlive": true}}
 ```
 
-## Project template (create-new)
-
-```toml
-[project]
-# template_path = "C:/path/to/my-template.toe"  # spawn_td createIfMissing source.
-# Empty/unset → {data_dir}/template.toe (shipped fallback).
-# Per-call spawn_td.templatePath can also override. Create is copy-if-missing only.
-```
-
-Resolution order for `spawn_td` `createIfMissing:true`: per-call `templatePath` > `[project].template_path` > `{data_dir}/template.toe` (installed) > error `spawn.template_not_found`. The Settings dashboard exposes Locate/Reveal/Open for this file: Open launches the template with the OS default association (TouchDesigner) so any build-upgrade modal appears natively — accept it inside TD and Save over the template to adopt the new build.
-
-## Palette
-
-```toml
-[palette]
-# user_root = "C:/Users/you/Documents/Derivative/Palette"  # empty → OS default
-# store_dir = "C:/path/to/palette-store"                   # empty → {data_dir}/palette
-ignore = [
-  "builtin:TDAbleton/*", "builtin:TDBitwig/*", "builtin:TDSynchro/*",
-  "builtin:TDVR/*", "builtin:MetaQuest/*", "builtin:Vive/*", "builtin:WebRTC/*",
-]
-```
-
-The **builtin** palette folder is discovered from the TouchDesigner install and
-needs no configuration. Set `user_root` only when your own `.tox` library lives
-somewhere other than TD's default `{documents}/Derivative/Palette`.
-
-`ignore` is the **probe blacklist**, seeded into a freshly created index (an
-existing index keeps whatever you curated — edit it with `palette_index`
-`action: ignore` / `unignore`, not by editing this file). The shipped entries
-are components whose startup scripts open network sockets or expect absent
-hardware: loading one during a bulk scan can wedge TouchDesigner. To probe
-one anyway, use `palette_probe` `includeIgnored: true`.
-
-The store holds `index.json` (the roster) and `cards/*.md` (agent-written
-component cards). It is safe to delete — `palette_index action=scan` rebuilds
-the roster, though the cards go with it.
-
-## Project I/O & dialogs (v2)
-
-```toml
-[official_tools]
-# Pin Derivative's official tools for offline project I/O.
-# td_exe / expand_path / collapse_path (expand+collapse must be set together)
-# wine_exe / wine_prefix (Linux only — see below)
-
-[dialogs]
-enabled   = true   # popup watcher + `dialogs` tool (Windows + macOS)
-                    # (no-op on Linux for windows: pid ops for kill_td still
-                    # work through this backend, but no window backend exists)
-intercept = true   # fail bridged calls fast while a modal blocks TD
-poll_ms   = 1000
-```
-
-**macOS Accessibility:** describe/dismiss need TCC permission. Open System Settings →
-Privacy & Security → Accessibility and enable `tdmcp-daemon`. Window listing works
-without it (CGWindowList); the `dialogs list` response includes
-`accessibilityGranted`.
-
-Absence of `[official_tools]` triggers env (`TDMCP_TOEEXPAND`,
-`TDMCP_TOECOLLAPSE`, `TDMCP_TOUCHDESIGNER_EXE`) then a platform scan:
-
-| OS | Scan roots | Layout |
-| --- | --- | --- |
-| Windows | `%ProgramFiles%/Derivative/TouchDesigner.*` | `.../bin/TouchDesigner.exe` + tools |
-| macOS | `/Applications`, `~/Applications` | `TouchDesigner.*.app/Contents/MacOS/TouchDesigner` + tools |
-| Linux | `$WINEPREFIX`, `~/.wine`, `~/.local/share/wineprefixes/*`, `~/.local/share/touchdesigner-linux/prefix` (AUR `touchdesigner-linux`; or `wine_prefix` below) | `<prefix>/drive_c/Program Files/Derivative/TouchDesigner.*/bin/TouchDesigner.exe` + tools |
-
-Stub installs (missing toeexpand/toecollapse files) are skipped.
-
-### Linux — running through Wine
-
-TouchDesigner has no native Linux build, so `spawn_td` and offline project I/O
-(`project_unpack`/`project_pack`/`project_install_bridge`) run TouchDesigner,
-`toeexpand`, and `toecollapse` through Wine. Auto-detection covers most setups
-with no config:
-
-- The install is found via the scan roots above (or an explicit `td_exe`).
-- The Wine prefix to run it in is derived from that path (its `drive_c`
-  ancestor) — this works for plain Wine, Proton, Lutris, and Bottles/
-  CrossOver layouts alike, since all of them use that convention. An explicit
-  `wine_prefix` (below) overrides the derivation.
-
-Two escape hatches mitigate setups auto-detection misses:
-
-| Key | Default | Meaning |
-| --- | --- | --- |
-| `wine_exe` | `"wine"` | Wine binary — a bare name resolved on `PATH`, an absolute path, or a wrapper script (e.g. a Lutris/Bottles/CrossOver launcher). |
-| `wine_prefix` | *(unset)* | Explicit prefix to scan when the install lives somewhere the auto-detected roots don't cover (a Steam Proton `compatdata` prefix, a CrossOver bottle, …). At invocation time it also pins the prefix every Wine call runs in, overriding the `drive_c` derivation. |
-
-Both apply only on Linux (no-op elsewhere). `spawn_td` also exports the
-launched process's real Linux pid as `TDMCP_LINUX_PID` so the bridge reports
-that pid at handshake instead of Wine's virtual one — without this the
-daemon's registry (keyed by the real pid) would never see the connection and
-`spawn_td` would report a timeout even after TD connects successfully.
-
-### Linux — `kill_td` / `dialogs`
-
-`kill_td` works fully on Linux (graceful = `SIGTERM` + grace window, force =
-`SIGKILL`, via `/proc`) for pids `spawn_td` launched or that are otherwise
-already registered — no config needed. The `dialogs` tool always returns
-`tdmcp.dialog.unsupported` there (no window backend exists under Wine); the
-daemon still installs a dialogs backend on Linux so `kill_td`'s pid checks
-work, it just never spawns the popup watcher, and `GET /admin/status` reports
-`"dialogsStatus": "unsupported_platform"`.
+Treat returned configuration as sensitive: it contains access keys.
+The endpoint is subject to the daemon's admin authentication policy.

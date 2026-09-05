@@ -30,9 +30,10 @@ Modes (tool is self-describing): `top` / `preview` / `auto` / `chop_data` /
    helper with path + claim, then grade from that observation.
 3. Operating agent still emits the final verdict.
 
-Non-black requirement for image look claims: black / empty / unreadable →
-**FAIL** (or **BLOCKED** if capture unreachable) — see definition-of-done
-doubt rules.
+Judge against the requested output. Black and uniform-frame classifications
+are observations, not automatic failures: masks, solid colors, and fades can
+be intentional. Unexpected blank output needs investigation. If the image is
+missing or unreadable, report the look as **unverified**, not successful.
 
 ## FPS / time-sliced claims
 

@@ -4,14 +4,14 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use axum::extract::State;
+use axum::extract::{ConnectInfo, Extension, State};
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use tdmcp_config::{self as cfgfile, ConfigFile};
+use tdmcp_config as cfgfile;
 use tdmcp_core::{
     AggregatedFleetProcess, BridgeStatus, DaemonId, DaemonIdConflict, RemoteFleetProcess,
     SlaveEntry, SlaveReachability, SlaveRegistry,
@@ -27,6 +27,10 @@ use crate::config::Config;
 /// Shared federation state for admin routes + slave background task.
 #[derive(Clone)]
 pub struct FederationRuntime {
+    /// Human-readable connection state, updated by the federation supervisor.
+    pub link_status: tokio::sync::watch::Sender<String>,
+    /// Shared settings and live role changes.
+    pub settings: crate::settings::Settings,
     /// `standalone` | `master` | `slave`.
     pub role: String,
     /// Persistent daemon id.
@@ -56,6 +60,8 @@ impl FederationRuntime {
     #[must_use]
     pub fn from_config(cfg: &Config) -> Self {
         Self {
+            link_status: tokio::sync::watch::channel("Starting".to_owned()).0,
+            settings: crate::settings::Settings::new(cfg.config_path.clone(), cfg.file.clone()),
             role: cfg.federation_role.clone(),
             daemon_id: DaemonId::new(cfg.daemon_id.clone()),
             hostname: local_hostname(),
@@ -97,7 +103,48 @@ pub fn advertised_base_url(bind_address: &str, port: u16) -> String {
     } else {
         bind_address
     };
-    format!("http://{host}:{port}")
+    let host = host
+        .parse::<std::net::IpAddr>()
+        .map(|ip| std::net::SocketAddr::new(ip, port).to_string());
+    match host {
+        Ok(authority) => format!("http://{authority}"),
+        Err(_) => format!("http://{bind_address}:{port}"),
+    }
+}
+
+/// Resolve a joining computer's callback origin.
+fn registration_base_url(
+    advertised: Option<&str>,
+    port: u16,
+    peer: Option<std::net::SocketAddr>,
+) -> Result<String, &'static str> {
+    let base = advertised
+        .map(str::to_owned)
+        .unwrap_or_else(|| advertised_base_url("127.0.0.1", port));
+    let url = reqwest::Url::parse(&base).map_err(|_| "baseUrl must be an HTTP(S) origin")?;
+    if !matches!(url.scheme(), "http" | "https")
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+        || url.path() != "/"
+    {
+        return Err("baseUrl must be an HTTP(S) origin");
+    }
+    let local_only = url.host_str().is_some_and(|host| {
+        host == "localhost"
+            || host
+                .trim_matches(['[', ']'])
+                .parse::<std::net::IpAddr>()
+                .is_ok_and(|ip| ip.is_loopback() || ip.is_unspecified())
+    });
+    // Repair only unusable local advertisements; preserve explicitly configured
+    // LAN/TLS origins. Validate first so rewriting cannot hide an invalid URL.
+    if let Some(peer) = peer.filter(|p| !p.ip().is_loopback() && local_only) {
+        return Ok(advertised_base_url(&peer.ip().to_string(), port));
+    }
+    Ok(base.trim_end_matches('/').to_owned())
 }
 
 /// Routes: `/admin/federation/*` + `/admin/config`.
@@ -129,7 +176,8 @@ struct FederationStatusBody {
 }
 
 async fn federation_status(State(rt): State<FederationRuntime>) -> Json<FederationStatusBody> {
-    let slave_count = if rt.role == "master" {
+    let role = rt.settings.current().federation.role;
+    let slave_count = if role == "master" {
         Some(rt.slaves.lock().await.len())
     } else {
         None
@@ -137,7 +185,7 @@ async fn federation_status(State(rt): State<FederationRuntime>) -> Json<Federati
     Json(FederationStatusBody {
         ok: true,
         version: rt.version.clone(),
-        role: rt.role.clone(),
+        role,
         hostname: rt.hostname.clone(),
         daemon_id: rt.daemon_id.as_str().to_owned(),
         port: rt.port,
@@ -160,17 +208,34 @@ struct RegisterBody {
 
 async fn federation_register(
     State(rt): State<FederationRuntime>,
+    peer: Option<Extension<ConnectInfo<std::net::SocketAddr>>>,
     Json(body): Json<RegisterBody>,
 ) -> (StatusCode, Json<Value>) {
-    if rt.role != "master" {
+    if rt.settings.current().federation.role != "master" {
         return (
             StatusCode::BAD_REQUEST,
             Json(json!({ "ok": false, "error": "register requires role=master" })),
         );
     }
-    let base_url = body
-        .base_url
-        .unwrap_or_else(|| advertised_base_url("127.0.0.1", body.port));
+    if body.daemon_id.trim().is_empty() || body.daemon_id == rt.daemon_id.as_str() || body.port == 0
+    {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(
+                json!({"ok": false, "error": "registration requires a distinct daemonId and a nonzero port"}),
+            ),
+        );
+    }
+    let peer = peer.map(|Extension(ConnectInfo(peer))| peer);
+    let base_url = match registration_base_url(body.base_url.as_deref(), body.port, peer) {
+        Ok(url) => url,
+        Err(error) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"ok":false,"error":error})),
+            )
+        }
+    };
     let entry = SlaveEntry {
         daemon_id: DaemonId::new(body.daemon_id),
         hostname: body.hostname,
@@ -232,7 +297,7 @@ async fn federation_fleet_push(
     State(rt): State<FederationRuntime>,
     Json(body): Json<FleetPushBody>,
 ) -> (StatusCode, Json<Value>) {
-    if rt.role != "master" {
+    if rt.settings.current().federation.role != "master" {
         return (
             StatusCode::BAD_REQUEST,
             Json(json!({ "ok": false, "error": "fleet-push requires role=master" })),
@@ -310,147 +375,22 @@ async fn post_admin_config(
     State(rt): State<FederationRuntime>,
     Json(patch): Json<Value>,
 ) -> (StatusCode, Json<Value>) {
-    let mut cfg = match cfgfile::load(&rt.config_path) {
-        Ok(c) => c,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "ok": false, "error": e.to_string() })),
-            );
-        }
-    };
-    if let Err(e) = merge_config_patch(&mut cfg, &patch) {
-        return (
+    match rt.settings.patch(patch).await {
+        Ok(cfg) => (
+            StatusCode::OK,
+            Json(json!({
+                "ok": true,
+                "config": cfg,
+                "restartRequired": rt.settings.restart_required(),
+            })),
+        ),
+        Err(error) => (
             StatusCode::BAD_REQUEST,
-            Json(json!({ "ok": false, "error": e })),
-        );
-    }
-    if let Err(e) = cfgfile::validate_remote_auth(&cfg) {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "ok": false, "error": e.to_string() })),
-        );
-    }
-    if let Err(e) = cfgfile::save(&rt.config_path, &cfg) {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "ok": false, "error": e.to_string() })),
-        );
-    }
-    match serde_json::to_value(&cfg) {
-        Ok(v) => (StatusCode::OK, Json(json!({ "ok": true, "config": v }))),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "ok": false, "error": e.to_string() })),
+            Json(json!({
+                "ok": false, "error": format!("{error:#}")
+            })),
         ),
     }
-}
-
-fn merge_config_patch(cfg: &mut ConfigFile, patch: &Value) -> Result<(), String> {
-    let obj = patch
-        .as_object()
-        .ok_or_else(|| "body must be a JSON object".to_owned())?;
-    if let Some(server) = obj.get("server").and_then(Value::as_object) {
-        if let Some(v) = server.get("port").and_then(Value::as_u64) {
-            cfg.server.port =
-                u16::try_from(v).map_err(|_| "server.port out of range".to_owned())?;
-        }
-        if let Some(s) = server
-            .get("bindAddress")
-            .or_else(|| server.get("bind_address"))
-            .and_then(Value::as_str)
-        {
-            cfg.server.bind_address = s.to_owned();
-        }
-    }
-    if let Some(auth) = obj.get("auth").and_then(Value::as_object) {
-        if let Some(s) = auth.get("mode").and_then(Value::as_str) {
-            cfg.auth.mode = s.to_owned();
-        }
-        if let Some(s) = auth.get("psk").and_then(Value::as_str) {
-            cfg.auth.psk = s.to_owned();
-        }
-    }
-    if let Some(fed) = obj.get("federation").and_then(Value::as_object) {
-        if let Some(s) = fed.get("role").and_then(Value::as_str) {
-            cfg.federation.role = s.to_owned();
-        }
-        if let Some(s) = fed
-            .get("masterUrl")
-            .or_else(|| fed.get("master_url"))
-            .and_then(Value::as_str)
-        {
-            cfg.federation.master_url = s.to_owned();
-        }
-        if let Some(s) = fed
-            .get("masterPsk")
-            .or_else(|| fed.get("master_psk"))
-            .and_then(Value::as_str)
-        {
-            cfg.federation.master_psk = s.to_owned();
-        }
-    }
-    if let Some(daemon) = obj.get("daemon").and_then(Value::as_object) {
-        if let Some(v) = daemon
-            .get("keepAlive")
-            .or_else(|| daemon.get("keep_alive"))
-            .and_then(Value::as_bool)
-        {
-            cfg.daemon.keep_alive = v;
-        }
-        if let Some(v) = daemon
-            .get("alwaysOn")
-            .or_else(|| daemon.get("always_on"))
-            .and_then(Value::as_bool)
-        {
-            cfg.daemon.always_on = v;
-        }
-        if let Some(v) = daemon
-            .get("showTray")
-            .or_else(|| daemon.get("show_tray"))
-            .and_then(Value::as_bool)
-        {
-            cfg.daemon.show_tray = v;
-        }
-    }
-    if let Some(bridge) = obj.get("bridge").and_then(Value::as_object) {
-        if let Some(v) = bridge
-            .get("callTimeoutSecs")
-            .or_else(|| bridge.get("call_timeout_secs"))
-            .and_then(Value::as_u64)
-        {
-            cfg.bridge.call_timeout_secs = v;
-        }
-        if let Some(v) = bridge
-            .get("scriptTimeoutSecs")
-            .or_else(|| bridge.get("script_timeout_secs"))
-            .and_then(Value::as_u64)
-        {
-            cfg.bridge.script_timeout_secs = v;
-        }
-        if let Some(v) = bridge
-            .get("heartbeatIntervalSecs")
-            .or_else(|| bridge.get("heartbeat_interval_secs"))
-            .and_then(Value::as_u64)
-        {
-            cfg.bridge.heartbeat_interval_secs = v;
-        }
-        if let Some(v) = bridge
-            .get("pongTimeoutSecs")
-            .or_else(|| bridge.get("pong_timeout_secs"))
-            .and_then(Value::as_u64)
-        {
-            cfg.bridge.pong_timeout_secs = v;
-        }
-        if let Some(v) = bridge
-            .get("idleDeadSecs")
-            .or_else(|| bridge.get("idle_dead_secs"))
-            .and_then(Value::as_u64)
-        {
-            cfg.bridge.idle_dead_secs = v;
-        }
-    }
-    Ok(())
 }
 
 /// Tag local fleet rows with this daemon id/hostname.
@@ -475,6 +415,62 @@ pub fn tag_local_processes(
 
 /// Slave background: register with backoff, then fleet-push every 2s.
 pub fn spawn_slave_loop(
+    rt: FederationRuntime,
+    app: AppState,
+    shutdown: CancellationToken,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut settings = rt.settings.subscribe();
+        loop {
+            let cfg = settings.borrow_and_update().clone();
+            let link_config = cfg.federation.clone();
+            let mut active = rt.clone();
+            active.role = cfg.federation.role;
+            active.master_url = cfg.federation.master_url;
+            active.master_psk = cfg.federation.master_psk;
+            rt.link_status.send_replace(
+                match active.role.as_str() {
+                    "slave" => "Connecting to coordinator",
+                    "master" => "Coordinating",
+                    _ => "Local only",
+                }
+                .to_owned(),
+            );
+            let child_shutdown = shutdown.child_token();
+            let child = if active.role == "slave" {
+                Some(spawn_slave_connection(
+                    active,
+                    app.clone(),
+                    child_shutdown.clone(),
+                ))
+            } else {
+                None
+            };
+            loop {
+                tokio::select! {
+                    () = shutdown.cancelled() => break,
+                    result = settings.changed() => {
+                        if result.is_err() || settings.borrow_and_update().federation != link_config { break; }
+                    },
+                }
+            }
+            child_shutdown.cancel();
+            if let Some(child) = child {
+                child.abort();
+                let _ = child.await;
+            }
+            // A former coordinator must not continue forwarding stale routes.
+            if rt.settings.current().federation.role != "master" {
+                *rt.slaves.lock().await = SlaveRegistry::new();
+            }
+            if shutdown.is_cancelled() {
+                break;
+            }
+        }
+    })
+}
+
+fn spawn_slave_connection(
     rt: FederationRuntime,
     app: AppState,
     shutdown: CancellationToken,
@@ -524,6 +520,12 @@ pub fn spawn_slave_loop(
                     }
                     Ok(resp) => {
                         let status = resp.status();
+                        rt.link_status
+                            .send_replace(if status == StatusCode::UNAUTHORIZED {
+                                "Access key rejected — check the coordinator key".to_owned()
+                            } else {
+                                format!("Registration rejected (HTTP {status}) — retrying")
+                            });
                         if status == StatusCode::UNAUTHORIZED {
                             warn!(
                                 code = codes::FEDERATION_AUTH_REJECTED,
@@ -540,6 +542,9 @@ pub fn spawn_slave_loop(
                         continue;
                     }
                     Err(e) => {
+                        rt.link_status.send_replace(
+                            "Coordinator unreachable — check URL and network; retrying".to_owned(),
+                        );
                         warn!(error = %e, "federation register transport error");
                         tokio::select! {
                             () = shutdown.cancelled() => break,
@@ -588,20 +593,35 @@ pub fn spawn_slave_loop(
                 req = req.bearer_auth(&rt.master_psk);
             }
             match req.send().await {
-                Ok(resp) if resp.status().is_success() => {}
+                Ok(resp) if resp.status().is_success() => {
+                    rt.link_status
+                        .send_replace("Connected to coordinator".to_owned());
+                }
                 Ok(resp) if resp.status() == StatusCode::NOT_FOUND => {
+                    rt.link_status
+                        .send_replace("Reconnecting to coordinator".to_owned());
                     warn!("fleet-push unknown to master — will re-register");
                     registered = false;
                 }
                 Ok(resp) if resp.status() == StatusCode::UNAUTHORIZED => {
+                    rt.link_status
+                        .send_replace("Access key rejected — check the coordinator key".to_owned());
                     warn!(
                         code = codes::FEDERATION_AUTH_REJECTED,
                         "fleet-push unauthorized — will re-register"
                     );
                     registered = false;
                 }
-                Ok(resp) => warn!(status = %resp.status(), "fleet-push failed"),
+                Ok(resp) => {
+                    rt.link_status.send_replace(format!(
+                        "Fleet update rejected (HTTP {}) — retrying",
+                        resp.status()
+                    ));
+                    warn!(status = %resp.status(), "fleet-push failed");
+                }
                 Err(e) => {
+                    rt.link_status
+                        .send_replace("Coordinator unreachable — retrying".to_owned());
                     warn!(error = %e, "fleet-push transport error");
                     registered = false;
                 }
@@ -614,4 +634,43 @@ pub fn spawn_slave_loop(
         }
         info!("federation slave loop stopped");
     })
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, reason = "test fixtures")]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn callback_repair_preserves_remote_origins_and_rejects_invalid_inputs() {
+        let peer = Some("192.168.2.10:4567".parse().unwrap());
+        assert_eq!(
+            registration_base_url(Some("http://127.0.0.1:9860"), 9860, peer).unwrap(),
+            "http://192.168.2.10:9860"
+        );
+        assert_eq!(
+            registration_base_url(Some("https://render.example:443/"), 9860, peer).unwrap(),
+            "https://render.example:443"
+        );
+        assert_eq!(
+            registration_base_url(
+                Some("http://[::]:9860"),
+                9860,
+                Some("[fd00::5]:1234".parse().unwrap())
+            )
+            .unwrap(),
+            "http://[fd00::5]:9860"
+        );
+        for bad in [
+            "http://127.0.0.1/path",
+            "ftp://127.0.0.1",
+            "http://user:key@127.0.0.1",
+            "http://localhost/?key=secret",
+        ] {
+            assert!(
+                registration_base_url(Some(bad), 9860, peer).is_err(),
+                "{bad}"
+            );
+        }
+    }
 }

@@ -7,12 +7,15 @@ echo "== cargo fmt --check =="
 cargo fmt --all -- --check
 
 echo "== cargo clippy =="
-cargo clippy --workspace --all-targets -- -D warnings
+cargo clippy --locked --workspace --all-targets -- -D warnings
 
 echo "== cargo test =="
-cargo test --workspace
+cargo test --locked --workspace
 
 echo "== bridge python tests (pytest) =="
 python3 -m pytest bridge/tests -v
+
+python3 scripts/check_docs.py
+python3 -m unittest discover -s scripts/tests
 
 echo "OK: check green"

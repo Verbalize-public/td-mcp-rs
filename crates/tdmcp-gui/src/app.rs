@@ -64,6 +64,8 @@ pub(crate) struct DashboardApp {
     pub(crate) config_path: PathBuf,
     pub(crate) draft: ConfigFile,
     pub(crate) settings_error: Option<String>,
+    pub(crate) settings_save: crate::background::Background<(ConfigFile, bool)>,
+    logs_fetch: crate::background::Background<String>,
     /// Text buffers for optional advanced paths (empty = unset).
     pub(crate) data_dir_edit: String,
     pub(crate) bridge_dir_edit: String,
@@ -82,6 +84,7 @@ pub(crate) struct DashboardApp {
     /// Master-only: `/admin/federation/slaves` body.
     pub(crate) slaves_json: String,
     pub(crate) last_poll: Option<Instant>,
+    poll_rx: Option<std::sync::mpsc::Receiver<crate::http::PollSnapshot>>,
     pub(crate) error: Option<String>,
     pub(crate) tray: Option<TrayHandle>,
     pub(crate) icon_normal: RgbaIcon,
@@ -152,6 +155,7 @@ pub(crate) struct DashboardApp {
     pub(crate) add_slave_psk: String,
     /// Outcome of the last one-click add-slave attempt.
     pub(crate) add_slave_step: crate::federation::AddSlaveStep,
+    pub(crate) add_slave_job: crate::background::Background<crate::wire::FederationProbe>,
     pub(crate) add_slave_probe: Option<crate::wire::FederationProbe>,
     pub(crate) scan_results: Vec<crate::wire::ScanHit>,
     pub(crate) scan_busy: bool,
@@ -278,7 +282,13 @@ impl DashboardApp {
         config_path: PathBuf,
         window_icon: egui::IconData,
     ) -> Result<Self> {
-        let draft = cfgfile::load(&config_path).unwrap_or_default();
+        let (draft, settings_error) = match cfgfile::load(&config_path) {
+            Ok(config) => (config, None),
+            Err(error) => (
+                ConfigFile::default(),
+                Some(format!("Cannot read configuration: {error}")),
+            ),
+        };
         // Dev/test hook: TDMCP_OPEN_DASH=1|logs|palette|settings opens the
         // dashboard (optionally on a tab) instead of staying tray-only.
         // `fleet` is kept as a back-compat alias for Overview since the tab merge.
@@ -288,6 +298,7 @@ impl DashboardApp {
             "fleet" | "overview" => dashboard::DashTab::Overview,
             "palette" => dashboard::DashTab::Palette,
             "settings" => dashboard::DashTab::Settings,
+            "federation" => dashboard::DashTab::Federation,
             _ => dashboard::DashTab::default(),
         };
         let dash_open = !dash_env.is_empty() && dash_env != "0";
@@ -311,7 +322,7 @@ impl DashboardApp {
             data_dir,
             config_path,
             draft,
-            settings_error: None,
+            settings_error,
             data_dir_edit: edits.data_dir,
             bridge_dir_edit: edits.bridge_dir,
             catalog_path_edit: edits.catalog_path,
@@ -327,6 +338,9 @@ impl DashboardApp {
             sessions_json: String::new(),
             slaves_json: String::new(),
             last_poll: None,
+            poll_rx: None,
+            settings_save: Default::default(),
+            logs_fetch: Default::default(),
             error: None,
             // Defer tray build to the first `logic` tick. Creating a status-item
             // inside eframe's creation callback can re-enter AppKit on macOS and
@@ -368,6 +382,7 @@ impl DashboardApp {
             add_slave_port: tdmcp_config::DEFAULT_PORT,
             add_slave_psk: String::new(),
             add_slave_step: crate::federation::AddSlaveStep::Idle,
+            add_slave_job: Default::default(),
             add_slave_probe: None,
             scan_results: Vec::new(),
             scan_busy: false,
@@ -421,6 +436,7 @@ impl DashboardApp {
     /// True when the edited draft differs from the loaded config snapshot.
     pub(crate) fn config_dirty(&self) -> bool {
         config_dirty(&self.draft, &self.settings_loaded_snapshot)
+            || self.path_buffers() != path_edits_from(&self.draft)
     }
 
     pub(crate) fn open_settings(&mut self) {
@@ -430,10 +446,16 @@ impl DashboardApp {
                 self.settings_error = None;
             }
             Err(e) => {
-                self.draft = ConfigFile::default();
                 self.settings_error = Some(format!("load failed: {e}"));
+                return;
             }
         }
+        self.sync_path_buffers();
+        self.settings_loaded_snapshot = self.draft.clone();
+        self.confirm_turn_off_sharing = false;
+    }
+
+    fn sync_path_buffers(&mut self) {
         let e = path_edits_from(&self.draft);
         self.data_dir_edit = e.data_dir;
         self.bridge_dir_edit = e.bridge_dir;
@@ -445,8 +467,21 @@ impl DashboardApp {
         self.official_collapse_edit = e.official_collapse;
         self.official_wine_exe_edit = e.official_wine_exe;
         self.official_wine_prefix_edit = e.official_wine_prefix;
-        self.settings_loaded_snapshot = self.draft.clone();
-        self.confirm_turn_off_sharing = false;
+    }
+
+    fn path_buffers(&self) -> PathEdits {
+        PathEdits {
+            data_dir: self.data_dir_edit.clone(),
+            bridge_dir: self.bridge_dir_edit.clone(),
+            catalog_path: self.catalog_path_edit.clone(),
+            daemon_bin: self.daemon_bin_edit.clone(),
+            template_path: self.template_path_edit.clone(),
+            official_td_exe: self.official_td_exe_edit.clone(),
+            official_expand: self.official_expand_edit.clone(),
+            official_collapse: self.official_collapse_edit.clone(),
+            official_wine_exe: self.official_wine_exe_edit.clone(),
+            official_wine_prefix: self.official_wine_prefix_edit.clone(),
+        }
     }
 
     /// Lazily resolve the log directory once, from either surface.
@@ -486,6 +521,12 @@ impl DashboardApp {
     /// logs, not paused) — piggybacks the existing repaint tick, same
     /// throttle style as `poll()`.
     pub(crate) fn fetch_logs_if_due(&mut self) {
+        if let Some(result) = self.logs_fetch.poll() {
+            self.finish_logs_fetch(result);
+        }
+        if self.logs_fetch.is_running() {
+            return;
+        }
         if !self.logs_surface_active() || self.logs_view.paused {
             return;
         }
@@ -518,8 +559,16 @@ impl DashboardApp {
                     .join(","),
             );
         }
-        let bearer = local_master_psk(&self.draft);
-        match http_get_blocking(&url, bearer.as_deref()) {
+        let bearer = local_master_psk(&self.settings_loaded_snapshot);
+        if let Err(error) = self.logs_fetch.start("tdmcp-logs", move || {
+            http_get_blocking(&url, bearer.as_deref())
+        }) {
+            self.logs_view.fetch_error = Some(error);
+        }
+    }
+
+    fn finish_logs_fetch(&mut self, result: Result<String, String>) {
+        match result {
             Ok(body) => match serde_json::from_str::<LogsResponse>(&body) {
                 Ok(page) => {
                     self.logs_view.fetch_error = None;
@@ -542,6 +591,8 @@ impl DashboardApp {
     /// the new filter — matches the plan's "changing filters resets cursor
     /// and refetches the tail" contract.
     pub(crate) fn reset_logs_filter_state(&mut self) {
+        // Drop the receiver so an old filter's in-flight page cannot leak in.
+        self.logs_fetch = Default::default();
         self.logs_view.buf.clear();
         self.logs_view.next = 0;
         self.logs_view.expanded = None;
@@ -575,19 +626,58 @@ impl DashboardApp {
     }
 
     pub(crate) fn save_settings(&mut self) {
+        if self.settings_save.is_running() {
+            return;
+        }
         self.apply_path_edits();
-        if let Err(e) = cfgfile::validate_remote_auth(&self.draft) {
+        if let Err(e) = cfgfile::validate(&self.draft) {
             self.settings_error = Some(e.to_string());
             return;
         }
-        let restart_needed =
-            restart_required_fields_changed(&self.settings_loaded_snapshot, &self.draft);
-        match cfgfile::save(&self.config_path, &self.draft) {
-            Ok(()) => {
+        if self.status.is_some() {
+            let base = self.admin_base.clone();
+            let loaded = self.settings_loaded_snapshot.clone();
+            let draft = self.draft.clone();
+            self.settings_error = None;
+            if let Err(error) = self.settings_save.start("tdmcp-save", move || {
+                let patch = cfgfile::diff(&loaded, &draft).map_err(|e| e.to_string())?;
+                let reply = http_post_blocking(
+                    &format!("{base}/admin/config"),
+                    local_master_psk(&loaded).as_deref(),
+                    Some(&patch),
+                )?;
+                let restart = reply
+                    .get("restartRequired")
+                    .and_then(serde_json::Value::as_array)
+                    .is_some_and(|a| !a.is_empty());
+                let config = reply
+                    .get("config")
+                    .ok_or_else(|| "daemon did not return saved settings".to_owned())?;
+                let saved = serde_json::from_value(config.clone()).map_err(|e| e.to_string())?;
+                Ok((saved, restart))
+            }) {
+                self.settings_error = Some(error);
+            }
+        } else {
+            let restart =
+                restart_required_fields_changed(&self.settings_loaded_snapshot, &self.draft);
+            let result = cfgfile::save(&self.config_path, &self.draft)
+                .map(|()| (self.draft.clone(), restart))
+                .map_err(|e| e.to_string());
+            self.finish_settings_save(result);
+        }
+    }
+
+    fn finish_settings_save(&mut self, result: Result<(ConfigFile, bool), String>) {
+        match result {
+            Ok((saved, restart_needed)) => {
+                self.draft = saved;
                 self.settings_error = None;
                 self.role_change_note = None;
-                self.needs_restart = self.needs_restart || restart_needed;
+                self.needs_restart = restart_needed;
                 self.settings_loaded_snapshot = self.draft.clone();
+                self.sync_path_buffers();
+                self.last_poll = None;
                 self.snack(
                     "Settings saved",
                     if restart_needed {
@@ -605,14 +695,20 @@ impl DashboardApp {
     }
 
     pub(crate) fn discard_settings(&mut self) {
+        self.draft = self.settings_loaded_snapshot.clone();
+        self.sync_path_buffers();
         self.settings_error = None;
+        self.role_change_note = None;
     }
 
     pub(crate) fn reset_settings(&mut self) {
-        match cfgfile::ensure_default(&self.config_path, true) {
-            Ok(_) => self.open_settings(),
-            Err(e) => self.settings_error = Some(format!("reset failed: {e}")),
-        }
+        let identity = self.draft.federation.daemon_id.clone();
+        let binary = self.draft.advanced.daemon_bin.clone();
+        self.draft = ConfigFile::default();
+        self.draft.federation.daemon_id = identity;
+        self.draft.advanced.daemon_bin = binary;
+        self.sync_path_buffers();
+        self.settings_error = None;
     }
 
     pub(crate) fn quitting(&self) -> bool {
@@ -801,20 +897,56 @@ impl DashboardApp {
     pub(crate) fn poll(&mut self) {
         self.ensure_base();
         self.scan_crash_reports();
-        let status_ok = match http_get_blocking(&format!("{}/admin/status", self.admin_base), None)
-        {
-            Ok(body) => {
-                self.status = serde_json::from_str(&body).ok();
-                self.error = None;
-                true
+        let snapshot = if let Some(rx) = &self.poll_rx {
+            match rx.try_recv() {
+                Ok(snapshot) => {
+                    self.poll_rx = None;
+                    snapshot
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => return,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.poll_rx = None;
+                    self.error = Some("Status worker stopped".to_owned());
+                    self.last_poll = Some(Instant::now());
+                    return;
+                }
             }
+        } else {
+            let (tx, rx) = std::sync::mpsc::channel();
+            let base = self.admin_base.clone();
+            let bearer = local_master_psk(&self.settings_loaded_snapshot);
+            match std::thread::Builder::new()
+                .name("tdmcp-status".into())
+                .spawn(move || {
+                    let _ = tx.send(crate::http::poll_snapshot(&base, bearer.as_deref()));
+                }) {
+                Ok(_) => self.poll_rx = Some(rx),
+                Err(error) => self.error = Some(format!("Could not refresh status: {error}")),
+            }
+            self.last_poll = Some(Instant::now());
+            return;
+        };
+        let status_ok = match snapshot.status {
+            Ok(body) => match serde_json::from_str::<StatusView>(&body) {
+                Ok(status) => {
+                    self.needs_restart = !status.restart_required.is_empty();
+                    self.status = Some(status);
+                    self.error = None;
+                    true
+                }
+                Err(error) => {
+                    self.status = None;
+                    self.error = Some(format!("Invalid status response: {error}"));
+                    false
+                }
+            },
             Err(e) => {
                 self.status = None;
                 self.error = Some(e);
                 false
             }
         };
-        match http_get_blocking(&format!("{}/admin/fleet", self.admin_base), None) {
+        match snapshot.fleet {
             Ok(body) => {
                 self.fleet_json = body;
                 self.apply_fleet_status();
@@ -824,7 +956,7 @@ impl DashboardApp {
                 push_error_ring(&mut self.error_ring, e);
             }
         }
-        match http_get_blocking(&format!("{}/admin/mcp-sessions", self.admin_base), None) {
+        match snapshot.sessions {
             Ok(body) => self.sessions_json = body,
             Err(e) => {
                 if self.error.is_none() {
@@ -839,11 +971,7 @@ impl DashboardApp {
             .as_ref()
             .is_some_and(|s| s.role.eq_ignore_ascii_case("master"));
         if is_master {
-            let bearer = local_master_psk(&self.draft);
-            match http_get_blocking(
-                &format!("{}/admin/federation/slaves", self.admin_base),
-                bearer.as_deref(),
-            ) {
+            match snapshot.slaves {
                 Ok(body) => {
                     self.slaves_json = body;
                     let slaves = parse_slaves(&self.slaves_json);
@@ -857,9 +985,7 @@ impl DashboardApp {
                     self.known_slave_ids = slaves.iter().map(|s| s.daemon_id.clone()).collect();
                     self.slaves_seen_once = true;
                 }
-                Err(_) => {
-                    // Keep last snapshot; auth may be unset on old daemons.
-                }
+                Err(error) => self.error = Some(error),
             }
         } else {
             self.slaves_json.clear();
@@ -994,9 +1120,17 @@ impl DashboardApp {
 
     pub(crate) fn restart_daemon(&mut self) {
         self.ensure_base();
-        let _ = http_post_blocking(&format!("{}/admin/restart", self.admin_base), None, None);
-        self.confirm_stop = false;
-        self.snack("Restart issued", SnackTone::Info);
+        match http_post_blocking(&format!("{}/admin/restart", self.admin_base), None, None) {
+            Ok(_) => {
+                self.confirm_stop = false;
+                self.needs_restart = false;
+                self.snack("Restarting…", SnackTone::Info);
+            }
+            Err(error) => {
+                self.settings_error = Some(error);
+                self.snack("Restart failed", SnackTone::Error);
+            }
+        }
     }
 
     pub(crate) fn reveal_tox(&self) {
@@ -1313,10 +1447,14 @@ impl eframe::App for DashboardApp {
         let due = self
             .last_poll
             .is_none_or(|t| t.elapsed() > Duration::from_secs(2));
-        if due {
+        if due || self.poll_rx.is_some() {
             self.poll();
         }
         self.fetch_logs_if_due();
+        self.poll_add_pipeline();
+        if let Some(result) = self.settings_save.poll() {
+            self.finish_settings_save(result);
+        }
         let scan_hits = self.scan_rx.as_ref().and_then(|rx| rx.try_recv().ok());
         if let Some(hits) = scan_hits {
             let n = hits.len();
@@ -1388,6 +1526,7 @@ impl eframe::App for DashboardApp {
 
 /// Settings-tab text buffers derived from the draft config — named fields,
 /// never positional, so adding a row can't silently transpose two of them.
+#[derive(PartialEq, Eq)]
 struct PathEdits {
     data_dir: String,
     bridge_dir: String,
@@ -1448,13 +1587,7 @@ pub(crate) fn config_dirty(a: &ConfigFile, b: &ConfigFile) -> bool {
 /// True when a field that only takes effect after a daemon restart changed.
 #[must_use]
 pub(crate) fn restart_required_fields_changed(a: &ConfigFile, b: &ConfigFile) -> bool {
-    a.server.bind_address != b.server.bind_address
-        || a.server.port != b.server.port
-        || a.auth.mode != b.auth.mode
-        || a.auth.psk != b.auth.psk
-        || a.federation.role != b.federation.role
-        || a.federation.master_url != b.federation.master_url
-        || a.federation.master_psk != b.federation.master_psk
+    !cfgfile::restart_required_fields(a, b).is_empty()
 }
 
 /// Random PSK for `auth.psk` (32 hex chars) when the user switches to `psk`.
@@ -1512,6 +1645,30 @@ mod tests {
         let mut c = ConfigFile::default();
         c.federation.role = "master".to_owned();
         assert!(config_dirty(&a, &c));
+    }
+
+    #[test]
+    fn discard_restores_path_edits_and_reset_waits_for_save() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("config.toml");
+        let mut cfg = ConfigFile::default();
+        cfg.federation.daemon_id = "stable-id".into();
+        cfg.bridge.call_timeout_secs = 75;
+        cfgfile::save(&path, &cfg).unwrap();
+        let before = std::fs::read(&path).unwrap();
+        let mut app = headless_app(&path);
+        app.open_settings();
+        app.template_path_edit = "/tmp/edited.toe".into();
+        assert!(app.config_dirty());
+        app.discard_settings();
+        assert!(!app.config_dirty());
+        assert!(app.template_path_edit.is_empty());
+        app.reset_settings();
+        assert!(app.config_dirty());
+        assert_eq!(app.draft.federation.daemon_id, "stable-id");
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        app.discard_settings();
+        assert_eq!(app.draft, cfg);
     }
 
     /// A real `DashboardApp` against a scratch config/data dir — the same
@@ -1601,6 +1758,58 @@ mod tests {
             reloaded.official_tools.wine_prefix.as_deref(),
             Some(std::path::Path::new("/home/u/.wine"))
         );
+    }
+
+    #[test]
+    fn rejected_online_save_keeps_draft_and_does_not_block_the_ui() {
+        use std::io::{Read, Write};
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("config.toml");
+        cfgfile::ensure_default(&path, false).unwrap();
+        let before = std::fs::read(&path).unwrap();
+        let server = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", server.local_addr().unwrap());
+        let (release, wait) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let (mut stream, _) = server.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(3)))
+                .unwrap();
+            let mut request = [0u8; 4096];
+            let _ = stream.read(&mut request).unwrap();
+            wait.recv_timeout(Duration::from_secs(3)).unwrap();
+            let body = r#"{"error":"fixture rejected settings"}"#;
+            write!(stream, "HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+        });
+        let mut app = headless_app(&path);
+        app.admin_base = base;
+        app.status =
+            Some(serde_json::from_value(serde_json::json!({"version":"test","pid":1})).unwrap());
+        app.draft.bridge.call_timeout_secs = 77;
+        app.save_settings();
+        // The server has not replied: an inline HTTP implementation cannot
+        // reach this point with a pending job and preserved editing state.
+        assert!(app.settings_save.is_running());
+        assert!(app.config_dirty());
+        release.send(()).unwrap();
+        worker.join().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        loop {
+            if let Some(result) = app.settings_save.poll() {
+                app.finish_settings_save(result);
+                break;
+            }
+            assert!(Instant::now() < deadline, "save worker did not complete");
+            std::thread::yield_now();
+        }
+        assert!(app
+            .settings_error
+            .as_deref()
+            .unwrap()
+            .contains("fixture rejected settings"));
+        assert_eq!(app.draft.bridge.call_timeout_secs, 77);
+        assert!(app.config_dirty());
+        assert_eq!(std::fs::read(path).unwrap(), before);
     }
 
     #[test]

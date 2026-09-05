@@ -3,9 +3,17 @@
 use anyhow::{bail, Context, Result};
 use serde_json::Value;
 
+fn client() -> Result<reqwest::Client> {
+    reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(1))
+        .timeout(std::time::Duration::from_secs(3))
+        .build()
+        .context("build bounded admin HTTP client")
+}
+
 /// GET a URL; return response body text. Requires a successful status.
 pub async fn get_text(url: &str) -> Result<String> {
-    let client = reqwest::Client::new();
+    let client = client()?;
     let resp = client
         .get(url)
         .send()
@@ -27,7 +35,7 @@ pub async fn get_json(url: &str) -> Result<Value> {
 
 /// POST with an empty body; requires a successful status.
 pub async fn post_empty(url: &str) -> Result<()> {
-    let client = reqwest::Client::new();
+    let client = client()?;
     let resp = client
         .post(url)
         .header(reqwest::header::CONTENT_LENGTH, "0")

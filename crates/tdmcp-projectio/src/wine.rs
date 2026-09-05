@@ -3,24 +3,55 @@
 //! run under Wine. Kept general on purpose — no assumption about *which*
 //! Wine build or prefix layout the user has:
 //!
-//! - The Wine binary is `TDMCP_WINE_EXE` (from `[official_tools] wine_exe`,
-//!   promoted to env by `tdmcp_config::load`), default `"wine"` — a path or a
+//! - The Wine binary is `TDMCP_WINE_EXE`, then startup configuration, then
+//!   `"wine"` — a path or a
 //!   bare name works, so a Lutris/Bottles/CrossOver wrapper script is a valid
 //!   override.
 //! - The prefix is derived from the resolved exe path's `drive_c` ancestor,
 //!   not guessed — every Wine-compatible layout (plain Wine, Proton, Lutris,
 //!   Bottles, CrossOver) uses that convention, so this works with zero config
-//!   for any of them. An explicit `TDMCP_WINE_PREFIX` (from
-//!   `[official_tools] wine_prefix`, promoted to env by `tdmcp_config::load`)
-//!   wins outright — for layouts with no `drive_c` ancestor (e.g. the exe
+//!   for any of them. `TDMCP_WINE_PREFIX`, then `[official_tools] wine_prefix`,
+//!   overrides derivation — for layouts with no `drive_c` ancestor (e.g. the exe
 //!   living outside its prefix, as the AUR touchdesigner-linux package keeps
 //!   it under `/opt/touchdesigner/td`) it is the *only* way to pin the prefix.
 
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::OnceLock;
 
 use crate::resolve::ENV_WINE_PREFIX;
+
+/// Immutable startup defaults, below explicit environment overrides. Keeping
+/// these separate from process environment makes config reads side-effect free.
+#[derive(Debug, Default)]
+pub struct WineConfig {
+    /// Wine binary or launcher wrapper.
+    pub executable: Option<String>,
+    /// Wine prefix when discovery cannot derive it from the executable path.
+    pub prefix: Option<PathBuf>,
+}
+
+static CONFIG: OnceLock<WineConfig> = OnceLock::new();
+
+/// Configure once at process startup, before spawning workers. Runtime edits
+/// need restart; they never mutate the environment of concurrent operations.
+pub fn configure(config: WineConfig) -> Result<(), WineConfig> {
+    CONFIG.set(config)
+}
+
+pub(crate) fn config_default(name: &str) -> Option<String> {
+    let cfg = CONFIG.get()?;
+    match name {
+        "TDMCP_WINE_EXE" => cfg.executable.clone(),
+        ENV_WINE_PREFIX => cfg
+            .prefix
+            .as_ref()
+            .map(|p| p.to_string_lossy().into_owned()),
+        _ => None,
+    }
+    .filter(|s| !s.is_empty())
+}
 
 /// True when `program` is a Windows PE binary that cannot run natively here.
 #[must_use]
@@ -32,15 +63,13 @@ pub fn needs_wine(program: &Path) -> bool {
 }
 
 /// The Wine prefix to run `exe` under: an explicit `TDMCP_WINE_PREFIX` env
-/// (from `[official_tools] wine_prefix`, promoted by `tdmcp_config::load`)
-/// wins outright; otherwise `exe`'s `drive_c` ancestor decides. `None` when no
+/// wins, then the startup configuration; otherwise `exe`'s `drive_c` ancestor
+/// decides. `None` when no
 /// override exists and the exe is not under a `drive_c` layout — Wine then
 /// falls back to its own default prefix.
 #[must_use]
 pub fn prefix_for(exe: &Path) -> Option<PathBuf> {
-    let env_override = std::env::var(ENV_WINE_PREFIX)
-        .ok()
-        .filter(|v| !v.is_empty());
+    let env_override = crate::resolve::std_env(ENV_WINE_PREFIX);
     prefix_for_with(env_override.as_deref(), exe)
 }
 
@@ -61,13 +90,10 @@ fn prefix_for_with(env_override: Option<&str>, exe: &Path) -> Option<PathBuf> {
     None
 }
 
-/// Wine binary name/path: `TDMCP_WINE_EXE` env (config-promoted), else `"wine"`.
+/// Wine binary: explicit environment, then startup configuration, then `"wine"`.
 #[must_use]
 pub fn wine_exe() -> String {
-    std::env::var("TDMCP_WINE_EXE")
-        .ok()
-        .filter(|v| !v.is_empty())
-        .unwrap_or_else(|| "wine".to_string())
+    crate::resolve::std_env("TDMCP_WINE_EXE").unwrap_or_else(|| "wine".to_string())
 }
 
 /// Build the `Command` to run `program`, wrapping it through Wine when

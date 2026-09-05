@@ -15,7 +15,6 @@
     reason = "binary_test_lock serializes process spawn"
 )]
 
-use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Mutex, OnceLock};
@@ -36,8 +35,7 @@ fn binary_test_lock() -> std::sync::MutexGuard<'static, ()> {
 }
 
 fn free_port() -> u16 {
-    let listener = TcpListener::bind("127.0.0.1:0").expect("bind ephemeral");
-    listener.local_addr().expect("local_addr").port()
+    tdmcp_test_support::unique_test_port().expect("unique test port")
 }
 
 fn daemon_bin() -> PathBuf {
@@ -456,6 +454,78 @@ async fn stale_daemon_lock_reclaimed_on_start() {
     assert_ne!(owner, dead_pid, "start should replace stale lock pid");
     assert!(pid_alive(owner));
 
+    harness.stop_graceful().await;
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn poll_only_never_restarts_a_healthy_headless_daemon() {
+    let _guard = binary_test_lock();
+    let dir = tempdir().expect("tempdir");
+    let port = free_port();
+    let mut harness = DaemonHarness::spawn_start(port, dir.path());
+    wait_healthy(port, Duration::from_secs(15)).await;
+    let pid = read_daemon_lock_pid(dir.path()).expect("owner");
+    let result = ensure_daemon(EnsureOptions {
+        port,
+        data_dir: dir.path().to_path_buf(),
+        no_gui: false,
+        poll_only: true,
+        ..Default::default()
+    })
+    .await
+    .expect("poll only");
+    assert!(result.already_running);
+    assert!(!result.spawned);
+    assert_eq!(read_daemon_lock_pid(dir.path()), Some(pid));
+    harness.stop_graceful().await;
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn restart_applies_saved_port_instead_of_old_cli_override() {
+    let _guard = binary_test_lock();
+    let dir = tempdir().expect("tempdir");
+    let old_port = free_port();
+    let mut harness = DaemonHarness::spawn_start(old_port, dir.path());
+    wait_healthy(old_port, Duration::from_secs(15)).await;
+    let old_pid = read_daemon_lock_pid(dir.path()).expect("owner");
+    let new_port = free_port();
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(3))
+        .build()
+        .expect("client");
+    let saved: serde_json::Value = client
+        .post(format!("http://127.0.0.1:{old_port}/admin/config"))
+        .json(&serde_json::json!({"server":{"port":new_port}}))
+        .send()
+        .await
+        .expect("save")
+        .error_for_status()
+        .expect("accepted")
+        .json()
+        .await
+        .expect("body");
+    assert_eq!(saved["restartRequired"], serde_json::json!(["server"]));
+    client
+        .post(format!("http://127.0.0.1:{old_port}/admin/restart"))
+        .send()
+        .await
+        .expect("restart")
+        .error_for_status()
+        .expect("accepted");
+    harness.port = new_port;
+    wait_healthy(new_port, Duration::from_secs(20)).await;
+    assert!(!health_ok(old_port).await);
+    assert_ne!(read_daemon_lock_pid(dir.path()), Some(old_pid));
+    let status: serde_json::Value = client
+        .get(format!("http://127.0.0.1:{new_port}/admin/status"))
+        .send()
+        .await
+        .expect("status")
+        .json()
+        .await
+        .expect("body");
+    assert_eq!(status["restartRequired"], serde_json::json!([]));
+    assert_eq!(status["noGui"], true);
     harness.stop_graceful().await;
 }
 

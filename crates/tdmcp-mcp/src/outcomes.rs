@@ -1401,6 +1401,38 @@ mod tests {
     }
 
     #[test]
+    fn transport_preserves_response_failure_codes() {
+        let catalog = Catalog::fallback();
+        for code in [
+            codes::BRIDGE_RESPONSE_TOO_LARGE,
+            codes::BRIDGE_RESPONSE_INVALID,
+        ] {
+            let err = map_inspect_outcome(
+                &catalog,
+                Pid::new(1),
+                None,
+                None,
+                BridgeOutcome::Transport(BridgeRpcError::BridgeReturned {
+                    message: "The operation may already have run".into(),
+                    code: Some(code.to_owned()),
+                }),
+                DiagnosticLevel::Summary,
+            )
+            .expect_err("expected response failure");
+            match err {
+                ToolCallError::Failed(payload) => {
+                    assert_eq!(payload.diagnostics.items[0].code, code);
+                    assert!(payload.diagnostics.items[0]
+                        .mitigation
+                        .iter()
+                        .any(|step| step.contains("before retrying any mutation")));
+                }
+                other => panic!("unexpected error: {other}"),
+            }
+        }
+    }
+
+    #[test]
     fn transport_preserves_main_thread_timeout_code() {
         let catalog = Catalog::fallback();
         let err = map_inspect_outcome(

@@ -11,6 +11,7 @@
 //! tokens + widget kit.
 
 mod app;
+mod background;
 mod dashboard;
 mod federation;
 mod http;

@@ -8,6 +8,10 @@
 pub const BRIDGE_UNKNOWN_PID: &str = "tdmcp.bridge.unknown_pid";
 /// Bridge IPC link lost.
 pub const BRIDGE_LOST: &str = "tdmcp.bridge.lost";
+/// Completed bridge reply exceeded the IPC frame budget (session retained).
+pub const BRIDGE_RESPONSE_TOO_LARGE: &str = "tdmcp.bridge.response_too_large";
+/// Completed bridge reply was not valid JSON (session retained).
+pub const BRIDGE_RESPONSE_INVALID: &str = "tdmcp.bridge.response_invalid";
 /// Queued or in-flight bridge work was cancelled.
 pub const BRIDGE_CANCELLED: &str = "tdmcp.bridge.cancelled";
 /// Bridge gave up waiting for TD main thread (paused / hung).
@@ -215,6 +219,9 @@ pub const SHADER_UNSUPPORTED_CONSUMER: &str = "tdmcp.shader.unsupported_consumer
 /// Shader lint consumer scan/diagnostics capped (soft; payload `truncation` block).
 pub const SHADER_CONSUMERS_TRUNCATED: &str = "tdmcp.shader.consumers_truncated";
 
+/// DAT or followed shader source exceeds the inspect text-preview cap (soft).
+pub const OP_CONTENT_TRUNCATED: &str = "tdmcp.op.content_truncated";
+
 /// Python script execution failed.
 pub const SCRIPT_EXECUTION_FAILED: &str = "tdmcp.script.execution_failed";
 /// Lint: AttributeError on None — likely missing op() / bad path.
@@ -284,6 +291,8 @@ pub const ALL: &[&str] = &[
     KILL_ACCESS_DENIED,
     BRIDGE_UNKNOWN_PID,
     BRIDGE_LOST,
+    BRIDGE_RESPONSE_TOO_LARGE,
+    BRIDGE_RESPONSE_INVALID,
     BRIDGE_CANCELLED,
     BRIDGE_MAIN_THREAD_TIMEOUT,
     BRIDGE_QUEUE_BUSY,
@@ -345,6 +354,7 @@ pub const ALL: &[&str] = &[
     SHADER_COMPILE_FAILED,
     SHADER_UNSUPPORTED_CONSUMER,
     SHADER_CONSUMERS_TRUNCATED,
+    OP_CONTENT_TRUNCATED,
     SCRIPT_EXECUTION_FAILED,
     SCRIPT_NONE_OP,
     SCRIPT_TOO_LARGE,

@@ -570,9 +570,15 @@ def serve_queued(
                     _write_frame(stream, _dispatch(msg))
                     continue
                 response_slot: "queue.Queue[dict[str, Any]]" = queue.Queue(maxsize=1)
+                # The daemon can change call budgets without reconnecting. This
+                # transport metadata never reaches a tool's parameter handler.
+                params = msg.get("params")
+                request_wait = params.pop("_tdmcp_wait_secs", wait_s) if isinstance(params, dict) else wait_s
+                if not isinstance(request_wait, (int, float)) or not 0 < request_wait <= 86460:
+                    request_wait = wait_s
                 _enqueue_pending(msg, response_slot)
                 try:
-                    resp = response_slot.get(timeout=wait_s)
+                    resp = response_slot.get(timeout=request_wait)
                 except queue.Empty:
                     req_id = msg.get("id")
                     _abandon_pending(req_id)
@@ -581,7 +587,7 @@ def serve_queued(
                         "id": req_id,
                         "error": {
                             "message": (
-                                f"main-thread dispatch did not complete within {wait_s:.0f}s "
+                                f"main-thread dispatch did not complete within {request_wait:.0f}s "
                                 "(paused timeline or hung script); IPC unwedged"
                             ),
                             "code": "tdmcp.bridge.main_thread_timeout",
@@ -605,4 +611,3 @@ def serve_queued(
         if _event_queue is my_event_queue:
             _event_queue = None
         _close_serve_stream(stream)
-

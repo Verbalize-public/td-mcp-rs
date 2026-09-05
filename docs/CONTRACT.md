@@ -1,42 +1,9 @@
 # td-mcp-rs contract
 
-Durable v1 technical contract. Status markers:
-
-
-| Marker      | Meaning                                              |
-| ----------- | ---------------------------------------------------- |
-| **Shipped** | Implemented and covered by tests / live E2E          |
-| **Planned** | Specified; not yet in the tool surface or incomplete |
-
-
-Crate layout: `[ARCHITECTURE.md](../ARCHITECTURE.md)`. Engineering law: `[CONSTITUTION.md](../CONSTITUTION.md)`.
-
----
-
-## Goals (v1) — Shipped intent
-
-1. **Multi-instance first** — every mutating call names the target by OS `pid`. No session “current target,” no generated peer ids.
-2. **Live operate only** — inspect, mutate, script, verify on a connected bridge. No `.toe` / `.tox` binary editing.
-3. **Agent-shaped surface** — small tool set; `**fleet` → `inspect` → `capture`** three-layer read model; perception is explicit (`capture`); uniform diagnostics; summary-by-default; timeouts fail the *wait* (not claim TD cancelled).
-4. **Connected ⇒ usable** — `bridge: "connected"` ⇒ any MCP caller may address that `pid`. Coordination via visible tasks + **hard sequential gates** (session chill + per-pid exclusive enqueue); overload fails fast and never tears down the bridge.
-5. **One local control plane** — long-lived daemon owns pid→bridge map, per-pid queues, MCP surface, bridge sessions.
-6. **Self-contained delivery** — one binary + one drop-in `.tox` bootstrap.
-7. **Resurrection on reconnect** — on IPC loss the daemon states the disconnect and stacks cancelled tasks until the first successful task afterward (then erase).
-
-### Non-goals (v1)
-
-| Item                                      | Why                                                                                                     |
-| ----------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| Sticky / `select_target` / session peer   | Replaced by per-call `pid` + `fleet`                                                                    |
-| Generated `targetId` / UUID / path-hash   | `**pid` is the only id**                                                                                |
-| ~~Offline ToeDigest / `.toe` write / inject~~ | **Reversed in v2** — offline project I/O ships via the official `toeexpand`/`toecollapse` tools; success is verified by filesystem evidence (strict-LF `.toc`, non-empty output) because both tools' exit codes are unreliable |
-| Remote / WAN TD control                   | After local contract is boring                                                                          |
-| Multiple bridge protocols                 | One local IPC                                                                                           |
-| Silent auto-reconnect (TD↔daemon IPC)     | Explicit resurrection policy (see Goals §7). Distinct from stdio↔daemon HTTP reconnect-only heal below. |
-| ~~Lifecycle create/start/stop~~           | **Reversed in v2** — `spawn_td` / `kill_td` ship with deterministic pid ownership                       |
-
-
----
+Reference for the implemented tools, wire shapes, and diagnostics.
+See [Architecture](../ARCHITECTURE.md) for component boundaries and
+[Current limitations](OPEN_WORK.md) for known gaps. Tests and live checks have
+different coverage; a shipped feature is not proof of every platform scenario.
 
 ## Architecture — Shipped
 
@@ -180,8 +147,15 @@ timeouts are available. Mid-frame reads tolerate short poll stalls; the bridge
 only treats a transfer as dead after idle-dead with **no byte progress** (then
 disconnects and closes the stream). Idle detection and fleet eviction are
 separate clocks (eviction TTL remains **15s**). IPC frames are hard-capped at
-**32 MiB**. `GET /mcp/health` remains daemon-process liveness only — not bridge
-peer health.
+**32 MiB** on both ends. Oversized incoming headers are rejected before reading
+the body. An oversized or non-JSON bridge reply becomes a correlated
+`tdmcp.bridge.response_too_large` / `tdmcp.bridge.response_invalid` error without
+disconnecting. The operation may already have run: inspect state before
+retrying a mutation. Bridge replies allow at most **64 nested containers**,
+finite floats, valid Unicode, and integers within signed/unsigned 64-bit
+range; return larger integers as strings to preserve precision.
+`GET /mcp/health` remains daemon-process liveness only —
+not bridge peer health.
 
 **Per-call wait budgets:** `ping` / `inspect` / `capture` / `api_help` / `editor_context` default to **45s**;
 `execute_python` / `mutate_nodes` default to **120s** (`[bridge].call_timeout_secs`
@@ -239,9 +213,10 @@ carry `spawn` provenance and may show `bridge:"starting"` pre-handshake.
 
 **Palette awareness.** `palette_index` is offline (no pid, session-gate exempt); `palette_probe` is bridged and rides the script timeout class. Component **cards are authored by the agent**, not generated: the tools supply evidence (`palette_probe`) and storage (`palette_index describe`), and `tdmcp://docs/palette-scan` supplies the procedure. See § `palette_index` / `palette_probe`.
 
-**Still not planned:** sticky / `select_target` / `targetId` / ToeDigest / inject / `call_node` (use `execute_python` for other node method calls; connector wiring is `mutate_nodes` `connect` / `disconnect`).
+Use explicit PIDs for targeting, `execute_python` for node method calls, and
+`mutate_nodes` `connect` / `disconnect` for connector wiring.
 
-### Three layers
+### Evidence layers
 
 
 | Layer      | Tool             | Answers                                                    |
@@ -353,7 +328,7 @@ When `params` is included, each entry is `{ name, mode, val, expr? }`:
 
 
 
-When `content` is included, eligible nodes gain a `content` object (omitted on non-DAT / non-GLSL ops). Independent of `detailLevel` (roster shape only). **No size cap** — full `.text` / followed shader bodies. Content read/follow failures never flip node or top-level `ok`.
+When `content` is included, eligible nodes gain a `content` object (omitted on non-DAT / non-GLSL ops). Independent of `detailLevel` (roster shape only). Each DAT or followed shader body is capped at a 64 KiB UTF-8 preview, without splitting characters. Truncation and content read/follow failures never flip node or top-level `ok`.
 
 **DAT** (`family == "DAT"` / `isDAT`):
 
@@ -363,7 +338,9 @@ When `content` is included, eligible nodes gain a `content` object (omitted on n
 | `isText` | `OP.isText` |
 | `isTable` | `OP.isTable` (tables included; body is still `.text` TSV) |
 | `bytes` | UTF-8 byte length of `text` |
-| `text` | Full `OP.text` (unbounded in 1.0 — large table DATs may approach the 32 MiB IPC frame; callers should page via `execute_python` slices; bounding tracked in `PAYLOAD_SPOOL_PLAN.md` Phase 0) |
+| `text` | `OP.text`, up to 64 KiB UTF-8; table DATs use TSV |
+| `totalBytes?` | Original UTF-8 size; present only when the preview is truncated |
+| `textTruncation?` | `{ field: "text", limit: 65536, code: "tdmcp.op.content_truncated", message, mitigation }`; read further slices with `execute_python`: `result = op(path).text[start:end]` (character offsets) |
 | `consumers?` | Shader-consumer diagnostics for this DAT — same item shape as mutate `shaderDiagnostics[]`; caps 2048 ops scanned / 64 consumers (`consumersTruncated` + standard `truncation` on overflow). Reading consumer `compileResult` forces a synchronous recompile of that consumer |
 
 **GLSL** (`opType` in `glslTOP` / `glslmultiTOP` / `glslMAT` / `glslPOP`):
@@ -375,7 +352,7 @@ When `content` is included, eligible nodes gain a `content` object (omitted on n
 | `compileState?` | `"compiled"` \| `"error"` — classified from the same `compileResult` read (no extra reads); omitted on `glslPOP` (no verified compile surface) |
 | `stages` | Followed DAT refs — see role map below |
 
-Each stage is `{ role, path, opType, bytes, text }` when the DAT resolves; broken/invalid follow yields `{ role, path, opType?, error }` with no `text`. Unset/null DAT pars omit that stage.
+Each stage is `{ role, path, opType, bytes, text }` when the DAT resolves, with the same optional `totalBytes` / `textTruncation` fields and preview cap as DAT content. Broken/invalid follow yields `{ role, path, opType?, error }` with no `text`. Unset/null DAT pars omit that stage.
 
 | Op | Pars → `role` |
 | -- | ------------- |
@@ -439,6 +416,10 @@ Diagnostic references may include `{ kind: "api_help", query: "<opType>" }` on `
 
 ### `capture` modes
 
+A valid PNG is a successful capture even when black or uniform. These frames
+include a `frameClassification` observation and code/message for the caller to
+compare against visual intent; image variance alone is not a failure.
+
 Capture does **not** force-cook. TD cooks on read / `saveByteArray`; shared-viewer modes retarget `./capture_viewer` then encode. Optional `maxSize` uses a temp `resolutionTOP` (always destroyed). If a TOP should have content but capture is black, ensure it is cooking (see `black_frame` mitigation).
 
 
@@ -452,7 +433,7 @@ Capture does **not** force-cook. TD cooks on read / `saveByteArray`; shared-view
 | `pop`        | **Shipped** | Alias of `preview` (shared OP Viewer); kept for existing callers                                                                                                                                                                                                                                    |
 
 
-### `mutate_nodes` — Shipped (P1)
+### `mutate_nodes`
 
 One tool. Ordered `steps[]`. **Sequential apply, stop on first hard error, never roll back.** No separate preflight pass — the live network can change between passes and a single-caller local daemon does not need two-phase commit. "Aggregate bad paths" is met by *returning* every path/param error seen up to the stop point, not by a resolve-all-then-apply phase.
 
@@ -769,21 +750,6 @@ Daemon CLI: `start` (foreground; tray + toast by default, dashboard hidden until
 
 ---
 
-## Phased delivery
-
-
-| Phase    | Ship                                                                                                                                                            | Exit green                                                                                                                                                                | Status                                                                                      |
-| -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| **P0**   | Daemon + IPC + bootstrap + Streamable HTTP: `fleet` + script/errors + `capture` (`top`/`preview`) + diagnostics + per-pid queue + exclusive fail + resurrection | Two connected pids; exclusive fails while busy; perception non-black; structured script failure                                                                           | **Shipped** (see `[E2E_CHECKLIST.md](E2E_CHECKLIST.md)`)                                    |
-| **P1**   | `mutate_nodes` (incl. connect/disconnect), `capture` `chop_data`, dialogs (Win+macOS), op lint engine                                                       | `mutate_nodes` sequential apply stops at first bad path with `failedAt`; later steps emit `tdmcp.batch.skipped_dependent`; pure `apply_step` seam unit-covered without TD | **Shipped** (`mutate_nodes` + `capture` `chop_data` + dialogs Win+macOS); **Deferred to 1.x:** full op lint engine (shader/error enableExpr today only) |
-| **P1.x** | Universal `capture` via shared OP Viewer; `inspect` explicit `paths[]`; `api_help` live API cards                                                              | Any-family preview; chop_image/pop aliases; inspect batch + partial success; api_help class/classes/module                                                                 | **Shipped** (unit + FakeTdPeer; E2E rows 17–19 for inspect/capture)                         |
-| **P2**   | Lifecycle create/start/stop (tray already shipped)                                                                                                              | Operator create/start/stop; new project by pid                                                                                                                            | **Shipped in v2** (`spawn_td`/`kill_td` + dialogs watcher; tray **Shipped**)                                |
-| **P3**   | Streamable HTTP remote + single-level federation (`bind_address`, PSK auth, register/fleet-push, `daemonId` tool proxy)                                           | Automated: `admin_auth` + `federation_registration` + `federation_proxy` (inspect/capture/ambiguous/unreachable); see [`CONFIG.md`](CONFIG.md) § Federation auth & admin surface | **Shipped**                                                                                 |
-| **v2**   | Project I/O (`td_installs`, `project_unpack/pack/lint/install_bridge`), lifecycle (`spawn_td`/`kill_td`), dialogs (`dialogs` + watcher + interception)            | Project I/O + lifecycle + dialogs unit/integration suites green; live acceptance rows V1–V10 in E2E_CHECKLIST.md       | **Shipped** (P3 carry-over: deeper round-trip diffing) |
-
-
----
-
 ## Decided contract (summary)
 
 - TD↔daemon: TCP loopback `127.0.0.1:9861` (configurable via `[bridge] host`/`port`); handshake returns FS path to bridge package.
@@ -793,4 +759,3 @@ Daemon CLI: `start` (foreground; tray + toast by default, dashboard hidden until
 - Paths: `OpPath` + optional `contextPath`; TD resolves; default base `/project1`.
 - Diagnostics: catalog-backed codes; free-string-only failures forbidden. Argument-shape failures use `tdmcp.args.*` codes as structured `isError` results; `-32602` reserved for unknown tool / malformed request.
 - MCP success: flat tool fields (`node` / `path` / `result` / `steps` at top level); bridge mini-envelopes are passed through by mappers, not nested under the tool name. HTTP JSON fallback still wraps success in `{ ok, data }`.
-

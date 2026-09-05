@@ -262,8 +262,11 @@ n.export, n.rate
 ## DAT — table & text
 
 Prefer `inspect` with `include: ["content"]` to read DAT bodies (text + table
-TSV via `.text`) and GLSL shader stages. Use the Python surface below when
-mutating or when `execute_python` is otherwise required.
+TSV via `.text`) and GLSL shader stages. Each text preview is capped at 64 KiB;
+`textTruncation` and `totalBytes` identify larger bodies. Read further slices with
+`execute_python`: `result = op(path).text[start:end]` (character offsets).
+Use the Python surface below when mutating or when `execute_python` is otherwise
+required.
 
 ```python
 # Content

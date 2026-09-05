@@ -1,136 +1,83 @@
-# Delivery
+# Packaging and releases
 
-## Artifacts
+One binary contains the daemon, MCP server, desktop UI, bridge package,
+diagnostics, skills, and bootstrap assets. There is no separate GUI executable.
+Use `--no-gui` at runtime or `--no-default-features` for a headless build.
 
-| Artifact | Role |
-| --- | --- |
-| `tdmcp-daemon` binary | Control plane + MCP + admin API + (default) in-process tray UI |
-| `bridge/` | Python package + `manifest.json` beside install/data dir |
-| `diagnostics/catalog.yaml` | Diagnostic catalog |
-| `skills/` | Agent operate pack (Jinja templates under `templates/touchdesigner/`); served as MCP `tdmcp://docs/*` resources and exported via `tdmcp-daemon skills render` |
-| bootstrap `.tox` | Tiny TD dialer COMP `tdmcp_rs` (handshake → FS load of `bridge/`). Embedded in the daemon; extracted to `{dataDir}/bootstrap.tox`. Rebuild recipe: [`scripts/pack_bootstrap_tox.md`](../scripts/pack_bootstrap_tox.md) |
-| `.claude-plugin/` + `claude-skills/` | Claude Code plugin: MCP server registration + a checked-in filesystem-mode render of `skills/`. See [`CLAUDE_CODE_PLUGIN.md`](CLAUDE_CODE_PLUGIN.md) |
+## Release workflow
 
-The tray dashboard lives in the `tdmcp-gui` **library** crate, linked into
-`tdmcp-daemon` when the default `gui` Cargo feature is enabled. There is no
-separate `tdmcp-gui` binary.
+Push `vX.Y.Z` only when it matches the workspace version and the lockfile is
+committed. The [release workflow](../.github/workflows/release.yml) runs:
 
-## Config
+1. Tag/version validation, the Linux quality gate, and per-target dependency checks.
+2. Builds for Linux x86_64, Windows MSVC x64, macOS ARM64, and macOS Intel.
+   Windows/macOS run native workspace tests.
+3. Archive extraction and an isolated real-MCP installation smoke test.
+4. Windows Inno Setup installer and macOS app/DMG packaging.
+5. Checksums covering archives and installers, then GitHub Release publication.
 
-Source of truth: TOML file owned by crate `tdmcp-config` (see
-[`docs/CONFIG.md`](CONFIG.md)).
+A failed check or platform build prevents publication. Artifact retention is
+three days; the published release retains the final files. Public repositories
+also receive build-provenance attestations.
 
-**CLI args / env (`TDMCP_*`) > config.toml > built-in defaults.**
+Manually dispatch **Release** to rehearse the same native tests and packaging
+without creating a tag or publishing a release. Download the resulting workflow
+artifacts to verify native installation before tagging.
 
-| Kind | Default path |
-| --- | --- |
-| Config file | `%APPDATA%/tdmcp-rs/config.toml` (Windows); Application Support / XDG config elsewhere |
-| Data dir | `%LOCALAPPDATA%/tdmcp-rs/` (Windows); Application Support / XDG data elsewhere |
+Ordinary branch commits do not run CI automatically. Use workflow dispatch
+when needed; its optional native flag adds Windows/macOS tests. Dependency
+checks run weekly and on release/rehearsal; manual Checks can opt in too.
+Unresolved advisory or license-policy failures block release packaging.
+See [Testing](TESTING.md) for the local gate.
 
-Notable `[daemon]` fields: `keep_alive`, `always_on`, `show_tray`.
-`install` always resets `config.toml` to the embedded template; `start` /
-`ensure` / `mcp` only create-if-missing.
+## Local commands
 
-## GUI feature
-
-| Build / runtime | Behavior |
-| --- | --- |
-| Default (`cargo build -p tdmcp-daemon`) | `gui` feature on; `start` shows tray + toast (dashboard hidden until opened); gear opens Settings |
-| `--no-default-features` | Headless binary (no egui/tray linked) |
-| `--no-gui` / `TDMCP_NO_GUI=1` / `show_tray = false` | Headless even when `gui` is compiled in |
-
-## Auto-upsert — Shipped
-
-Cursor registers `tdmcp-daemon` with `args: ["mcp"]`. On MCP connect:
-
-1. `mcp` calls `ensure` — health check, lockfile, detached spawn if needed, poll
-   until healthy.
-2. Stdio MCP proxy forwards tool requests to `http://127.0.0.1:{port}/mcp/rpc`.
-3. Stale lockfile (pid dead) → reclaim.
-4. Detached `start` (default) brings up the in-process tray with the daemon.
-
-The long-lived HTTP daemon survives MCP client restarts; only the stdio proxy
-process is respawned.
-
-## Singleton
-
-One owner per port: `daemon.lock` + TCP bind. Second healthy `start` refuses.
-`/admin/restart` clears the lock, spawns a replacement, then exits; the new
-process retries bind for a few seconds.
-
-## Assets
-
-Bridge, diagnostic catalog, bootstrap `.tox`, and the **skills/** operate pack are
-embedded in the `tdmcp-daemon` binary. `install`, `ensure`, `start`, and `mcp`
-extract them into the data dir on first use (no separate asset bundle required
-for dev builds). Skills also surface as MCP resources (`tdmcp://docs/*`); see
-[`../skills/README.md`](../skills/README.md).
-
-## Packaging & Release
-
-Two delivery paths coexist by design:
-
-| Path | Audience | Binary lands at |
-| --- | --- | --- |
-| Installer — `tdmcp-rs-*-x64-setup.exe` / `.dmg` | End users | `%LOCALAPPDATA%\Programs\tdmcp-rs\` · `/Applications/tdmcp.app` |
-| Dev flow — `tdmcp-daemon install` | Development | `{data_dir}/bin/` |
-
-Both keep working because `ensure`, MCP-client upsert, and OS autostart bind to
-the **running exe's own path**; config/data dirs are shared and untouched by
-uninstalls.
-
-### Release pipeline (tag-driven, zero manual build steps)
-
-1. **Cut**: `cargo run -p xtask -- release patch|min|major [--dry-run]` — bumps
-   `[workspace.package] version`, regenerates `Cargo.lock`, prepends a grouped
-   CHANGELOG section built from conventional commits since the last `v*` tag,
-   commits `chore(release): vX.Y.Z`, creates annotated tag `vX.Y.Z`. It never
-   pushes; `--dry-run` prints everything harmlessly.
-2. **Ship**: push the branch + tag. `.github/workflows/release.yml` then:
-   asserts tag == workspace version → builds all targets via
-   `cargo run -p xtask -- package --target …` (the exact command a dev laptop
-   runs) → smoke-tests each archive → attaches platform artifacts.
-3. **Artifacts**: `tdmcp-rs-{version}-{target}.zip|.tar.gz` +
-   `SHA256SUMS.txt` + `tdmcp-rs-{version}-x64-setup.exe` (Inno Setup 6,
-   per-user) + `tdmcp-rs-{version}-{aarch64|x86_64}.dmg` (`.app`
-   `LSUIElement` bundle inside a UDZO DMG).
-
-### CI layout
-
-| Workflow | Trigger | What |
-| --- | --- | --- |
-| `ci.yml` | every push (any branch) | Windows gate: fmt/clippy/tests/pytest |
-| `ci.yml` | daily cron + dispatch + main pushes | macOS `cargo test --workspace` (includes `tdmcp-dialogs` compile) + pytest |
-| `ci.yml` | dispatch | MSRV 1.88 check |
-| `ci.yml` | daily cron | `cargo deny check` + `cargo audit` |
-| `release.yml` | tag `v*` | full pipeline above |
-
-Artifact attestations are public-repo-only on this plan; the step is gated on
-`github.repository_visibility == 'public'` and self-enables if the repo goes
-public.
-
-### Signing status (v1: unsigned, wiring ready)
-
-Windows SmartScreen shows *"More info → Run anyway"*; macOS blocks downloaded,
-ad-hoc-signed apps until the user allows them (System Settings ▸ Privacy &
-Security, or `xattr -cr <app>` in Terminal). Wire-in points when certs arrive:
-`signtool` on the setup exe (Windows job), `APPLE_DEVELOPER_ID_IDENTITY` /
-`APPLE_NOTARY_PROFILE` secrets consumed by `make_app.sh` — both steps already
-exist behind conditionals.
-
-### Local commands
-
-```text
-cargo run -p xtask -- package [--target <triple>] [--out dir]   # named archive(s) + SHA256SUMS
-cargo run -p xtask -- release minor --dry-run                   # rehearse a cut
-ISCC.exe /DVersion=vX.Y.Z packaging/windows/installer.iss       # local installer (needs Inno Setup)
-packaging/macos/make_app.sh <bin> <version> <triple> <out-dir>  # .app + dmg (macOS only)
+```sh
+cargo run --locked -p xtask -- package --out dist
+cargo run -p xtask -- release minor --dry-run
+python scripts/package_smoke.py target/debug/tdmcp-daemon
 ```
 
-### Dev install flow (unchanged)
+`xtask release patch|minor|major` updates versions/changelog, commits, and
+creates a tag; it does not push. Inspect a dry run first.
+Packaging uses the same xtask command locally and in CI.
+Archives include the executable and project `LICENSE`; Windows setup and the
+macOS app bundle preserve that license. The daemon also extracts it to its
+data directory when installed from a standalone binary. Use `package_smoke.py --distribution`
+on an extracted archive to check it. Third-party notice coverage still needs
+review before publication; see [current limitations](OPEN_WORK.md).
 
-`cargo run -p xtask -- dist` still produces the plain exe tree in
-`target/dist/` (kill-daemons first so Cursor `mcp` shims don't lock it;
-always rebuilds with `--features gui`). `target/release/tdmcp-daemon install`
-copies into `{data_dir}/bin/` with rename-aside swap; stop the daemon before
-re-running `install` when it runs from that installed location.
+## Installation behavior
+
+`tdmcp-daemon install` copies a stable executable to `{dataDir}/bin/`,
+records that path, and extracts embedded assets. Version changes refresh
+managed assets; `--force` also refreshes a same-version build.
+Configuration and customized `template.toe` are preserved.
+Asset installs are serialized and prepared in a temporary directory before
+replacement. Filesystem failures roll back replaced entries; if rollback itself
+fails, the error identifies the retained backup. This is not a crash-atomic
+transaction across the entire installation. Binary copies are staged too.
+
+The HTTP daemon is independent of assistant stdio processes. A stdio client
+ensures the daemon is running and reconnects after a restart. Each listener
+has one process owner; an admin restart starts a replacement that waits for
+the old PID to exit before binding.
+
+## Platform packaging
+
+- Windows: per-user Inno Setup installer; no administrator rights required
+  for normal installation. Source builds use the MSVC toolchain.
+- macOS: `packaging/macos/make_app.sh` creates an app bundle and DMG.
+  New artifacts are staged and verified before replacing previous output;
+  failures retain the previous bundle/DMG or identify a recovery directory.
+  Without publisher credentials it uses ad-hoc signing, not notarization.
+  Developer ID signing and notarization require a configured identity and
+  keychain profile on the build machine; hosted CI does not provision them.
+- Linux: compressed executable archive. TD itself is separate and runs
+  through Wine. See [Linux/Wine](LINUX_SUPPORT.md).
+
+Do not describe unsigned installers as signed or notarized. Publishing and
+native OS installation cannot be fully proven by Linux-only local checks.
+
+Bootstrap changes need [live TD repacking](../scripts/pack_bootstrap_tox.md).
+Skill changes need [checked-in rendering](../skills/README.md).

@@ -18,6 +18,7 @@ pub mod install;
 pub mod logrecord;
 pub mod logring;
 pub mod middleware;
+pub mod settings;
 pub mod tracing_init;
 
 pub use admin::RestartArgs;

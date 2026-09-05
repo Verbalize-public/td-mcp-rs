@@ -15,7 +15,7 @@ Outcomes. Non-handshake outcomes come back as a **successful tool result with
 | --- | --- | --- |
 | `{ok:true, pid, handshake:{title,toePath}, startupDialogs?}` | Ready; pid is addressable everywhere | operate normally |
 | `{ok:false, outcome:"wait_timeout", stillAlive, startupDialogs}` **with** `startupDialogs` non-empty | A startup modal is blocking the handshake | dismiss via `dialogs`, then poll `fleet` — see {{ skill("popups") }} |
-| `{ok:false, outcome:"wait_timeout", stillAlive}` with no dialogs | No handshake, no popups | check licence / project path; retry with a larger `waitTimeoutMs` |
+| `{ok:false, outcome:"wait_timeout", stillAlive}` with no dialogs | Process exists but has not connected | Check licence, project path and launcher; poll this pid instead of spawning again |
 | `{ok:false, outcome:"exited_early", exitCode, pid}` | Process died before connecting | read `exitCode`; fix cause |
 
 Hard failures never reach the table above — they are real diagnostics:
@@ -39,7 +39,7 @@ provenance.
 
 Ladder:
 
-1. `graceful` posts WM_CLOSE and waits `graceMs` — clean projects exit in
+1. `graceful` requests an OS close and waits `graceMs` — clean projects exit in
    seconds with no prompt. Returns `{ok:true, pid, how:"graceful"}`.
 2. Lingering? `tdmcp.kill.graceful_timeout`; the payload lists open popups —
    an unsaved-work prompt is the usual cause. Decide about the work, dismiss
@@ -47,6 +47,13 @@ Ladder:
 3. `mode:"force"` terminates unconditionally — `{ok:true, pid, how:"force"}`.
    Last resort; unsaved work is lost. `tdmcp.kill.access_denied` means
    elevation/UIPI blocked it.
+
+On Linux, TD runs under Wine. Instances started through `spawn_td` report
+their Linux process id; use that returned pid. Graceful stop sends SIGTERM,
+and force stop sends SIGKILL. Dialog automation is unavailable under Wine.
+If an installation needs a custom Wine runner or environment, configure
+`official_tools.wine_exe` with that runner or a wrapper accepting
+`<TouchDesigner.exe> [project]` arguments.
 
 ## Startup popups
 

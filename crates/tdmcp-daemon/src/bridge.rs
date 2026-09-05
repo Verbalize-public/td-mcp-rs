@@ -177,6 +177,7 @@ pub struct BridgeSessions {
     registry: Arc<Mutex<PidRegistry>>,
     heartbeat: HeartbeatConfig,
     timeouts: BridgeTimeouts,
+    settings: Option<crate::settings::Settings>,
     disconnected_ttl: Duration,
     log_sink: Option<LogSink>,
 }
@@ -191,6 +192,7 @@ impl BridgeSessions {
             registry,
             heartbeat: HeartbeatConfig::production(),
             timeouts: BridgeTimeouts::production(),
+            settings: None,
             disconnected_ttl: DISCONNECTED_TTL,
             log_sink: None,
         }
@@ -218,6 +220,27 @@ impl BridgeSessions {
         self
     }
 
+    /// Read call budgets for each new request without disconnecting the bridge.
+    #[must_use]
+    pub fn with_settings(mut self, settings: crate::settings::Settings) -> Self {
+        self.settings = Some(settings);
+        self
+    }
+
+    fn effective_timeouts(&self) -> BridgeTimeouts {
+        self.settings
+            .as_ref()
+            .map(|s| BridgeTimeouts::from(&s.current().bridge))
+            .unwrap_or(self.timeouts)
+    }
+
+    pub(crate) fn idle_exit_disabled(&self) -> bool {
+        self.settings.as_ref().is_some_and(|settings| {
+            let config = settings.current();
+            config.daemon.keep_alive || config.federation.role != "standalone"
+        })
+    }
+
     /// Override post-disconnect fleet eviction TTL (tests: short grace).
     #[must_use]
     pub fn with_disconnected_ttl(mut self, ttl: Duration) -> Self {
@@ -234,9 +257,9 @@ impl BridgeSessions {
     /// Max main-thread wait budget (seconds) forwarded via handshake.
     #[must_use]
     pub fn max_call_wait_secs(&self) -> u64 {
-        self.timeouts
+        self.effective_timeouts()
             .call
-            .max(self.timeouts.script)
+            .max(self.effective_timeouts().script)
             .as_secs()
             .max(1)
     }
@@ -286,6 +309,7 @@ impl BridgeSessions {
         let registry = self.registry.clone();
         let heartbeat = self.heartbeat;
         let timeouts = self.timeouts;
+        let settings = self.settings.clone();
         let disconnected_ttl = self.disconnected_ttl;
         let log_sink = self.log_sink.clone();
         tokio::spawn(async move {
@@ -298,6 +322,7 @@ impl BridgeSessions {
                 sessions,
                 heartbeat,
                 timeouts,
+                settings,
                 disconnected_ttl,
                 cancel,
                 log_sink,
@@ -353,6 +378,7 @@ async fn run_session(
     sessions: Arc<Mutex<HashMap<u32, BridgeHandle>>>,
     heartbeat: HeartbeatConfig,
     timeouts: BridgeTimeouts,
+    settings: Option<crate::settings::Settings>,
     disconnected_ttl: Duration,
     cancel: CancellationToken,
     log_sink: Option<LogSink>,
@@ -389,6 +415,7 @@ async fn run_session(
                 let Some(job) = job else {
                     break;
                 };
+                let timeouts = settings.as_ref().map(|s| BridgeTimeouts::from(&s.current().bridge)).unwrap_or(timeouts);
                 match run_tool_job(pid, &mut stream, &registry, timeouts, &cancel, job, log_sink.as_ref()).await {
                     // Always refresh on Continue — including call Timeout. A timed-out
                     // wait otherwise leaves last_activity stale across a budget longer
@@ -446,10 +473,17 @@ async fn run_tool_job(
 
     let budget = timeouts.for_method(&job.method);
     let id = CALL_ID.fetch_add(1, Ordering::Relaxed).to_string();
+    let mut params = job.params.clone();
+    if let Some(params) = params.as_object_mut() {
+        params.insert(
+            "_tdmcp_wait_secs".to_owned(),
+            Value::from(budget.as_secs().saturating_add(60)),
+        );
+    }
     let req = Message::Request {
         id: id.clone(),
         method: job.method.clone(),
-        params: job.params.clone(),
+        params,
     };
 
     let outcome = match stream.send(&req).await {

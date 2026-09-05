@@ -15,11 +15,11 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
-use tracing::{info, warn};
+use tracing::info;
 
 use tdmcp_mcp::{fleet_summary, AppState, FleetInclude, FleetParams};
 
-use crate::ensure::{configure_detached_spawn, daemon_lock_path};
+use crate::ensure::configure_detached_spawn;
 use crate::federation::{tag_local_processes, FederationRuntime};
 use crate::logrecord::{Level, Src};
 use crate::logring::{ingest_proxy_logs, LogSink};
@@ -98,6 +98,8 @@ pub fn build_admin_router(
 #[serde(rename_all = "camelCase")]
 struct StatusBody {
     ok: bool,
+    restart_required: Vec<&'static str>,
+    federation_connection: String,
     version: &'static str,
     pid: u32,
     mcp_session_count: usize,
@@ -137,7 +139,7 @@ async fn status(State(state): State<AdminState>) -> Json<StatusBody> {
             .filter(|p| p.bridge == tdmcp_core::BridgeStatus::Connected)
             .count()
     };
-    let slave_count = if state.federation.role == "master" {
+    let slave_count = if state.federation.settings.current().federation.role == "master" {
         Some(state.federation.slaves.lock().await.len())
     } else {
         None
@@ -149,13 +151,15 @@ async fn status(State(state): State<AdminState>) -> Json<StatusBody> {
     };
     Json(StatusBody {
         ok: true,
+        restart_required: state.federation.settings.restart_required(),
+        federation_connection: state.federation.link_status.borrow().clone(),
         version: env!("CARGO_PKG_VERSION"),
         pid: std::process::id(),
         mcp_session_count: state.app.mcp_session_count(),
         bridge_count,
         no_gui: state.restart.no_gui,
         bind_address: state.restart.bind_address.clone(),
-        role: state.federation.role.clone(),
+        role: state.federation.settings.current().federation.role,
         daemon_id: state.federation.daemon_id.as_str().to_owned(),
         hostname: state.federation.hostname.clone(),
         slave_count,
@@ -265,43 +269,83 @@ async fn shutdown_handler(State(state): State<AdminState>) -> Json<Value> {
     Json(serde_json::json!({ "ok": true }))
 }
 
-async fn restart_daemon(State(state): State<AdminState>) -> Json<Value> {
+async fn restart_daemon(State(state): State<AdminState>) -> (StatusCode, Json<Value>) {
     let args = state.restart.clone();
-    let token = state.shutdown.clone();
-    let quit = Arc::clone(&state.quit);
-    info!(exe = %args.exe.display(), port = args.port, "admin restart requested");
-    // Drop the owner lock before spawning so the replacement does not refuse
-    // as "already running" while we are still alive (spawn-then-die handoff).
-    let _ = std::fs::remove_file(daemon_lock_path(&args.data_dir));
+    let saved = match tdmcp_config::load(&state.federation.config_path) {
+        Ok(saved) => saved,
+        Err(error) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"ok": false, "error": error.to_string()})),
+            )
+        }
+    };
+    let startup = state.federation.settings.startup();
+    let overrides = crate::config::ConfigOverrides {
+        port: (saved.server.port == startup.server.port).then_some(args.port),
+        data_dir: (saved.advanced.data_dir == startup.advanced.data_dir)
+            .then_some(args.data_dir.clone()),
+        bridge_dir: (saved.advanced.bridge_dir == startup.advanced.bridge_dir)
+            .then_some(args.bridge_dir),
+        catalog: (saved.advanced.catalog_path == startup.advanced.catalog_path)
+            .then_some(args.catalog_path),
+        no_gui: args.no_gui && saved.daemon.show_tray == startup.daemon.show_tray,
+    };
+    let config = match crate::config::Config::from_file(
+        state.federation.config_path.clone(),
+        saved,
+        overrides,
+    ) {
+        Ok(config) => config,
+        Err(error) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"ok": false, "error": error.to_string()})),
+            )
+        }
+    };
+    let mut cmd = Command::new(&args.exe);
+    cmd.arg("start")
+        .arg("--wait-for-pid")
+        .arg(std::process::id().to_string())
+        .arg("--port")
+        .arg(config.port.to_string())
+        .arg("--data-dir")
+        .arg(&config.data_dir)
+        .arg("--bridge-dir")
+        .arg(&config.bridge_dir)
+        .arg("--catalog")
+        .arg(&config.catalog_path)
+        .env(tdmcp_config::CONFIG_PATH_ENV, &config.config_path);
+    if config.no_gui {
+        cmd.arg("--no-gui");
+    }
+    configure_detached_spawn(&mut cmd, config.no_gui);
+    match cmd.spawn() {
+        Ok(child) => info!(
+            child_pid = child.id(),
+            "replacement daemon waiting for shutdown"
+        ),
+        Err(error) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    json!({"ok": false, "error": format!("could not start replacement: {error}")}),
+                ),
+            )
+        }
+    }
+    // Retain ownership until shutdown. The child waits for our process to exit,
+    // so it cannot bind early or have its fresh lock removed by our cleanup.
     tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(200)).await;
-        let mut cmd = Command::new(&args.exe);
-        cmd.arg("start")
-            .arg("--port")
-            .arg(args.port.to_string())
-            .arg("--data-dir")
-            .arg(&args.data_dir)
-            .arg("--bridge-dir")
-            .arg(&args.bridge_dir)
-            .arg("--catalog")
-            .arg(&args.catalog_path);
-        if args.no_gui {
-            cmd.arg("--no-gui");
-        }
-        // Same detach as ensure — no inherited console flash on Windows.
-        configure_detached_spawn(&mut cmd, args.no_gui);
-        match cmd.spawn() {
-            Ok(child) => {
-                info!(child_pid = child.id(), "spawned replacement daemon");
-            }
-            Err(e) => {
-                warn!(error = %e, "failed to spawn replacement daemon — exiting anyway");
-            }
-        }
-        quit.store(true, Ordering::SeqCst);
-        token.cancel();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        state.quit.store(true, Ordering::SeqCst);
+        state.shutdown.cancel();
     });
-    Json(serde_json::json!({ "ok": true, "restarting": true }))
+    (
+        StatusCode::OK,
+        Json(json!({"ok": true, "restarting": true, "port": config.port})),
+    )
 }
 
 /// Records returned per page (also the default when `limit` is omitted).

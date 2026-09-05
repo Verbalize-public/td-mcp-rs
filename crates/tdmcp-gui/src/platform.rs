@@ -44,7 +44,48 @@ pub fn toast(summary: &str, body: &str) {
             warn!(error = %e, "toast thread spawn failed");
         }
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        let summary = summary.to_owned();
+        let body = body.to_owned();
+        let spawn = std::thread::Builder::new()
+            .name("tdmcp-toast".into())
+            .spawn(move || {
+                // Keep notification delivery off the UI thread, with a deadline
+                // even if the desktop's notification service is unresponsive.
+                let runtime = match tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                {
+                    Ok(runtime) => runtime,
+                    Err(error) => {
+                        warn!(%error, "notification runtime unavailable");
+                        return;
+                    }
+                };
+                runtime.block_on(async {
+                    let notification = notify_rust::Notification::new()
+                        .summary(&summary)
+                        .body(&body)
+                        .appname("td-mcp-rs")
+                        .finalize();
+                    match tokio::time::timeout(
+                        std::time::Duration::from_secs(3),
+                        notification.show_async(),
+                    )
+                    .await
+                    {
+                        Ok(Ok(_)) => {}
+                        Ok(Err(error)) => warn!(%error, "OS toast failed"),
+                        Err(_) => warn!("OS toast timed out"),
+                    }
+                });
+            });
+        if let Err(error) = spawn {
+            warn!(%error, "toast thread spawn failed");
+        }
+    }
+    #[cfg(windows)]
     {
         // Same thread hand-off as the macOS path: notify-rust's show() is a
         // synchronous DBus/WinRT round-trip and must never block the caller

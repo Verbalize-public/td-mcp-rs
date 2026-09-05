@@ -33,6 +33,11 @@ fn restart_args() -> RestartArgs {
 
 fn test_federation() -> FederationRuntime {
     FederationRuntime {
+        link_status: tokio::sync::watch::channel("Local only".to_owned()).0,
+        settings: tdmcp_daemon::settings::Settings::new(
+            PathBuf::from("."),
+            tdmcp_config::ConfigFile::default(),
+        ),
         role: "standalone".into(),
         daemon_id: DaemonId::new("test-daemon"),
         hostname: "localhost".into(),

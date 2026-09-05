@@ -1,13 +1,44 @@
-//! Blocking admin-HTTP helpers + LAN subnet scan.
-//!
-//! Known smell (accepted): every call builds a throwaway current-thread
-//! tokio runtime — endpoints are fast and calls are rare; see GUI_MAP.md §3.
+//! Bounded admin-HTTP helpers for background workers, plus LAN discovery.
 
 use std::time::Duration;
 
 use anyhow::Result;
 
 use crate::wire::ScanHit;
+
+pub(crate) struct PollSnapshot {
+    pub status: Result<String, String>,
+    pub fleet: Result<String, String>,
+    pub sessions: Result<String, String>,
+    pub slaves: Result<String, String>,
+}
+
+pub(crate) fn poll_snapshot(base: &str, bearer: Option<&str>) -> PollSnapshot {
+    let status = http_get_blocking(&format!("{base}/admin/status"), None);
+    if let Err(error) = &status {
+        return PollSnapshot {
+            fleet: Err(error.clone()),
+            sessions: Err(error.clone()),
+            slaves: Err(error.clone()),
+            status,
+        };
+    }
+    let master = status
+        .as_ref()
+        .ok()
+        .and_then(|s| serde_json::from_str::<crate::wire::StatusView>(s).ok())
+        .is_some_and(|s| s.role == "master");
+    PollSnapshot {
+        status,
+        fleet: http_get_blocking(&format!("{base}/admin/fleet"), None),
+        sessions: http_get_blocking(&format!("{base}/admin/mcp-sessions"), None),
+        slaves: if master {
+            http_get_blocking(&format!("{base}/admin/federation/slaves"), bearer)
+        } else {
+            Ok(String::new())
+        },
+    }
+}
 
 pub(crate) fn http_get_blocking(url: &str, bearer: Option<&str>) -> Result<String, String> {
     let rt = tokio::runtime::Builder::new_current_thread()
@@ -26,7 +57,7 @@ pub(crate) fn http_get_blocking(url: &str, bearer: Option<&str>) -> Result<Strin
             req = req.bearer_auth(b);
         }
         let resp = req.send().await.map_err(|e| e.to_string())?;
-        resp.text().await.map_err(|e| e.to_string())
+        checked_text(resp).await
     })
 }
 
@@ -61,10 +92,36 @@ pub(crate) fn http_post_blocking_with_timeout(
             req = req.json(v);
         }
         let resp = req.send().await.map_err(|e| e.to_string())?;
-        resp.json::<serde_json::Value>()
-            .await
-            .map_err(|e| e.to_string())
+        let body = checked_text(resp).await?;
+        let value: serde_json::Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+        if value.get("ok").and_then(serde_json::Value::as_bool) == Some(false) {
+            return Err(response_error(&value)
+                .unwrap_or("request rejected")
+                .to_owned());
+        }
+        Ok(value)
     })
+}
+
+fn response_error(value: &serde_json::Value) -> Option<&str> {
+    value
+        .get("error")
+        .and_then(serde_json::Value::as_str)
+        .or_else(|| value.get("message").and_then(serde_json::Value::as_str))
+}
+
+async fn checked_text(response: reqwest::Response) -> Result<String, String> {
+    let status = response.status();
+    let body = response.text().await.map_err(|e| e.to_string())?;
+    if !status.is_success() {
+        let parsed = serde_json::from_str::<serde_json::Value>(&body).ok();
+        let message = parsed
+            .as_ref()
+            .and_then(response_error)
+            .unwrap_or_else(|| status.canonical_reason().unwrap_or("request failed"));
+        return Err(format!("HTTP {status}: {message}"));
+    }
+    Ok(body)
 }
 
 /// Best local (LAN) IPv4 via the UDP connect trick — no packets are sent.
@@ -78,10 +135,7 @@ pub(crate) fn local_ip() -> Option<String> {
 /// First three octets of an IPv4 (the `/24` prefix); `None` for non-IPv4.
 #[must_use]
 pub(crate) fn ip_prefix(ip: &str) -> Option<String> {
-    let mut parts = ip.split('.');
-    let a: u8 = parts.next()?.parse().ok()?;
-    let b: u8 = parts.next()?.parse().ok()?;
-    let c: u8 = parts.next()?.parse().ok()?;
+    let [a, b, c, _] = ip.parse::<std::net::Ipv4Addr>().ok()?.octets();
     Some(format!("{a}.{b}.{c}"))
 }
 
@@ -157,14 +211,23 @@ pub(crate) fn scan_subnet(prefix: &str, port: u16) -> Vec<ScanHit> {
 /// Port parsed from an `http://host:port` admin base URL.
 #[must_use]
 pub(crate) fn port_from_base(base: &str) -> u16 {
-    let rest = base
-        .trim_start_matches("http://")
-        .trim_start_matches("https://");
-    match rest.rsplit(':').next() {
-        Some(p) => p
-            .trim_end_matches('/')
-            .parse()
-            .unwrap_or(tdmcp_config::DEFAULT_PORT),
-        None => tdmcp_config::DEFAULT_PORT,
+    reqwest::Url::parse(base)
+        .ok()
+        .and_then(|url| url.port_or_known_default())
+        .unwrap_or(tdmcp_config::DEFAULT_PORT)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn address_parsing_handles_ipv6_and_rejects_partial_ipv4() {
+        assert_eq!(port_from_base("http://[::1]:9860/"), 9860);
+        assert_eq!(port_from_base("https://host/"), 443);
+        assert_eq!(port_from_base("http://[::1]/"), 80);
+        assert_eq!(ip_prefix("192.168.3.4"), Some("192.168.3".into()));
+        assert_eq!(ip_prefix("192.168.3"), None);
+        assert_eq!(ip_prefix("192.168.3.999"), None);
     }
 }

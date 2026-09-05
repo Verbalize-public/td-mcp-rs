@@ -1,4 +1,6 @@
-# cargo-deny config — minimal credible gate (run via `cargo deny check`).
+# Run `python scripts/check_dependencies.py` for all release targets separately.
+# A combined target graph admits impossible paths such as our Windows/macOS
+# tray-icon dependency's Linux-only GTK backend.
 
 [graph]
 all-features = true
@@ -25,7 +27,7 @@ wildcards = "deny"
 
 [advisories]
 version = 2
-yanked = "warn"
+yanked = "deny"
 
 [sources]
 unknown-registry = "deny"

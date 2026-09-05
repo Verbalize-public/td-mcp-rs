@@ -9,7 +9,7 @@ crate boundaries and process topology.
 ```text
  IDE (Cursor / …)  ──┐
                      │  MCP Streamable HTTP  http://{bind_address}:9860/mcp
- Other MCP callers ──┤   (default bind 127.0.0.1; P3 may use 0.0.0.0 + PSK)
+ Other MCP callers ──┤   (default bind 127.0.0.1; LAN sharing uses a configured bind)
                      ▼
   ┌────────── Daemon process (tdmcp-daemon) ─────────────────────────────┐
   │  bg thread: axum + rmcp │ admin │ PidRegistry │ SlaveRegistry │ queues │
@@ -19,15 +19,15 @@ crate boundaries and process topology.
              ▼
     TD process(es)  ←── bootstrap .tox → handshake → FS load bridge/
 
- Optional P3: slave daemons register + fleet-push to a master; master proxies
- tools with optional daemonId (see docs/CONFIG.md § Federation auth & admin surface).
+ Federation: joined daemons register and push fleet updates to a coordinator;
+ the coordinator proxies tools by daemonId (see docs/FEDERATION.md).
 ```
 
 ## Crate graph
 
 ```text
 tdmcp-core          domain: PidRegistry, SlaveRegistry, TaskQueue, ResurrectionState (zero I/O)
-tdmcp-config        TOML config file (load / save / defaults) — shared by daemon + GUI
+tdmcp-config        TOML schema, atomic save, validation, partial patches and restart diff
 tdmcp-diagnostics   catalog types, YAML loader, envelope builders
 tdmcp-ipc           TCP loopback + framing + handshake
 tdmcp-mcp           rmcp tool handlers → core calls → diagnostics envelope
@@ -35,7 +35,7 @@ tdmcp-projectio     official tools (toeexpand/toecollapse), toc/sidecar
 tdmcp-dialogs       OS dialogs (Win32 + macOS adapters)
 tdmcp-daemon        bin: clap, tracing, axum wiring, admin API (composition root)
                     optional dep on tdmcp-gui via default `gui` feature
-tdmcp-gui           lib: egui + eframe + tray-icon → admin HTTP client + Settings
+tdmcp-gui           lib: egui + eframe + native tray → background admin HTTP + Settings
 tdmcp-test-support  fake TD bridge peer (dev / tests)
 xtask               release / packaging helpers
 bridge/             Python package (not a crate) loaded by TD after handshake
@@ -62,6 +62,11 @@ timeouts, teardown) plus process wiring (axum, admin, GUI spawn).
 | Bridge IPC | `127.0.0.1:9861` (TCP loopback, `[bridge] host`/`port`) | TD peer |
 
 ## Identity and queues
+
+The daemon's Settings service serializes partial writes, validates and persists
+them before notifying live consumers. A startup snapshot identifies values
+that still require restart. Federation reconnects only when its link settings
+change; per-call bridge budgets update without replacing TD connections.
 
 - **Ids:** OS `pid` (required on bridged tools); optional `daemonId` when federated.
 - Ambiguous pid across daemons → `tdmcp.federation.ambiguous_pid`.
@@ -93,7 +98,7 @@ See [`docs/CONTRACT.md`](docs/CONTRACT.md):
 | [`docs/FEDERATION.md`](docs/FEDERATION.md) | Federation user guide (setup, security model, limits) |
 | [`docs/RECIPES.md`](docs/RECIPES.md) | Prompt cookbook for end users |
 | [`docs/CONFIG.md`](docs/CONFIG.md) | TOML config + Settings GUI |
-| [`docs/CONTRACT.md`](docs/CONTRACT.md) | v1 contract, tool catalogue, phases |
+| [`docs/CONTRACT.md`](docs/CONTRACT.md) | Tool shapes and diagnostics |
 | [`CONSTITUTION.md`](CONSTITUTION.md) | Rust engineering law |
 | [`AGENTS.md`](AGENTS.md) | Agent route-first entry |
 | [`RISKS.md`](RISKS.md) | Accepted exceptions |

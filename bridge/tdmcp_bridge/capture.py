@@ -235,7 +235,10 @@ def _capture_top_image(
             code = "tdmcp.perception.uniform_frame"
             message = _perception_frame_message("uniform", mean_rgb)
         return {
-            "ok": kind is None,
+            # A solid frame can be intentional (constant colors, masks,
+            # fades). Report the observation without failing a valid capture.
+            "ok": bool(raw),
+            "frameClassification": kind,
             "code": code,
             "message": message,
             "bytes": len(raw),
@@ -471,7 +474,7 @@ def _maybe_downscale_top(td_mod, target, max_size: int):
 
 
 def _perception_frame_message(kind: str, mean_rgb: tuple[float, ...] | None) -> str:
-    """Human message for black / uniform perception failures."""
+    """Describe a frame observation without judging the user's visual intent."""
     if mean_rgb is not None and len(mean_rgb) >= 3:
         rgb = f"{mean_rgb[0]:.2f},{mean_rgb[1]:.2f},{mean_rgb[2]:.2f}"
     elif mean_rgb is not None and mean_rgb:
@@ -483,7 +486,7 @@ def _perception_frame_message(kind: str, mean_rgb: tuple[float, ...] | None) -> 
     else:
         base = "Captured TOP frame is a uniform solid color"
     if rgb is None:
-        return f"{base} — perception fail"
+        return f"{base} — compare with the intended output"
     return f"{base} (mean rgb≈{rgb})"
 
 
@@ -532,5 +535,3 @@ def _classify_frame(
     if not data or len(data) < 200:
         return "black", None
     return None, None
-
-
