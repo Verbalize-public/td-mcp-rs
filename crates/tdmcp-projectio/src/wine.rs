@@ -10,11 +10,17 @@
 //! - The prefix is derived from the resolved exe path's `drive_c` ancestor,
 //!   not guessed — every Wine-compatible layout (plain Wine, Proton, Lutris,
 //!   Bottles, CrossOver) uses that convention, so this works with zero config
-//!   for any of them.
+//!   for any of them. An explicit `TDMCP_WINE_PREFIX` (from
+//!   `[official_tools] wine_prefix`, promoted to env by `tdmcp_config::load`)
+//!   wins outright — for layouts with no `drive_c` ancestor (e.g. the exe
+//!   living outside its prefix, as the AUR touchdesigner-linux package keeps
+//!   it under `/opt/touchdesigner/td`) it is the *only* way to pin the prefix.
 
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+
+use crate::resolve::ENV_WINE_PREFIX;
 
 /// True when `program` is a Windows PE binary that cannot run natively here.
 #[must_use]
@@ -25,11 +31,26 @@ pub fn needs_wine(program: &Path) -> bool {
             .is_some_and(|e| e.eq_ignore_ascii_case("exe"))
 }
 
-/// The Wine prefix `exe` resolves under, found by walking up to the
-/// `drive_c` ancestor and returning its parent. `None` when `exe` was not
-/// found under any such layout (e.g. an explicit non-Wine override).
+/// The Wine prefix to run `exe` under: an explicit `TDMCP_WINE_PREFIX` env
+/// (from `[official_tools] wine_prefix`, promoted by `tdmcp_config::load`)
+/// wins outright; otherwise `exe`'s `drive_c` ancestor decides. `None` when no
+/// override exists and the exe is not under a `drive_c` layout — Wine then
+/// falls back to its own default prefix.
 #[must_use]
 pub fn prefix_for(exe: &Path) -> Option<PathBuf> {
+    let env_override = std::env::var(ENV_WINE_PREFIX)
+        .ok()
+        .filter(|v| !v.is_empty());
+    prefix_for_with(env_override.as_deref(), exe)
+}
+
+/// [`prefix_for`] minus the process-env read — callers (and tests) pass the
+/// override directly, so tests never mutate shared env state.
+#[must_use]
+fn prefix_for_with(env_override: Option<&str>, exe: &Path) -> Option<PathBuf> {
+    if let Some(p) = env_override {
+        return Some(PathBuf::from(p));
+    }
     let mut cur = exe.parent();
     while let Some(dir) = cur {
         if dir.file_name().and_then(OsStr::to_str) == Some("drive_c") {
@@ -97,12 +118,58 @@ mod tests {
     #[test]
     fn prefix_for_finds_drive_c_ancestor() {
         let exe = Path::new("/home/u/.wine/drive_c/Program Files/Derivative/TouchDesigner.2025/bin/TouchDesigner.exe");
-        assert_eq!(prefix_for(exe), Some(PathBuf::from("/home/u/.wine")));
+        assert_eq!(
+            prefix_for_with(None, exe),
+            Some(PathBuf::from("/home/u/.wine"))
+        );
     }
 
     #[test]
     fn prefix_for_none_without_drive_c() {
-        assert_eq!(prefix_for(Path::new("/opt/custom/TouchDesigner.exe")), None);
+        assert_eq!(
+            prefix_for_with(None, Path::new("/opt/custom/TouchDesigner.exe")),
+            None
+        );
+    }
+
+    #[test]
+    fn explicit_wine_prefix_wins_over_drive_c_derivation() {
+        // The AUR-style case: exe outside any drive_c layout, prefix pinned
+        // via config — the override must decide, not the (missing) ancestor.
+        let pinned = Some("/home/u/.local/share/touchdesigner-linux/prefix");
+        assert_eq!(
+            prefix_for_with(
+                pinned,
+                Path::new("/opt/touchdesigner/td/bin/TouchDesigner.exe")
+            ),
+            Some(PathBuf::from(
+                "/home/u/.local/share/touchdesigner-linux/prefix"
+            ))
+        );
+        // …and it beats derivation even when a drive_c ancestor exists.
+        assert_eq!(
+            prefix_for_with(
+                pinned,
+                Path::new(
+                    "/home/u/.wine/drive_c/Program Files/Derivative/TD/bin/TouchDesigner.exe"
+                )
+            ),
+            Some(PathBuf::from(
+                "/home/u/.local/share/touchdesigner-linux/prefix"
+            ))
+        );
+    }
+
+    #[test]
+    fn prefix_for_reads_tdmcp_wine_prefix_env() {
+        // Sole test touching this env var (the others go through
+        // `prefix_for_with`), so parallel tests can never race it.
+        std::env::set_var(ENV_WINE_PREFIX, "/tmp/pinned-prefix");
+        assert_eq!(
+            prefix_for(Path::new("/opt/custom/TouchDesigner.exe")),
+            Some(PathBuf::from("/tmp/pinned-prefix"))
+        );
+        std::env::remove_var(ENV_WINE_PREFIX);
     }
 
     #[test]

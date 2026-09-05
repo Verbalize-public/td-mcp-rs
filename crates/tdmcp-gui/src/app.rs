@@ -3,6 +3,7 @@
 //! streaming state, window/tray lifecycle orchestration.
 
 use std::collections::HashSet;
+use std::path::Path;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -69,6 +70,12 @@ pub(crate) struct DashboardApp {
     pub(crate) catalog_path_edit: String,
     pub(crate) daemon_bin_edit: String,
     pub(crate) template_path_edit: String,
+    /// Text buffers for `[official_tools]` overrides (empty = unset).
+    pub(crate) official_td_exe_edit: String,
+    pub(crate) official_expand_edit: String,
+    pub(crate) official_collapse_edit: String,
+    pub(crate) official_wine_exe_edit: String,
+    pub(crate) official_wine_prefix_edit: String,
     pub(crate) status: Option<StatusView>,
     pub(crate) fleet_json: String,
     pub(crate) sessions_json: String,
@@ -284,13 +291,7 @@ impl DashboardApp {
             _ => dashboard::DashTab::default(),
         };
         let dash_open = !dash_env.is_empty() && dash_env != "0";
-        let (
-            data_dir_edit,
-            bridge_dir_edit,
-            catalog_path_edit,
-            daemon_bin_edit,
-            template_path_edit,
-        ) = path_edits_from(&draft);
+        let edits = path_edits_from(&draft);
         let settings_loaded_snapshot = draft.clone();
         // Load recents from sidecar (outside config) — do after data_dir is known.
         // Use a temp data_dir for the load; the real one is `data_dir` param below
@@ -311,11 +312,16 @@ impl DashboardApp {
             config_path,
             draft,
             settings_error: None,
-            data_dir_edit,
-            bridge_dir_edit,
-            catalog_path_edit,
-            daemon_bin_edit,
-            template_path_edit,
+            data_dir_edit: edits.data_dir,
+            bridge_dir_edit: edits.bridge_dir,
+            catalog_path_edit: edits.catalog_path,
+            daemon_bin_edit: edits.daemon_bin,
+            template_path_edit: edits.template_path,
+            official_td_exe_edit: edits.official_td_exe,
+            official_expand_edit: edits.official_expand,
+            official_collapse_edit: edits.official_collapse,
+            official_wine_exe_edit: edits.official_wine_exe,
+            official_wine_prefix_edit: edits.official_wine_prefix,
             status: None,
             fleet_json: String::new(),
             sessions_json: String::new(),
@@ -428,12 +434,17 @@ impl DashboardApp {
                 self.settings_error = Some(format!("load failed: {e}"));
             }
         }
-        let (d, b, c, bin, tmpl) = path_edits_from(&self.draft);
-        self.data_dir_edit = d;
-        self.bridge_dir_edit = b;
-        self.catalog_path_edit = c;
-        self.daemon_bin_edit = bin;
-        self.template_path_edit = tmpl;
+        let e = path_edits_from(&self.draft);
+        self.data_dir_edit = e.data_dir;
+        self.bridge_dir_edit = e.bridge_dir;
+        self.catalog_path_edit = e.catalog_path;
+        self.daemon_bin_edit = e.daemon_bin;
+        self.template_path_edit = e.template_path;
+        self.official_td_exe_edit = e.official_td_exe;
+        self.official_expand_edit = e.official_expand;
+        self.official_collapse_edit = e.official_collapse;
+        self.official_wine_exe_edit = e.official_wine_exe;
+        self.official_wine_prefix_edit = e.official_wine_prefix;
         self.settings_loaded_snapshot = self.draft.clone();
         self.confirm_turn_off_sharing = false;
     }
@@ -556,6 +567,11 @@ impl DashboardApp {
         self.draft.advanced.catalog_path = nonempty_path(&self.catalog_path_edit);
         self.draft.advanced.daemon_bin = nonempty_path(&self.daemon_bin_edit);
         self.draft.project.template_path = nonempty_path(&self.template_path_edit);
+        self.draft.official_tools.td_exe = nonempty_path(&self.official_td_exe_edit);
+        self.draft.official_tools.expand_path = nonempty_path(&self.official_expand_edit);
+        self.draft.official_tools.collapse_path = nonempty_path(&self.official_collapse_edit);
+        self.draft.official_tools.wine_exe = nonempty_opt(&self.official_wine_exe_edit);
+        self.draft.official_tools.wine_prefix = nonempty_path(&self.official_wine_prefix_edit);
     }
 
     pub(crate) fn save_settings(&mut self) {
@@ -1370,34 +1386,39 @@ impl eframe::App for DashboardApp {
     }
 }
 
-fn path_edits_from(cfg: &ConfigFile) -> (String, String, String, String, String) {
-    (
-        cfg.advanced
-            .data_dir
-            .as_ref()
-            .map(|p| p.display().to_string())
-            .unwrap_or_default(),
-        cfg.advanced
-            .bridge_dir
-            .as_ref()
-            .map(|p| p.display().to_string())
-            .unwrap_or_default(),
-        cfg.advanced
-            .catalog_path
-            .as_ref()
-            .map(|p| p.display().to_string())
-            .unwrap_or_default(),
-        cfg.advanced
-            .daemon_bin
-            .as_ref()
-            .map(|p| p.display().to_string())
-            .unwrap_or_default(),
-        cfg.project
-            .template_path
-            .as_ref()
-            .map(|p| p.display().to_string())
-            .unwrap_or_default(),
-    )
+/// Settings-tab text buffers derived from the draft config — named fields,
+/// never positional, so adding a row can't silently transpose two of them.
+struct PathEdits {
+    data_dir: String,
+    bridge_dir: String,
+    catalog_path: String,
+    daemon_bin: String,
+    template_path: String,
+    official_td_exe: String,
+    official_expand: String,
+    official_collapse: String,
+    official_wine_exe: String,
+    official_wine_prefix: String,
+}
+
+fn path_edit(p: Option<&Path>) -> String {
+    p.map(|p| p.display().to_string()).unwrap_or_default()
+}
+
+fn path_edits_from(cfg: &ConfigFile) -> PathEdits {
+    let t = &cfg.official_tools;
+    PathEdits {
+        data_dir: path_edit(cfg.advanced.data_dir.as_deref()),
+        bridge_dir: path_edit(cfg.advanced.bridge_dir.as_deref()),
+        catalog_path: path_edit(cfg.advanced.catalog_path.as_deref()),
+        daemon_bin: path_edit(cfg.advanced.daemon_bin.as_deref()),
+        template_path: path_edit(cfg.project.template_path.as_deref()),
+        official_td_exe: path_edit(t.td_exe.as_deref()),
+        official_expand: path_edit(t.expand_path.as_deref()),
+        official_collapse: path_edit(t.collapse_path.as_deref()),
+        official_wine_exe: t.wine_exe.clone().unwrap_or_default(),
+        official_wine_prefix: path_edit(t.wine_prefix.as_deref()),
+    }
 }
 
 fn nonempty_path(s: &str) -> Option<PathBuf> {
@@ -1491,5 +1512,120 @@ mod tests {
         let mut c = ConfigFile::default();
         c.federation.role = "master".to_owned();
         assert!(config_dirty(&a, &c));
+    }
+
+    /// A real `DashboardApp` against a scratch config/data dir — the same
+    /// construction the `preview` fixture harness uses, minus the window.
+    fn headless_app(config_path: &std::path::Path) -> DashboardApp {
+        let blank = || RgbaIcon {
+            rgba: vec![0, 0, 0, 255],
+            width: 1,
+            height: 1,
+        };
+        let mut app = DashboardApp::new(
+            "http://127.0.0.1:9860".to_owned(),
+            config_path.parent().unwrap().to_path_buf(),
+            blank(),
+            blank(),
+            Arc::new(AtomicBool::new(false)),
+            config_path.to_path_buf(),
+            egui::IconData {
+                width: 1,
+                height: 1,
+                rgba: vec![0, 0, 0, 255],
+            },
+        )
+        .unwrap();
+        app.pending_tray = false;
+        app.pending_initial_hide = false;
+        app.visible = true;
+        app.dashboard_open = true;
+        app
+    }
+
+    #[test]
+    fn official_tools_flow_through_settings_open_edit_save() {
+        // Config shaped like the AUR touchdesigner-linux machine: td exe +
+        // pinned wine build, prefix derived by the resolver at runtime.
+        let tmp = tempfile::tempdir().unwrap();
+        let config_path = tmp.path().join("config.toml");
+        let mut cfg = cfgfile::load(&config_path).unwrap();
+        cfg.official_tools.td_exe =
+            Some(PathBuf::from("/opt/touchdesigner/td/bin/TouchDesigner.exe"));
+        cfg.official_tools.wine_exe = Some("/opt/touchdesigner/wine/bin/wine64".to_owned());
+        cfg.official_tools.wine_prefix = Some(PathBuf::from(
+            "/home/u/.local/share/touchdesigner-linux/prefix",
+        ));
+        cfgfile::save(&config_path, &cfg).unwrap();
+
+        // Opening settings must surface every configured value in the
+        // OFFICIAL TOOLS edit buffers (unset rows stay empty).
+        let mut app = headless_app(&config_path);
+        app.open_settings();
+        assert_eq!(
+            app.official_td_exe_edit,
+            "/opt/touchdesigner/td/bin/TouchDesigner.exe"
+        );
+        assert_eq!(
+            app.official_wine_exe_edit,
+            "/opt/touchdesigner/wine/bin/wine64"
+        );
+        assert_eq!(
+            app.official_wine_prefix_edit,
+            "/home/u/.local/share/touchdesigner-linux/prefix"
+        );
+        assert!(app.official_expand_edit.is_empty());
+        assert!(app.official_collapse_edit.is_empty());
+
+        // Simulated user edit: clear wine_exe, set a new prefix, save.
+        app.official_wine_exe_edit = String::new();
+        app.official_wine_prefix_edit = "/home/u/.wine".to_owned();
+        app.apply_path_edits();
+        assert_eq!(app.draft.official_tools.wine_exe, None);
+        assert_eq!(
+            app.draft.official_tools.wine_prefix.as_deref(),
+            Some(std::path::Path::new("/home/u/.wine"))
+        );
+        app.save_settings();
+
+        // The saved file round-trips — and clearing a field drops the key.
+        let reloaded = cfgfile::load(&config_path).unwrap();
+        assert_eq!(
+            reloaded.official_tools.td_exe.as_deref(),
+            Some(std::path::Path::new(
+                "/opt/touchdesigner/td/bin/TouchDesigner.exe"
+            ))
+        );
+        assert_eq!(reloaded.official_tools.wine_exe, None);
+        assert_eq!(
+            reloaded.official_tools.wine_prefix.as_deref(),
+            Some(std::path::Path::new("/home/u/.wine"))
+        );
+    }
+
+    #[test]
+    fn settings_tab_renders_official_tools_rows_headlessly() {
+        // Drive the REAL dashboard renderer over the Settings tab in a
+        // headless egui pass — the OFFICIAL TOOLS section (incl. the
+        // Linux-only wine rows) must build without panicking.
+        let tmp = tempfile::tempdir().unwrap();
+        let config_path = tmp.path().join("config.toml");
+        let mut app = headless_app(&config_path);
+        app.dash_tab = dashboard::DashTab::Settings;
+        app.open_settings();
+
+        let ctx = egui::Context::default();
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1040.0, 2600.0),
+            )),
+            ..Default::default()
+        };
+        let _ = ctx.run_ui(input, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                dashboard::render(&mut app, ui);
+            });
+        });
     }
 }

@@ -260,6 +260,67 @@ pub(crate) fn settings(app: &mut DashboardApp, ui: &mut egui::Ui) {
                 }
             });
 
+            section_card(ui, "OFFICIAL TOOLS", false, |ui| {
+                ui.label(
+                    egui::RichText::new(
+                        "Pin the TouchDesigner install used for spawn and offline project I/O. Leave everything empty for auto-detection.",
+                    )
+                    .font(font_meta())
+                    .color(TEXT_DIM),
+                );
+                ui.add_space(4.0);
+                row_wide(
+                    ui,
+                    "TouchDesigner exe",
+                    DashboardApp::field_help("official_tools.td_exe"),
+                    |ui| {
+                        path_edit_wide(ui, &mut app.official_td_exe_edit, false);
+                    },
+                );
+                row_wide(
+                    ui,
+                    "toeexpand path",
+                    DashboardApp::field_help("official_tools.expand_path"),
+                    |ui| {
+                        path_edit_wide(ui, &mut app.official_expand_edit, false);
+                    },
+                );
+                row_wide(
+                    ui,
+                    "toecollapse path",
+                    DashboardApp::field_help("official_tools.collapse_path"),
+                    |ui| {
+                        path_edit_wide(ui, &mut app.official_collapse_edit, false);
+                    },
+                );
+                #[cfg(all(not(windows), not(target_os = "macos")))]
+                {
+                    row_wide(
+                        ui,
+                        "Wine binary (Linux)",
+                        DashboardApp::field_help("official_tools.wine_exe"),
+                        |ui| {
+                            path_edit_wide(ui, &mut app.official_wine_exe_edit, false);
+                        },
+                    );
+                    row_wide(
+                        ui,
+                        "Wine prefix (Linux)",
+                        DashboardApp::field_help("official_tools.wine_prefix"),
+                        |ui| {
+                            path_edit_wide(ui, &mut app.official_wine_prefix_edit, false);
+                        },
+                    );
+                    ui.label(
+                        egui::RichText::new(
+                            "Auto-detect scans $WINEPREFIX, ~/.wine, ~/.local/share/wineprefixes/* and the touchdesigner-linux (AUR) prefix; the prefix to run tools in is derived from the install path. Set the Wine binary/prefix here only if your setup differs.",
+                        )
+                        .font(font_meta())
+                        .color(TEXT_FAINT),
+                    );
+                }
+            });
+
             section_card(ui, "ADVANCED", false, |ui| {
                 row_wide(
                     ui,

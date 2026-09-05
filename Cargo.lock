@@ -5090,6 +5090,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tdmcp-config",
+ "tempfile",
  "tokio",
  "tracing",
  "tray-icon",

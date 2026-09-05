@@ -46,5 +46,8 @@ tray-icon = { workspace = true }
 ksni = { workspace = true }
 x11-dl = { workspace = true }
 
+[dev-dependencies]
+tempfile = { workspace = true }
+
 [lints]
 workspace = true

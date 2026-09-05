@@ -35,7 +35,9 @@ pub struct ProcessRunner;
 
 impl CommandRunner for ProcessRunner {
     fn run(&self, program: &Path, args: &[&std::ffi::OsStr]) -> std::io::Result<CommandOutput> {
-        let out = crate::wine::command_for(program, false).args(args).output()?;
+        let out = crate::wine::command_for(program, false)
+            .args(args)
+            .output()?;
         Ok(CommandOutput {
             code: out.status.code().unwrap_or(-1),
             stdout: String::from_utf8_lossy(&out.stdout).into_owned(),

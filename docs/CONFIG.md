@@ -294,7 +294,7 @@ Absence of `[official_tools]` triggers env (`TDMCP_TOEEXPAND`,
 | --- | --- | --- |
 | Windows | `%ProgramFiles%/Derivative/TouchDesigner.*` | `.../bin/TouchDesigner.exe` + tools |
 | macOS | `/Applications`, `~/Applications` | `TouchDesigner.*.app/Contents/MacOS/TouchDesigner` + tools |
-| Linux | `$WINEPREFIX`, `~/.wine`, `~/.local/share/wineprefixes/*` (or `wine_prefix` below) | `<prefix>/drive_c/Program Files/Derivative/TouchDesigner.*/bin/TouchDesigner.exe` + tools |
+| Linux | `$WINEPREFIX`, `~/.wine`, `~/.local/share/wineprefixes/*`, `~/.local/share/touchdesigner-linux/prefix` (AUR `touchdesigner-linux`; or `wine_prefix` below) | `<prefix>/drive_c/Program Files/Derivative/TouchDesigner.*/bin/TouchDesigner.exe` + tools |
 
 Stub installs (missing toeexpand/toecollapse files) are skipped.
 
@@ -308,14 +308,15 @@ with no config:
 - The install is found via the scan roots above (or an explicit `td_exe`).
 - The Wine prefix to run it in is derived from that path (its `drive_c`
   ancestor) — this works for plain Wine, Proton, Lutris, and Bottles/
-  CrossOver layouts alike, since all of them use that convention.
+  CrossOver layouts alike, since all of them use that convention. An explicit
+  `wine_prefix` (below) overrides the derivation.
 
 Two escape hatches mitigate setups auto-detection misses:
 
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `wine_exe` | `"wine"` | Wine binary — a bare name resolved on `PATH`, an absolute path, or a wrapper script (e.g. a Lutris/Bottles/CrossOver launcher). |
-| `wine_prefix` | *(unset)* | Explicit prefix to scan when the install lives somewhere the auto-detected roots don't cover (a Steam Proton `compatdata` prefix, a CrossOver bottle, …). |
+| `wine_prefix` | *(unset)* | Explicit prefix to scan when the install lives somewhere the auto-detected roots don't cover (a Steam Proton `compatdata` prefix, a CrossOver bottle, …). At invocation time it also pins the prefix every Wine call runs in, overriding the `drive_c` derivation. |
 
 Both apply only on Linux (no-op elsewhere). `spawn_td` also exports the
 launched process's real Linux pid as `TDMCP_LINUX_PID` so the bridge reports

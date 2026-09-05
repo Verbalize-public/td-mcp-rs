@@ -127,8 +127,9 @@ const ENV_COLLAPSE: &str = "TDMCP_TOECOLLAPSE";
 const ENV_TD_EXE: &str = "TDMCP_TOUCHDESIGNER_EXE";
 /// Linux only: explicit Wine prefix override (`[official_tools] wine_prefix`,
 /// promoted to env by `tdmcp_config::load`). Unset = autodetect (see
-/// [`linux_scan_roots`]).
-const ENV_WINE_PREFIX: &str = "TDMCP_WINE_PREFIX";
+/// [`linux_scan_roots`]). Shared with [`crate::wine`], which honors the same
+/// override at invocation time.
+pub(crate) const ENV_WINE_PREFIX: &str = "TDMCP_WINE_PREFIX";
 const TOOL_NAMES: [&str; 2] = ["toeexpand", "toecollapse"];
 
 fn validate_pair(expand: &Path, collapse: &Path) -> Option<OfficialTools> {
@@ -263,10 +264,12 @@ pub fn default_scan_roots(env: EnvLookup<'_>) -> Vec<PathBuf> {
 /// Wine prefixes to probe for a TouchDesigner install (L-6): an explicit
 /// override wins outright; otherwise every prefix TouchDesigner-on-Linux
 /// users actually land in — `$WINEPREFIX` (the running shell/session's own
-/// prefix), the Wine default `~/.wine`, and `~/.local/share/wineprefixes/*`
-/// (the layout Lutris/Bottles-style multi-prefix setups commonly use).
-/// Doesn't special-case Steam Proton or CrossOver's own bottle directories —
-/// point `[official_tools] wine_prefix` (or `td_exe`) at those directly.
+/// prefix), the Wine default `~/.wine`, `~/.local/share/wineprefixes/*`
+/// (the layout Lutris/Bottles-style multi-prefix setups commonly use), and
+/// the AUR `touchdesigner-linux` package's `~/.local/share/touchdesigner-linux/prefix`
+/// (its `td-install` puts TD in that prefix's `Program Files`). Doesn't
+/// special-case Steam Proton or CrossOver's own bottle directories — point
+/// `[official_tools] wine_prefix` (or `td_exe`) at those directly.
 #[cfg(all(not(windows), not(target_os = "macos")))]
 fn linux_scan_roots(env: EnvLookup<'_>) -> Vec<PathBuf> {
     if let Some(p) = env(ENV_WINE_PREFIX) {
@@ -288,6 +291,8 @@ fn linux_scan_roots(env: EnvLookup<'_>) -> Vec<PathBuf> {
             extra.sort_unstable();
             roots.extend(extra);
         }
+        // AUR touchdesigner-linux package prefix (standard drive_c layout).
+        roots.push(home.join(".local/share/touchdesigner-linux/prefix"));
     }
     roots
 }
@@ -598,7 +603,28 @@ mod tests {
         for root in &roots {
             found += scan_install_exes(root).len();
         }
-        assert_eq!(found, 2, "expected both ~/.wine and the custom prefix to be scanned");
+        assert_eq!(
+            found, 2,
+            "expected both ~/.wine and the custom prefix to be scanned"
+        );
+    }
+
+    #[cfg(all(not(windows), not(target_os = "macos")))]
+    #[test]
+    fn aur_touchdesigner_linux_prefix_is_scanned() {
+        let home = tempfile::tempdir().unwrap();
+        // AUR touchdesigner-linux layout: td-install puts the install in the
+        // package prefix's Program Files, and ~/.wine exists but stays empty.
+        let aur = home.path().join(".local/share/touchdesigner-linux/prefix");
+        fake_wine_install(&aur, "2025.32460", true);
+        fs::create_dir_all(home.path().join(".wine")).unwrap();
+        let binding = [("HOME", home.path().to_str().unwrap())];
+        let envf = env_map(&binding);
+        let t = resolve_tools(&ToolSource::default(), &envf).unwrap();
+        assert_eq!(
+            t.expand,
+            aur.join("drive_c/Program Files/Derivative/TouchDesigner.2025.32460/bin/toeexpand.exe")
+        );
     }
 
     #[test]

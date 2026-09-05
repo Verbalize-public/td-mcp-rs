@@ -116,7 +116,8 @@ idle_dead_secs = 20
 # project I/O (unpack/pack/install_bridge) run TouchDesigner/toeexpand/
 # toecollapse through Wine. Auto-detection covers most setups with zero
 # config: the install is found by scanning $WINEPREFIX / ~/.wine /
-# ~/.local/share/wineprefixes/* (or wherever `td_exe` above points), and its
+# ~/.local/share/wineprefixes/* / ~/.local/share/touchdesigner-linux/prefix
+# (AUR touchdesigner-linux; or wherever `td_exe` above points), and its
 # Wine prefix is derived from that path. Set these only to mitigate a setup
 # auto-detection misses:
 # wine_exe = "wine"          # or "wine64", or a Lutris/Bottles/CrossOver wrapper script

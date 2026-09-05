@@ -369,7 +369,7 @@ pub const FIELD_DESCS: &[FieldDesc] = &[
     FieldDesc {
         key: "official_tools.wine_prefix",
         label: "Wine prefix (Linux)",
-        help: "Explicit prefix to scan when auto-detection ($WINEPREFIX, ~/.wine, ~/.local/share/wineprefixes/*) misses your install (e.g. Steam Proton, CrossOver).",
+        help: "Explicit prefix for setups auto-detection ($WINEPREFIX, ~/.wine, ~/.local/share/wineprefixes/*, the touchdesigner-linux AUR prefix) misses (e.g. Steam Proton, CrossOver). Also pins the prefix every Wine call runs in.",
     },
     FieldDesc {
         key: "server.port",
