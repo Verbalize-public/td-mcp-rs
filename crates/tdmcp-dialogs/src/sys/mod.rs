@@ -3,9 +3,11 @@
 //! Backends implement ONLY the functions below; all domain logic lives above
 //! (classify/policy/lib). Adding macOS = implementing this surface there.
 
+#[cfg(target_os = "linux")]
+pub mod linux;
 #[cfg(target_os = "macos")]
 pub mod macos;
-#[cfg(all(not(windows), not(target_os = "macos")))]
+#[cfg(all(not(windows), not(target_os = "macos"), not(target_os = "linux")))]
 pub mod stub;
 #[cfg(windows)]
 pub mod windows;

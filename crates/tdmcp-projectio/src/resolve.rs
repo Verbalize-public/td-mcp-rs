@@ -125,6 +125,10 @@ pub fn std_env(name: &str) -> Option<String> {
 const ENV_EXPAND: &str = "TDMCP_TOEEXPAND";
 const ENV_COLLAPSE: &str = "TDMCP_TOECOLLAPSE";
 const ENV_TD_EXE: &str = "TDMCP_TOUCHDESIGNER_EXE";
+/// Linux only: explicit Wine prefix override (`[official_tools] wine_prefix`,
+/// promoted to env by `tdmcp_config::load`). Unset = autodetect (see
+/// [`linux_scan_roots`]).
+const ENV_WINE_PREFIX: &str = "TDMCP_WINE_PREFIX";
 const TOOL_NAMES: [&str; 2] = ["toeexpand", "toecollapse"];
 
 fn validate_pair(expand: &Path, collapse: &Path) -> Option<OfficialTools> {
@@ -252,9 +256,40 @@ pub fn default_scan_roots(env: EnvLookup<'_>) -> Vec<PathBuf> {
     }
     #[cfg(all(not(windows), not(target_os = "macos")))]
     {
-        let _ = env;
-        Vec::new()
+        linux_scan_roots(env)
     }
+}
+
+/// Wine prefixes to probe for a TouchDesigner install (L-6): an explicit
+/// override wins outright; otherwise every prefix TouchDesigner-on-Linux
+/// users actually land in — `$WINEPREFIX` (the running shell/session's own
+/// prefix), the Wine default `~/.wine`, and `~/.local/share/wineprefixes/*`
+/// (the layout Lutris/Bottles-style multi-prefix setups commonly use).
+/// Doesn't special-case Steam Proton or CrossOver's own bottle directories —
+/// point `[official_tools] wine_prefix` (or `td_exe`) at those directly.
+#[cfg(all(not(windows), not(target_os = "macos")))]
+fn linux_scan_roots(env: EnvLookup<'_>) -> Vec<PathBuf> {
+    if let Some(p) = env(ENV_WINE_PREFIX) {
+        return vec![PathBuf::from(p)];
+    }
+    let mut roots = Vec::new();
+    if let Some(p) = env("WINEPREFIX") {
+        roots.push(PathBuf::from(p));
+    }
+    if let Some(home) = env("HOME") {
+        let home = PathBuf::from(home);
+        roots.push(home.join(".wine"));
+        if let Ok(entries) = std::fs::read_dir(home.join(".local/share/wineprefixes")) {
+            let mut extra: Vec<PathBuf> = entries
+                .flatten()
+                .map(|e| e.path())
+                .filter(|p| p.is_dir())
+                .collect();
+            extra.sort_unstable();
+            roots.extend(extra);
+        }
+    }
+    roots
 }
 
 #[cfg(windows)]
@@ -297,9 +332,32 @@ pub fn scan_install_exes(root: &Path) -> Vec<PathBuf> {
     }
     #[cfg(all(not(windows), not(target_os = "macos")))]
     {
-        let _ = root;
-        Vec::new()
+        linux_scan_install_exes(root)
     }
+}
+
+/// Enumerate TouchDesigner installs under a Wine prefix `root` (from
+/// [`linux_scan_roots`]): mirrors the Windows install layout one level under
+/// `drive_c`, since that's exactly what Wine maps `C:\` onto.
+#[cfg(all(not(windows), not(target_os = "macos")))]
+fn linux_scan_install_exes(root: &Path) -> Vec<PathBuf> {
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    for program_files in ["Program Files", "Program Files (x86)"] {
+        let derivative = root.join("drive_c").join(program_files).join("Derivative");
+        let Ok(entries) = std::fs::read_dir(&derivative) else {
+            continue;
+        };
+        dirs.extend(entries.flatten().map(|e| e.path()).filter(|p| {
+            p.is_dir()
+                && p.file_name()
+                    .and_then(|n| n.to_str())
+                    .is_some_and(|n| n.starts_with("TouchDesigner"))
+        }));
+    }
+    dirs.sort_unstable_by(|a, b| b.cmp(a));
+    dirs.into_iter()
+        .map(|d| d.join("bin").join("TouchDesigner.exe"))
+        .collect()
 }
 
 #[cfg(windows)]
@@ -382,7 +440,7 @@ mod tests {
         assert_eq!(palette_root_from_install(cfg.path()), Some(cfg_palette));
     }
 
-    #[cfg(windows)]
+    #[cfg(not(target_os = "macos"))]
     fn env_map<'a>(map: &'a [(&'a str, &'a str)]) -> impl Fn(&str) -> Option<String> + 'a {
         move |name: &str| {
             map.iter()
@@ -489,6 +547,58 @@ mod tests {
         ];
         let envf = env_map(&binding);
         assert_eq!(default_scan_roots(&envf).len(), 1);
+    }
+
+    #[cfg(all(not(windows), not(target_os = "macos")))]
+    fn fake_wine_install(prefix: &Path, version: &str, with_tools: bool) -> PathBuf {
+        // Layout mirrors Wine's C: mapping: <prefix>/drive_c/Program Files/Derivative/TouchDesigner.<v>/bin
+        let dir = prefix
+            .join("drive_c/Program Files/Derivative")
+            .join(format!("TouchDesigner.{version}"))
+            .join("bin");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("TouchDesigner.exe"), b"exe").unwrap();
+        if with_tools {
+            fs::write(dir.join("toeexpand.exe"), b"e").unwrap();
+            fs::write(dir.join("toecollapse.exe"), b"c").unwrap();
+        }
+        dir.join("TouchDesigner.exe")
+    }
+
+    #[cfg(all(not(windows), not(target_os = "macos")))]
+    #[test]
+    fn wine_prefix_env_override_wins_and_finds_newest_complete() {
+        let prefix = tempfile::tempdir().unwrap();
+        let old = fake_wine_install(prefix.path(), "2025.32460", true);
+        let stub = fake_wine_install(prefix.path(), "2025.33070", false);
+        let unrelated_home = tempfile::tempdir().unwrap();
+        let binding = [
+            ("TDMCP_WINE_PREFIX", prefix.path().to_str().unwrap()),
+            ("HOME", unrelated_home.path().to_str().unwrap()),
+        ];
+        let envf = env_map(&binding);
+        let t = resolve_tools(&ToolSource::default(), &envf).unwrap();
+        assert_eq!(t.expand.parent().unwrap(), old.parent().unwrap());
+        assert_ne!(t.expand.parent().unwrap(), stub.parent().unwrap());
+    }
+
+    #[cfg(all(not(windows), not(target_os = "macos")))]
+    #[test]
+    fn wine_default_prefix_and_wineprefixes_dir_are_scanned() {
+        let home = tempfile::tempdir().unwrap();
+        // ~/.wine
+        fake_wine_install(&home.path().join(".wine"), "2025.32460", true);
+        // ~/.local/share/wineprefixes/custom
+        let custom = home.path().join(".local/share/wineprefixes/custom");
+        fake_wine_install(&custom, "2099.11111", true);
+        let binding = [("HOME", home.path().to_str().unwrap())];
+        let envf = env_map(&binding);
+        let roots = default_scan_roots(&envf);
+        let mut found = 0;
+        for root in &roots {
+            found += scan_install_exes(root).len();
+        }
+        assert_eq!(found, 2, "expected both ~/.wine and the custom prefix to be scanned");
     }
 
     #[test]

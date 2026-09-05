@@ -9,6 +9,7 @@ import unittest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import tdmcp_bridge  # noqa: E402
+from tdmcp_bridge import identity as _identity_mod  # noqa: E402
 
 
 class ComposeToePathTest(unittest.TestCase):
@@ -50,6 +51,26 @@ class IdentitySnapshotTest(unittest.TestCase):
         self.assertTrue(snap["image"])
         # start_time is best-effort; may be str or None depending on OS.
         self.assertTrue(snap["start_time"] is None or isinstance(snap["start_time"], str))
+
+
+class TdPidTest(unittest.TestCase):
+    def test_prefers_tdmcp_linux_pid_when_set(self) -> None:
+        os.environ["TDMCP_LINUX_PID"] = "4242"
+        try:
+            self.assertEqual(_identity_mod._td_pid(), 4242)
+        finally:
+            del os.environ["TDMCP_LINUX_PID"]
+
+    def test_falls_back_to_getpid_outside_td(self) -> None:
+        os.environ.pop("TDMCP_LINUX_PID", None)
+        self.assertEqual(_identity_mod._td_pid(), os.getpid())
+
+    def test_ignores_unparseable_tdmcp_linux_pid(self) -> None:
+        os.environ["TDMCP_LINUX_PID"] = "not-a-number"
+        try:
+            self.assertEqual(_identity_mod._td_pid(), os.getpid())
+        finally:
+            del os.environ["TDMCP_LINUX_PID"]
 
 
 class HandshakeFramingTest(unittest.TestCase):

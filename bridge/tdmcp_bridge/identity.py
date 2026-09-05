@@ -229,6 +229,17 @@ def max_call_wait_from_handshake(resp: dict[str, Any] | None) -> float:
 
 
 def _td_pid() -> int:
+    # Under Wine, TD's own pid (`td.project.pid` / `os.getpid()`) is a
+    # virtual NT id, not this host's real Linux pid — the daemon's registry
+    # (keyed by the real launcher pid from `spawn_td`) would never match the
+    # handshake without this. `spawn_td` exports the real pid into the
+    # child's environment before exec'ing Wine (see `tdmcp_projectio::wine`).
+    linux_pid = os.environ.get("TDMCP_LINUX_PID")
+    if linux_pid:
+        try:
+            return int(linux_pid)
+        except ValueError:
+            pass
     try:
         import td  # type: ignore
 

@@ -25,5 +25,6 @@ pub mod sidecar;
 pub mod sniff;
 pub mod stage;
 pub mod toc;
+pub mod wine;
 
 pub use error::ProjectIoError;

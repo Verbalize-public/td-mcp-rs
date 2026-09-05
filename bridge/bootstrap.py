@@ -21,9 +21,10 @@ resolution (inside ``tdmcp_bridge.bootstrap_threaded``):
   2. daemon handshake ``bridgePackageDir``,
   3. OS-conventional data dir ``…/tdmcp-rs/bridge``.
 
-This dialer only needs a path to *import* ``tdmcp_bridge`` (env or
-conventional); the handshake path wins for the live session unless the env
-override is set.
+This dialer only needs a path to *import* ``tdmcp_bridge`` (env, the OS
+conventional dir, or under Wine the ``Z:\…`` form of the Unix conventional
+dir); the handshake path wins for the live session unless the env override is
+set.
 """
 
 from __future__ import annotations
@@ -46,6 +47,21 @@ def _default_data_dir() -> str:
     return os.path.join(base, "tdmcp-rs")
 
 
+def _wine_fallback_dir() -> str | None:
+    """Z:-form of the Unix conventional data dir.
+
+    Under Wine TD's Python is win32, so the native lookup lands in the
+    prefix's LOCALAPPDATA and never sees the Linux-side install.
+    """
+    base = os.environ.get("XDG_DATA_HOME")
+    if not base and os.environ.get("HOME"):
+        base = os.path.join(os.environ["HOME"], ".local", "share")
+    if not base or not base.startswith("/"):
+        return None
+    rel = os.path.join(base, "tdmcp-rs", "bridge").lstrip("/")
+    return "Z:\\" + rel.replace("/", "\\")
+
+
 def _import_bridge_dir() -> str | None:
     """Path used only to import the package before handshake."""
     env = os.environ.get("TDMCP_BRIDGE_DIR")
@@ -54,6 +70,9 @@ def _import_bridge_dir() -> str | None:
     candidate = os.path.join(_default_data_dir(), "bridge")
     if os.path.isfile(os.path.join(candidate, "tdmcp_bridge", "__init__.py")):
         return candidate
+    wine = _wine_fallback_dir()
+    if wine and os.path.isfile(os.path.join(wine, "tdmcp_bridge", "__init__.py")):
+        return wine
     return None
 
 

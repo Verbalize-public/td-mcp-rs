@@ -7,7 +7,6 @@
 //! auto-dismissed.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -291,7 +290,7 @@ pub async fn spawn_td(
         });
     }
 
-    let mut cmd = Command::new(&install.exe);
+    let mut cmd = tdmcp_projectio::wine::command_for(&install.exe, true);
     if let Some(pp) = project_path {
         cmd.arg(pp);
     }
@@ -412,7 +411,11 @@ fn process_alive_check(source: Option<&dyn tdmcp_core::DialogSource>, pid: u32) 
     {
         tdmcp_dialogs::sys::macos::process_alive(pid)
     }
-    #[cfg(all(not(windows), not(target_os = "macos")))]
+    #[cfg(target_os = "linux")]
+    {
+        tdmcp_dialogs::sys::linux::process_alive(pid)
+    }
+    #[cfg(all(not(windows), not(target_os = "macos"), not(target_os = "linux")))]
     {
         let _ = pid;
         false
@@ -431,7 +434,11 @@ fn process_image_check(source: Option<&dyn tdmcp_core::DialogSource>, pid: u32) 
     {
         tdmcp_dialogs::sys::macos::process_image_name(pid)
     }
-    #[cfg(all(not(windows), not(target_os = "macos")))]
+    #[cfg(target_os = "linux")]
+    {
+        tdmcp_dialogs::sys::linux::process_image_name(pid)
+    }
+    #[cfg(all(not(windows), not(target_os = "macos"), not(target_os = "linux")))]
     {
         let _ = pid;
         None
@@ -462,7 +469,9 @@ pub async fn kill_td(
         let posted = tdmcp_dialogs::sys::windows::close_pid_windows(pid);
         #[cfg(target_os = "macos")]
         let posted = tdmcp_dialogs::sys::macos::close_pid_windows(pid);
-        #[cfg(all(not(windows), not(target_os = "macos")))]
+        #[cfg(target_os = "linux")]
+        let posted = tdmcp_dialogs::sys::linux::close_pid_windows(pid);
+        #[cfg(all(not(windows), not(target_os = "macos"), not(target_os = "linux")))]
         let posted = 0usize;
         let deadline = Instant::now() + Duration::from_millis(grace_ms.max(500));
         loop {
@@ -476,9 +485,14 @@ pub async fn kill_td(
             tokio::time::sleep(Duration::from_millis(300)).await;
         }
         let open_popups = source.map(|s| s.snapshot(pid).popups.len()).unwrap_or(0);
+        #[cfg(target_os = "linux")]
+        let platform_note = " (Linux graceful close sends SIGTERM only; \
+            WM_CLOSE-style window closing is a Windows/macOS behavior)";
+        #[cfg(not(target_os = "linux"))]
+        let platform_note = "";
         return Err(CodedError {
             message: format!(
-                "still alive after graceful close ({posted} window(s) posted); open popups: {open_popups}"
+                "still alive after graceful close ({posted} window(s) posted); open popups: {open_popups}{platform_note}"
             ),
             code: "kill.graceful_timeout",
         });
@@ -503,7 +517,17 @@ pub async fn kill_td(
             code: "kill.access_denied",
         })
     }
-    #[cfg(all(not(windows), not(target_os = "macos")))]
+    #[cfg(target_os = "linux")]
+    {
+        if tdmcp_dialogs::sys::linux::terminate_process(pid) {
+            return Ok(json!({ "ok": true, "pid": pid, "how": "force" }));
+        }
+        Err(CodedError {
+            message: format!("SIGKILL failed for {pid}"),
+            code: "kill.access_denied",
+        })
+    }
+    #[cfg(all(not(windows), not(target_os = "macos"), not(target_os = "linux")))]
     {
         Err(CodedError {
             message: "force kill unsupported here".into(),
@@ -608,5 +632,33 @@ mod kill_tests {
             .await
             .unwrap();
         assert_eq!(out["ok"], true);
+    }
+
+    /// Exercises the real `sys::linux` code path end-to-end (no `MockSource`,
+    /// no live TD needed): a real spawned child gets SIGKILLed.
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn linux_force_kill_sigkills_real_child() {
+        let mut child = std::process::Command::new("/bin/sleep")
+            .arg("30")
+            .spawn()
+            .expect("spawn sleep");
+        let pid = child.id();
+        let reg = Arc::new(AsyncMutex::new(tdmcp_core::PidRegistry::new()));
+        // Bypass the image-name check the same way a spawn_td-registered pid does.
+        reg.lock().await.register_starting(
+            pid,
+            tdmcp_core::SpawnRecord {
+                started_at: chrono::Utc::now(),
+                exe_path: "/bin/sleep".into(),
+                expected_project: None,
+            },
+        );
+        let out = kill_td(&reg, None, pid, KillMode::Force, 500)
+            .await
+            .unwrap();
+        assert_eq!(out["how"], "force");
+        let status = child.wait().expect("wait");
+        assert!(!status.success(), "child should have died by signal");
     }
 }

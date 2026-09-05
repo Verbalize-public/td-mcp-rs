@@ -114,7 +114,7 @@ Handshake returns a local FS path to the bridge package directory. TD reloads fr
 | Discovery       | `fleet` lists by `pid` + **title** (`project.name`) + **toePath** (`folder`+`name`), bridge, tasks, traces                          |
 | Identity source | Filled at bridge handshake from a main-thread snapshot; stale until reconnect (no mid-session refresh)                              |
 | Fingerprint     | Best-effort `image` + `startTime`; when **both** sides omit `startTime`, require a shared `title` or `image` (empty/empty ≠ match) |
-| Popups          | `windowStatus` and `fleet` `popups` ship (v2, Windows + macOS); empty when the dialogs backend is disabled or unsupported. macOS needs only the **Accessibility** TCC grant (not Screen Recording); TD-drawn dialogs are detect-and-surface — see the `dialogs` result-shape note |
+| Popups          | `windowStatus` and `fleet` `popups` ship (v2, Windows + macOS); empty when the dialogs backend is disabled or unsupported. macOS needs only the **Accessibility** TCC grant (not Screen Recording); TD-drawn dialogs are detect-and-surface — see the `dialogs` result-shape note. Linux never populates either field — the popup watcher does not run there (no window backend) |
 | Usable          | `bridge: "connected"` ⇒ any caller may address that `pid`                                                                           |
 | Addressing      | Process-scoped tools require `pid`                                                                                                  |
 | IPC loss        | Mark disconnected; cancel waits; stack cancelled-task trace; remove from fleet after **15s** TTL or when **any** handshake succeeds |
@@ -220,20 +220,22 @@ safety net only — the daemon owns the real per-method budgets.
 | `mutate_nodes`              | Ordered create / set / delete / connect / disconnect steps; sequential apply, stop on first hard error | **Shipped**           |
 | `api_help`                  | Live TD Python API cards (class / classes index / thin module) — not wiki/help dumps                   | **Shipped**           |
 | `editor_context`            | Live editor panes + per-pane selection (`ownerPath`, `focused`, `selection`)                           | **Shipped**           |
-| `dialogs`†                 | List / dismiss OS dialogs                                                                              | **Shipped** (v2, Win + macOS) |
+| `dialogs`†                 | List / dismiss OS dialogs                                                                              | **Shipped** (v2, Win + macOS); Linux: `tdmcp.dialog.unsupported` (no window backend) |
 | `td_installs`†             | TouchDesigner installations on disk + tool availability                                                | **Shipped** (v2)      |
 | `project_unpack`†          | `.toe`/`.tox` → expand dir via official toeexpand                                                      | **Shipped** (v2)      |
 | `project_pack`†            | expand dir → packed file via official toecollapse (build-skew guard)                                   | **Shipped** (v2)      |
 | `project_lint`†            | Native sanity checks over an expand dir (+ optional td-cli delegation)                                 | **Shipped** (v2)      |
 | `project_install_bridge`†  | Install/override tdmcp bridge inside a packed project (backup + targeted verify)                       | **Shipped** (v2)      |
 | `spawn_td`†                | Spawn TD + deterministic pid handshake wait (startup popups surfaced, never auto-dismissed)            | **Shipped** (v2)      |
-| `kill_td`†                 | Graceful→force kill ladder for a known TD pid                                                          | **Shipped** (v2)      |
+| `kill_td`†                 | Graceful→force kill ladder for a known TD pid                                                          | **Shipped** (v2); Linux: SIGTERM/SIGKILL via `/proc` (no window-close) |
 | `palette_index`†           | Palette component roster: scan / list / get / describe / ignore / unignore / forget / stats            | **Shipped**           |
 | `palette_probe`            | Load palette components in a live TD, digest their interface, destroy                                  | **Shipped**           |
 
-† Offline/local tools: no bridge dispatch, session-gate exempt. `dialogs`/`spawn_td`/
-`kill_td` use platform backends on Windows and macOS; fleet rows for spawned pids carry
-`spawn` provenance and may show `bridge:"starting"` pre-handshake.
+† Offline/local tools: no bridge dispatch, session-gate exempt. `spawn_td`/`kill_td`
+use platform backends on Windows, macOS, and Linux (via Wine — see `docs/LINUX_SUPPORT.md`);
+`dialogs` uses a real backend on Windows/macOS only — Linux always returns
+`tdmcp.dialog.unsupported` (no window backend under Wine). Fleet rows for spawned pids
+carry `spawn` provenance and may show `bridge:"starting"` pre-handshake.
 
 **Palette awareness.** `palette_index` is offline (no pid, session-gate exempt); `palette_probe` is bridged and rides the script timeout class. Component **cards are authored by the agent**, not generated: the tools supply evidence (`palette_probe`) and storage (`palette_index describe`), and `tdmcp://docs/palette-scan` supplies the procedure. See § `palette_index` / `palette_probe`.
 

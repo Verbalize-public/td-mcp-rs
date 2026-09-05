@@ -848,19 +848,27 @@ async fn run_daemon(
 
     // Dialogs watcher (v2 D1): daemon-side popup sampling + window_status fill.
     if cfg.dialogs.enabled {
+        let source = tdmcp_daemon::dialogs::build_source();
+        let supports_dialogs = source.supports_dialogs();
         let shared = Arc::new(tdmcp_daemon::dialogs::Shared {
-            source: tdmcp_daemon::dialogs::build_source(),
+            source,
             snapshots: std::sync::Mutex::new(std::collections::HashMap::new()),
             intercept: cfg.dialogs.intercept,
         });
         if tdmcp_mcp::dialogs::install(shared.clone()) {
-            tokio::spawn(tdmcp_daemon::dialogs::run_dialogs_watcher(
-                registry.clone(),
-                shared,
-                cfg.dialogs.poll_ms,
-                shutdown.clone(),
-            ));
-            info!(poll_ms = cfg.dialogs.poll_ms, "dialogs watcher installed");
+            if supports_dialogs {
+                tokio::spawn(tdmcp_daemon::dialogs::run_dialogs_watcher(
+                    registry.clone(),
+                    shared,
+                    cfg.dialogs.poll_ms,
+                    shutdown.clone(),
+                ));
+                info!(poll_ms = cfg.dialogs.poll_ms, "dialogs watcher installed");
+            } else {
+                info!(
+                    "dialogs backend installed (pid ops only) - watcher skipped: unsupported_platform"
+                );
+            }
         }
     } else {
         info!("dialogs watcher disabled");

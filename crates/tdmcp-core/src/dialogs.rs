@@ -193,6 +193,16 @@ pub trait DialogSource: Send + Sync {
     fn process_alive(&self, _pid: u32) -> bool {
         false
     }
+
+    /// Whether this backend can answer `snapshot`/`describe`/`dismiss` with
+    /// real platform data. Default `true` (every current Windows/macOS
+    /// backend is real); overridden `false` by [`NullDialogSource`] and the
+    /// Linux backend so callers can short-circuit to
+    /// `tdmcp.dialog.unsupported` before a call that always fails or always
+    /// returns empty.
+    fn supports_dialogs(&self) -> bool {
+        true
+    }
 }
 
 /// No-op backend: non-Windows targets and tests. Empty snapshots, unsupported
@@ -216,6 +226,10 @@ impl DialogSource for NullDialogSource {
         _button: Option<&str>,
     ) -> Result<DismissOutcome, DialogError> {
         Err(DialogError::Unsupported)
+    }
+
+    fn supports_dialogs(&self) -> bool {
+        false
     }
 }
 
@@ -273,5 +287,6 @@ mod tests {
             src.dismiss(42, "1", None),
             Err(DialogError::Unsupported)
         ));
+        assert!(!src.supports_dialogs());
     }
 }

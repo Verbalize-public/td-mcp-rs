@@ -111,6 +111,16 @@ idle_dead_secs = 20
 # td_exe = "C:/Program Files/Derivative/TouchDesigner.2025.32460/bin/TouchDesigner.exe"
 # expand_path = "C:/Program Files/Derivative/TouchDesigner.2025.32460/bin/toeexpand.exe"
 # collapse_path = "C:/Program Files/Derivative/TouchDesigner.2025.32460/bin/toecollapse.exe"
+#
+# Linux only — TouchDesigner has no native Linux build, so `spawn_td` and
+# project I/O (unpack/pack/install_bridge) run TouchDesigner/toeexpand/
+# toecollapse through Wine. Auto-detection covers most setups with zero
+# config: the install is found by scanning $WINEPREFIX / ~/.wine /
+# ~/.local/share/wineprefixes/* (or wherever `td_exe` above points), and its
+# Wine prefix is derived from that path. Set these only to mitigate a setup
+# auto-detection misses:
+# wine_exe = "wine"          # or "wine64", or a Lutris/Bottles/CrossOver wrapper script
+# wine_prefix = "/home/me/.wine"   # e.g. a Steam Proton compatdata or CrossOver bottle path
 
 [dialogs]
 # Daemon-side popup detection: fail bridged calls fast while a modal blocks

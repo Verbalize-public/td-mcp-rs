@@ -235,6 +235,15 @@ pub struct OfficialToolsSection {
     pub expand_path: Option<PathBuf>,
     /// Explicit toecollapse binary.
     pub collapse_path: Option<PathBuf>,
+    /// Linux only: Wine binary used to run `.exe` tools and TouchDesigner
+    /// itself (a bare name resolved on `PATH`, or an absolute path — a
+    /// Lutris/Bottles/CrossOver wrapper script works too). Unset = `"wine"`.
+    pub wine_exe: Option<String>,
+    /// Linux only: explicit Wine prefix to scan for a TouchDesigner install,
+    /// for a layout `td_installs` doesn't autodetect (Steam Proton
+    /// `compatdata`, a CrossOver bottle, …). Unset = autodetect
+    /// (`$WINEPREFIX`, `~/.wine`, `~/.local/share/wineprefixes/*`).
+    pub wine_prefix: Option<PathBuf>,
 }
 
 /// `[dialogs]` table — daemon-side popup watcher + interception gate.
@@ -351,6 +360,16 @@ pub const FIELD_DESCS: &[FieldDesc] = &[
         key: "official_tools.collapse_path",
         label: "toecollapse path",
         help: "Explicit toecollapse binary (must be set together with expand path).",
+    },
+    FieldDesc {
+        key: "official_tools.wine_exe",
+        label: "Wine binary (Linux)",
+        help: "Wine binary/wrapper used to run TouchDesigner and its tools. Empty = \"wine\".",
+    },
+    FieldDesc {
+        key: "official_tools.wine_prefix",
+        label: "Wine prefix (Linux)",
+        help: "Explicit prefix to scan when auto-detection ($WINEPREFIX, ~/.wine, ~/.local/share/wineprefixes/*) misses your install (e.g. Steam Proton, CrossOver).",
     },
     FieldDesc {
         key: "server.port",
@@ -516,15 +535,37 @@ pub fn ensure_default(path: &Path, force: bool) -> Result<bool> {
 pub fn load(path: &Path) -> Result<ConfigFile> {
     if !path.is_file() {
         tracing::debug!(path = %path.display(), "config file missing — using defaults");
-        return Ok(ConfigFile::default());
+        let file = ConfigFile::default();
+        apply_wine_env(&file);
+        return Ok(file);
     }
     let text =
         fs::read_to_string(path).with_context(|| format!("read config {}", path.display()))?;
     let file: ConfigFile = toml_edit::de::from_str(&text)
         .with_context(|| format!("parse config {}", path.display()))?;
     tracing::debug!(path = %path.display(), "config loaded");
+    apply_wine_env(&file);
     Ok(file)
 }
+
+/// Linux only: promote `[official_tools] wine_exe`/`wine_prefix` into
+/// `TDMCP_WINE_EXE`/`TDMCP_WINE_PREFIX` process env so `tdmcp-projectio`'s
+/// Wine invocation and Wine-prefix scan — both plain env readers, matching
+/// every other `TDMCP_*` official-tool override — pick them up without
+/// threading config through every call site. No-op when unset; a no-op on
+/// Windows/macOS regardless.
+#[cfg(all(not(windows), not(target_os = "macos")))]
+fn apply_wine_env(cfg: &ConfigFile) {
+    if let Some(exe) = &cfg.official_tools.wine_exe {
+        std::env::set_var("TDMCP_WINE_EXE", exe);
+    }
+    if let Some(prefix) = &cfg.official_tools.wine_prefix {
+        std::env::set_var("TDMCP_WINE_PREFIX", prefix);
+    }
+}
+
+#[cfg(any(windows, target_os = "macos"))]
+fn apply_wine_env(_cfg: &ConfigFile) {}
 
 /// True when `bind_address` is IPv4/IPv6 loopback (`127.0.0.1` or `::1`).
 #[must_use]
@@ -658,6 +699,16 @@ pub fn save(path: &Path, cfg: &ConfigFile) -> Result<()> {
         &mut doc["official_tools"],
         "collapse_path",
         cfg.official_tools.collapse_path.as_ref(),
+    );
+    set_optional_str(
+        &mut doc["official_tools"],
+        "wine_exe",
+        cfg.official_tools.wine_exe.as_deref(),
+    );
+    set_optional_path(
+        &mut doc["official_tools"],
+        "wine_prefix",
+        cfg.official_tools.wine_prefix.as_ref(),
     );
 
     set_optional_path(
@@ -1047,12 +1098,19 @@ show_tray = true
         let exe = std::path::PathBuf::from("C:/Program Files/Derivative/TD/bin/TouchDesigner.exe");
         cfg.official_tools.td_exe = Some(exe.clone());
         cfg.official_tools.expand_path = Some(std::path::PathBuf::from("C:/TD/toeexpand.exe"));
+        cfg.official_tools.wine_exe = Some("wine64".into());
+        cfg.official_tools.wine_prefix = Some(std::path::PathBuf::from("/home/me/.wine"));
         save(&path, &cfg).expect("save");
         let again = load(&path).expect("reload");
         assert_eq!(again.official_tools.td_exe.as_deref(), Some(exe.as_path()));
         assert_eq!(
             again.official_tools.expand_path.as_deref(),
             Some(std::path::Path::new("C:/TD/toeexpand.exe"))
+        );
+        assert_eq!(again.official_tools.wine_exe.as_deref(), Some("wine64"));
+        assert_eq!(
+            again.official_tools.wine_prefix.as_deref(),
+            Some(std::path::Path::new("/home/me/.wine"))
         );
         // Unset field is dropped on save (comment-preserving optional pattern).
         assert!(again.official_tools.collapse_path.is_none());

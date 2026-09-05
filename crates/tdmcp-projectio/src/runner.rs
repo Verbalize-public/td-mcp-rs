@@ -8,7 +8,6 @@ use std::path::{Path, PathBuf};
 
 /// Scripted side-effect: materialize artifacts a real tool would have written.
 pub type RunnerEffect = Box<dyn FnOnce(&Path, &[String]) + Send>;
-use std::process::Command;
 
 /// What a tool invocation produced.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -36,7 +35,7 @@ pub struct ProcessRunner;
 
 impl CommandRunner for ProcessRunner {
     fn run(&self, program: &Path, args: &[&std::ffi::OsStr]) -> std::io::Result<CommandOutput> {
-        let out = Command::new(program).args(args).output()?;
+        let out = crate::wine::command_for(program, false).args(args).output()?;
         Ok(CommandOutput {
             code: out.status.code().unwrap_or(-1),
             stdout: String::from_utf8_lossy(&out.stdout).into_owned(),

@@ -22,9 +22,11 @@ use std::time::{Duration, Instant};
 
 use tdmcp_core::{DialogError, DialogSnapshot, DialogSource, DismissOutcome, PopupInfo};
 
+#[cfg(target_os = "linux")]
+use crate::sys::linux as platform;
 #[cfg(target_os = "macos")]
 use crate::sys::macos as platform;
-#[cfg(all(not(windows), not(target_os = "macos")))]
+#[cfg(all(not(windows), not(target_os = "macos"), not(target_os = "linux")))]
 use crate::sys::stub as platform;
 #[cfg(windows)]
 use crate::sys::windows as platform;
@@ -365,5 +367,72 @@ impl DialogSource for PlatformDialogSource {
                 })
             }
         }
+    }
+}
+
+/// Linux backend: no window introspection (L-8) but real `/proc`-based pid
+/// ops so `kill_td` works (L-4/L-5). Deliberately not a `PlatformDialogSource`
+/// alias — there is no windowing surface to abstract on this platform, so the
+/// worker-thread/cache machinery built for Windows/macOS would be dead
+/// weight, and `describe`/`dismiss` need to answer `Unsupported` directly
+/// rather than "not found" (which is what an always-empty window list would
+/// otherwise imply through `PlatformDialogSource`'s generic ladder).
+#[cfg(target_os = "linux")]
+#[derive(Debug, Default, Clone, Copy)]
+pub struct LinuxDialogSource;
+
+#[cfg(target_os = "linux")]
+impl DialogSource for LinuxDialogSource {
+    fn snapshot(&self, _pid: u32) -> DialogSnapshot {
+        DialogSnapshot::default()
+    }
+
+    fn describe(&self, _pid: u32, _id: &str) -> Result<PopupInfo, DialogError> {
+        Err(DialogError::Unsupported)
+    }
+
+    fn dismiss(
+        &self,
+        _pid: u32,
+        _id: &str,
+        _button: Option<&str>,
+    ) -> Result<DismissOutcome, DialogError> {
+        Err(DialogError::Unsupported)
+    }
+
+    fn process_image_name(&self, pid: u32) -> Option<String> {
+        crate::sys::linux::process_image_name(pid)
+    }
+
+    fn process_alive(&self, pid: u32) -> bool {
+        crate::sys::linux::process_alive(pid)
+    }
+
+    fn supports_dialogs(&self) -> bool {
+        false
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+#[allow(clippy::unwrap_used, clippy::expect_used, reason = "unit tests")]
+mod linux_source_tests {
+    use super::*;
+
+    #[test]
+    fn linux_source_is_empty_unsupported_and_has_real_pid_ops() {
+        let src = LinuxDialogSource;
+        let snap = src.snapshot(42);
+        assert!(snap.popups.is_empty());
+        assert!(snap.window_status.is_none());
+        assert!(matches!(
+            src.describe(42, "1"),
+            Err(DialogError::Unsupported)
+        ));
+        assert!(matches!(
+            src.dismiss(42, "1", None),
+            Err(DialogError::Unsupported)
+        ));
+        assert!(!src.supports_dialogs());
+        assert!(src.process_alive(std::process::id()));
     }
 }

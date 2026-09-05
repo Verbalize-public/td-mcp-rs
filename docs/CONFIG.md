@@ -272,9 +272,12 @@ the roster, though the cards go with it.
 [official_tools]
 # Pin Derivative's official tools for offline project I/O.
 # td_exe / expand_path / collapse_path (expand+collapse must be set together)
+# wine_exe / wine_prefix (Linux only — see below)
 
 [dialogs]
 enabled   = true   # popup watcher + `dialogs` tool (Windows + macOS)
+                    # (no-op on Linux for windows: pid ops for kill_td still
+                    # work through this backend, but no window backend exists)
 intercept = true   # fail bridged calls fast while a modal blocks TD
 poll_ms   = 1000
 ```
@@ -291,5 +294,41 @@ Absence of `[official_tools]` triggers env (`TDMCP_TOEEXPAND`,
 | --- | --- | --- |
 | Windows | `%ProgramFiles%/Derivative/TouchDesigner.*` | `.../bin/TouchDesigner.exe` + tools |
 | macOS | `/Applications`, `~/Applications` | `TouchDesigner.*.app/Contents/MacOS/TouchDesigner` + tools |
+| Linux | `$WINEPREFIX`, `~/.wine`, `~/.local/share/wineprefixes/*` (or `wine_prefix` below) | `<prefix>/drive_c/Program Files/Derivative/TouchDesigner.*/bin/TouchDesigner.exe` + tools |
 
 Stub installs (missing toeexpand/toecollapse files) are skipped.
+
+### Linux — running through Wine
+
+TouchDesigner has no native Linux build, so `spawn_td` and offline project I/O
+(`project_unpack`/`project_pack`/`project_install_bridge`) run TouchDesigner,
+`toeexpand`, and `toecollapse` through Wine. Auto-detection covers most setups
+with no config:
+
+- The install is found via the scan roots above (or an explicit `td_exe`).
+- The Wine prefix to run it in is derived from that path (its `drive_c`
+  ancestor) — this works for plain Wine, Proton, Lutris, and Bottles/
+  CrossOver layouts alike, since all of them use that convention.
+
+Two escape hatches mitigate setups auto-detection misses:
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `wine_exe` | `"wine"` | Wine binary — a bare name resolved on `PATH`, an absolute path, or a wrapper script (e.g. a Lutris/Bottles/CrossOver launcher). |
+| `wine_prefix` | *(unset)* | Explicit prefix to scan when the install lives somewhere the auto-detected roots don't cover (a Steam Proton `compatdata` prefix, a CrossOver bottle, …). |
+
+Both apply only on Linux (no-op elsewhere). `spawn_td` also exports the
+launched process's real Linux pid as `TDMCP_LINUX_PID` so the bridge reports
+that pid at handshake instead of Wine's virtual one — without this the
+daemon's registry (keyed by the real pid) would never see the connection and
+`spawn_td` would report a timeout even after TD connects successfully.
+
+### Linux — `kill_td` / `dialogs`
+
+`kill_td` works fully on Linux (graceful = `SIGTERM` + grace window, force =
+`SIGKILL`, via `/proc`) for pids `spawn_td` launched or that are otherwise
+already registered — no config needed. The `dialogs` tool always returns
+`tdmcp.dialog.unsupported` there (no window backend exists under Wine); the
+daemon still installs a dialogs backend on Linux so `kill_td`'s pid checks
+work, it just never spawns the popup watcher, and `GET /admin/status` reports
+`"dialogsStatus": "unsupported_platform"`.

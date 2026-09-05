@@ -37,3 +37,6 @@ core-graphics = "0.24"
 libc = "0.2"
 objc2-application-services = { version = "0.3", features = ["AXError", "libc", "objc2"] }
 objc2-core-foundation = "0.3"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"

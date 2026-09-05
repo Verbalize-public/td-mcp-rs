@@ -117,6 +117,10 @@ struct StatusBody {
     slave_count: Option<usize>,
     /// Seconds since this daemon process started.
     uptime_secs: u64,
+    /// Dialogs backend state: `"ok"` (real backend + watcher running),
+    /// `"unsupported_platform"` (backend installed, no window introspection —
+    /// Linux), or `"disabled"` (`[dialogs].enabled = false`).
+    dialogs_status: &'static str,
 }
 
 async fn status(State(state): State<AdminState>) -> Json<StatusBody> {
@@ -138,6 +142,11 @@ async fn status(State(state): State<AdminState>) -> Json<StatusBody> {
     } else {
         None
     };
+    let dialogs_status = match tdmcp_mcp::dialogs::get() {
+        Some(shared) if shared.source.supports_dialogs() => "ok",
+        Some(_) => "unsupported_platform",
+        None => "disabled",
+    };
     Json(StatusBody {
         ok: true,
         version: env!("CARGO_PKG_VERSION"),
@@ -154,6 +163,7 @@ async fn status(State(state): State<AdminState>) -> Json<StatusBody> {
             .get()
             .map(|t| t.elapsed().as_secs())
             .unwrap_or_default(),
+        dialogs_status,
     })
 }
 

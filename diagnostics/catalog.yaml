@@ -886,7 +886,7 @@ entries:
     layer: args
     message: "Dialogs backend unavailable on this platform/feature-off"
     mitigation:
-      - "Check [dialogs].enabled and daemon build; Windows and macOS ship backends"
+      - "Check [dialogs].enabled; Windows and macOS ship a real backend, Linux has no window backend to detect dialogs with (kill_td still works there)"
 
   - code: tdmcp.dialog.permission_denied
     layer: args

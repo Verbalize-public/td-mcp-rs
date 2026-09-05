@@ -43,6 +43,9 @@ pub fn run_with(
 ) -> Result<Value, (&'static str, String)> {
     match params.action {
         DialogsAction::List => {
+            if !shared.source.supports_dialogs() {
+                return Err(dialog_err(tdmcp_core::DialogError::Unsupported));
+            }
             let snap = shared.source.snapshot(params.pid.get());
             // Only the macOS block below mutates this.
             #[cfg_attr(not(target_os = "macos"), allow(unused_mut))]
@@ -123,5 +126,57 @@ fn dialog_err(e: tdmcp_core::DialogError) -> (&'static str, String) {
             "tdmcp.dialog.permission_denied",
             "macOS Accessibility permission required for describe/dismiss (System Settings → Privacy & Security → Accessibility)".into(),
         ),
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, reason = "unit tests")]
+mod tests {
+    use super::*;
+    use tdmcp_core::{DialogError, DialogSnapshot, DialogSource, DismissOutcome, PopupInfo};
+
+    /// A backend that can't answer dialogs at all (mirrors `NullDialogSource`
+    /// / the Linux backend) — `list` must report `unsupported`, never a
+    /// silently-empty snapshot.
+    struct UnsupportedSource;
+
+    impl DialogSource for UnsupportedSource {
+        fn snapshot(&self, _pid: u32) -> DialogSnapshot {
+            DialogSnapshot::default()
+        }
+
+        fn describe(&self, _pid: u32, _id: &str) -> Result<PopupInfo, DialogError> {
+            Err(DialogError::Unsupported)
+        }
+
+        fn dismiss(
+            &self,
+            _pid: u32,
+            _id: &str,
+            _button: Option<&str>,
+        ) -> Result<DismissOutcome, DialogError> {
+            Err(DialogError::Unsupported)
+        }
+
+        fn supports_dialogs(&self) -> bool {
+            false
+        }
+    }
+
+    #[test]
+    fn list_action_reports_unsupported_when_backend_lacks_dialogs() {
+        let shared = crate::dialogs::DialogsShared {
+            source: std::sync::Arc::new(UnsupportedSource),
+            snapshots: std::sync::Mutex::new(std::collections::HashMap::new()),
+            intercept: false,
+        };
+        let params = DialogsParams {
+            pid: tdmcp_core::Pid(42),
+            action: DialogsAction::List,
+            id: None,
+            button: None,
+        };
+        let err = run_with(&shared, &params).unwrap_err();
+        assert_eq!(err.0, "tdmcp.dialog.unsupported");
     }
 }
