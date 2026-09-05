@@ -246,7 +246,16 @@ Then open Copilot Chat in **Agent** mode.
 <details>
 <summary><b>Codex CLI</b></summary>
 
-Add to `~/.codex/config.toml`:
+Register the local stdio server:
+
+```bash
+codex mcp add tdmcp-rs -- tdmcp-daemon mcp
+```
+
+If `tdmcp-daemon` is not on Codex's `PATH`, replace it with the full installed
+binary path. Verify with `codex mcp list` or `/mcp` in the Codex TUI.
+
+Manual configuration in `~/.codex/config.toml` is also supported:
 
 ```toml
 [mcp_servers.tdmcp-rs]

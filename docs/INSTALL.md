@@ -256,13 +256,22 @@ icon should list the td-mcp-rs tools.
 
 ### Codex CLI
 
-Either run:
+Register the local stdio server with Codex:
 
 ```bash
 codex mcp add tdmcp-rs -- tdmcp-daemon mcp
 ```
 
-or edit `~/.codex/config.toml` directly:
+If Codex cannot find `tdmcp-daemon` on its `PATH`, use the full path from
+[Where the binary lands](#where-the-binary-lands), for example:
+
+```bash
+codex mcp add tdmcp-rs -- \
+  /home/you/.local/share/tdmcp-rs/bin/tdmcp-daemon mcp
+```
+
+The command writes the global entry to `~/.codex/config.toml`. To configure it
+manually instead, add:
 
 ```toml
 [mcp_servers.tdmcp-rs]
@@ -271,6 +280,16 @@ args = ["mcp"]
 ```
 
 Note the underscore in `mcp_servers` — it's TOML, not JSON.
+
+Verify the registration with:
+
+```bash
+codex mcp list
+codex mcp get tdmcp-rs
+```
+
+In the Codex TUI, `/mcp` shows the active server after restarting the session.
+The server is local and does not require OAuth.
 
 ### Windsurf
 
