@@ -45,7 +45,7 @@ jobs:
           toolchain: '1.92'
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
       - uses: taiki-e/install-action@v2
