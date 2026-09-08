@@ -18,6 +18,17 @@ import queue as queue  # re-exported for tests (tdmcp_bridge.queue.Queue)
 # Package-level mutable state (tests monkeypatch these on ``tdmcp_bridge``).
 _bridge_host_path: str | None = None
 _capture_depth = 0
+# threading id of TD's main thread, set by ``bootstrap_threaded`` (main
+# thread only) via ``state.mark_main_thread`` — see ``state.is_main_thread``.
+_main_thread_ident: int | None = None
+
+# Records the face DAT mirror deferred because they arrived off the main
+# thread (IPC worker teardown notes, agent scripts' own threads). Drained by
+# the td.run pump ([task_queue._pump]) — MAIN THREAD ONLY, because writing
+# the debug DAT is a td.* call and TD's Python API is main-thread-only.
+_DEFERRED_LOCAL_MAX = 500
+_deferred_local_lock = threading.Lock()
+_deferred_local: list[dict[str, Any]] = []
 
 from . import (
     api_help as _api_help,
@@ -31,6 +42,7 @@ from . import (
     mutate as _mutate,
     palette as _palette,
     paths as _paths,
+    state as _state,
     suggest as _suggest,
     task_queue as _task_queue,
     transport as _transport,
@@ -75,6 +87,7 @@ for _mod in (
     _api_help,
     _editor_context,
     _identity,
+    _state,
     _task_queue,
     _logtap,
 ):
@@ -288,13 +301,55 @@ def _bridge_log_sender(records: list[dict[str, Any]]) -> None:
 _LEVEL_LETTERS = {"trace": "T", "debug": "D", "info": "I", "warn": "W", "error": "E"}
 
 
+def _defer_local_record(record: dict[str, Any]) -> None:
+    """Park a log record until the main thread can write the debug DAT."""
+    with _deferred_local_lock:
+        if len(_deferred_local) >= _DEFERRED_LOCAL_MAX:
+            _deferred_local.pop(0)
+        _deferred_local.append(record)
+
+
+def drain_local() -> int:
+    """Flush off-thread-deferred log records into the face ``./debug`` DAT.
+
+    MAIN THREAD ONLY (the ``td.run`` pump calls this every ~50 ms while
+    connected). Returns the number of records written; a no-op that leaves
+    the records parked when called off the main thread.
+    """
+    if not _state.is_main_thread():
+        return 0
+    with _deferred_local_lock:
+        if not _deferred_local:
+            return 0
+        pending = _deferred_local[:]
+        _deferred_local.clear()
+    pkg = sys.modules[__name__]
+    mirror = pkg._debug_dat_mirror
+    for record in pending:
+        try:
+            mirror(record)
+        except Exception:  # noqa: BLE001 — one bad record must not drop the rest
+            pass
+    return len(pending)
+
+
 def _debug_dat_mirror(record: dict[str, Any]) -> None:
     """``logtap`` on_local hook (M3): live-mirror every captured line into
     the face's ``./debug`` ring buffer — not just execute_python's own
     output. T3.1 probe V1 confirmed prints from unrelated DATs/nodes are
     captured by the global tee too, so they belong in the glanceable panel
-    the same as anything else. Fires synchronously, once per record, from
-    whatever thread captured it (main thread for TD script execution)."""
+    the same as anything else.
+
+    The tee fires this from *whatever* thread printed — the IPC worker
+    writing its stream-teardown notes, or an agent script's own thread.
+    Writing a DAT is a td.* call and TD's Python API is main-thread-only
+    (off-thread use raises TD's "use from another Python thread is unhandled
+    behavior" error — most visible when the worker's teardown note lands
+    while TD is closing the project), so off-main callers defer the record
+    to [`drain_local`] instead of touching the graph."""
+    if not _state.is_main_thread():
+        _defer_local_record(record)
+        return
     pkg = sys.modules[__name__]
     ts = time.strftime("%H:%M:%S")
     letter = _LEVEL_LETTERS.get(str(record.get("level", "info")), "I")
@@ -347,6 +402,10 @@ def bootstrap_threaded(bridge_dir: str | None = None) -> dict[str, Any]:
     # If reload replaced this function, re-enter the fresh implementation.
     if pkg.bootstrap_threaded is not bootstrap_threaded:
         return pkg.bootstrap_threaded(bridge_dir=bridge_dir)
+    # Reload wiped the package globals — re-anchor the main-thread mark so
+    # the off-thread TD-API guards (state.is_main_thread) are active before
+    # the worker exists.
+    pkg.mark_main_thread()
     snap = pkg._identity_snapshot()
     stream = pkg.dial()
     resp = pkg.handshake(
@@ -358,6 +417,7 @@ def bootstrap_threaded(bridge_dir: str | None = None) -> dict[str, Any]:
     )
     pkg_dir = pkg._resolve_bridge_package_dir(bridge_dir, resp)
     pkg._load_bridge_package(pkg_dir)
+    pkg.mark_main_thread()  # second reload above wiped the ident again
     # Bind serve_queued from the (possibly reloaded) module object.
     serve_fn = sys.modules[__name__].serve_queued
     idle_dead_s = pkg.idle_dead_from_handshake(resp)

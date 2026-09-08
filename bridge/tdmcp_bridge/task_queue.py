@@ -448,6 +448,16 @@ def _pump() -> None:
     except Exception:  # noqa: BLE001 — uplink must never kill the pump
         pass
 
+    # Face DAT mirror: records deferred by off-main threads (IPC worker
+    # teardown notes, agent script threads) — writing the DAT is a td.*
+    # call, so this drain must run here, on the main thread.
+    try:
+        import tdmcp_bridge as _pkg
+
+        _pkg.drain_local()
+    except Exception:  # noqa: BLE001 — mirror flush must never kill the pump
+        pass
+
     with _pump_lock:
         import tdmcp_bridge as _pkg
 
