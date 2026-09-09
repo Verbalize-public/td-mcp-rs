@@ -194,7 +194,7 @@ pub fn render(app: &mut DashboardApp, ui: &mut egui::Ui) {
             }
         });
 
-    palette::analyse_modal(app, ui.ctx());
+    palette::scan_modal(app, ui.ctx());
 
     draw_snacks(app, ui);
 }

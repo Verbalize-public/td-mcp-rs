@@ -11,6 +11,8 @@ OpSketch via ``palette_index action=describe``.
 
 from __future__ import annotations
 
+import os
+import sys
 import time
 from typing import Any
 
@@ -292,6 +294,29 @@ def _call_or_none(fn: Any) -> Any:
         return None
 
 
+def to_td_path(path: str) -> str:
+    """Translate a host path into one TD's file layer can open.
+
+    TD's C++ loader resolves drive-letter paths only: under Wine a POSIX
+    absolute path such as ``/home/...`` is silently refused by ``loadTox``
+    (returns ``None``, no exception) even though Python's own ``os`` layer
+    opens the same file fine — which is exactly how every probe failed while
+    plain reads worked. Map the POSIX root onto the drive that actually
+    resolves it (Wine's ``Z:`` by convention, confirmed against ``getcwd``),
+    and pass drive-lettered or non-Windows paths through unchanged.
+    """
+    if not path or not sys.platform.startswith("win"):
+        return path
+    if os.path.splitdrive(path)[0]:
+        return path
+    if not path.startswith("/"):
+        return path
+    drive = os.path.splitdrive(os.getcwd())[0] or "z:"
+    if not os.path.exists(drive + path):
+        drive = "z:"
+    return drive + path
+
+
 class ProbeContext:
     """Load/destroy hooks for :func:`run_probe` — no ``td`` import in the seam."""
 
@@ -452,8 +477,9 @@ class _TdProbeContext(ProbeContext):
         load_fn = _attr(parent, "loadTox", None)
         if not callable(load_fn):
             raise AttributeError("scratch COMP has no loadTox")
+        # The index stores host paths; TD's loader needs the drive-letter form.
         before = {id(c) for c in list(_attr(parent, "children", []) or [])}
-        loaded = load_fn(tox_path)
+        loaded = load_fn(to_td_path(tox_path))
         if loaded is not None:
             return loaded
         for child in list(_attr(parent, "children", []) or []):

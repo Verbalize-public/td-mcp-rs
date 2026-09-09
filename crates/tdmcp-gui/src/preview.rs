@@ -205,33 +205,16 @@ fn build(scene: &str) -> anyhow::Result<DashboardApp> {
             app.sessions_json = r#"{"sessions":[]}"#.to_owned();
             palette_fixture(&mut app);
             if scene == "palette-analyse" {
-                app.palette.analyse = crate::palette::AnalyseState::fresh(
-                    "ImageFilters · undescribed".to_owned(),
-                    "undescribed",
-                    Some("ImageFilters".to_owned()),
-                );
-                app.palette.analyse.pid = Some(12045);
-                app.palette.analyse.undescribed_left = 38;
-                app.palette.analyse.finished = true;
-                app.palette.analyse.running = false;
-                use crate::palette::{Step, StepState};
-                app.palette
-                    .analyse
-                    .set(Step::Rescan, StepState::Done, "281 indexed · +0 · 78 ignored");
-                app.palette
-                    .analyse
-                    .set(Step::Probe, StepState::Done, "38 digested · 2 failed");
-                app.palette.analyse.set(
-                    Step::Thumbnails,
-                    StepState::Done,
-                    "36 rendered · 2 without a picture",
-                );
-                app.palette.analyse.set(
-                    Step::Cards,
-                    StepState::HandedOff,
-                    "38 still undescribed — needs an agent",
-                );
-                app.palette.analyse_open = true;
+                app.palette.scan = crate::palette::ScanState {
+                    slice: "ImageFilters · undescribed".to_owned(),
+                    category: Some("ImageFilters".to_owned()),
+                    single: None,
+                    base_status: "undescribed",
+                    pid: Some(12045),
+                    force: false,
+                    throwaway: "palette-probe.toe".to_owned(),
+                };
+                app.palette.scan_open = true;
             }
         }
         "palette-empty" => {
@@ -422,6 +405,8 @@ fn palette_fixture(app: &mut DashboardApp) {
             },
             card_status: card_status.to_owned(),
             probe_status: probe_status.to_owned(),
+            probe_message: (probe_status == "failed")
+                .then(|| "loadTox produced no component".to_owned()),
             ignored,
             thumb,
         });
@@ -530,7 +515,6 @@ fn palette_fixture(app: &mut DashboardApp) {
         total: 281,
         described: 4,
         stale: 1,
-        undescribed: 197,
         failed: 1,
         ignored: 78,
         scanned_at: Some("2026-08-31T17:47:02Z".to_owned()),

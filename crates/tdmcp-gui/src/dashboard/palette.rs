@@ -9,13 +9,11 @@ use eframe::egui::{self, Color32};
 
 use super::widgets::card_with_header;
 use crate::app::{DashboardApp, SnackTone};
-use crate::palette::{
-    self as pal, AnalyseState, PaletteRow, RowState, StatusFilter, Step, StepState,
-};
+use crate::palette::{self as pal, PaletteRow, RowState, ScanState, StatusFilter};
 use crate::theme::{
     action_button, badge, chip, empty_state, font_label, font_meta, font_mono, font_title,
-    ghost_button, sp, status_led, ActionTone, BadgeKind, ACCENT, BG_ACTIVE, BG_HOVER, BG_ROW,
-    BORDER, ERR, OK, RADIUS_SM, TEXT, TEXT_DIM, TEXT_FAINT, WARN,
+    ghost_button, sp, ActionTone, BadgeKind, ACCENT, BG_ACTIVE, BG_HOVER, BG_ROW, BORDER, ERR, OK,
+    RADIUS_SM, TEXT, TEXT_DIM, TEXT_FAINT, WARN,
 };
 
 /// Tree column width (px). Wide enough for `cartesianToPolar` plus its dot.
@@ -52,7 +50,8 @@ struct Actions {
     reveal: Option<String>,
     set_ignored: Option<(String, bool)>,
     rescan: bool,
-    open_analyse: bool,
+    open_scan: bool,
+    open_scan_single: Option<String>,
 }
 
 pub(crate) fn palette(app: &mut DashboardApp, ui: &mut egui::Ui) {
@@ -147,12 +146,12 @@ fn toolbar(app: &mut DashboardApp, ui: &mut egui::Ui, act: &mut Actions) {
             ui.add_enabled_ui(!busy, |ui| {
                 if action_button(ui, "Analyse…", ActionTone::Accent)
                     .on_hover_text(
-                        "Rescan, probe the current slice for interface evidence, and render \
-                         thumbnails — then hand the card writing to an agent",
+                        "Compose the agent prompt that describes this slice — the GUI runs \
+                         nothing itself, the agent probes and writes the cards",
                     )
                     .clicked()
                 {
-                    act.open_analyse = true;
+                    act.open_scan = true;
                 }
                 ui.add_space(sp::SM);
                 if action_button(ui, "Rescan", ActionTone::Neutral)
@@ -666,6 +665,19 @@ fn header_card(ui: &mut egui::Ui, row: &PaletteRow, tex: Option<&egui::TextureHa
                             }
                         });
                     }
+                    // The card is usable, but say why the last probe still
+                    // failed — the dot no longer carries that verdict.
+                    if row.state() == RowState::Carded && row.probe_status == "failed" {
+                        ui.add_space(sp::XS);
+                        ui.label(
+                            egui::RichText::new(format!(
+                                "last probe failed: {}",
+                                row.probe_message.as_deref().unwrap_or("unknown error")
+                            ))
+                            .font(font_meta())
+                            .color(WARN),
+                        );
+                    }
                     if tex.is_none() {
                         ui.add_space(sp::XS);
                         ui.label(
@@ -710,6 +722,16 @@ fn actions_card(
                     .clicked()
                 {
                     act.copy = Some((pal::place_step(row), "Place step copied"));
+                }
+                ui.add_space(sp::SM);
+                if action_button(ui, "Describe with agent…", ActionTone::Neutral)
+                    .on_hover_text(
+                        "Compose the agent prompt that probes this component and writes its \
+                         card",
+                    )
+                    .clicked()
+                {
+                    act.open_scan_single = Some(row.palette_id.clone());
                 }
                 ui.add_space(sp::SM);
                 if ghost_button(ui, "id", TEXT_DIM, ACCENT)
@@ -910,7 +932,8 @@ fn inline_spans(line: &str) -> Vec<(String, Span)> {
 }
 
 // ---------------------------------------------------------------------------
-// Analyse modal
+// ---------------------------------------------------------------------------
+// Scan prompt modal
 // ---------------------------------------------------------------------------
 
 /// Connected TouchDesigner pids, newest listing order preserved.
@@ -924,269 +947,172 @@ fn connected_pids(app: &DashboardApp) -> Vec<(u32, String)> {
         .collect()
 }
 
-/// Throwaway project a thumbnail/probe pass can safely load components into.
-fn probe_project(app: &DashboardApp) -> std::path::PathBuf {
-    app.data_dir.join("palette_probe.toe")
-}
-
-pub(crate) fn analyse_modal(app: &mut DashboardApp, ctx: &egui::Context) {
-    if !app.palette.analyse_open {
+pub(crate) fn scan_modal(app: &mut DashboardApp, ctx: &egui::Context) {
+    if !app.palette.scan_open {
         return;
     }
     let mut close = false;
-    let mut start_pid: Option<u32> = None;
-    let mut spawn = false;
-    let mut cancel = false;
     let mut copy: Option<String> = None;
+    let mut pick_pid: Option<Option<u32>> = None;
 
     let pids = connected_pids(app);
-    let running = app.palette.analyse.running;
-    let finished = app.palette.analyse.finished;
+    let prompt = pal::scan_brief(&app.palette.scan);
 
-    super::widgets::modal_shell(ctx, "palette_analyse", |ui| {
+    super::widgets::modal_shell(ctx, "palette_scan", |ui| {
         crate::theme::row_between(
             ui,
             20.0,
             |ui| {
                 ui.label(
-                    egui::RichText::new("ANALYSE PALETTE")
+                    egui::RichText::new("AGENT SCAN PROMPT")
                         .font(font_meta())
                         .color(TEXT_FAINT),
                 );
             },
             |ui| {
-                let mut line = format!("slice: {}", app.palette.analyse.slice);
-                if let Some(pid) = app.palette.analyse.pid {
-                    line.push_str(&format!(" · pid {pid}"));
+                let mut line = format!("slice: {}", app.palette.scan.slice);
+                match app.palette.scan.pid {
+                    Some(pid) => line.push_str(&format!(" · pid {pid}")),
+                    None => line.push_str(" · throwaway TD"),
                 }
                 ui.label(egui::RichText::new(line).font(font_meta()).color(TEXT_DIM));
             },
         );
         ui.add_space(sp::MD);
 
-        // The GUI only does the mechanical half — it has no LLM, so cards are
-        // never written here. Say so up front: this is a best-effort, partial
-        // pass, and the describe loop belongs to the agent.
-        crate::theme::banner(
-            ui,
-            crate::theme::BannerTone::Warn,
-            "Beta · best-effort. This runs only the mechanical half — rescan, probe \
-             evidence, thumbnails. It writes no cards: your agent should do that, from \
-             the brief this run produces (tdmcp://docs/palette-scan).",
+        ui.label(
+            egui::RichText::new(
+                "The GUI runs nothing itself. Copy this prompt to an agent — it probes the \
+                 slice and writes the cards through palette_index.",
+            )
+            .font(font_meta())
+            .color(TEXT_DIM),
         );
         ui.add_space(sp::MD);
 
-        if !running && !finished {
-            ui.label(
-                egui::RichText::new(
-                    "Rescans the roster, probes this slice for interface evidence, and renders \
-                     a thumbnail per component. Components are loaded into a scratch COMP and \
-                     destroyed again — never into your own project.",
-                )
-                .font(font_meta())
-                .color(TEXT_DIM),
-            );
-            ui.add_space(sp::MD);
-
-            if pids.is_empty() {
-                crate::theme::banner(
-                    ui,
-                    crate::theme::BannerTone::Warn,
-                    "No TouchDesigner connected. Probing needs a live instance — spawn a \
-                     throwaway project rather than pointing this at work you care about.",
-                );
-                ui.add_space(sp::SM);
-                ui.horizontal(|ui| {
-                    if action_button(ui, "Spawn throwaway probe", ActionTone::Accent)
-                        .on_hover_text(probe_project(app).display().to_string())
-                        .clicked()
-                    {
-                        spawn = true;
-                    }
-                    ui.add_space(sp::SM);
-                    if action_button(ui, "Cancel", ActionTone::Neutral).clicked() {
-                        close = true;
-                    }
-                });
-                if app.spawn_busy {
-                    ui.add_space(sp::SM);
-                    ui.horizontal(|ui| {
-                        ui.add(egui::Spinner::new().size(12.0));
-                        ui.label(
-                            egui::RichText::new("starting TouchDesigner…")
-                                .font(font_meta())
-                                .color(TEXT_DIM),
-                        );
-                    });
-                }
-            } else {
-                super::widgets::section_caption(ui, "PROBE IN");
-                for (pid, title) in &pids {
-                    ui.horizontal(|ui| {
-                        ui.add_space(sp::MD);
-                        status_led(ui, OK);
-                        ui.add_space(sp::XS);
-                        ui.label(
-                            egui::RichText::new(pid.to_string())
-                                .font(font_mono())
-                                .color(TEXT_DIM),
-                        );
-                        ui.label(
-                            egui::RichText::new(title.as_str())
-                                .font(font_label())
-                                .color(TEXT),
-                        );
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if action_button(ui, "Run here", ActionTone::Accent).clicked() {
-                                start_pid = Some(*pid);
-                            }
-                        });
-                    });
-                }
-                ui.add_space(sp::SM);
-                ui.horizontal(|ui| {
-                    if action_button(ui, "Cancel", ActionTone::Neutral).clicked() {
-                        close = true;
-                    }
-                });
-            }
-        } else {
-            steps_view(ui, &app.palette.analyse);
-            ui.add_space(sp::MD);
-            ui.horizontal(|ui| {
-                if finished {
-                    if action_button(ui, "Copy brief for agent", ActionTone::Accent)
-                        .on_hover_text(
-                            "The describe loop for what is still undescribed, ready to paste",
-                        )
-                        .clicked()
-                    {
-                        copy = Some(pal::analyse_brief(&app.palette.analyse));
-                    }
-                    ui.add_space(sp::SM);
-                    if action_button(ui, "Close", ActionTone::Neutral).clicked() {
-                        close = true;
-                    }
-                } else if action_button(ui, "Stop", ActionTone::Danger)
-                    .on_hover_text("Finish the batch in flight, then stop")
-                    .clicked()
-                {
-                    cancel = true;
-                }
-            });
+        super::widgets::section_caption(ui, "TOUCHDESIGNER INSTANCE");
+        let current = app.palette.scan.pid;
+        if radio_row(
+            ui,
+            current.is_none(),
+            "None — the agent spawns a throwaway project",
+        )
+        .clicked()
+        {
+            pick_pid = Some(None);
         }
+        for (pid, title) in &pids {
+            let label = if title.is_empty() {
+                format!("pid {pid}")
+            } else {
+                format!("pid {pid} — {title}")
+            };
+            if radio_row(ui, current == Some(*pid), &label).clicked() {
+                pick_pid = Some(Some(*pid));
+            }
+        }
+        ui.add_space(sp::MD);
+
+        if ui
+            .checkbox(&mut app.palette.scan.force, "Regenerate existing cards")
+            .on_hover_text(
+                "Tell the agent to re-write cards that already exist — the slice widens to \
+                 every non-blacklisted component in it",
+            )
+            .clicked()
+        {
+            // Re-derive the slice label so the caption stays honest when force
+            // widens an "undescribed" slice to everything.
+            app.palette.scan.slice = slice_label(
+                app.palette.scan.category.as_deref(),
+                app.palette.scan.single.as_deref(),
+                app.palette.scan.base_status,
+                app.palette.scan.force,
+            );
+        }
+        ui.add_space(sp::MD);
+
+        super::widgets::section_caption(ui, "PROMPT");
+        egui::ScrollArea::vertical()
+            .id_salt("palette_scan_prompt")
+            .max_height(ui.available_height() - 72.0)
+            .auto_shrink(false)
+            .show(ui, |ui| {
+                egui::TextEdit::multiline(&mut prompt.as_str())
+                    .id_salt("palette_scan_prompt_text")
+                    .font(egui::TextStyle::Small.resolve(ui.style()))
+                    .desired_width(ui.available_width())
+                    .show(ui);
+            });
+        ui.add_space(sp::MD);
+
+        ui.horizontal(|ui| {
+            if action_button(ui, "Copy prompt", ActionTone::Accent)
+                .on_hover_text("Paste into your agent session")
+                .clicked()
+            {
+                copy = Some(prompt.clone());
+            }
+            ui.add_space(sp::SM);
+            if action_button(ui, "Close", ActionTone::Neutral).clicked() {
+                close = true;
+            }
+        });
     });
 
-    if ctx.input(|i| i.key_pressed(egui::Key::Escape)) && !running {
+    if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
         close = true;
     }
-    if spawn {
-        let path = probe_project(app);
-        app.spawn_project(path, true);
-    }
-    if let Some(pid) = start_pid {
-        pal::analyse(app, pid);
-    }
-    if cancel {
-        app.palette
-            .cancel
-            .store(true, std::sync::atomic::Ordering::Relaxed);
-        app.snack("Stopping after the current batch", SnackTone::Info);
+    if let Some(pid) = pick_pid {
+        app.palette.scan.pid = pid;
     }
     if let Some(text) = copy {
         ctx.copy_text(text);
-        app.snack("Brief copied to clipboard", SnackTone::Info);
+        app.snack("Prompt copied to clipboard", SnackTone::Info);
     }
     if close {
-        app.palette.analyse_open = false;
+        app.palette.scan_open = false;
     }
 }
 
-/// Painted step mark. Deliberately not a glyph: the bundled fonts cover
-/// neither `✓` nor `◌`, and a tofu box in a progress list is worse than no
-/// mark at all. Filled = settled, ring = not yet — colour carries the rest,
-/// same as every other status LED in the app.
-fn step_mark(ui: &mut egui::Ui, status: StepState) {
-    let (rect, response) = ui.allocate_exact_size(egui::vec2(12.0, 12.0), egui::Sense::hover());
-    let center = rect.center();
-    match status {
-        StepState::Done => {
-            ui.painter().circle_filled(center, 4.0, OK);
-        }
-        StepState::Failed => {
-            ui.painter().circle_filled(center, 4.0, ERR);
-        }
-        StepState::Running => {
-            // Breathing halo — the one moving thing on the panel.
-            let t = ui.input(|i| i.time) as f32;
-            let pulse = (t * 2.2).sin() * 0.5 + 0.5;
-            ui.painter().circle_filled(
-                center,
-                4.0 + 2.5 * pulse,
-                Color32::from_rgba_unmultiplied(
-                    ACCENT.r(),
-                    ACCENT.g(),
-                    ACCENT.b(),
-                    (30.0 + 60.0 * pulse) as u8,
-                ),
-            );
-            ui.painter().circle_filled(center, 3.5, ACCENT);
-            ui.ctx().request_repaint();
-        }
-        StepState::HandedOff => {
+/// One selectable row of the instance list, styled like a settings radio.
+fn radio_row(ui: &mut egui::Ui, selected: bool, label: &str) -> egui::Response {
+    let inner = ui.horizontal(|ui| {
+        let (_, dot) = ui.allocate_exact_size(egui::vec2(14.0, 18.0), egui::Sense::hover());
+        let center = dot.rect.center();
+        if selected {
+            ui.painter().circle_filled(center, 5.0, ACCENT);
             ui.painter()
-                .circle_stroke(center, 4.0, egui::Stroke::new(1.5, WARN));
-        }
-        StepState::Pending => {
+                .circle_filled(center, 2.0, crate::theme::BG_WINDOW);
+        } else {
             ui.painter()
-                .circle_stroke(center, 4.0, egui::Stroke::new(1.0, TEXT_FAINT));
+                .circle_stroke(center, 4.5, egui::Stroke::new(1.2, TEXT_FAINT));
         }
-    }
-    let _ = response;
-}
-
-fn steps_view(ui: &mut egui::Ui, state: &AnalyseState) {
-    for (step, status, note) in &state.states {
-        ui.horizontal(|ui| {
-            ui.add_space(sp::XS);
-            step_mark(ui, *status);
-            ui.add_space(sp::XS);
-            let (rect, _) = ui.allocate_exact_size(egui::vec2(96.0, 18.0), egui::Sense::hover());
-            ui.painter().text(
-                egui::pos2(rect.left(), rect.center().y),
-                egui::Align2::LEFT_CENTER,
-                step.label(),
-                font_label(),
-                if *status == StepState::Pending {
-                    TEXT_FAINT
-                } else {
-                    TEXT
-                },
-            );
-            ui.label(
-                egui::RichText::new(note.as_str())
-                    .font(font_meta())
-                    .color(TEXT_DIM),
-            );
-        });
-    }
-    if state
-        .states
-        .iter()
-        .any(|(s, st, _)| *s == Step::Cards && *st == StepState::HandedOff)
-    {
-        ui.add_space(sp::SM);
         ui.label(
-            egui::RichText::new(
-                "Cards are written from probe evidence by an agent — nothing here generates \
-                 them. The brief below says exactly which slice is left.",
-            )
-            .font(font_meta())
-            .color(TEXT_FAINT),
+            egui::RichText::new(label)
+                .font(font_label())
+                .color(if selected { TEXT } else { TEXT_DIM }),
         );
-    }
+    });
+    inner.response.interact(egui::Sense::click())
 }
 
+/// The slice sentence, re-derived whenever the prompt's inputs change.
+fn slice_label(
+    category: Option<&str>,
+    single: Option<&str>,
+    base_status: &str,
+    force: bool,
+) -> String {
+    if let Some(id) = single {
+        return format!("component {id}");
+    }
+    let status = if force { "all" } else { base_status };
+    match category {
+        Some(cat) => format!("{cat} · {status}"),
+        None => format!("whole palette · {status}"),
+    }
+}
 // ---------------------------------------------------------------------------
 // Deferred actions
 // ---------------------------------------------------------------------------
@@ -1223,19 +1149,25 @@ fn apply(app: &mut DashboardApp, ctx: egui::Context, act: Actions) {
     if act.rescan {
         pal::rescan(app);
     }
-    if act.open_analyse {
-        open_analyse(app);
+    if act.open_scan {
+        open_scan(app, None);
+    }
+    if let Some(id) = act.open_scan_single {
+        open_scan(app, Some(id));
     }
 }
 
-/// Seed the modal from what the tree is currently showing, so "Analyse" means
-/// "analyse what I am looking at" rather than "analyse all 281 of them".
-fn open_analyse(app: &mut DashboardApp) {
-    let category = app
-        .palette
-        .selected_row()
-        .map(|r| r.group().to_owned())
-        .filter(|g| g != "(root)");
+/// Seed the prompt modal. "Analyse…" means "describe what I am looking at"
+/// rather than "analyse all 281 of them"; the per-component button pins one id.
+fn open_scan(app: &mut DashboardApp, single: Option<String>) {
+    let category = if single.is_some() {
+        None
+    } else {
+        app.palette
+            .selected_row()
+            .map(|r| r.group().to_owned())
+            .filter(|g| g != "(root)")
+    };
     let filter = app.palette.filter;
     let status = if filter == StatusFilter::All {
         // The default slice is the one the describe loop is actually for.
@@ -1243,11 +1175,20 @@ fn open_analyse(app: &mut DashboardApp) {
     } else {
         filter
     };
-    let slice = match &category {
-        Some(cat) => format!("{cat} · {}", status.label()),
-        None => format!("whole palette · {}", status.label()),
+    let slice = slice_label(
+        category.as_deref(),
+        single.as_deref(),
+        status.select_status(),
+        false,
+    );
+    app.palette.scan = ScanState {
+        slice,
+        category,
+        single,
+        base_status: status.select_status(),
+        pid: None,
+        force: false,
+        throwaway: app.data_dir.join("palette-probe.toe").display().to_string(),
     };
-    app.palette.analyse = AnalyseState::fresh(slice, status.select_status(), category);
-    app.palette.analyse.running = false;
-    app.palette.analyse_open = true;
+    app.palette.scan_open = true;
 }

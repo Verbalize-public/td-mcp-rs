@@ -6,10 +6,65 @@ import os
 import sys
 import unittest
 from typing import Any
+from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import tdmcp_bridge  # noqa: E402
+
+
+class ToTdPathTest(unittest.TestCase):
+    """TD's loader refuses POSIX paths under Wine; the seam maps them."""
+
+    def test_non_windows_platforms_are_passed_through(self) -> None:
+        with mock.patch.object(sys, "platform", "linux"):
+            self.assertEqual(
+                tdmcp_bridge.to_td_path("/home/x/comp.tox"), "/home/x/comp.tox"
+            )
+
+    def test_windows_drive_paths_are_passed_through(self) -> None:
+        with mock.patch.object(sys, "platform", "win32"):
+            self.assertEqual(
+                tdmcp_bridge.to_td_path("C:/Program Files/x/comp.tox"),
+                "C:/Program Files/x/comp.tox",
+            )
+            self.assertEqual(tdmcp_bridge.to_td_path(""), "")
+            self.assertEqual(tdmcp_bridge.to_td_path("rel/comp.tox"), "rel/comp.tox")
+
+    def test_posix_paths_gain_the_drive_that_resolves_them(self) -> None:
+        # posix paths carry no drive; the cwd does.
+        def splitdrive(p: str) -> tuple[str, str]:
+            return ("", "") if p.startswith("/") else ("z:", "z:")
+
+        with mock.patch.object(sys, "platform", "win32"), mock.patch.object(
+            tdmcp_bridge.os.path, "splitdrive", side_effect=splitdrive
+        ):
+            # The mapped file "exists" on the cwd drive: keep that drive.
+            with mock.patch.object(
+                tdmcp_bridge.os.path, "exists", return_value=True
+            ):
+                self.assertEqual(
+                    tdmcp_bridge.to_td_path("/home/x/comp.tox"), "z:/home/x/comp.tox"
+                )
+            # Nothing resolves on the cwd drive: fall back to Wine's Z:.
+            with mock.patch.object(
+                tdmcp_bridge.os.path, "exists", return_value=False
+            ):
+                self.assertEqual(
+                    tdmcp_bridge.to_td_path("/home/x/comp.tox"), "z:/home/x/comp.tox"
+                )
+
+    def test_posix_root_defaults_to_z_when_cwd_has_no_drive(self) -> None:
+        with mock.patch.object(sys, "platform", "win32"), mock.patch.object(
+            tdmcp_bridge.os.path,
+            "splitdrive",
+            return_value=("", ""),
+        ), mock.patch.object(
+            tdmcp_bridge.os.path, "exists", return_value=True
+        ):
+            self.assertEqual(
+                tdmcp_bridge.to_td_path("/home/x/comp.tox"), "z:/home/x/comp.tox"
+            )
 
 
 class FakePar:

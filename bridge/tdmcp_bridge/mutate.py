@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Any
 
 from .constants import _FLAG_NAMES
-from .palette import palette_payload
+from .palette import palette_payload, to_td_path
 from .paths import _absolutize_path, _get_par, _parent_and_name, resolve_op
 from .shader_lint import lint_dat_consumers
 from .suggest import _is_op_type_name, _suggest_names, _suggest_op_types
@@ -441,6 +441,8 @@ class _TdMutateContext(MutateContext):
         load_fn = getattr(parent, "loadTox", None)
         if not callable(load_fn):
             raise AttributeError("target parent has no loadTox")
+        # The index stores host paths; TD's loader needs the drive-letter form.
+        tox_path = to_td_path(tox_path)
         before = {id(c) for c in _children_of(parent)}
         loaded = load_fn(tox_path)
         if loaded is not None:

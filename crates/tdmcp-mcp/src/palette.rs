@@ -352,6 +352,11 @@ fn row(store: &PaletteStore, index: &PaletteIndex, id: &str, entry: &PaletteEntr
         }
     }
     obj.insert("probeStatus".into(), json!(entry.probe.status.as_str()));
+    // Why the last probe failed, so a reader can judge a carded entry whose
+    // probe has not succeeded lately without opening the store.
+    if let Some(message) = &entry.probe.message {
+        obj.insert("probeMessage".into(), json!(message));
+    }
     if index.is_ignored(id) {
         obj.insert("ignored".into(), json!(true));
         if entry.ignored_auto {

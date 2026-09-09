@@ -11,9 +11,7 @@
 //! card status, or the blacklist.
 
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
-use std::sync::Arc;
 use std::time::Duration;
 
 use eframe::egui;
@@ -24,15 +22,6 @@ use tdmcp_config::ConfigFile;
 /// time, so this is generous — but it is a cap, because 281 uncapped textures
 /// is real video memory held for a tab the user may never scroll.
 const THUMB_CACHE_CAP: usize = 240;
-
-/// Components probed per bridge call. Mirrors `palette::PROBE_BATCH_DEFAULT`:
-/// one call is one bridge task, so a component that wedges TouchDesigner costs
-/// its batch and no more.
-const PROBE_BATCH: usize = 3;
-
-/// Ceiling on probe batches in one Analyse run, so a runaway loop against a
-/// misbehaving TD cannot spin forever unattended.
-const MAX_BATCHES: usize = 400;
 
 /// `palette_index list` is capped at 500 rows per page.
 const LIST_PAGE: usize = 500;
@@ -59,6 +48,9 @@ pub(crate) struct PaletteRow {
     pub(crate) card_status: String,
     #[serde(default)]
     pub(crate) probe_status: String,
+    /// Last probe failure detail, when there was one.
+    #[serde(default)]
+    pub(crate) probe_message: Option<String>,
     #[serde(default)]
     pub(crate) ignored: bool,
     /// Absolute PNG path; present only when the file is really on disk.
@@ -84,17 +76,26 @@ impl PaletteRow {
         }
     }
 
-    /// Which dot this row gets. Attention states win over card states — a
-    /// component that wedged TD matters more than one nobody has described.
+    /// Which dot this row gets.
+    ///
+    /// A wedge suspect outranks everything — "this may hang TouchDesigner" is
+    /// the one fact that changes how the user treats the component. But a
+    /// single failed probe no longer hides a usable card: the last probe run
+    /// failing says nothing about a card that was written from earlier
+    /// evidence, and painting every carded row red hides the library behind a
+    /// stale ledger. Card status wins; the failed probe stays visible as a
+    /// note in the detail pane.
     pub(crate) fn state(&self) -> RowState {
         if self.ignored {
             RowState::Ignored
-        } else if self.probe_status == "failed" || self.probe_status == "suspect" {
+        } else if self.probe_status == "suspect" {
             RowState::Failed
         } else if self.card_status == "stale" {
             RowState::Stale
         } else if self.card_status == "described" {
             RowState::Carded
+        } else if self.probe_status == "failed" {
+            RowState::Failed
         } else {
             RowState::Undescribed
         }
@@ -133,8 +134,6 @@ pub(crate) struct PaletteStats {
     pub(crate) described: usize,
     #[serde(default)]
     pub(crate) stale: usize,
-    #[serde(default)]
-    pub(crate) undescribed: usize,
     #[serde(default)]
     pub(crate) failed: usize,
     #[serde(default)]
@@ -211,91 +210,42 @@ impl StatusFilter {
 }
 
 // ---------------------------------------------------------------------------
-// Analyse job
+// Scan prompt
 // ---------------------------------------------------------------------------
 
-/// The four steps of an Analyse run, in order.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Step {
-    Rescan,
-    Probe,
-    Thumbnails,
-    Cards,
-}
-
-impl Step {
-    pub(crate) const ALL: [Step; 4] = [Step::Rescan, Step::Probe, Step::Thumbnails, Step::Cards];
-
-    pub(crate) fn label(self) -> &'static str {
-        match self {
-            Self::Rescan => "rescan",
-            Self::Probe => "probe",
-            Self::Thumbnails => "thumbnails",
-            Self::Cards => "cards",
-        }
-    }
-}
-
-/// How far one step got. `Cards` never reaches `Done` from the GUI — writing a
-/// card needs a language model, and pretending otherwise would be a lie told in
-/// a checkmark.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub(crate) enum StepState {
-    #[default]
-    Pending,
-    Running,
-    Done,
-    /// Reached, but not something this program can finish.
-    HandedOff,
-    Failed,
-}
-
-/// Live progress for the Analyse modal.
+/// What the agent scan prompt covers. The GUI runs nothing itself — it composes
+/// the brief an agent executes, so this is just the prompt's inputs.
 #[derive(Debug, Clone)]
-pub(crate) struct AnalyseState {
-    pub(crate) states: [(Step, StepState, String); 4],
-    pub(crate) running: bool,
-    pub(crate) finished: bool,
-    /// Slice the run covers, as a human sentence.
+pub(crate) struct ScanState {
+    /// The slice as a human sentence ("Generators · undescribed").
     pub(crate) slice: String,
-    /// Selector the slice maps to, for the agent brief.
-    pub(crate) select_status: &'static str,
+    /// Category the slice is limited to, when one is.
     pub(crate) category: Option<String>,
-    /// pid the probe ran against, once chosen.
+    /// A single pinned component (per-component describe button).
+    pub(crate) single: Option<String>,
+    /// Selector status for the slice before `force` is applied.
+    pub(crate) base_status: &'static str,
+    /// pid the agent should probe against; none means it spawns a throwaway.
     pub(crate) pid: Option<u32>,
-    /// Undescribed components left in the slice when the run ended.
-    pub(crate) undescribed_left: usize,
+    /// Regenerate cards that already exist.
+    pub(crate) force: bool,
+    /// Concrete throwaway path suggested when no pid is selected.
+    pub(crate) throwaway: String,
 }
 
-impl Default for AnalyseState {
-    fn default() -> Self {
-        Self::fresh(String::new(), "undescribed", None)
-    }
-}
-
-impl AnalyseState {
-    pub(crate) fn fresh(
-        slice: String,
-        select_status: &'static str,
-        category: Option<String>,
-    ) -> Self {
-        Self {
-            states: Step::ALL.map(|step| (step, StepState::Pending, String::new())),
-            running: false,
-            finished: false,
-            slice,
-            select_status,
-            category,
-            pid: None,
-            undescribed_left: 0,
+impl ScanState {
+    /// The `select` object the prompt embeds, as JSON text.
+    ///
+    /// `force` widens the slice to every non-ignored component in it — a card
+    /// that exists is exactly the one being regenerated.
+    pub(crate) fn selector(&self) -> String {
+        if let Some(id) = &self.single {
+            return format!("{{\"ids\": [\"{id}\"]}}");
         }
-    }
-
-    pub(crate) fn set(&mut self, step: Step, state: StepState, note: impl Into<String>) {
-        let note = note.into();
-        if let Some(slot) = self.states.iter_mut().find(|s| s.0 == step) {
-            slot.1 = state;
-            slot.2 = note;
+        let status = if self.force { "all" } else { self.base_status };
+        match &self.category {
+            Some(cat) => format!("{{\"category\": \"{cat}\", \"status\": \"{status}\"}}"),
+            None => format!("{{\"status\": \"{status}\"}}"),
         }
     }
 }
@@ -309,12 +259,6 @@ pub(crate) enum Msg {
     Roster(Vec<PaletteRow>, PaletteStats),
     /// The card behind one selected row.
     Detail(PaletteDetail),
-    /// One Analyse step moved.
-    Progress(Step, StepState, String),
-    /// The pid the Analyse run settled on.
-    UsingPid(u32),
-    /// Undescribed components still in the slice at the end of a run.
-    Remaining(usize),
     /// A job ended; the payload is a snack line (empty = say nothing).
     Done(String),
     Failed(String),
@@ -325,7 +269,6 @@ pub(crate) enum Msg {
 pub(crate) enum Job {
     Loading,
     Rescanning,
-    Analysing,
 }
 
 impl Job {
@@ -333,7 +276,6 @@ impl Job {
         match self {
             Self::Loading => "loading roster",
             Self::Rescanning => "rescanning",
-            Self::Analysing => "analysing",
         }
     }
 }
@@ -360,12 +302,11 @@ pub(crate) struct PaletteView {
     pub(crate) job: Option<Job>,
     pub(crate) rx: Option<Receiver<Msg>>,
     /// Card reads ride their own channel so opening a row never has to wait
-    /// behind a running Rescan or Analyse.
+    /// behind a running Rescan.
     pub(crate) detail_rx: Option<Receiver<Msg>>,
-    pub(crate) cancel: Arc<AtomicBool>,
 
-    pub(crate) analyse_open: bool,
-    pub(crate) analyse: AnalyseState,
+    pub(crate) scan_open: bool,
+    pub(crate) scan: ScanState,
 
     /// `paletteId` → decoded texture. `None` means "tried and could not", so a
     /// broken PNG is not re-decoded every frame.
@@ -388,9 +329,16 @@ impl Default for PaletteView {
             job: None,
             rx: None,
             detail_rx: None,
-            cancel: Arc::new(AtomicBool::new(false)),
-            analyse_open: false,
-            analyse: AnalyseState::default(),
+            scan_open: false,
+            scan: ScanState {
+                slice: String::new(),
+                category: None,
+                single: None,
+                base_status: "undescribed",
+                pid: None,
+                force: false,
+                throwaway: String::new(),
+            },
             thumbs: HashMap::new(),
             thumb_order: VecDeque::new(),
         }
@@ -604,7 +552,7 @@ use crate::app::{DashboardApp, SnackTone};
 /// Start a job unless one is already running, wiring up a fresh channel.
 fn start<F>(app: &mut DashboardApp, job: Job, work: F) -> bool
 where
-    F: FnOnce(Sender<Msg>, String, ConfigFile, Arc<AtomicBool>) + Send + 'static,
+    F: FnOnce(Sender<Msg>, String, ConfigFile) + Send + 'static,
 {
     if app.palette.job.is_some() {
         app.snack("A palette job is already running", SnackTone::Warn);
@@ -613,17 +561,15 @@ where
     let (tx, rx) = std::sync::mpsc::channel::<Msg>();
     app.palette.job = Some(job);
     app.palette.rx = Some(rx);
-    app.palette.cancel = Arc::new(AtomicBool::new(false));
     let admin_base = app.admin_base.clone();
     let cfg = app.draft.clone();
-    let cancel = Arc::clone(&app.palette.cancel);
-    std::thread::spawn(move || work(tx, admin_base, cfg, cancel));
+    std::thread::spawn(move || work(tx, admin_base, cfg));
     true
 }
 
 /// Load the roster. Called on first paint of the tab and after any mutation.
 pub(crate) fn load_roster(app: &mut DashboardApp) {
-    start(app, Job::Loading, |tx, base, cfg, _cancel| {
+    start(app, Job::Loading, |tx, base, cfg| {
         send_roster(&tx, &base, &cfg);
         let _ = tx.send(Msg::Done(String::new()));
     });
@@ -631,14 +577,8 @@ pub(crate) fn load_roster(app: &mut DashboardApp) {
 
 /// Reconcile the index against disk, then reload.
 pub(crate) fn rescan(app: &mut DashboardApp) {
-    start(
-        app,
-        Job::Rescanning,
-        |tx, base, cfg, _cancel| match index_call(
-            &base,
-            &cfg,
-            serde_json::json!({ "action": "scan" }),
-        ) {
+    start(app, Job::Rescanning, |tx, base, cfg| {
+        match index_call(&base, &cfg, serde_json::json!({ "action": "scan" })) {
             Ok(v) => {
                 let note = format!(
                     "Scanned {} component(s) — {} new, {} gone",
@@ -658,14 +598,14 @@ pub(crate) fn rescan(app: &mut DashboardApp) {
             Err(e) => {
                 let _ = tx.send(Msg::Failed(e));
             }
-        },
-    );
+        }
+    });
 }
 
 /// Fetch the card behind one row.
 pub(crate) fn load_detail(app: &mut DashboardApp, id: String) {
     // Detail reads are small and frequent; they ride their own thread rather
-    // than the job slot so they never block Rescan or Analyse.
+    // than the job slot so they never block a running Rescan.
     let admin_base = app.admin_base.clone();
     let cfg = app.draft.clone();
     let (tx, rx) = std::sync::mpsc::channel::<Msg>();
@@ -705,7 +645,7 @@ pub(crate) fn load_detail(app: &mut DashboardApp, id: String) {
 /// Flip an entry's blacklist state, then reload the roster.
 pub(crate) fn set_ignored(app: &mut DashboardApp, id: String, ignore: bool) {
     let action = if ignore { "ignore" } else { "unignore" };
-    start(app, Job::Loading, move |tx, base, cfg, _cancel| {
+    start(app, Job::Loading, move |tx, base, cfg| {
         let out = index_call(
             &base,
             &cfg,
@@ -728,207 +668,6 @@ pub(crate) fn set_ignored(app: &mut DashboardApp, id: String, ignore: bool) {
             }
         }
     });
-}
-
-/// Components a run should actually load, in tree order.
-///
-/// Three filters, each load-bearing:
-///
-/// * the slice the user is looking at (category + status), so "Analyse" means
-///   what the screen says it means;
-/// * never a blacklisted entry — naming an id explicitly bypasses the
-///   blacklist on the daemon, so honouring it is this side's job, and those
-///   are exactly the components that can wedge TouchDesigner;
-/// * only what still needs evidence — no thumbnail, or never probed — so a
-///   second run over the same slice is cheap instead of redundant.
-fn analyse_targets(view: &PaletteView, category: Option<&str>, select_status: &str) -> Vec<String> {
-    view.rows
-        .iter()
-        .filter(|r| !r.ignored)
-        .filter(|r| category.is_none_or(|c| r.group() == c))
-        .filter(|r| match select_status {
-            "described" => matches!(r.state(), RowState::Carded | RowState::Stale),
-            "undescribed" => r.state() == RowState::Undescribed,
-            "failed" => r.state() == RowState::Failed,
-            _ => true,
-        })
-        .filter(|r| r.thumb.is_none() || r.probe_status == "unprobed")
-        .map(|r| r.palette_id.clone())
-        .collect()
-}
-
-/// The mechanical half of an analysis pass: rescan, probe the slice for
-/// interface evidence, render thumbnails — then stop and say plainly that the
-/// cards themselves need an agent.
-pub(crate) fn analyse(app: &mut DashboardApp, pid: u32) {
-    let category = app.palette.analyse.category.clone();
-    let select_status = app.palette.analyse.select_status;
-    // The batch list is computed here, from the roster already on screen,
-    // rather than left to the selector. `palette_probe`'s selection is built
-    // for the *describe* loop, where each pass shrinks the slice because the
-    // agent wrote a card in between; a thumbnail pass changes nothing the
-    // selector looks at, so the same components would come back every batch,
-    // forever. An explicit id list terminates by construction and gives the
-    // modal an honest denominator.
-    let targets = analyse_targets(&app.palette, category.as_deref(), select_status);
-
-    let started = start(app, Job::Analysing, move |tx, base, cfg, cancel| {
-        let _ = tx.send(Msg::UsingPid(pid));
-
-        // 1 — rescan.
-        let _ = tx.send(Msg::Progress(
-            Step::Rescan,
-            StepState::Running,
-            String::new(),
-        ));
-        match index_call(&base, &cfg, serde_json::json!({ "action": "scan" })) {
-            Ok(v) => {
-                let note = format!(
-                    "{} indexed · +{} · {} ignored",
-                    v.get("total")
-                        .and_then(serde_json::Value::as_u64)
-                        .unwrap_or(0),
-                    v.get("added")
-                        .and_then(serde_json::Value::as_u64)
-                        .unwrap_or(0),
-                    v.get("ignored")
-                        .and_then(serde_json::Value::as_u64)
-                        .unwrap_or(0),
-                );
-                let _ = tx.send(Msg::Progress(Step::Rescan, StepState::Done, note));
-            }
-            Err(e) => {
-                let _ = tx.send(Msg::Progress(Step::Rescan, StepState::Failed, e.clone()));
-                let _ = tx.send(Msg::Failed(e));
-                return;
-            }
-        }
-
-        // 2 + 3 — probe the slice in small batches, thumbnails on. Probe and
-        // thumbnail are one call: the component only exists between load and
-        // destroy, so this is the single window either can happen in.
-        let total = targets.len();
-        let _ = tx.send(Msg::Progress(
-            Step::Probe,
-            StepState::Running,
-            format!("0 / {total}"),
-        ));
-        let _ = tx.send(Msg::Progress(
-            Step::Thumbnails,
-            StepState::Running,
-            String::new(),
-        ));
-        let (mut digested, mut failed, mut shots) = (0usize, 0usize, 0usize);
-        let mut cancelled = false;
-        for batch in targets.chunks(PROBE_BATCH).take(MAX_BATCHES) {
-            if cancel.load(Ordering::Relaxed) {
-                cancelled = true;
-                break;
-            }
-            let out = call_tool(
-                &base,
-                &cfg,
-                "palette_probe",
-                serde_json::json!({
-                    "pid": pid,
-                    "select": { "ids": batch },
-                    "thumbnails": true,
-                }),
-                // A batch is one bridge task on the script timeout class, and
-                // it loads three unknown components — give it real room.
-                Duration::from_secs(180),
-            );
-            let v = match out {
-                Ok(v) => v,
-                Err(e) => {
-                    let _ = tx.send(Msg::Progress(Step::Probe, StepState::Failed, e.clone()));
-                    let _ = tx.send(Msg::Failed(e));
-                    return;
-                }
-            };
-            let rows = v
-                .get("results")
-                .and_then(serde_json::Value::as_array)
-                .cloned()
-                .unwrap_or_default();
-            for row in &rows {
-                if row.get("ok").and_then(serde_json::Value::as_bool) == Some(true) {
-                    digested += 1;
-                    if row.get("thumb").is_some() {
-                        shots += 1;
-                    }
-                } else {
-                    failed += 1;
-                }
-            }
-            let _ = tx.send(Msg::Progress(
-                Step::Probe,
-                StepState::Running,
-                format!("{} / {total}", digested + failed),
-            ));
-            let _ = tx.send(Msg::Progress(
-                Step::Thumbnails,
-                StepState::Running,
-                format!("{shots} rendered"),
-            ));
-        }
-
-        let probe_note = if total == 0 {
-            "nothing left to probe in this slice".to_owned()
-        } else {
-            format!(
-                "{digested} digested · {failed} failed{}",
-                if cancelled { " · cancelled" } else { "" }
-            )
-        };
-        let _ = tx.send(Msg::Progress(
-            Step::Probe,
-            if cancelled {
-                StepState::Failed
-            } else {
-                StepState::Done
-            },
-            probe_note,
-        ));
-        let fallback = digested.saturating_sub(shots);
-        let _ = tx.send(Msg::Progress(
-            Step::Thumbnails,
-            if cancelled {
-                StepState::Failed
-            } else {
-                StepState::Done
-            },
-            format!(
-                "{shots} rendered{}",
-                if fallback > 0 {
-                    // Almost always an unwrapped `.tox`: it ships no icon, and
-                    // its viewer has not rasterized inside the probe's task.
-                    format!(" · {fallback} drew nothing")
-                } else {
-                    String::new()
-                }
-            ),
-        ));
-
-        // 4 — the half this program cannot do.
-        let stats = fetch_stats(&base, &cfg);
-        let left = stats.undescribed;
-        let _ = tx.send(Msg::Remaining(left));
-        let _ = tx.send(Msg::Progress(
-            Step::Cards,
-            StepState::HandedOff,
-            format!("{left} still undescribed — needs an agent"),
-        ));
-
-        send_roster(&tx, &base, &cfg);
-        let _ = tx.send(Msg::Done(String::new()));
-    });
-
-    if started {
-        let slice = app.palette.analyse.slice.clone();
-        let cat = app.palette.analyse.category.clone();
-        app.palette.analyse = AnalyseState::fresh(slice, select_status, cat);
-    }
 }
 
 /// Drain worker messages into the view. Called once per frame from the tick.
@@ -976,16 +715,9 @@ fn apply(app: &mut DashboardApp, msg: Msg) {
                 app.palette.detail = Some(detail);
             }
         }
-        Msg::Progress(step, state, note) => app.palette.analyse.set(step, state, note),
-        Msg::UsingPid(pid) => app.palette.analyse.pid = Some(pid),
-        Msg::Remaining(n) => app.palette.analyse.undescribed_left = n,
         Msg::Done(note) => {
             app.palette.job = None;
             app.palette.rx = None;
-            if app.palette.analyse.running {
-                app.palette.analyse.running = false;
-                app.palette.analyse.finished = true;
-            }
             if !note.is_empty() {
                 app.snack(&note, SnackTone::Ok);
             }
@@ -993,8 +725,6 @@ fn apply(app: &mut DashboardApp, msg: Msg) {
         Msg::Failed(e) => {
             app.palette.job = None;
             app.palette.rx = None;
-            app.palette.analyse.running = false;
-            app.palette.analyse.finished = true;
             app.palette.error = Some(e.clone());
             app.palette.loaded = true;
             app.snack(&crate::wire::clip_line(&e, 70), SnackTone::Error);
@@ -1087,23 +817,49 @@ pub(crate) fn reference_brief(row: &PaletteRow, detail: Option<&PaletteDetail>) 
     out
 }
 
-/// The hand-off brief for the half the GUI cannot do: writing the cards.
-pub(crate) fn analyse_brief(state: &AnalyseState) -> String {
-    let selector = match &state.category {
-        Some(cat) => format!("{{\"category\": \"{cat}\", \"status\": \"undescribed\"}}"),
-        None => "{\"status\": \"undescribed\"}".to_owned(),
+/// The agent prompt this popup exists to produce: the describe loop for the
+/// selected slice, with the TD-instance decision spelled out.
+///
+/// The GUI runs nothing itself — it has no LLM and no probe loop anymore. This
+/// text is the whole feature; everything the agent needs must be in it, because
+/// the agent never sees this screen.
+pub(crate) fn scan_brief(state: &ScanState) -> String {
+    let td_line = match state.pid {
+        Some(pid) => format!(
+            "Probe against the running TouchDesigner instance pid `{pid}`. Pass that pid to \
+             every `palette_probe` call."
+        ),
+        None => format!(
+            "No TouchDesigner instance is selected — spawn a throwaway project for probing \
+             (`spawn_td` with a fresh .toe path such as `{throwaway}` and createIfMissing:true) \
+             and pass that pid to every `palette_probe` call. Never probe into a project with \
+             real work in it.",
+            throwaway = state.throwaway,
+        ),
+    };
+    let force_line = if state.force {
+        "\nCards already exist for part of this slice — regenerate them anyway; do not skip \
+         described components.\n"
+    } else {
+        ""
     };
     format!(
-        "Run the palette-scan describe loop over {slice} ({left} undescribed).\n\
-         The evidence pass is already done — the roster is scanned and these components \
-         have been probed, so go straight to writing cards.\n\n\
-         1. `palette_probe` {{\"pid\": <a throwaway TD>, \"select\": {selector}, \"limit\": 3}}\n\
-         2. For each digest, `palette_index` {{\"action\": \"describe\", \"paletteId\": …, \
-         \"summary\": …, \"tags\": […], \"body\": …}}\n\
-         3. Repeat until `palette_index` {{\"action\": \"stats\"}} shows none left in the slice.\n\n\
+        "Run the palette-scan describe loop over {slice}.\n\
+         \n\
+         {td_line}\n\
+         {force_line}\n\
+         1. `palette_index` {{\"action\": \"scan\"}} — reconcile the roster with disk first.\n\
+         2. Loop: `palette_probe` {{\"pid\": <pid from above>, \"select\": {selector}, \
+         \"thumbnails\": true}} (batch default is 3), then for each digest row \
+         `palette_index` {{\"action\": \"describe\", \"paletteId\": …, \"summary\": …, \
+         \"tags\": […], \"body\": …}}.\n\
+         3. Repeat until `palette_index` {{\"action\": \"stats\"}} shows none left in the slice.\n\
+         \n\
          Card shape and the blacklist rules: tdmcp://docs/palette-scan\n",
         slice = state.slice,
-        left = state.undescribed_left,
+        td_line = td_line,
+        force_line = force_line,
+        selector = state.selector(),
     )
 }
 
@@ -1126,6 +882,7 @@ mod tests {
                 "undescribed".into()
             },
             probe_status: "ok".to_owned(),
+            probe_message: None,
             ignored: false,
             thumb: None,
         }
@@ -1188,41 +945,72 @@ mod tests {
     }
 
     #[test]
-    fn analyse_targets_are_finite_and_skip_the_blacklist() {
-        // The bug this guards: `palette_probe`'s selector does not shrink when
-        // a thumbnail is rendered, so a selector-driven loop re-probes the same
-        // components forever. Targets are a finite list computed here instead.
-        let mut view = PaletteView::default();
-        let mut done = row("builtin:ImageFilters/bloom", "bloom", Some("s"));
-        done.thumb = Some("/thumbs/bloom.png".into());
-        done.probe_status = "ok".into();
-        let todo = row("builtin:ImageFilters/chromaKey", "chromaKey", None);
-        let mut hostile = row("builtin:TDAbleton/pkg", "pkg", None);
-        hostile.ignored = true;
-        hostile.category = "ImageFilters".into();
-        let mut elsewhere = row("builtin:Tools/logger", "logger", None);
-        elsewhere.category = "Tools".into();
-        view.rows = vec![done, todo, hostile, elsewhere];
-
-        let targets = analyse_targets(&view, Some("ImageFilters"), "all");
-        // Only the one that still needs evidence, from the asked-for category,
-        // and never the blacklisted entry — explicit ids bypass the daemon's
-        // blacklist, so dropping it here is the only thing that honours it.
-        assert_eq!(targets, vec!["builtin:ImageFilters/chromaKey".to_owned()]);
-
-        // A second run over a fully-covered slice asks for nothing at all.
-        let mut covered = PaletteView::default();
-        let mut r = row("builtin:ImageFilters/bloom", "bloom", Some("s"));
-        r.thumb = Some("/thumbs/bloom.png".into());
-        r.probe_status = "ok".into();
-        covered.rows = vec![r];
-        assert!(analyse_targets(&covered, None, "all").is_empty());
-    }
-
-    #[test]
     fn attention_states_outrank_card_states_on_a_row() {
         let mut r = row("builtin:Tools/wedges", "wedges", Some("summary"));
         r.probe_status = "suspect".into();
         assert_eq!(r.state(), RowState::Failed);
+    }
+
+    #[test]
+    fn a_failed_probe_no_longer_hides_a_usable_card() {
+        // The regression this guards: one bad probe pass wrote `failed` onto
+        // every entry in the store, and the dot painted the whole library red
+        // even though the cards were fine and loadable.
+        let mut r = row("builtin:Generators/checker", "checker", Some("summary"));
+        r.probe_status = "failed".into();
+        r.probe_message = Some("loadTox produced no component".into());
+        assert_eq!(r.state(), RowState::Carded);
+
+        // Without a card the failure is still the most useful fact.
+        let mut bare = row("user:Tools/mystery", "mystery", None);
+        bare.probe_status = "failed".into();
+        assert_eq!(bare.state(), RowState::Failed);
+    }
+
+    #[test]
+    fn the_scan_brief_names_the_instance_or_the_throwaway() {
+        let mut state = ScanState {
+            slice: "Generators · undescribed".into(),
+            category: Some("Generators".into()),
+            single: None,
+            base_status: "undescribed",
+            pid: Some(4242),
+            force: false,
+            throwaway: "/tmp/palette-probe.toe".into(),
+        };
+        let brief = scan_brief(&state);
+        assert!(brief.contains("pid `4242`"));
+        assert!(brief.contains("\"category\": \"Generators\", \"status\": \"undescribed\""));
+        assert!(!brief.contains("regenerate"));
+        assert!(brief.contains("tdmcp://docs/palette-scan"));
+
+        // No pid: the prompt must tell the agent to spawn a throwaway itself.
+        state.pid = None;
+        let brief = scan_brief(&state);
+        assert!(brief.contains("spawn a throwaway project"));
+        assert!(brief.contains("/tmp/palette-probe.toe"));
+
+        // Force widens the selector past already-described components.
+        state.force = true;
+        let brief = scan_brief(&state);
+        assert!(brief.contains("\"status\": \"all\""));
+        assert!(brief.contains("regenerate them anyway"));
+    }
+
+    #[test]
+    fn a_single_component_brief_pins_the_id() {
+        let state = ScanState {
+            slice: "component builtin:Generators/checker".into(),
+            category: None,
+            single: Some("builtin:Generators/checker".into()),
+            base_status: "undescribed",
+            pid: None,
+            force: true,
+            throwaway: "/tmp/palette-probe.toe".into(),
+        };
+        let brief = scan_brief(&state);
+        // Force is meaningless for a pinned id: the selector names it exactly.
+        assert!(brief.contains("{\"ids\": [\"builtin:Generators/checker\"]}"));
+        assert!(!brief.contains("\"status\""));
     }
 }
