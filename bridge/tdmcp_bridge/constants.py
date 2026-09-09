@@ -27,6 +27,7 @@ RESULT_MAX_BYTES = 4 * 1024 * 1024
 BRIDGE_METHODS: tuple[str, ...] = (
     "execute_python",
     "capture",
+    "record",
     "inspect",
     "mutate_nodes",
     "api_help",

@@ -19,6 +19,11 @@ a check could not run. A node comment records intent; it is not proof.
 - Inspect the touched parent COMP after the final mutation. Account for
   errors and warnings, separating existing issues from changes you made.
 - Confirm the intended parameters, wires, and component boundaries.
+- For stateful work, require a working public reset and default project-reset
+  integration (or documented intentional routing). Verify accumulated state
+  clears, child resets propagate, and reset then advance reproduces the checked
+  behavior under controlled inputs. Follow [`reset-state`](./reset-state.md):
+  a missing/incomplete reset is a failure; an unrun check is unverified.
 - Capture the output for appearance claims and view the resulting image.
 - For new reusable components, check relative references, In/Out pins, and
   the exposed control parameters.

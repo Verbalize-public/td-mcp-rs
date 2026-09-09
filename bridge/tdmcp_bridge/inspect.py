@@ -388,6 +388,8 @@ def build_inspect_node(
         "family": getattr(n, "family", None),
         "opType": getattr(n, "opType", None),
     }
+    from .timing import snapshot
+    out['timing'] = snapshot(n)
     # Identity metadata, not a section: emitted whenever non-empty, regardless
     # of `include` — the operator's own account of what it is for.
     comment = _op_comment(n, COMMENT_MAX_CHARS)
@@ -521,7 +523,8 @@ def handle_inspect(params: dict[str, Any]) -> dict[str, Any]:
                 "traceback": traceback.format_exc(),
             })
 
-    out: dict[str, Any] = {"ok": True, "nodes": nodes_out}
+    from .timing import snapshot
+    out: dict[str, Any] = {"ok": True, "nodes": nodes_out, "timing": snapshot()}
     if truncated:
         out["pathsTruncated"] = True
         out["truncation"] = {

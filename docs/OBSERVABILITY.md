@@ -38,6 +38,28 @@ Capture the affected PID, request, diagnostic code, daemon/TD versions, and
 a short log excerpt around the failure. Distinguish a request timeout from a
 confirmed cancellation: Python already running in TD may continue.
 
+TD owns its Textport stdout/stderr streams as well as its operators and UI.
+The bridge defers worker-thread writes and flushes to the main-thread pump;
+worker output can therefore appear later in the Textport. The deferred queue
+keeps the newest 256 chunks, each capped at 8192 characters. The separate log
+uplink and debug-DAT queues retain their own limits. Request dispatch and
+Python execution reject off-main entry before touching TD.
+
+Agent-created threads may perform plain Python computation or I/O, but must
+not access `td`, operators, parameters, UI, or native Textport handles. Prepare
+and schedule TD callbacks from the main thread; passing an OP to a worker or
+calling `td.run` from that worker is not a supported handoff. A safe logging
+wrapper does not make other TD API calls thread-safe.
+
+The reconnect watchdog uses an independent TDResources reference **and**
+wall-time delays, so pausing a non-realtime project does not stretch its
+two-second retry into many project frames. This fix is baked into
+`bootstrap.tox`: existing projects containing an older bridge COMP need the
+fresh installed tox dragged in again. Reinstalling the daemon alone does not
+update a project's embedded callbacks. Timing jobs are cancelled on bridge
+reload, including when bootstrap purges Python modules; old callbacks must
+not retain transport ownership or a temporary recorder.
+
 For extra detail, configure `logging.filter` (for example
 `info,tdmcp_daemon=debug`) and restart. Reproduce once, then return to the
 normal level. Avoid dumping whole projects, token values, or large binary data.

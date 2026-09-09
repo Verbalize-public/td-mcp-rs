@@ -321,6 +321,46 @@ pub fn map_perception_outcome(
     }
 }
 
+/// Map timing job and artifact requests, preserving structured failure data.
+pub fn map_timing_outcome(
+    catalog: &Catalog,
+    pid: Pid,
+    tool: &str,
+    outcome: BridgeOutcome,
+) -> Result<Value, ToolCallError> {
+    match outcome {
+        BridgeOutcome::Ok(value) => {
+            let env = BridgeResultEnvelope::from_value(&value);
+            if !env.is_error() {
+                return Ok(value);
+            }
+            let code = match env.code.as_deref() {
+                Some(codes::TIMING_INVALID) => codes::TIMING_INVALID,
+                Some(codes::TIMING_BUSY) => codes::TIMING_BUSY,
+                Some(codes::TIMING_NOT_FOUND) => codes::TIMING_NOT_FOUND,
+                Some(codes::TIMING_INTERRUPTED) => codes::TIMING_INTERRUPTED,
+                _ => codes::TIMING_FAILED,
+            };
+            let item = build_diag(
+                catalog,
+                code,
+                span(tool, None),
+                Some(env.message_or("timing operation failed")),
+                ctx(pid, None, None),
+                DiagnosticLayer::Perception,
+            );
+            Err(failed_one_with_image_mime_and_data(
+                item,
+                None,
+                None,
+                Some(value),
+            ))
+        }
+        BridgeOutcome::QueueBusy => Err(queue_busy(catalog, tool, pid)),
+        BridgeOutcome::Transport(err) => Err(transport(catalog, tool, pid, err)),
+    }
+}
+
 /// Map an `inspect` outcome.
 pub fn map_inspect_outcome(
     catalog: &Catalog,

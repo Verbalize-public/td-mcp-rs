@@ -50,3 +50,9 @@ def is_main_thread() -> bool:
     if ident is not None:
         return threading.get_ident() == ident
     return threading.current_thread() is threading.main_thread()
+
+
+def require_main_thread() -> None:
+    """Reject unsafe entry before accessing TD objects or native UI streams."""
+    if not is_main_thread():
+        raise RuntimeError('TD API access requires the main thread; enqueue work for process_pending')

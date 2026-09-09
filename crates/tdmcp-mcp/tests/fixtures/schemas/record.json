@@ -1,0 +1,304 @@
+{
+  "$defs": {
+    "AfterTiming": {
+      "description": "Transport state after successful finalization. Failure always pauses.",
+      "oneOf": [
+        {
+          "const": "pause",
+          "description": "Remain paused (default).",
+          "type": "string"
+        },
+        {
+          "const": "play",
+          "description": "Resume playback from the resulting state.",
+          "type": "string"
+        },
+        {
+          "const": "restore",
+          "description": "Restore original play flags, never timeline/history.",
+          "type": "string"
+        }
+      ]
+    },
+    "JobAction": {
+      "description": "Operations on a bridge-owned asynchronous job.",
+      "oneOf": [
+        {
+          "const": "start",
+          "description": "Start a new job (default).",
+          "type": "string"
+        },
+        {
+          "const": "status",
+          "description": "Observe progress/results; no advancement caused by polling.",
+          "type": "string"
+        },
+        {
+          "const": "cancel",
+          "description": "Stop, finalize partial results, and release transport ownership.",
+          "type": "string"
+        },
+        {
+          "const": "read",
+          "description": "Read a bounded chunk of a finalized record artifact.",
+          "type": "string"
+        },
+        {
+          "const": "release",
+          "description": "Delete retained results and the private record artifact.",
+          "type": "string"
+        }
+      ]
+    },
+    "OpPath": {
+      "description": "Operator path string passed to TD for resolution via `td.op()`.",
+      "type": "string"
+    },
+    "Pid": {
+      "anyOf": [
+        {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "pattern": "^\\s*[0-9]+\\s*$",
+          "type": "string"
+        }
+      ],
+      "description": "OS process id — sole address for tools and queues."
+    },
+    "RepeatSchedule": {
+      "additionalProperties": false,
+      "description": "Regular sampling schedule, compiled into explicit offsets.",
+      "properties": {
+        "count": {
+          "description": "Number of samples, 1..16.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "interval": {
+          "description": "Positive interval between samples, in frames.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "count",
+        "interval"
+      ],
+      "type": "object"
+    },
+    "ResetSignal": {
+      "additionalProperties": false,
+      "description": "Public reset signal owned by the network, not an arbitrary script.",
+      "properties": {
+        "parameter": {
+          "description": "Existing Pulse parameter (usually Reset).",
+          "type": "string"
+        },
+        "path": {
+          "$ref": "#/$defs/OpPath",
+          "description": "Stateful COMP exposing the reset Pulse."
+        }
+      },
+      "required": [
+        "path",
+        "parameter"
+      ],
+      "type": "object"
+    },
+    "TimingOptions": {
+      "additionalProperties": false,
+      "description": "Sequential forward schedule; never seeks backwards or skips intermediate cooks.",
+      "properties": {
+        "after": {
+          "$ref": "#/$defs/AfterTiming",
+          "default": "pause",
+          "description": "Successful completion policy; default pause."
+        },
+        "initializeFrames": {
+          "description": "Initialization frames after reset (default 1 with reset, otherwise 0).",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "repeat": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RepeatSchedule"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Regular schedule; mutually exclusive with sampleFrames/stepFrames."
+        },
+        "reset": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ResetSignal"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Public component reset pulse, optional when continuing prepared state."
+        },
+        "sampleFrames": {
+          "description": "Strictly increasing offsets (1..16 samples, max offset 3600).",
+          "items": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "stepFrames": {
+          "description": "Advance this many frames and capture once; 1..3600.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "timePath": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OpPath"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Effective output time source; omit to infer from source.time."
+        },
+        "timeoutSeconds": {
+          "description": "Local job deadline (1..600 seconds), default 120; not an RPC timeout.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "warmupFrames": {
+          "default": 0,
+          "description": "Additional sequential warmup frames before offset zero; default 0.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Start/status/cancel/read/release for an N-frame TOP recording.",
+  "properties": {
+    "action": {
+      "$ref": "#/$defs/JobAction",
+      "default": "start",
+      "description": "Job operation; default start."
+    },
+    "contextPath": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/OpPath"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Base for relative operator paths."
+    },
+    "daemonId": {
+      "default": null,
+      "description": "Optional federation target.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "frames": {
+      "default": null,
+      "description": "Exact consecutive sample count, 1..3600, required on start.",
+      "format": "uint32",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "jobId": {
+      "default": null,
+      "description": "Prior job id; omitted status/cancel discovers the active record job.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "length": {
+      "default": null,
+      "description": "Artifact read length (default/max 262144 bytes).",
+      "format": "uint32",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "offset": {
+      "default": null,
+      "description": "Artifact byte offset for read (default 0).",
+      "format": "uint64",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "path": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/OpPath"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Explicit TOP output, required on start (not a COMP viewer)."
+    },
+    "pid": {
+      "$ref": "#/$defs/Pid",
+      "description": "Target TD pid, including for status and retrieval."
+    },
+    "timing": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/TimingOptions"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Reset, initialization, warmup and completion policy. No capture schedule."
+    }
+  },
+  "required": [
+    "pid"
+  ],
+  "type": "object"
+}

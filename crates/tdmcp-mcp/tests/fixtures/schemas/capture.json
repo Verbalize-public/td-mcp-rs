@@ -1,5 +1,25 @@
 {
   "$defs": {
+    "AfterTiming": {
+      "description": "Transport state after successful finalization. Failure always pauses.",
+      "oneOf": [
+        {
+          "const": "pause",
+          "description": "Remain paused (default).",
+          "type": "string"
+        },
+        {
+          "const": "play",
+          "description": "Resume playback from the resulting state.",
+          "type": "string"
+        },
+        {
+          "const": "restore",
+          "description": "Restore original play flags, never timeline/history.",
+          "type": "string"
+        }
+      ]
+    },
     "CaptureMode": {
       "description": "Capture mode.",
       "oneOf": [
@@ -35,6 +55,21 @@
         }
       ]
     },
+    "DetailLevel": {
+      "description": "Structural detail level.",
+      "oneOf": [
+        {
+          "const": "summary",
+          "description": "Direct-child roster as `{name, opType}` (capped at 256; see `node.truncation`).",
+          "type": "string"
+        },
+        {
+          "const": "detailed",
+          "description": "Direct-child roster as `{path, family, opType}` (same 256 cap — does not uncap).",
+          "type": "string"
+        }
+      ]
+    },
     "DiagnosticLevel": {
       "description": "Payload size for diagnostics (independent of structural `detailLevel`).",
       "oneOf": [
@@ -46,6 +81,66 @@
         {
           "const": "detailed",
           "description": "Plus raw traceback / full TD dumps.",
+          "type": "string"
+        }
+      ]
+    },
+    "InspectInclude": {
+      "description": "Sections to include in an inspect response.",
+      "oneOf": [
+        {
+          "const": "nodes",
+          "description": "Node tree.",
+          "type": "string"
+        },
+        {
+          "const": "params",
+          "description": "Parameters.",
+          "type": "string"
+        },
+        {
+          "const": "errors",
+          "description": "TD errors.",
+          "type": "string"
+        },
+        {
+          "const": "warnings",
+          "description": "TD warnings.",
+          "type": "string"
+        },
+        {
+          "const": "content",
+          "description": "DAT text/table bodies and GLSL shader stages (opt-in; not in empty default).",
+          "type": "string"
+        }
+      ]
+    },
+    "JobAction": {
+      "description": "Operations on a bridge-owned asynchronous job.",
+      "oneOf": [
+        {
+          "const": "start",
+          "description": "Start a new job (default).",
+          "type": "string"
+        },
+        {
+          "const": "status",
+          "description": "Observe progress/results; no advancement caused by polling.",
+          "type": "string"
+        },
+        {
+          "const": "cancel",
+          "description": "Stop, finalize partial results, and release transport ownership.",
+          "type": "string"
+        },
+        {
+          "const": "read",
+          "description": "Read a bounded chunk of a finalized record artifact.",
+          "type": "string"
+        },
+        {
+          "const": "release",
+          "description": "Delete retained results and the private record artifact.",
           "type": "string"
         }
       ]
@@ -81,11 +176,179 @@
         }
       ],
       "description": "OS process id — sole address for tools and queues."
+    },
+    "RepeatSchedule": {
+      "additionalProperties": false,
+      "description": "Regular sampling schedule, compiled into explicit offsets.",
+      "properties": {
+        "count": {
+          "description": "Number of samples, 1..16.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "interval": {
+          "description": "Positive interval between samples, in frames.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "count",
+        "interval"
+      ],
+      "type": "object"
+    },
+    "ResetSignal": {
+      "additionalProperties": false,
+      "description": "Public reset signal owned by the network, not an arbitrary script.",
+      "properties": {
+        "parameter": {
+          "description": "Existing Pulse parameter (usually Reset).",
+          "type": "string"
+        },
+        "path": {
+          "$ref": "#/$defs/OpPath",
+          "description": "Stateful COMP exposing the reset Pulse."
+        }
+      },
+      "required": [
+        "path",
+        "parameter"
+      ],
+      "type": "object"
+    },
+    "SampleInspect": {
+      "additionalProperties": false,
+      "description": "Structural reads at the same controlled capture sample.",
+      "properties": {
+        "detailLevel": {
+          "$ref": "#/$defs/DetailLevel",
+          "default": "summary",
+          "description": "Child roster detail."
+        },
+        "include": {
+          "default": [],
+          "description": "Empty means nodes/errors/warnings. Content excluded for timed samples.",
+          "items": {
+            "$ref": "#/$defs/InspectInclude"
+          },
+          "type": "array"
+        },
+        "paths": {
+          "description": "1..16 existing paths sharing the sampled clock.",
+          "items": {
+            "$ref": "#/$defs/OpPath"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "paths"
+      ],
+      "type": "object"
+    },
+    "TimingOptions": {
+      "additionalProperties": false,
+      "description": "Sequential forward schedule; never seeks backwards or skips intermediate cooks.",
+      "properties": {
+        "after": {
+          "$ref": "#/$defs/AfterTiming",
+          "default": "pause",
+          "description": "Successful completion policy; default pause."
+        },
+        "initializeFrames": {
+          "description": "Initialization frames after reset (default 1 with reset, otherwise 0).",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "repeat": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RepeatSchedule"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Regular schedule; mutually exclusive with sampleFrames/stepFrames."
+        },
+        "reset": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ResetSignal"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Public component reset pulse, optional when continuing prepared state."
+        },
+        "sampleFrames": {
+          "description": "Strictly increasing offsets (1..16 samples, max offset 3600).",
+          "items": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "stepFrames": {
+          "description": "Advance this many frames and capture once; 1..3600.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "timePath": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OpPath"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Effective output time source; omit to infer from source.time."
+        },
+        "timeoutSeconds": {
+          "description": "Local job deadline (1..600 seconds), default 120; not an RPC timeout.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "warmupFrames": {
+          "default": 0,
+          "description": "Additional sequential warmup frames before offset zero; default 0.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "type": "object"
     }
   },
   "additionalProperties": false,
   "description": "Args for capture (perception).",
   "properties": {
+    "action": {
+      "$ref": "#/$defs/JobAction",
+      "default": "start",
+      "description": "Start (default), status, cancel, or release a timed capture job."
+    },
     "contextPath": {
       "anyOf": [
         {
@@ -111,6 +374,26 @@
       "default": "summary",
       "description": "Diagnostic payload size (`summary` omits raw traceback)."
     },
+    "inspect": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SampleInspect"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Optional structural inspection paired with each timed sample."
+    },
+    "jobId": {
+      "default": null,
+      "description": "Job returned by a prior timed capture. Omit on status/cancel to discover the active job.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "maxSize": {
       "anyOf": [
         {
@@ -129,17 +412,36 @@
       "description": "Capture mode."
     },
     "path": {
-      "$ref": "#/$defs/OpPath",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/OpPath"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
       "description": "Operator path (OpPath; relative to contextPath or /project1)."
     },
     "pid": {
       "$ref": "#/$defs/Pid",
       "description": "Target pid."
+    },
+    "timing": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/TimingOptions"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Optional reset and sequential advance schedule; omitted means immediate capture."
     }
   },
   "required": [
-    "pid",
-    "path"
+    "pid"
   ],
   "type": "object"
 }

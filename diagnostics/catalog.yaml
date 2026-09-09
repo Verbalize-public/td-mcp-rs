@@ -5,6 +5,56 @@
 # kind:api_help may omit query (spliced at runtime for unknown type/par).
 
 entries:
+  - code: tdmcp.timing.busy
+    layer: perception
+    message: "A deferred timing job owns this TD PID"
+    mitigation:
+      - "Use the named capture/record job's status or cancel action; wait for terminal cleanup"
+      - "Do not retry conflicting mutations or restart the bridge to bypass ownership"
+    references:
+      - kind: tool
+        id: record
+
+  - code: tdmcp.timing.invalid
+    layer: perception
+    message: "Invalid timing schedule, reset, output or artifact request"
+    mitigation:
+      - "Use one TOP output, its effective clock, and a public reset Pulse"
+      - "Use increasing sample offsets; account for reset initialization and the timeline end"
+    references:
+      - kind: tool
+        id: capture
+
+  - code: tdmcp.timing.not_found
+    layer: perception
+    message: "Timing job or artifact is unknown or no longer retained"
+    mitigation:
+      - "Use the jobId returned on the same PID and daemon; bridge reload invalidates jobs"
+      - "Retrieve artifacts before release or retention eviction"
+    references:
+      - kind: tool
+        id: record
+
+  - code: tdmcp.timing.failed
+    layer: perception
+    message: "Timing, rendering or recording finalization failed"
+    mitigation:
+      - "Read job status error and actual progress; partial output is not a complete recording"
+      - "Verify source errors, codec availability, output size and disk space before reset/retry"
+    references:
+      - kind: tool
+        id: record
+
+  - code: tdmcp.timing.interrupted
+    layer: perception
+    message: "Timing job interrupted by deadline, disconnect or external state change"
+    mitigation:
+      - "Read status before retrying; request timeout does not itself cancel a job"
+      - "Prepare stable clocks/inputs and reset before replay; do not seek backward"
+    references:
+      - kind: tool
+        id: capture
+
   - code: tdmcp.bridge.unknown_pid
     layer: fleet
     # In 1.0 `unknown_pid` vs `bridge.lost` distinction is shipped (registry check in BridgeSessions::call).

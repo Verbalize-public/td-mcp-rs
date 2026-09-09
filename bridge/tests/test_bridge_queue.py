@@ -757,18 +757,18 @@ class PumpTest(unittest.TestCase):
         self.assertIs(_FakeTd.run_calls[0][2], _FakeTd.TDResources)
         self.assertTrue(tdmcp_bridge._pump_scheduled)  # noqa: SLF001
 
-    def test_pump_rate_limits_burst(self) -> None:
-        # Arrange — first call schedules; subsequent immediate calls must not
-        tdmcp_bridge._pump()  # noqa: SLF001
-        first_n = len(_FakeTd.run_calls)
-        self.assertEqual(first_n, 1)
-
-        # Act — rapid burst within the 50 ms window
-        for _ in range(100):
-            tdmcp_bridge._pump()  # noqa: SLF001
-
-        # Assert
-        self.assertEqual(len(_FakeTd.run_calls), 1)
+    def test_early_scheduled_tick_keeps_the_pump_alive(self) -> None:
+        # TD rounds millisecond delays to frame boundaries. A 50 ms callback
+        # may fire before 50 wall-clock ms, especially with realtime disabled.
+        tq = sys.modules['tdmcp_bridge.task_queue']
+        with mock.patch.object(tq.time, 'monotonic', return_value=100.0):
+            tdmcp_bridge.start_pump()
+            first = _FakeTd.run_calls.pop(0)[0]
+            first()
+            next_tick = _FakeTd.run_calls.pop(0)[0]
+            next_tick()
+        self.assertTrue(tdmcp_bridge._pump_scheduled)
+        self.assertEqual(len(_FakeTd.run_calls), 1, 'a live flag must have a successor callback')
 
     def test_start_pump_no_td_module(self) -> None:
         # Arrange

@@ -46,6 +46,7 @@ from . import (
     suggest as _suggest,
     task_queue as _task_queue,
     transport as _transport,
+    timing as _timing,
 )
 
 
@@ -144,6 +145,7 @@ class BridgeErrResult(TypedDict):
 HANDLERS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "execute_python": handle_execute_python,
     "capture": handle_capture,
+    "record": lambda params: _timing.handle('record', params),
     "inspect": handle_inspect,
     "mutate_nodes": handle_mutate,
     "api_help": handle_api_help,
@@ -164,6 +166,11 @@ def dispatch(msg: dict[str, Any]) -> dict[str, Any]:
             "id": msg.get("id"),
             "error": {"message": f"unknown method: {method}"},
         }
+    if method != 'ping':
+        _state.require_main_thread()
+    blocked = _timing.admission(method, params)
+    if blocked:
+        return {"type": "response", "id": msg.get("id"), "error": blocked}
     result = handler(params)
     return {"type": "response", "id": msg.get("id"), "result": result}
 
@@ -234,6 +241,7 @@ def _load_bridge_package(pkg_dir: str | None) -> None:
     retries). Reload children deepest-first, then the package root so
     re-exports bind to the fresh callables.
     """
+    _timing.shutdown()
     if pkg_dir:
         if pkg_dir not in sys.path:
             sys.path.insert(0, pkg_dir)
@@ -391,6 +399,7 @@ def bootstrap_threaded(bridge_dir: str | None = None) -> dict[str, Any]:
     dead worker (explicit resurrection).
     """
     global _active_stream, _active_thread
+    _state.require_main_thread()
     if _active_stream is not None or _active_thread is not None:
         disconnect()
     # Refresh before handshake — dialer retries share one TD interpreter.
@@ -428,14 +437,14 @@ def bootstrap_threaded(bridge_dir: str | None = None) -> dict[str, Any]:
         kwargs={"idle_dead_s": idle_dead_s, "max_call_wait_s": max_call_wait_s},
         daemon=True,
     )
+    # Protect native Textport streams before the worker can print, including
+    # an immediate read/teardown error on a just-opened connection.
+    pkg.install(pkg._bridge_log_sender, on_local=pkg._debug_dat_mirror)
     thread.start()
     pkg._active_stream = stream
     pkg._active_thread = thread
     # Timeline-independent dispatch so the bridge works while paused.
     pkg.start_pump()
-    # Log uplink (M2): reinstall-safe, so this also re-asserts the tee if a
-    # prior connection's reload left `sys.stdout` pointing at a stale tee.
-    pkg.install(pkg._bridge_log_sender, on_local=pkg._debug_dat_mirror)
     return resp
 
 
@@ -454,6 +463,8 @@ def disconnect() -> bool:
     ([`_TcpStream.cancel_pending_io`] → ``shutdown``), join it, *then* close.
     """
     global _active_stream, _active_thread
+    _state.require_main_thread()
+    _timing.shutdown()
     if _active_stream is None:
         return False
     stream = _active_stream

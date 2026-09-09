@@ -6,7 +6,7 @@ Sequential bridged tools against one TD `pid` — HARD RULE for agents.
 
 | Kind | Tools | Rule |
 |------|-------|------|
-| **Bridged** | `execute_python`, `inspect`, `capture`, `mutate_nodes`, `api_help`, `editor_context` | At most **one** in-flight per `(mcp_session, daemon_scope, pid)` — `daemon_scope` is `local` or remote `daemonId` when federated |
+| **Bridged** | `execute_python`, `inspect`, `capture`, `record`, `mutate_nodes`, `api_help`, `editor_context` | At most **one** in-flight per `(mcp_session, daemon_scope, pid)` — `daemon_scope` is `local` or remote `daemonId` when federated |
 | **Exempt** | `fleet`, `describe_tools` | Safe during an in-flight bridged call |
 
 ## What to do
@@ -15,6 +15,9 @@ Sequential bridged tools against one TD `pid` — HARD RULE for agents.
 2. On `tdmcp.mcp.session_busy` ("chill down") or `tdmcp.bridge.queue_busy`: wait
    for in-flight work, then **retry** — do not disconnect, restart the daemon,
    or drop the tox.
+3. A timed capture/record job additionally reserves the TD transport between
+   calls until cleanup. On `tdmcp.timing.busy`, use the named job's status/cancel
+   actions, not other bridged tools. See [`timed-capture`](./timed-capture.md).
 
 ## Daemon gates (summary)
 

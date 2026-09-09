@@ -7,8 +7,17 @@ These are known constraints, not a delivery schedule.
   See [Linux/Wine](LINUX_SUPPORT.md).
 - Capture images travel inline through MCP. Individual DAT/shader text previews
   are capped at 64 KiB. Replies over the 32 MiB IPC budget fail without dropping
-  the bridge, but there is no artifact spool or universal preview/pagination
-  policy for large results.
+  the bridge. Recording has a bounded per-job artifact spool/read API, but
+  there is no universal preview/pagination policy for arbitrary large results.
+- Timed capture/record requires explicit TOP outputs; no audio or timed shared
+  viewers. Initial recording is qtrle MOV (up to 4096×4096 / 512 MiB), tested on
+  TD 2025.32460 under Wine/Linux. Native Windows/macOS and other codecs need
+  separate acceptance. A recorder is a temporary sibling of the source, so its
+  parent must permit operator creation. Container verification is not a decoder.
+- Timing jobs reserve TD transport across calls but are not long-running rows
+  in `fleet.tasks`; poll capture/record status. Retention is eight jobs per
+  bridge generation, and reload invalidates jobs/private artifacts. The local
+  Python deadline cannot preempt a natively blocked main thread.
 - Bridge call budgets are live, but stdio proxy ceilings remain independent
   environment settings. See [Configuration](CONFIG.md#stdio-proxy-ceilings).
 - Federation is one coordinator with directly joined computers, not a mesh.

@@ -20,6 +20,16 @@ pub const BRIDGE_MAIN_THREAD_TIMEOUT: &str = "tdmcp.bridge.main_thread_timeout";
 pub const BRIDGE_QUEUE_BUSY: &str = "tdmcp.bridge.queue_busy";
 /// MCP session already has an in-flight bridged tool against this pid.
 pub const MCP_SESSION_BUSY: &str = "tdmcp.mcp.session_busy";
+/// Another deferred timing job owns the TD transport.
+pub const TIMING_BUSY: &str = "tdmcp.timing.busy";
+/// Invalid reset, source, schedule or artifact request.
+pub const TIMING_INVALID: &str = "tdmcp.timing.invalid";
+/// Timing job or artifact no longer retained.
+pub const TIMING_NOT_FOUND: &str = "tdmcp.timing.not_found";
+/// Timing/render/encoder/finalization failure.
+pub const TIMING_FAILED: &str = "tdmcp.timing.failed";
+/// Deadline, disconnect or external transport/source interference.
+pub const TIMING_INTERRUPTED: &str = "tdmcp.timing.interrupted";
 /// Official-tools scan could not enumerate any location.
 pub const INSTALLS_SCAN_FAILED: &str = "tdmcp.installs.scan_failed";
 
@@ -255,6 +265,11 @@ pub const PERCEPTION_MAX_SIZE_TOO_LARGE: &str = "tdmcp.perception.max_size_too_l
 
 /// All codes that must exist in the catalog (compile-time enumeration).
 pub const ALL: &[&str] = &[
+    TIMING_BUSY,
+    TIMING_INVALID,
+    TIMING_NOT_FOUND,
+    TIMING_FAILED,
+    TIMING_INTERRUPTED,
     INSTALLS_SCAN_FAILED,
     PROJECT_IO_FAILED,
     PROJECT_SOURCE_NOT_FOUND,

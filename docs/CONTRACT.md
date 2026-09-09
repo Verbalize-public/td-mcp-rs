@@ -108,8 +108,15 @@ Handshake returns a local FS path to the bridge package directory. TD reloads fr
 | --- | --- | --- |
 | **Session chill** | `(mcp_session_id, pid)` — at most one in-flight bridged tool | `tdmcp.mcp.session_busy` |
 | **Pid exclusive** | Per-pid `TaskQueue` — always exclusive enqueue | `tdmcp.bridge.queue_busy` |
+| **Timing reservation** | TD bridge process, across calls/sessions until job cleanup | `tdmcp.timing.busy` (names owning tool/job) |
 
-Bridged tools (`execute_python`, `inspect`, `capture`, `mutate_nodes`, `api_help`, `editor_context`) always enqueue **exclusive**. Client `exclusive` is accepted for wire compat and **ignored**. Shared multi-enqueue is not a supported mode.
+Bridged tools (`execute_python`, `inspect`, `capture`, `record`, `mutate_nodes`, `api_help`, `editor_context`) always enqueue **exclusive**. Client `exclusive` is accepted for wire compat and **ignored**. Shared multi-enqueue is not a supported mode.
+
+Timed capture/record jobs reserve transport in TD across callbacks, not by
+leaving the Rust RPC queue occupied. Only the owning tool's status/cancel calls
+and ping are admitted until cleanup. `fleet.tasks` describes RPCs, not deferred
+progress; use job status. The reservation covers all bridge callers, including
+federation and JSON fallback. Local OS controls are not a sandbox.
 
 **Exempt** (no session chill, no task-queue enqueue): `fleet`, `describe_tools`, wire heartbeat `ping`.
 
@@ -190,6 +197,7 @@ safety net only — the daemon owns the real per-method budgets.
 | `execute_python`            | Run Python in TD; `result = …`; optional `logs`; structured `exception` on failure                     | **Shipped**           |
 | `inspect`                   | Structural read for explicit `paths[]` batch (nodes + wires / params / errors / warnings / content); no auto-recursion | **Shipped**           |
 | `capture`                   | Perception — `top` / `preview` / `auto` / `chop_data` / `chop_image`† / `pop`† († aliases of preview)  | **Shipped**           |
+| `record`                    | N-frame TOP video jobs: start/status/cancel/read/release, bounded artifact retrieval | **Shipped** |
 | `describe_tools`            | Manifest of available tools                                                                            | **Shipped**           |
 | `mutate_nodes`              | Ordered create / set / delete / connect / disconnect steps; sequential apply, stop on first hard error | **Shipped**           |
 | `api_help`                  | Live TD Python API cards (class / classes index / thin module) — not wiki/help dumps                   | **Shipped**           |
@@ -433,7 +441,88 @@ Capture does **not** force-cook. TD cooks on read / `saveByteArray`; shared-view
 | `pop`        | **Shipped** | Alias of `preview` (shared OP Viewer); kept for existing callers                                                                                                                                                                                                                                    |
 
 
+### Timing metadata and deferred capture/record jobs
+
+`inspect` adds a top-level `timing` snapshot and per-node `timing` regardless
+of include. Fields when available: effective `timePath`, `frame`, `seconds`,
+`rate`, `play`, `realTime`, `absFrame`, `absSeconds`, and node `cookFrame`,
+`cookAbsFrame`, `totalCooks`. Unavailable metadata reports `available:false`;
+it is not invented. Inspection does not change transport. Absolute time is
+not an unconditional wall clock: it can stop with the referenced timeline.
+
+Plain capture is unchanged. Supplying `timing` starts an asynchronous TOP job:
+
+```json
+{"pid":123,"path":"/project1/fade/out1","timing":{"reset":{"path":"/project1/fade","parameter":"Reset"},"initializeFrames":1,"sampleFrames":[0,30,60],"after":"pause"},"inspect":{"paths":["/project1/fade"],"include":["params","errors","warnings"]}}
+```
+
+The job resets through the public Pulse, advances initialization/warmup frames,
+then samples offset zero. A single forward frame and full TD callback iteration
+separate subsequent steps; the output is demanded every intervening frame.
+No backward seeking or skipped-frame assignment loop. Reset is optional for
+continuing agent-prepared state. Reset defaults to one initialization frame,
+otherwise zero; `initializeFrames` and `warmupFrames` are explicit 0..600 counts.
+Their correct values depend on the component's reset contract.
+
+Capture schedule alternatives (mutually exclusive): `sampleFrames` (strictly
+increasing offsets), `repeat:{count,interval}` (starts at zero), or `stepFrames`
+(one sample after advancing). Empty timing samples current state once. `after`
+is `pause` (default), `play`, or `restore` (original play flags, never history).
+`timePath` must match the output's effective time source; omitted means infer.
+Both root and selected clocks are paused while stepping, with realtime disabled.
+Realtime is restored afterward; failure/cancel leaves clocks paused.
+
+Timed capture supports TOP `top`/`auto`, not the shared viewer or CHOP modes.
+Paired `inspect` accepts 1..16 existing paths on that clock; `content` is excluded
+because it can force compilation. Limits: 16 samples, 8 MiB combined JSON/image
+results, max offset 3600, image caps as ordinary capture. `timeoutSeconds` is a
+local 1..600 second deadline (default 120), distinct from the RPC wait budget.
+Crossing the timeline end is rejected before reset; extend the range explicitly.
+Frame/rate/play/range/source interference stops the job. Native main-thread
+blocking cannot be preempted by a Python deadline.
+
+Start/status/cancel return `{ok:true,jobId,kind,state,phase,path,timePath,
+requestedSamples,advancedFrames,initializeFrames,warmupFrames,samples,
+recordedSamples,error,artifact}`. `ok` describes the request: check job `state`.
+States: `running`, `finalizing`, `complete`, `cancelled`, `failed`, or
+`cleanup_failed` (still reserved; retry cancel after resolving cleanup failure).
+Samples contain `offset`, `timing`, `capture` and optional `inspect`. MCP promotes
+sample PNGs in offset order and removes their base64 from structured metadata.
+Call the same tool with `action:"status"`/`"cancel"` plus PID and jobId. Without
+a jobId these actions discover the active job, or latest retained job of that
+tool when idle—useful after a lost start reply. Status never drives advancement.
+RPC timeout is not cancellation. Reservation lasts through cleanup and encoder
+finalization, up to an additional 30 seconds for container finalization.
+
+`record` start requires PID, one explicit TOP `path` and `frames` (1..3600).
+It shares reset/initialization/after options, but no sparse capture schedule.
+N means offsets 0..N−1. Initial backend: **qtrle MOV, no audio**, effective
+timeline FPS, max 4096×4096 and 512 MiB artifact. A uniquely named temporary
+Movie File Out sibling of the source inherits its clock and is destroyed on
+cleanup; the source parent must permit creation. Caller files are never
+overwritten: movies live in bridge-created private temporary directories.
+
+After record-off, TD must finish writing the container. Only then is `artifact`
+published: `{artifactId,mimeType,bytes,codec,frames,width,height,fps,
+durationSeconds,verification:"container-sample-table"}`. Counts/dimensions/rate
+are verified from finalized MOV metadata, not `writeCount`. This does not
+prove decoded visual correctness; live acceptance separately decodes first/last
+frames. Cancellation can yield a verified partial artifact; inspect actual count.
+
+Retrieve via `record` with `action:"read"`, PID, jobId, byte `offset` (default 0),
+`length` (1..262144; default maximum). Response:
+`{ok,jobId,artifactId,offset,nextOffset,eof,dataBase64}`. Decode and concatenate
+until eof. The same operation routes with `daemonId` through federation—no
+remote filesystem access needed. `release` removes retained results and private
+files. At most eight jobs are retained per bridge generation, oldest evicted;
+bridge reload/disconnect recovery invalidates jobs and removes their files.
+
+Diagnostics: `tdmcp.timing.invalid`, `.busy`, `.not_found`, `.failed`,
+`.interrupted`. Terminal job errors carry the same codes inside `error`.
+Native Windows/macOS and codecs beyond qtrle require separate acceptance.
+
 ### `mutate_nodes`
+
 
 One tool. Ordered `steps[]`. **Sequential apply, stop on first hard error, never roll back.** No separate preflight pass — the live network can change between passes and a single-caller local daemon does not need two-phase commit. "Aggregate bad paths" is met by *returning* every path/param error seen up to the stop point, not by a resolve-all-then-apply phase.
 

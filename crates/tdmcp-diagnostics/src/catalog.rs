@@ -198,6 +198,7 @@ mod tests {
             "inspect",
             "mutate_nodes",
             "capture",
+            "record",
             "api_help",
             "editor_context",
             "describe_tools",

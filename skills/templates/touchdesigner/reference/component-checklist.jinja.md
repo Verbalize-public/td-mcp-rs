@@ -5,11 +5,12 @@ Custom pars depth: {{ skill("custom-parameters") }}.
 
 ## Statefulness & resolution
 
-- **Reset signal.** Any stateful COMP (feedback, LFO, integrator, particle sim, …)
-  ships a way to reset to its original state — a pulse custom parameter wired to
-  whatever internally clears the state (Feedback TOP `resetpulse`, CHOP `Reset`
-  parameter, etc.). Without one, the COMP cannot recover from a bad state without
-  a manual node-level fix.
+- **Reset signal (required).** Every stateful COMP must expose a working reset
+  control, normally a custom `Reset` pulse, that initializes all owned state
+  and propagates to stateful children. Connect it by default to the project's
+  global reset at integration time, keeping the component independently
+  resettable. Missing or incomplete reset fails completion. Implement and
+  verify the contract in {{ skill("reset-state") }}.
 - **`Resolution` (WH).** When a COMP contains a TOP whose resolution isn't fixed by
   its input (a generator, a Feedback loop, a Render TOP), expose a custom
   `appendWH('Resolution')` (`Resolutionw` / `Resolutionh`) and reference those from

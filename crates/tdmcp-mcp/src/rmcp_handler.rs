@@ -227,8 +227,31 @@ fn drop_duplicate_text_if_large(mut result: CallToolResult) -> CallToolResult {
 }
 
 /// Build an MCP tool result, promoting top-level `imageBase64` to an image block.
-fn call_tool_result_from_value(tool: &str, value: Value) -> CallToolResult {
+fn call_tool_result_from_value(tool: &str, mut value: Value) -> CallToolResult {
     if tool == "capture" {
+        if let Some(samples) = value.get_mut("samples").and_then(Value::as_array_mut) {
+            let mut content = Vec::new();
+            for sample in samples {
+                let offset = sample.get("offset").cloned().unwrap_or(Value::Null);
+                if let Some(capture) = sample.get_mut("capture").and_then(Value::as_object_mut) {
+                    if let Some(Value::String(b64)) = capture.remove("imageBase64") {
+                        let mime = capture
+                            .get("mimeType")
+                            .and_then(Value::as_str)
+                            .unwrap_or("image/png");
+                        content.push(ContentBlock::text(format!(
+                            "Capture sample offset {offset}"
+                        )));
+                        content.push(ContentBlock::image(b64, mime.to_owned()));
+                    }
+                }
+            }
+            if !content.is_empty() {
+                let mut result = CallToolResult::success(content);
+                result.structured_content = Some(value);
+                return result;
+            }
+        }
         return match try_perception_image_result(value) {
             Ok(result) => result,
             Err(value) => drop_duplicate_text_if_large(CallToolResult::structured(value)),
@@ -300,6 +323,31 @@ mod tests {
     use tdmcp_diagnostics::Catalog;
 
     use crate::testing::{test_resource_provider, FakeBridgeRpc};
+
+    #[test]
+    fn capture_promotes_ordered_job_samples_and_keeps_identity() {
+        let value = json!({"ok":true,"jobId":"job", "samples":[
+            {"offset":0,"timing":{"frame":10},"capture":{"imageBase64":"eA==","mimeType":"image/png"}},
+            {"offset":3,"timing":{"frame":13},"capture":{"imageBase64":"eQ==","mimeType":"image/png"}}
+        ]});
+        let result = call_tool_result_from_value("capture", value);
+        assert_eq!(result.content.len(), 4);
+        assert!(result.content[0]
+            .as_text()
+            .unwrap()
+            .text
+            .contains("offset 0"));
+        assert!(result.content[2]
+            .as_text()
+            .unwrap()
+            .text
+            .contains("offset 3"));
+        let structured = result.structured_content.unwrap();
+        assert_eq!(structured["samples"][1]["timing"]["frame"], 13);
+        assert!(structured["samples"][0]["capture"]
+            .get("imageBase64")
+            .is_none());
+    }
 
     #[test]
     fn session_lease_counts_acquire_and_shared_drop() {

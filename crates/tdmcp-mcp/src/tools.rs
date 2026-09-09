@@ -106,6 +106,8 @@ pub enum ToolName {
     MutateNodes,
     /// Perception capture.
     Capture,
+    /// Frame-exact video recording jobs.
+    Record,
     /// Live TD Python API cards / class index.
     ApiHelp,
     /// Live editor pane / selection snapshot.
@@ -144,6 +146,7 @@ impl ToolName {
             Self::Inspect => "inspect",
             Self::MutateNodes => "mutate_nodes",
             Self::Capture => "capture",
+            Self::Record => "record",
             Self::ApiHelp => "api_help",
             Self::EditorContext => "editor_context",
             Self::DescribeTools => "describe_tools",
@@ -177,8 +180,9 @@ impl ToolName {
                 "Ordered create/set/delete/connect/disconnect/place steps; sequential apply, stop on first hard error; later steps skipped (tdmcp.batch.skipped_dependent). Fix from failedAt only. create/set accept text: DAT body write (applied first; non-DAT target = hard error tdmcp.mutate.not_dat; create rolls back). create/set also accept comment: OP.comment, the node's own account of what it does and why — any family, an empty string clears it, and inspect returns it. Comment every non-obvious node you create: it is how the next agent (and the user) reads the network. After each successful text write the tool lints consuming GLSL ops and attaches per-step shaderDiagnostics[] ({severity note|error, code tdmcp.shader.*, consumer, consumerOpType, role, message, lines[]} for errors); summary adds shaderNotes/shaderErrors counts. Lint reads compileResult, forcing a synchronous recompile of each consumer; never flips ok. place drops a Palette component (.tox) into the network: pass paletteId (resolved against the palette_index roster on the daemon — an unknown id fails tdmcp.palette.unknown_id before TD is touched) or an absolute toxPath, never both; comment/values/flags apply exactly as on create, and the placed COMP is referenceable by later steps in the same batch, so place and connect in one call. See tdmcp://docs/palette."
             }
             Self::Capture => {
-                "Perception capture. top=native TOP PNG; preview=any family via shared bridge OP Viewer TOP; chop_data=CHOP JSON; chop_image/pop=aliases of preview; auto=TOP→top, CHOP→chop_data, else preview. maxSize is hard-capped at 1536px longer side (tdmcp.perception.max_size_too_large); null (native) is only honored when native resolution is already under the cap."
+                "Perception capture. top=native TOP PNG; preview=any family via shared bridge OP Viewer TOP; chop_data=CHOP JSON; auto selects by family. maxSize defaults to 512, hard cap 1536px. Optional timing starts a reset+sequential-forward TOP capture job; poll action=status with jobId, or cancel. sampleFrames/repeat/stepFrames select offsets after explicit reset initialization; inspect pairs structural reads with each sample. The job owns this PID until cleanup; plain capture remains immediate."
             }
+            Self::Record => "Record exactly frames consecutive samples from one TOP output, without audio. Starts a reset+forward-advance job; status/cancel remain available while it owns the PID. Default timeline FPS, qtrle MOV. Finalized artifact metadata is sample-table verified; read retrieves bounded base64 chunks by jobId/offset/length (works remotely), release removes the private artifact. Retains at most eight jobs per TD bridge generation.",
             Self::ApiHelp => {
                 "Live TD Python API cards (not wiki dumps). Batch queries[] (soft-cap 64): class (doc/opType/family/mro/members), classes (op-like index + family/prefix), module (td thin). No help() / no param listing — use inspect include params for .par names. Case-sensitive class names."
             }
@@ -226,6 +230,7 @@ impl ToolName {
         Self::Inspect,
         Self::MutateNodes,
         Self::Capture,
+        Self::Record,
         Self::ApiHelp,
         Self::EditorContext,
         Self::DescribeTools,
@@ -250,6 +255,7 @@ impl ToolName {
             "inspect" => Some(Self::Inspect),
             "mutate_nodes" => Some(Self::MutateNodes),
             "capture" => Some(Self::Capture),
+            "record" => Some(Self::Record),
             "api_help" => Some(Self::ApiHelp),
             "editor_context" => Some(Self::EditorContext),
             "describe_tools" => Some(Self::DescribeTools),
@@ -487,7 +493,8 @@ pub struct CaptureParams {
     #[serde(default)]
     pub daemon_id: Option<String>,
     /// Operator path (OpPath; relative to contextPath or /project1).
-    pub path: OpPath,
+    #[serde(default)]
+    pub path: Option<OpPath>,
     /// Capture mode.
     #[serde(default)]
     pub mode: CaptureMode,
@@ -499,6 +506,18 @@ pub struct CaptureParams {
     /// `null` is only honored when native resolution is already under the cap.
     #[serde(default = "default_capture_max_size")]
     pub max_size: Option<LenientU32>,
+    /// Start (default), status, cancel, or release a timed capture job.
+    #[serde(default)]
+    pub action: crate::timing::JobAction,
+    /// Job returned by a prior timed capture. Omit on status/cancel to discover the active job.
+    #[serde(default)]
+    pub job_id: Option<String>,
+    /// Optional reset and sequential advance schedule; omitted means immediate capture.
+    #[serde(default)]
+    pub timing: Option<crate::timing::TimingOptions>,
+    /// Optional structural inspection paired with each timed sample.
+    #[serde(default)]
+    pub inspect: Option<crate::timing::SampleInspect>,
     /// Diagnostic payload size (`summary` omits raw traceback).
     #[serde(default)]
     pub diagnostic_level: DiagnosticLevel,
@@ -1330,6 +1349,24 @@ async fn dispatch_tool_inner(
         }
         ToolName::Capture => {
             let params: CaptureParams = parse_args(catalog, tool, args.clone())?;
+            if params.action == crate::timing::JobAction::Start && params.path.is_none() {
+                return Err(coded_failure(
+                    catalog,
+                    tool,
+                    codes::ARGS_MISSING_FIELD,
+                    "path",
+                    "capture start requires path",
+                ));
+            }
+            if params.inspect.is_some() && params.timing.is_none() {
+                return Err(coded_failure(
+                    catalog,
+                    tool,
+                    codes::TIMING_INVALID,
+                    "inspect",
+                    "paired inspect requires timing",
+                ));
+            }
             if let ControlFlow::Break(v) = maybe_proxy_bridged(
                 federation,
                 registry,
@@ -1357,17 +1394,48 @@ async fn dispatch_tool_inner(
                     "mode": params.mode.as_str(),
                     "contextPath": params.context_path,
                     "maxSize": params.max_size,
+                    "action": params.action,
+                    "jobId": params.job_id,
+                    "timing": params.timing,
+                    "inspect": params.inspect,
                 }),
             )
             .await;
+            if params.timing.is_some() || params.action != crate::timing::JobAction::Start {
+                return crate::outcomes::map_timing_outcome(
+                    catalog, params.pid, "capture", outcome,
+                );
+            }
             map_perception_outcome(
                 catalog,
                 params.pid,
-                params.path,
+                params.path.unwrap_or_else(|| OpPath::from("")),
                 params.context_path,
                 outcome,
                 params.diagnostic_level,
             )
+        }
+        ToolName::Record => {
+            let params: crate::timing::RecordParams = parse_args(catalog, tool, args.clone())?;
+            if let ControlFlow::Break(v) = maybe_proxy_bridged(
+                federation,
+                registry,
+                catalog,
+                "record",
+                args.clone(),
+                params.daemon_id.as_deref(),
+                params.pid,
+                session,
+            )
+            .await?
+            {
+                return Ok(v);
+            }
+            let _slot =
+                begin_session_slot(session, catalog, "record", DAEMON_SCOPE_LOCAL, params.pid)?;
+            let outcome =
+                enqueue_and_call(registry, bridge, params.pid, BridgeMethod::Record, args).await;
+            crate::outcomes::map_timing_outcome(catalog, params.pid, "record", outcome)
         }
         ToolName::Inspect => {
             let params: InspectParams = parse_args(catalog, tool, args.clone())?;

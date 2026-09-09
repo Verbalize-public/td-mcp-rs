@@ -728,7 +728,8 @@ def _reconnect_watchdog() -> None:
 			path = me.path  # type: ignore[name-defined]  # noqa: F821
 			# delayRef=TDResources: delays must advance while the root
 			# timeline is paused (plain delayMilliSeconds is rooted at /).
-			kwargs = {"delayMilliSeconds": 2000}
+			# Non-realtime projects can advance far slower than clock time.
+			kwargs = {"delayMilliSeconds": 2000, "wallTime": True}
 			ref = _td_delay_ref()
 			if ref is not None:
 				kwargs["delayRef"] = ref

@@ -46,6 +46,30 @@ applicable section and native installer checks on each supported OS.
   `python scripts/live_bridge_limits_smoke.py PID /path/to/output`.
   Invalid values and a 33 MiB reply must return errors while later calls work.
 
+## Controlled timing and video
+
+- Use `scripts/timing_probe/run_probe.py` setup/configure on an owned scratch
+  PID, then `live_acceptance.py --pid PID --output NEW_DIRECTORY`. Compare reset
+  replays, initial/middle/final images, paired-inspect frames, and feedback
+  progression. Download the video through record/read and decode exact count,
+  first/last content, FPS and dimensions; do not trust `writeCount`.
+- Run `live_failures.py --pid PID --output EVIDENCE.json`: cancellation, deleted
+  source, external seek/play, broken recorder input and deadline must stop
+  advancement and leave no deferred callbacks or recorder operators.
+- Verify the source's local COMP time advances without moving root time;
+  near-end schedules fail before reset rather than wrapping. Test different
+  effective clocks and reject mismatched paired inspection.
+- Across two MCP sessions, reject conflicting bridged calls with timing.busy
+  while status/cancel still work. Lose a start reply and discover its job;
+  disconnect/reconnect during a job and verify no stale callbacks survive.
+  `live_restart.py begin` / daemon restart / `live_restart.py verify` checks
+  this with playback paused and realtime disabled, without UI recovery.
+  Refresh the scratch project's baked bootstrap before testing its watchdog.
+- Check read bounds, missing/released artifacts, retention eviction, native
+  encoder failure, and cleanup retry while the PID remains reserved.
+- Repeat on native Windows/macOS. Wine/Linux evidence is not native coverage.
+- Finish with run_probe cleanup; this restores flags, not simulation history.
+
 ## Settings, federation and dashboard
 
 - Save, discard and reset drafts. Validation errors remain visible; failed

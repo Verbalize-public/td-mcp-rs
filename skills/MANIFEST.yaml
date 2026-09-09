@@ -88,7 +88,24 @@ component-checklist:
   title: Custom component checklist
   description: >-
     Audit a reusable COMP: In/Out boundary, About page, custom pars, relative
-    refs, performance, preview. Use before shipping or cloning a COMP.
+    refs, state reset, performance, preview. Use before shipping or cloning a COMP.
+
+reset-state:
+  template_path: touchdesigner/reference/reset-state.jinja.md
+  output_path: touchdesigner/reference/reset-state.md
+  title: Stateful component reset
+  description: >-
+    Require working reset controls for stateful components, propagate project
+    reset, and verify by reset then sequential advancement. Use when building
+    stateful behavior or checking repeatable transitions and simulations.
+
+timed-capture:
+  template_path: touchdesigner/reference/timed-capture.jinja.md
+  output_path: touchdesigner/reference/timed-capture.md
+  title: Timed capture and recording
+  description: >-
+    Reset then advance for frame-controlled captures and N-frame TOP videos.
+    Use for sample schedules, paired inspection, job status/cancel, and artifact retrieval.
 
 operator-families:
   template_path: touchdesigner/reference/operator-families.jinja.md

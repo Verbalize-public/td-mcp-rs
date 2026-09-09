@@ -56,6 +56,10 @@ to the task; there is no need to load the entire manual.
 - Check the Palette before building a substantial subsystem that may
   already exist. Explain non-obvious nodes with `comment`.
 - Reusable COMPs use relative references and In/Out operators.
+- Every stateful component you build or change must expose a working reset
+  signal, normally a custom parameter, connected by default to the project's
+  global reset at integration time. Verify reset then sequential advancement;
+  follow [`reset-state`](./reference/reset-state.md) before claiming stateful work complete.
 - Check play state when updates or captures appear stale.
 - After three failed probes without new evidence, stop repeating them and
   report the blocker. A new diagnosis can justify a different probe.
@@ -67,6 +71,7 @@ to the task; there is no need to load the entire manual.
 | Plan a network | [`opsketch-notation`](./reference/opsketch-notation.md), [`network-design`](./reference/network-design.md) |
 | Explain design intent | [`node-comments`](./reference/node-comments.md) |
 | Build a reusable component | [`component-checklist`](./reference/component-checklist.md), [`custom-parameters`](./reference/custom-parameters.md) |
+| Build stateful behavior / verify repeatable timing | [`reset-state`](./reference/reset-state.md), [`play-state`](./reference/play-state.md) |
 | Choose an operator family | [`operator-families`](./reference/operator-families.md) |
 | GPU geometry and particles | [`pops`](./reference/pops.md) |
 | Write / port shaders | [`glsl`](./reference/glsl.md), [`td-glsl-ground-truth`](./reference/td-glsl-ground-truth.md), [`shadertoy-conversion`](./reference/shadertoy-conversion.md) |

@@ -375,6 +375,9 @@ def handle_capture(params: dict[str, Any]) -> dict[str, Any]:
     retarget the bridge's shared ``capture_viewer`` OP Viewer TOP — any family.
     Cooking is left to TD on read / ``saveByteArray`` (no force-cook).
     """
+    if params.get('timing') is not None or params.get('action') not in (None, 'start'):
+        from .timing import handle
+        return handle('capture', params)
     path = params.get("path") or ""
     mode = params.get("mode") or "auto"
     context_path = params.get("contextPath")

@@ -399,7 +399,12 @@ comp.par.Gain.destroy()                   # one par
 1. **`.eval()` always** — `par.tx.eval()`, not `par.tx.val` unless you know it's constant
 2. **`.changeType()` returns new OP** — always reassign: `n = n.changeType(td.nullCHOP)`
 3. **`Par` identity** — prefer `.isSamePar()`; do not use `is` (`p1 is p2` is False for the same par)
-4. **Threads can't touch TD objects** — use `run()` with delay
+4. **Threads can't touch TD objects or UI**, including native Textport streams.
+   `execute_python` runs on TD's main thread. Schedule `run()` callbacks there
+   before yielding; do not call `td.run`, `op`, `ui`, or parameter methods from
+   a worker. Workers do plain Python/I/O and exchange plain data with a
+   main-thread callback. The bridge defers worker prints, but that does not
+   make other TD API calls thread-safe.
 5. **OP `id` is session-only** — not persistent across save/load
 6. **`print` in `execute_python`** — teed to Debug DAT / returned `logs`; bare `debug()` is not injected
 7. **`opex()` in expressions** — raises clear error instead of `NoneType has no attribute 'par'`

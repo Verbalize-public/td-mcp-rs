@@ -31,6 +31,7 @@ pub mod stdio_proxy;
 pub mod td_installs;
 pub mod template;
 pub mod testing;
+pub mod timing;
 mod tools;
 
 pub use bridge_rpc::{BridgeRpc, BridgeRpcError};

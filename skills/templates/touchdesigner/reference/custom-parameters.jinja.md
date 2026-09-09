@@ -27,6 +27,15 @@ plumbing): **parameter expression** (`parent().par.Foo`) > **bind** >
 Only **COMPs** have `appendCustomPage` — TOP/CHOP/DAT/etc. cannot host custom
 pages (live-checked).
 
+## Reset controls (required for stateful components)
+
+Expose a public reset signal, normally a custom `Reset` pulse, and connect it
+to every owned state-clearing action, including child component resets.
+Creating a pulse parameter alone does not implement reset. At integration
+time, connect the project reset through this public control by default; keep
+it independently callable and rewirable. Verify the full
+{{ skill("reset-state") }} contract before calling stateful work complete.
+
 ## Naming rules (hard)
 
 Parameter **names** must:
@@ -114,7 +123,7 @@ page.appendToggle('Enable', label='Enable')
 comp.par.Enable = True            # fresh toggles default to False
 
 page.appendPulse('Reset', label='Reset')
-comp.par.Reset.pulse()
+comp.par.Reset.pulse()  # Delivers a pulse; requires an implemented reset handler.
 
 about = comp.appendCustomPage('About')
 about.appendStr('Version', label='Version')
@@ -211,7 +220,6 @@ comp.par.Gain.enableExpr = 'me.par.Enable'
 ctrl.appendWH('Resolution', label='Resolution')
 comp.par.Resolutionw.val = comp.par.Resolutionw.default = 1280
 comp.par.Resolutionh.val = comp.par.Resolutionh.default = 720
-ctrl.appendPulse('Reset', label='Reset')
 
 about = comp.appendCustomPage('About')
 for nm, label, val in [
@@ -233,6 +241,8 @@ noise.par.amp.mode = Mode.BIND
 ```
 
 After mutate: `inspect` the COMP with `include: ["nodes","params","errors","warnings"]`.
+This stateless example needs no reset control. When adding stateful behavior,
+add and wire a working reset using the contract above.
 
 ## Related
 

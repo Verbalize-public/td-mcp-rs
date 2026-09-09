@@ -22,6 +22,7 @@ from .identity import (
     max_call_wait_from_handshake,
 )
 from . import logtap as _logtap
+from . import state as _state
 from .transport import (
     MidFrameTimeout,
     _apply_read_timeout,
@@ -229,7 +230,6 @@ def _enqueue_pending(
 # Pause-resilient pump state (functions defined after process_pending).
 _pump_scheduled: bool = False
 _pump_lock = threading.Lock()
-_last_schedule: float = 0.0
 
 
 def _set_pump_scheduled(value: bool) -> None:
@@ -243,13 +243,12 @@ def _set_pump_scheduled(value: bool) -> None:
 
 def _reset_pending_for_tests() -> None:
     """Clear pending/running/pump state — test harness only."""
-    global _running, _last_schedule
+    global _running
     with _pending_lock:
         _pending.clear()
         _running = None
     with _pump_lock:
         _set_pump_scheduled(False)
-        _last_schedule = 0.0
         pkg = sys.modules.get("tdmcp_bridge")
         if pkg is not None:
             pkg._last_schedule = 0.0
@@ -324,6 +323,7 @@ def process_pending(max_items: int = 64) -> int:
     remaining items are picked up next frame.
     """
     global _running
+    _state.require_main_thread()
     n = 0
     while n < max_items:
         with _pending_lock:
@@ -369,8 +369,6 @@ def process_pending(max_items: int = 64) -> int:
 # Resilience:
 #   - Each invocation wraps process_pending() in try/except so a single
 #     bad dispatch never kills the pump.
-#   - _last_schedule with 50 ms minimum prevents backed-up run() bursts
-#     after a long main-thread block (e.g. 30 s execute_python).
 #   - _pump_scheduled flag prevents double-scheduling via start_pump().
 
 def _td_delay_ref():
@@ -411,6 +409,7 @@ def _td_delay_ref():
 
 def _schedule_pump(delay_ms: int) -> None:
     """Schedule ``_pump`` via ``td.run`` with pause-safe delayRef + wallTime."""
+    _state.require_main_thread()
     import td  # noqa: F811
 
     # Import package binding so delayed callable sees the live ``_pump``.
@@ -436,7 +435,8 @@ def _schedule_pump(delay_ms: int) -> None:
 
 def _pump() -> None:
     """Self-rescheduling main-thread dispatch pump — callable from run()."""
-    global _last_schedule
+    _state.require_main_thread()
+    _logtap.drain_streams()
 
     try:
         process_pending(max_items=4)
@@ -465,10 +465,9 @@ def _pump() -> None:
             _set_pump_scheduled(False)
             return  # clean stop — do not re-schedule
 
-        now = time.monotonic()
-        if now - _last_schedule < 0.050:
-            return  # rate-limited — another pump invocation already scheduled
-        _last_schedule = now
+        # start_pump prevents duplicate starts. Every consumed callback must
+        # schedule its successor: TD's frame-rounded delay may fire before
+        # 50 wall-clock ms; returning early strands _pump_scheduled=True.
         try:
             _schedule_pump(50)
         except Exception as exc:  # noqa: BLE001

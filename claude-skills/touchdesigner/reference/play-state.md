@@ -11,11 +11,18 @@ rewriting the network.
    signal. Do not treat a paused black/static frame as a network FAIL until you
    have confirmed play is on (or the claim is specifically about the paused
    frame).
-3. If bridged tools time out while the timeline is paused, press **Play** and
-   retry once. Prefer fixing play state over restarting the daemon or tox.
+3. The bridge pump should remain responsive while paused. Do not resume a
+   controlled timing job just to service tools: use its status/cancel surface.
+   If the main thread is genuinely blocked, report the timeout; an RPC timeout
+   does not establish that the job was cancelled.
 
 ## Quick checks
 
+- For tool-managed sampling/recording and transport actions, use
+  [`timed-capture`](./timed-capture.md). Ordinary inspection never changes play state.
+- For repeatable stateful checks, use the public reset signal and advance
+  sequentially with verified cooking ([`reset-state`](./reset-state.md)). Timeline
+  seeking or moving backward does not reset the network's accumulated state.
 - Timeline / Perform transport: is the project playing?
 - After unpausing, re-`inspect` / re-`capture` before grading look or FPS.
 - Sequential bridged calls still apply: [`tooling-concurrency`](./tooling-concurrency.md).

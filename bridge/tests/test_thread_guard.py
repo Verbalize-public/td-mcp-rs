@@ -12,8 +12,10 @@ records from the main thread only.
 from __future__ import annotations
 
 import os
+import io
 import sys
 import threading
+import types
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -21,6 +23,7 @@ import pytest  # noqa: E402
 
 import tdmcp_bridge  # noqa: E402
 from tdmcp_bridge import logtap  # noqa: E402
+from tdmcp_bridge import execute as execute_mod  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -161,3 +164,144 @@ def test_mirror_on_main_thread_writes_directly(
     )
     assert len(dat_calls) == 1
     assert _deferred_msgs() == []
+
+
+class _MainThreadStream:
+    """Model TD's native Textport: even attribute access can enter TD/UI code."""
+
+    def __init__(self):
+        self.owner_ident = threading.get_ident()
+        self.calls = []
+        self.text = []
+
+    def _record(self, operation):
+        self.calls.append((operation, threading.get_ident()))
+
+    def write(self, text):
+        self._record('write')
+        self.text.append(text)
+        return len(text)
+
+    def flush(self):
+        self._record('flush')
+
+    def isatty(self):
+        self._record('isatty')
+        return True
+
+    @property
+    def encoding(self):
+        self._record('encoding')
+        return 'utf-8'
+
+
+@pytest.mark.parametrize('capture', [False, True])
+def test_worker_output_never_enters_native_textport(capture):
+    native = _MainThreadStream()
+    stream = logtap.Tee(native, 'error', 'bridge::stderr')
+    buf = io.StringIO()
+    if capture:
+        stream = execute_mod._TeeStream(buf, stream)
+
+    def worker():
+        stream.write('worker traceback\n')
+        stream.flush()
+        stream.isatty()
+        _ = stream.encoding
+
+    _run_in_thread(worker)
+    assert native.calls == [], 'no native stream access is safe on the worker'
+    _run_in_thread(logtap.drain_streams)
+    assert native.calls == [], 'off-main drain must not enter Textport either'
+    logtap.drain_streams()
+    assert ''.join(native.text) == 'worker traceback\n'
+    assert all(ident == native.owner_ident for _, ident in native.calls)
+    if capture:
+        assert buf.getvalue() == 'worker traceback\n'
+
+
+def test_execute_worker_print_during_capture_is_not_uplinked_twice(monkeypatch):
+    native = _MainThreadStream()
+    monkeypatch.setattr(sys, 'stdout', native)
+    monkeypatch.setattr(sys, 'stderr', native)
+    logtap.install(lambda records: None)
+    result = tdmcp_bridge.handle_execute_python({
+        'script': "import threading\nt = threading.Thread(target=lambda: print('worker output'))\nt.start()\nt.join(2)\nresult = not t.is_alive()"
+    })
+    assert result['result'] is True
+    assert 'worker output' in result['logs']
+    assert all(ident == native.owner_ident for _, ident in native.calls)
+    logtap.drain_streams()
+    assert ''.join(native.text) == 'worker output\n'
+    assert len(logtap._buffer) == 1
+    assert logtap._buffer[0]['target'] == 'execute_python'
+
+
+def test_capture_without_global_tee_defers_raw_native_stream():
+    native = _MainThreadStream()
+    stream = execute_mod._TeeStream(io.StringIO(), native)
+    _run_in_thread(stream.write, 'raw native stream')
+    assert native.calls == []
+    logtap.drain_streams()
+    assert native.text == ['raw native stream']
+
+
+def test_worker_teardown_does_not_touch_textport(monkeypatch):
+    from tdmcp_bridge import task_queue
+
+    native = _MainThreadStream()
+    monkeypatch.setattr(sys, 'stderr', native)
+    logtap.install(lambda records: None, on_local=tdmcp_bridge._debug_dat_mirror)
+
+    def broken_read(*args, **kwargs):
+        raise OSError('connection closed')
+
+    monkeypatch.setattr(task_queue, '_read_frame', broken_read)
+    stream = types.SimpleNamespace(close=lambda: None)
+    _run_in_thread(task_queue.serve_queued, stream)
+    assert native.calls == []
+    assert any('stream closed' in msg for msg in _deferred_msgs())
+    logtap.drain_streams()
+    assert 'stream closed' in ''.join(native.text)
+    assert all(ident == native.owner_ident for _, ident in native.calls)
+
+
+def test_deferred_native_output_is_bounded_and_preserves_surviving_order():
+    native = _MainThreadStream()
+
+    def worker():
+        for i in range(logtap._STREAM_QUEUE_MAX + 4):
+            logtap.write_stream(native, f'{i}:')
+        logtap.write_stream(native, 'x' * (logtap._STREAM_CHUNK_MAX + 100))
+
+    _run_in_thread(worker)
+    assert native.calls == []
+    assert logtap.drain_streams() == logtap._STREAM_QUEUE_MAX
+    assert native.text[0] == '5:'
+    assert native.text[-1] == 'x' * logtap._STREAM_CHUNK_MAX
+    assert native.text[1:-1] == [f'{i}:' for i in range(6, logtap._STREAM_QUEUE_MAX + 4)]
+
+
+@pytest.mark.parametrize('entry', ['dispatch', 'execute', 'pump', 'bootstrap'])
+def test_td_entry_points_reject_worker_before_any_handler_or_reload(monkeypatch, entry):
+    calls = []
+    monkeypatch.setitem(tdmcp_bridge.HANDLERS, 'inspect', lambda params: calls.append(params))
+    monkeypatch.setattr(tdmcp_bridge, '_load_bridge_package', lambda path: calls.append(path))
+    entries = {
+        'dispatch': lambda: tdmcp_bridge.dispatch({'type': 'request', 'method': 'inspect'}),
+        'execute': lambda: tdmcp_bridge.handle_execute_python({'script': 'result = 1'}),
+        'pump': tdmcp_bridge.process_pending,
+        'bootstrap': tdmcp_bridge.bootstrap_threaded,
+    }
+    errors = []
+
+    def worker():
+        try:
+            entries[entry]()
+        except RuntimeError as exc:
+            errors.append(str(exc))
+
+    _run_in_thread(worker)
+    assert len(errors) == 1 and 'requires the main thread' in errors[0]
+    assert calls == []
+    assert tdmcp_bridge._main_thread_ident is None

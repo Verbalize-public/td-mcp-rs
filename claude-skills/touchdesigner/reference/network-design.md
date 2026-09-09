@@ -26,6 +26,10 @@ deliberately. Keep module DAT names short (`mod.` access reads better).
 
 ## Data-flow hygiene
 
+- **Stateful subsystems must have a public reset signal.** Route the project's
+  global reset through subsystem/component boundaries by default; keep local
+  resets independently usable and rewirable. Include reset propagation in the
+  design alongside data flow. Full contract: [`reset-state`](./reset-state.md).
 - Prefer parameter expressions and exports over scripts that push values (see
   [`operator-families`](./operator-families.md), "Moving values around").
 - **Component boundary API (split by kind):**

@@ -8,8 +8,8 @@ caller-supplied callback — wired to :func:`tdmcp_bridge.task_queue.enqueue_eve
 so the actual wire write happens on the connection's own thread (see
 ``task_queue.py`` — never write the IPC stream from two threads at once).
 
-Mirrors the ``execute.py:47`` discipline: a failing capture/flush never
-propagates and the original stream is always written first.
+TD owns the native Textport streams too: worker writes/flushes are deferred
+to the main-thread pump before calling any original stream methods.
 """
 
 from __future__ import annotations
@@ -20,6 +20,8 @@ import sys
 import threading
 import time
 from typing import Any, Callable
+
+from . import state as _state
 
 _LOG_QUEUE_MAX = 256  # lines before drop-oldest
 _BATCH_LINES = 32
@@ -38,11 +40,57 @@ _on_local: Callable[[dict[str, Any]], None] | None = None
 _orig_stdout: Any = None
 _orig_stderr: Any = None
 _suppress_depth = 0
+_stream_lock = threading.Lock()
+_STREAM_QUEUE_MAX = 256
+_STREAM_CHUNK_MAX = 8192
+_deferred_streams: list[tuple[Any, str | None]] = []
+
+
+def _defer_stream(original: Any, text: str | None) -> None:
+    """Bound both entry count and text size; None represents a flush."""
+    with _stream_lock:
+        if len(_deferred_streams) >= _STREAM_QUEUE_MAX:
+            _deferred_streams.pop(0)
+        _deferred_streams.append((original, text[-_STREAM_CHUNK_MAX:] if text is not None else None))
+
+
+def _write_original(original: Any, text: str | None) -> None:
+    try:
+        if text is None:
+            original.flush()
+        else:
+            original.write(text)
+    except Exception:  # noqa: BLE001 — logging must not break its caller
+        pass
+
+
+def drain_streams() -> int:
+    """Forward queued Textport writes on TD's main thread only.
+
+    Detach under the lock, then enter native code without holding it: a
+    worker printing while the main thread flushes must never deadlock it.
+    """
+    if not _state.is_main_thread():
+        return 0
+    with _stream_lock:
+        pending = _deferred_streams[:]
+        _deferred_streams.clear()
+    for original, text in pending:
+        _write_original(original, text)
+    return len(pending)
+
+
+def write_stream(original: Any, text: str | None) -> None:
+    """Forward a write/flush immediately on main; queue it on any worker."""
+    if not _state.is_main_thread():
+        _defer_stream(original, text)
+        return
+    drain_streams()
+    _write_original(original, text)
 
 
 class Tee(io.TextIOBase):
-    """Write-through wrapper: writes go to ``original`` first, then get
-    buffered as a log record. Never raises."""
+    """Main-thread write-through; worker output is deferred before TD access."""
 
     # Duck-typed marker, not `isinstance` — TD reloads this module on every
     # reconnect, which rebuilds the `Tee` class as a new object; an identity
@@ -56,10 +104,7 @@ class Tee(io.TextIOBase):
         self._target = target
 
     def write(self, s: str) -> int:
-        try:
-            self._original.write(s)
-        except Exception:  # noqa: BLE001 — original stream must not break capture
-            pass
+        write_stream(self._original, s)
         try:
             if _suppress_depth == 0 and s and s.strip():
                 _append(s.rstrip("\n"), self._level, self._target)
@@ -68,20 +113,19 @@ class Tee(io.TextIOBase):
         return len(s)
 
     def flush(self) -> None:
-        flush = getattr(self._original, "flush", None)
-        if callable(flush):
-            try:
-                flush()
-            except Exception:  # noqa: BLE001
-                pass
+        write_stream(self._original, None)
 
     def isatty(self) -> bool:
+        if not _state.is_main_thread():
+            return False
         try:
             return bool(self._original.isatty())
         except Exception:  # noqa: BLE001
             return False
 
     def __getattr__(self, name: str) -> Any:
+        if not _state.is_main_thread():
+            raise AttributeError(name)
         return getattr(self._original, name)
 
 
@@ -145,6 +189,8 @@ def install(
     nests, and always rebinds to *this* generation's buffer/flush state.
     """
     global _orig_stdout, _orig_stderr, _on_flush, _on_local
+    _state.require_main_thread()
+    drain_streams()
     _on_flush = on_flush
     _on_local = on_local
     _orig_stdout = _unwrap_stale_tee(sys.stdout)
@@ -207,6 +253,8 @@ def _reset_for_tests() -> None:
     """Clear all module state — test harness only."""
     global _dropped, _last_flush, _on_flush, _on_local, _orig_stdout, _orig_stderr
     global _suppress_depth
+    with _stream_lock:
+        _deferred_streams.clear()
     with _lock:
         _buffer.clear()
         _dropped = 0

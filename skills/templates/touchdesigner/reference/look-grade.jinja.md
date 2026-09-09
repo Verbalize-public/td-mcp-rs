@@ -13,7 +13,7 @@ model only describes pixels, the operating agent still emits the final verdict.
 
 Image modes return structured `{ path, bytes, mimeType, … }` **and** MCP image
 content when PNG is present (`imageBase64` stripped from structured after
-promotion). Default `maxSize` is **256** (longer-side cap).
+promotion). Default `maxSize` is **512** (longer-side cap).
 
 **Store-first (chat thrift):** prefer path + short note in returns; reuse the
 same capture until a mutate that could change the look; do not re-inject huge
@@ -37,8 +37,18 @@ missing or unreadable, report the look as **unverified**, not successful.
 
 ## FPS / time-sliced claims
 
-Require live evidence while the project is **playing**. If paused, fix play
-state first ({{ skill("play-state") }}) before FAIL/PASS on motion or FPS.
+FPS claims require live evidence while the project is **playing**. Check play
+state first ({{ skill("play-state") }}).
+
+For transitions and other stateful motion, follow {{ skill("reset-state") }}:
+reset through the public signal, advance every intervening frame, and capture
+initial/intermediate/final output after the required cooks. Controlled stepping
+may leave transport paused between samples; verify actual advancement and
+cooking. Record observed frames, offsets from reset, and play state with the
+evidence. Independent captures on a freely playing timeline do not prove exact
+sample spacing. Stepped samples do not establish real-time FPS.
+Use {{ skill("timed-capture") }} for prepared sample schedules and video jobs;
+check terminal state and actual offsets before grading their samples.
 
 ## Related
 

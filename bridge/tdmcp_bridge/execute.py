@@ -61,14 +61,14 @@ class _TeeStream:
     def __init__(self, buf: io.StringIO, previous: Any) -> None:
         self._buf = buf
         self._previous = previous
+        # Capture owns the combined log record; native forwarding must not
+        # re-enter the global tee after its suppression window has ended.
+        self._native = _logtap._unwrap_stale_tee(previous)
 
     def write(self, s: Any) -> int:
         text = s if isinstance(s, str) else str(s)
         self._buf.write(text)
-        try:
-            self._previous.write(text)
-        except Exception:  # noqa: BLE001 — never fail the script for textport
-            pass
+        _logtap.write_stream(self._native, text)
         return len(text)
 
     def flush(self) -> None:
@@ -76,14 +76,25 @@ class _TeeStream:
             self._buf.flush()
         except Exception:  # noqa: BLE001
             pass
-        flush = getattr(self._previous, "flush", None)
-        if callable(flush):
-            try:
-                flush()
-            except Exception:  # noqa: BLE001
-                pass
+        _logtap.write_stream(self._native, None)
+
+    def isatty(self) -> bool:
+        if not _state.is_main_thread():
+            return False
+        try:
+            return bool(self._previous.isatty())
+        except Exception:  # noqa: BLE001 — optional stream capability
+            return False
+
+    @property
+    def encoding(self) -> str:
+        if not _state.is_main_thread():
+            return 'utf-8'
+        return getattr(self._previous, 'encoding', None) or 'utf-8'
 
     def __getattr__(self, name: str) -> Any:
+        if not _state.is_main_thread():
+            raise AttributeError(name)
         return getattr(self._previous, name)
 
 
@@ -137,6 +148,7 @@ def _json_utf8_size(value: Any) -> int:
 
 
 def handle_execute_python(params: dict[str, Any]) -> dict[str, Any]:
+    _state.require_main_thread()
     from .exception_report import build_exception_report
 
     script = params.get("script") or ""
@@ -303,5 +315,4 @@ def handle_execute_python(params: dict[str, Any]) -> dict[str, Any]:
                 out["logs"] = logs
 
     return out
-
 

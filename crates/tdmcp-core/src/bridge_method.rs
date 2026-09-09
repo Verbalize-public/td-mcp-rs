@@ -15,6 +15,8 @@ pub enum BridgeMethod {
     ExecutePython,
     /// Perception capture.
     Capture,
+    /// Frame-exact video jobs and artifact retrieval.
+    Record,
     /// Structural inspect.
     Inspect,
     /// Ordered create / set / delete.
@@ -36,6 +38,7 @@ impl BridgeMethod {
         match self {
             Self::ExecutePython => "execute_python",
             Self::Capture => "capture",
+            Self::Record => "record",
             Self::Inspect => "inspect",
             Self::MutateNodes => "mutate_nodes",
             Self::ApiHelp => "api_help",
@@ -51,6 +54,7 @@ impl BridgeMethod {
         match self {
             Self::ExecutePython => "PythonEval",
             Self::Capture => "Capture",
+            Self::Record => "Record",
             Self::Inspect => "Inspect",
             Self::MutateNodes => "Mutate",
             Self::ApiHelp => "ApiHelp",
@@ -64,6 +68,7 @@ impl BridgeMethod {
     pub const ALL: &[Self] = &[
         Self::ExecutePython,
         Self::Capture,
+        Self::Record,
         Self::Inspect,
         Self::MutateNodes,
         Self::ApiHelp,
@@ -77,6 +82,7 @@ impl BridgeMethod {
         match s {
             "execute_python" => Some(Self::ExecutePython),
             "capture" => Some(Self::Capture),
+            "record" => Some(Self::Record),
             "inspect" => Some(Self::Inspect),
             "mutate_nodes" => Some(Self::MutateNodes),
             "api_help" => Some(Self::ApiHelp),

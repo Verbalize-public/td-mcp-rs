@@ -272,7 +272,7 @@ fn spawn_fake_td(bridge_port: u16, pid: u32) -> JoinHandle<()> {
             return;
         }
         while let Some(msg) = read_frame(&mut client).await {
-            let Message::Request { id, method, .. } = msg else {
+            let Message::Request { id, method, params } = msg else {
                 continue;
             };
             let result = match method.as_str() {
@@ -286,6 +286,11 @@ fn spawn_fake_td(bridge_port: u16, pid: u32) -> JoinHandle<()> {
                     "imageBase64": "iVBORw0KGgo="
                 }),
                 "inspect" => json!({"ok": true, "nodes": [{"ok": true, "path": "/project1"}]}),
+                "record" if params.get("action").and_then(Value::as_str) == Some("read") => {
+                    json!({"ok": true, "jobId": "remote-job", "offset": 0,
+                           "nextOffset": 3, "eof": true, "dataBase64": "YWJj"})
+                }
+                "record" => json!({"ok": true, "jobId": "remote-job", "state": "running"}),
                 _ => json!({"ok": true}),
             };
             let resp = Message::Response {
@@ -439,6 +444,29 @@ async fn proxy_execute_python_with_daemon_id() {
         cap_bytes.len()
     );
     assert_eq!(cap["data"]["routed"], true);
+
+    let recording = master_tool_call(
+        &master,
+        "record",
+        json!({
+            "pid": FAKE_PID, "daemonId": SLAVE_A_ID,
+            "path": "/project1/out1", "frames": 3
+        }),
+    )
+    .await;
+    assert_eq!(recording["data"]["jobId"], "remote-job");
+    let artifact = master_tool_call(
+        &master,
+        "record",
+        json!({
+            "pid": FAKE_PID, "daemonId": SLAVE_A_ID, "action": "read",
+            "jobId": "remote-job", "offset": 0, "length": 3
+        }),
+    )
+    .await;
+    assert_eq!(artifact["data"]["routed"], true);
+    assert_eq!(artifact["data"]["dataBase64"], "YWJj");
+    assert_eq!(artifact["data"]["eof"], true);
 
     let _ = slave;
     let _ = master;
