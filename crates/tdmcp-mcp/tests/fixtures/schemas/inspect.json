@@ -60,9 +60,38 @@
         }
       ]
     },
+    "LenientU32": {
+      "anyOf": [
+        {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "pattern": "^\\s*[0-9]+\\s*$",
+          "type": "string"
+        }
+      ],
+      "description": "Unsigned 32-bit integer; accepts a JSON number or a decimal numeric string."
+    },
     "OpPath": {
       "description": "Operator path string passed to TD for resolution via `td.op()`.",
       "type": "string"
+    },
+    "ParamsMode": {
+      "description": "Parameter inspection mode.",
+      "oneOf": [
+        {
+          "const": "values",
+          "description": "Evaluate selected parameters (default).",
+          "type": "string"
+        },
+        {
+          "const": "names",
+          "description": "Return names only, without parameter evaluation or metadata reads.",
+          "type": "string"
+        }
+      ]
     },
     "Pid": {
       "anyOf": [
@@ -82,6 +111,30 @@
   "additionalProperties": false,
   "description": "Args for inspect.",
   "properties": {
+    "childLimit": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/LenientU32"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Direct-child page size, default 256; must be 1..256. Requires include nodes."
+    },
+    "childOffset": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/LenientU32"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Zero-based direct-child offset, default 0. Offsets can shift on mutable graphs. Requires include nodes."
+    },
     "contextPath": {
       "anyOf": [
         {
@@ -119,6 +172,22 @@
         "$ref": "#/$defs/InspectInclude"
       },
       "type": "array"
+    },
+    "paramNames": {
+      "default": null,
+      "description": "Exact case-sensitive parameter names; omitted/null = all, [] = none. Requires include params.",
+      "items": {
+        "type": "string"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "paramsMode": {
+      "$ref": "#/$defs/ParamsMode",
+      "default": "values",
+      "description": "values (default) evaluates selected parameters; names returns only names. Requires include params."
     },
     "paths": {
       "description": "Explicit operator paths to inspect (required, non-empty). Soft-capped at 256.\nNo auto-recursion — caller chooses exactly which nodes to fetch.",

@@ -174,7 +174,7 @@ def handle(kind, params):
             return {'ok': True, 'jobId': job.id, 'released': True}
         elif action != 'status':
             raise TimingError('Unknown job action')
-        return job.response()
+        return job.response(params if kind == 'capture' and action == 'status' else None)
     except Exception as exc:
         return failure(exc)
 
@@ -497,13 +497,26 @@ class Job:
             if cleanup_ok and _active == self.id:
                 _active = None
 
-    def response(self):
-        return {'ok': True, 'jobId': self.id, 'kind': self.kind, 'state': self.state,
-                'phase': self.phase, 'path': self.path, 'timePath': self.time_path,
-                'requestedSamples': len(self.requested), 'advancedFrames': self.progress,
-                'initializeFrames': self.init_frames, 'warmupFrames': self.warmup,
-                'samples': self.samples, 'recordedSamples': self.recorded,
-                'error': self.error, 'artifact': self.artifact}
+    def response(self, options=None):
+        out = {'ok': True, 'jobId': self.id, 'kind': self.kind, 'state': self.state,
+               'phase': self.phase, 'path': self.path, 'timePath': self.time_path,
+               'requestedSamples': len(self.requested), 'advancedFrames': self.progress,
+               'initializeFrames': self.init_frames, 'warmupFrames': self.warmup,
+               'samples': self.samples, 'recordedSamples': self.recorded,
+               'error': self.error, 'artifact': self.artifact}
+        if options is not None and any(k in options for k in ('includeSamples', 'sampleOffset')):
+            include = options.get('includeSamples', True)
+            if type(include) is not bool:
+                raise TimingError('includeSamples must be a boolean')
+            total = len(self.samples)
+            offset = integer(options.get('sampleOffset', 0), 'sampleOffset', 0, total)
+            out['samples'] = self.samples[offset:] if include else []
+            next_offset = offset + len(out['samples'])
+            out.update({'totalSamples': total, 'sampleOffset': offset,
+                        'nextSampleOffset': next_offset,
+                        'samplesComplete': next_offset == total and self.state in (
+                            'complete', 'cancelled', 'failed')})
+        return out
 
 
 def shutdown():

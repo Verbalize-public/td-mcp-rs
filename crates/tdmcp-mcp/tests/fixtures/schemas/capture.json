@@ -374,6 +374,11 @@
       "default": "summary",
       "description": "Diagnostic payload size (`summary` omits raw traceback)."
     },
+    "includeSamples": {
+      "default": true,
+      "description": "Status only: include stored samples (default true); false returns metadata without consuming samples.",
+      "type": "boolean"
+    },
     "inspect": {
       "anyOf": [
         {
@@ -426,6 +431,13 @@
     "pid": {
       "$ref": "#/$defs/Pid",
       "description": "Target pid."
+    },
+    "sampleOffset": {
+      "default": 0,
+      "description": "Status only: zero-based stored-sample index, not a timeline offset (default 0).",
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
     },
     "timing": {
       "anyOf": [

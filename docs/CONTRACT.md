@@ -41,11 +41,13 @@ different coverage; a shipped feature is not proof of every platform scenario.
 
 **Listen:** `{bind_address}:{port}` default `127.0.0.1:9860` (override via CLI / env / RC / `[server]`). A non-loopback bind does **not** require auth (zero-setup LAN federation); `[auth] mode = "psk"` with a non-empty PSK adds `Authorization: Bearer` on the gated routes, and `mode = "psk"` with an empty PSK is rejected at load (`validate_remote_auth`). Admin surfaces: loopback-only for shutdown/restart/sessions; auth-gated remote allowlist for `/admin/federation/*` and `/admin/config`; minimal unauth probe at `/admin/federation/status` for LAN discovery. See [`CONFIG.md`](CONFIG.md) § Federation auth & admin surface.
 
-**Stdio proxy (v1):** forwards tools request/response only (`list_tools` /
-`call_tool`). Server-initiated notifications are **not** forwarded. The HTTP
-daemon is the control plane; Cursor invokes `tdmcp-daemon mcp`, which
-`ensure`s once at cold start then runs the stdio shim for the MCP client
-session.
+**Stdio proxy (v1):** serves tool discovery (`list_tools` / `get_tool`) from
+its local embedded catalog and resource listing/reads (`resources/list` /
+`resources/read`, `tdmcp://docs/*`) from its embedded resource provider, without
+an HTTP round-trip. Tool calls (`call_tool`) forward to the HTTP daemon;
+server-initiated notifications are **not** forwarded. The HTTP daemon is the
+control plane; Cursor invokes `tdmcp-daemon mcp`, which `ensure`s once at cold
+start then runs the stdio shim for the MCP client session.
 
 **Stdio proxy resilience:** if the HTTP link to the daemon is lost (e.g.
 `/admin/restart`, crash, idle-exit), the shim attempts a **reconnect-only**
@@ -185,7 +187,7 @@ safety net only — the daemon owns the real per-method budgets.
 | Params       | typed; process-scoped tools require `pid`; paths use `OpPath`                              |
 | Numeric args | every wire unsigned integer (`pid`, `maxSize`, ms budgets, connector indexes) accepts a JSON number **or** a decimal numeric string (`"4988"`); schema advertises `anyOf: [integer, string]`; serialization stays a plain number |
 | Diagnostics  | uniform `diagnostics` envelope; stable `tdmcp.*` codes                                     |
-| Detail flags | `detailLevel` (structure), `diagnosticLevel` (error payload), `resultRef` (large payloads) |
+| Detail flags | `detailLevel` (structure), `diagnosticLevel` (error payload) |
 
 
 ### Catalogue
@@ -330,7 +332,28 @@ Many TD cook problems (invalid select path, missing movie file, …) surface as 
 
 Both keys are **omitted when empty**. Independent of `include: params`. Never flips node or top-level `ok`. Coarse `warnings[]` strings are always kept.
 
-When `params` is included, each entry is `{ name, mode, val, evaluation, expr? }`:
+`inspect` accepts request-local parameter selection (only with effective `include: params`):
+
+| Argument | Behavior |
+| --- | --- |
+| `paramNames` | Exact case-sensitive names, no patterns. Omitted / `null` = all; `[]` = none (no enumeration or evaluation). Filters before evaluation; entries retain TD parameter order, duplicates do not duplicate entries. |
+| `paramsMode` | `values` (default) evaluates selected parameters; `names` returns only `{name}` entries, without reading parameter values, modes, expressions, stored values or menus, even with `detailLevel:detailed`. |
+
+An explicit non-null `paramNames` list adds per-node
+`paramsSelection:{requested,missing,complete}`. `missing` lists distinct requested
+names not found (request order); a failed parameter read yields `missing:null`,
+`complete:false` and `observations.params.available:false`. An intentionally empty
+selection returns `params:[]`, `missing:[]`, `complete:true`. Selection completeness
+only establishes name coverage, not successful evaluation: check each value's
+`evaluation.available`. Missing names never flip node/tool `ok`. Omitted options
+preserve the existing response shape. These options do not load excluded sections
+or persist into later calls; paired timed-capture `inspect` is unchanged.
+
+For names without other inspection side effects, use `include:["params"]` and
+`paramsMode:"names"`. These options do not suppress evaluation from separately
+included content or warning enable-expression enrichment.
+
+When `params` is included in `values` mode, each entry is `{ name, mode, val, evaluation, expr? }`:
 
 
 | Field  | Content                                                                     |
@@ -395,7 +418,19 @@ creates an observer. Missing/unverified observers remain unsupported; failed or
 unrecognized reads remain unknown. Preserve the auto-created Info DAT or provide
 a correctly bound one. Direct Info DAT `content` reads also remain available.
 
-**Cooking:** `inspect` does **not** force-cook. TD cooks on demand when operators are read; agents that need a forced cook use `execute_python` (`op('…').cook(force=True)`). Errors/warnings remain non-recursive (target only).
+**Compile states:** `compiled` requires affirmative, complete, recognized success
+text. `error` means a compile/link failure was observed, even if the log is
+truncated. `unknown` means evidence is missing, empty, unreadable, unrecognized,
+incomplete, or truncated without an observed failure. `unsupported` means no
+usable verified compile-status surface was available. Neither empty operator
+errors nor an unavailable observation establishes compilation success.
+
+**Read side effects:** `inspect` does not call `cook(force=True)`, but TD can
+cook on demand during reads. Reading `compileResult` forces synchronous
+recompilation, including consumers discovered through DAT content; the GLSL POP
+Info DAT fallback can also trigger compilation. Errors/warnings are read after
+content so they reflect those reads, and remain non-recursive (target only).
+For an explicit forced cook, use `execute_python` (`op('…').cook(force=True)`).
 
 ### `inspect` / `detailLevel`
 
@@ -413,6 +448,38 @@ Either level adds `comment` to a child entry when that child's `OP.comment` is n
 When `childrenReturned < childCount`, the node includes `childrenTruncated: true` and a `truncation` object (`field`, `limit`, `code: tdmcp.op.children_truncated`, `message`, `mitigation`). Soft limit — MCP success stays `{ ok: true, nodes }` (see result shapes). Mitigation: add the child COMP path to a follow-up `paths` batch, or `execute_python` for a full name list — not `detailLevel: detailed`.
 
 When the roster is loaded, `children` is always an array (never a bare count).
+
+Optional request-local child paging applies only to the `nodes` section:
+
+| Argument | Behavior |
+| --- | --- |
+| `childOffset` | Zero-based direct-child offset, default 0; unsigned 32-bit range. |
+| `childLimit` | Positive page size, default 256; values outside 1..256 are rejected, not clamped. |
+
+Both accept the `LenientU32` numeric/string policy at MCP ingress (including
+integral JSON floats); Rust forwards normalized integers to the bridge. Omitted /
+`null` uses the default. Supplying either non-null paging option adds
+`childrenPage:{offset,limit,total,nextOffset,complete}` per node. `total` equals
+`childCount`; `childrenReturned` is this page's length. `nextOffset` is the next
+unread index, or `null` when no later entries remain. `complete` is true only when
+this response covers the entire roster from offset 0, not merely the last page.
+Out-of-range offsets return an empty page with the observed total and no next
+offset, not a claim that the COMP is empty. `childrenTruncated` / `truncation`
+remain present when the page omits any of the observed roster, including earlier
+entries on a final page. With both paging options omitted, the existing response
+and truncation shape are unchanged.
+
+Paging slices TD's direct-child order before shaping entries and does not recurse.
+Offsets are **unstable on mutable graphs**: additions, removals or reordering
+between requests can duplicate or skip children. There is no snapshot/cursor
+isolation. Options apply independently to every requested path and do not persist.
+For a 259-child COMP, `childOffset:0` returns 256 entries and `nextOffset:256`;
+`childOffset:256` returns three entries and `nextOffset:null`, with `complete:false`
+on both pages. `childLimit:1` can narrow a page without loading nested children.
+
+There is no aggregate response-byte budget in this slice. Parameter values and
+multi-node responses can still be large; aggregate budgeting and its explicit
+completeness contract are deferred rather than silently dropping fields.
 
 ### `editor_context` — Shipped
 
@@ -518,6 +585,41 @@ a jobId these actions discover the active job, or latest retained job of that
 tool when idle—useful after a lost start reply. Status never drives advancement.
 RPC timeout is not cancellation. Reservation lasts through cleanup and encoder
 finalization, up to an additional 30 seconds for container finalization.
+
+Capture `action:"status"` accepts request-local retrieval options:
+
+| Field | Contract |
+| --- | --- |
+| `includeSamples` | Boolean, default `true`. `false` returns `samples:[]` without images or paired inspection payloads; stored samples remain intact. |
+| `sampleOffset` | Unsigned JSON integer (u32), default `0`. Zero-based index into **stored samples**, not the sample's timeline `offset`. Valid range is `0..totalSamples`, inclusive; larger cursors are rejected rather than clamped, even while running. |
+
+When either option is explicitly supplied, status adds `totalSamples` (currently
+stored count), `sampleOffset` (requested/default index), `nextSampleOffset`
+(`sampleOffset + samples.length`), and `samplesComplete`. With samples enabled,
+`samples` contains all currently stored entries from that index onward in order.
+Metadata-only polling leaves `nextSampleOffset` equal to `sampleOffset`; it does
+not acknowledge or consume samples. `samplesComplete` is true only when the
+cursor reaches the stored count **and** state is `complete`, `cancelled`, or
+`failed`. It stays false during `running`, `finalizing`, and `cleanup_failed`.
+It describes retrieval completion, not successful capture: always inspect
+`state`, `error`, and `requestedSamples` for partial/failed jobs.
+
+For example, poll `{"pid":123,"action":"status","includeSamples":false}` to
+discover the job without replaying images, then retrieve with
+`{"pid":123,"action":"status","jobId":"…","sampleOffset":0}`. Retain the
+returned `nextSampleOffset` only after receiving the samples successfully.
+Retrying the same offset re-reads the same retained suffix; a running job may
+append more samples between retries. An offset equal to `totalSamples` returns
+an empty suffix and can be reused to collect later samples. Invalid retrieval
+options are request errors, never job failures: out-of-range cursors return
+`tdmcp.timing.invalid`; malformed types fail MCP argument validation (or
+`tdmcp.timing.invalid` at the bridge). Neither changes the job, its samples,
+transport reservation, or cleanup state.
+
+Omitting both fields preserves the legacy status shape and all stored samples.
+The options apply only to capture status, not start/cancel/release, plain
+capture, or record artifact reads; they are not persisted as job defaults.
+JobId discovery and retention/release rules are unchanged.
 
 `record` start requires PID, one explicit TOP `path` and `frames` (1..3600).
 It shares reset/initialization/after options, but no sparse capture schedule.
@@ -893,7 +995,7 @@ Daemon CLI: `start` (foreground; tray + toast by default, dashboard hidden until
 ## Decided contract (summary)
 
 - TD↔daemon: TCP loopback `127.0.0.1:9861` (configurable via `[bridge] host`/`port`); handshake returns FS path to bridge package.
-- Cursor↔daemon: `tdmcp-daemon mcp` (stdio proxy → Streamable HTTP at `/mcp/rpc`; v1 tools only, no notification forward). Direct HTTP clients may use `http://127.0.0.1:9860/mcp` (JSON fallback on `/mcp/tools/*`).
+- Cursor↔daemon: `tdmcp-daemon mcp` serves tool discovery and `tdmcp://docs/*` resource listing/reads locally from embedded data; tool calls forward over Streamable HTTP at `/mcp/rpc`. Server-initiated notifications are not forwarded. Direct HTTP clients may use `http://127.0.0.1:9860/mcp` (JSON fallback on `/mcp/tools/*`).
 - Identity: `pid` required on bridged tools; optional `daemonId` when federated (ambiguous pid → `tdmcp.federation.ambiguous_pid`). Bridged tools always exclusive-enqueue (fail iff queue non-empty); session chill on `(mcp_session, pid)` locally and `(mcp_session, daemonId, pid)` when proxied; resurrection stacks until first success.
 - Perception: `capture` only; builders never self-grade look.
 - Paths: `OpPath` + optional `contextPath`; TD resolves; default base `/project1`.

@@ -269,6 +269,126 @@ def test_lost_start_reply_can_recover_latest_terminal_job(runtime):
     assert latest['jobId'] == r['jobId'] and latest['state'] == 'complete'
 
 
+def test_status_sample_cursor_is_repeatable_and_indexes_stored_samples(runtime):
+    r = start(sampleFrames=[0, 2, 5])
+    runtime.drain()
+    job = timing._jobs[r['jobId']]
+    legacy = timing.handle('capture', {'action': 'status', 'jobId': job.id})
+    assert set(legacy) == {
+        'ok', 'jobId', 'kind', 'state', 'phase', 'path', 'timePath',
+        'requestedSamples', 'advancedFrames', 'initializeFrames', 'warmupFrames',
+        'samples', 'recordedSamples', 'error', 'artifact',
+    }
+    before = (runtime.clock.frame, list(runtime.cooked), job.result_bytes)
+    request = {'action': 'status', 'jobId': job.id, 'sampleOffset': 1}
+    result = timing.handle('capture', request)
+    assert result == timing.handle('capture', request)
+    assert result['samples'] == legacy['samples'][1:]
+    assert [s['offset'] for s in result['samples']] == [2, 5]
+    assert result['sampleOffset'] == 1
+    assert result['totalSamples'] == result['nextSampleOffset'] == 3
+    assert result['samplesComplete'] is True
+    exhausted = timing.handle('capture', {**request, 'sampleOffset': 3})
+    assert exhausted['samples'] == [] and exhausted['samplesComplete'] is True
+    assert exhausted['nextSampleOffset'] == 3
+    explicit = timing.handle('capture', {**request, 'sampleOffset': 0, 'includeSamples': True})
+    assert explicit['samples'] == legacy['samples']
+    assert before == (runtime.clock.frame, runtime.cooked, job.result_bytes)
+    assert timing.handle('capture', {'action': 'status'}) == legacy
+
+
+def test_metadata_only_status_discovers_job_without_consuming_samples(runtime):
+    r = start(sampleFrames=[0, 2])
+    request = {'action': 'status', 'includeSamples': False}
+    empty = timing.handle('capture', request)
+    assert empty['jobId'] == r['jobId'] and empty['samples'] == []
+    assert empty['totalSamples'] == empty['nextSampleOffset'] == 0
+    assert empty['samplesComplete'] is False
+    runtime.tick()
+    partial = timing.handle('capture', request)
+    assert partial['state'] == 'running' and partial['samples'] == []
+    assert partial['totalSamples'] == 1 and partial['nextSampleOffset'] == 0
+    assert partial['samplesComplete'] is False
+    fetched = timing.handle('capture', {**request, 'includeSamples': True})
+    assert len(fetched['samples']) == fetched['nextSampleOffset'] == 1
+    assert fetched['samplesComplete'] is False
+    caught_up = timing.handle('capture', {**request, 'sampleOffset': 1})
+    assert caught_up['samples'] == [] and caught_up['samplesComplete'] is False
+    assert timing.admission('inspect', {})['jobId'] == r['jobId']
+    runtime.drain()
+    terminal = timing.handle('capture', request)
+    assert terminal['state'] == 'complete' and terminal['samples'] == []
+    assert terminal['totalSamples'] == 2 and terminal['nextSampleOffset'] == 0
+    assert terminal['samplesComplete'] is False
+    remaining = timing.handle('capture', {'action': 'status', 'sampleOffset': 1})
+    assert [s['offset'] for s in remaining['samples']] == [2]
+    assert remaining['samples'][0]['capture']['imageBase64'] == 'eA=='
+    assert remaining['nextSampleOffset'] == 2 and remaining['samplesComplete'] is True
+    assert len(timing._jobs[r['jobId']].samples) == 2
+
+
+@pytest.mark.parametrize('options', [
+    {'sampleOffset': -1}, {'sampleOffset': True}, {'sampleOffset': 0.5},
+    {'sampleOffset': '0'}, {'sampleOffset': None}, {'sampleOffset': 2},
+    {'sampleOffset': 2**32}, {'includeSamples': 0}, {'includeSamples': 'false'},
+    {'includeSamples': None}, {'includeSamples': False, 'sampleOffset': 2},
+])
+def test_invalid_status_options_do_not_fail_job(runtime, options):
+    r = start(sampleFrames=[0, 5])
+    runtime.tick()
+    job = timing._jobs[r['jobId']]
+    before = (runtime.clock.frame, list(runtime.cooked), list(job.samples), job.result_bytes)
+    result = timing.handle('capture', {'action': 'status', 'jobId': job.id, **options})
+    assert result['ok'] is False and result['code'] == 'tdmcp.timing.invalid'
+    assert job.state == 'running' and job.error is None and timing._active == job.id
+    assert before == (runtime.clock.frame, runtime.cooked, job.samples, job.result_bytes)
+    runtime.drain()
+    assert job.state == 'complete' and len(job.samples) == 2
+
+
+@pytest.mark.parametrize('terminal', ['complete', 'cancelled', 'failed', 'cleanup_failed'])
+def test_filtered_status_preserves_state_errors_and_reservation(runtime, terminal):
+    r = start()
+    runtime.tick()
+    job = timing._jobs[r['jobId']]
+    finalizing = timing.handle('capture', {'action': 'status', 'sampleOffset': 0})
+    assert finalizing['state'] == 'finalizing' and finalizing['samplesComplete'] is False
+    runtime.drain()
+    job.state = terminal
+    job.phase = 'cleanup' if terminal == 'cleanup_failed' else 'done'
+    job.error = {'ok': False, 'code': 'tdmcp.timing.failed', 'message': 'kept'}
+    if terminal == 'cleanup_failed':
+        timing._active = job.id
+    result = timing.handle('capture', {'action': 'status', 'includeSamples': False})
+    assert result['ok'] is True and result['state'] == terminal and result['phase'] == job.phase
+    assert result['error'] == job.error and result['samples'] == []
+    assert result['totalSamples'] == 1 and result['samplesComplete'] is False
+    fetched = timing.handle('capture', {'action': 'status', 'sampleOffset': 0})
+    assert fetched['samples'] == job.samples
+    assert fetched['samplesComplete'] is (terminal != 'cleanup_failed')
+    assert (timing._active == job.id) is (terminal == 'cleanup_failed')
+
+
+def test_status_flags_are_request_local_and_capture_only(runtime):
+    r = timing.handle('capture', {'path': runtime.source.path, 'timing': {},
+                                  'includeSamples': False, 'sampleOffset': 99})
+    assert r['state'] == 'running' and 'totalSamples' not in r
+    runtime.drain()
+    job = timing._jobs[r['jobId']]
+    result = timing.handle('capture', {'action': 'status'})
+    assert len(result['samples']) == 1 and 'totalSamples' not in result
+    job.kind = 'record'
+    record = timing.handle('record', {'action': 'status', 'includeSamples': False, 'sampleOffset': 99})
+    assert record == {**result, 'kind': 'record'}
+    job.kind = 'capture'
+    cancel = timing.handle('capture', {'action': 'cancel', 'includeSamples': False, 'sampleOffset': 99})
+    assert cancel == result
+    assert timing.handle('capture', {'action': 'release', 'jobId': job.id,
+                                     'includeSamples': False, 'sampleOffset': 99})['released']
+    assert timing.handle('capture', {'action': 'status', 'jobId': job.id,
+                                     'includeSamples': False})['code'] == 'tdmcp.timing.not_found'
+
+
 def test_bootstrap_style_fresh_import_retires_old_callback_generation(runtime, monkeypatch):
     import builtins
     import importlib.util

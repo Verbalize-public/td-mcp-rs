@@ -97,27 +97,61 @@ class StdioMcpClient:
         self.close()
 
 
+def canonical_bytes(value):
+    return len(json.dumps(value, sort_keys=True, separators=(",", ":"),
+                          ensure_ascii=False).encode("utf-8"))
+
+
+def measure(result):
+    blocks = result.get("content") or []
+    resources = list(result.get("contents") or [])
+    resources.extend(b["resource"] for b in blocks if b.get("type") == "resource")
+    images = [b["data"] for b in blocks if b.get("type") == "image"]
+    images.extend(r["blob"] for r in resources
+                  if "blob" in r and r.get("mimeType", "").startswith("image/"))
+    texts = [b["text"] for b in blocks if b.get("type") == "text"]
+    texts.extend(r["text"] for r in resources if "text" in r)
+    return {
+        "canonical_bytes": canonical_bytes(result),
+        "structured_bytes": (canonical_bytes(result["structuredContent"])
+                             if "structuredContent" in result else 0),
+        "text_bytes": sum(len(text.encode("utf-8")) for text in texts),
+        "image_count": len(images),
+        "encoded_image_bytes": sum(len(image.encode("utf-8")) for image in images),
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("tool", nargs="?", default="fleet")
     parser.add_argument("arguments", nargs="?", default="{}")
     parser.add_argument("--binary", default="tdmcp-daemon")
-    parser.add_argument("--resource")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--resource")
+    mode.add_argument("--list-tools", action="store_true", help="Request tools/list for a catalog baseline")
+    parser.add_argument("--measure", action="store_true",
+                        help="Print byte metrics, not token counts: full MCP result and structuredContent "
+                        "use sorted-key compact UTF-8 JSON; text and encoded images use UTF-8 payload bytes")
     parser.add_argument("--out", type=Path, help="Save the full MCP result including image content")
     args = parser.parse_args()
     if args.out and args.out.exists():
         parser.error("output already exists; inspect prior evidence before repeating a call")
     with StdioMcpClient(args.binary) as client:
-        result = (client.request("resources/read", {"uri": args.resource}) if args.resource
-                  else client.call_raw(args.tool, json.loads(args.arguments)))
-    text = json.dumps(result, indent=2)
+        if args.list_tools:
+            result = client.request("tools/list", {})
+        else:
+            result = (client.request("resources/read", {"uri": args.resource}) if args.resource
+                      else client.call_raw(args.tool, json.loads(args.arguments)))
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)
         with args.out.open("x", encoding="utf-8") as output:
-            output.write(text + "\n")
+            output.write(json.dumps(result, indent=2) + "\n")
+    if args.measure:
+        print(json.dumps(measure(result), sort_keys=True))
+    elif args.out:
         print(args.out)
     else:
-        print(text)
+        print(json.dumps(result, indent=2))
 
 
 if __name__ == "__main__":

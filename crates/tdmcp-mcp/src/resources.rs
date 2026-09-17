@@ -6,7 +6,8 @@
 //! every `{{ skill("id") }}` call produces a `tdmcp://docs/<id>` URI.
 
 use rmcp::model::{
-    ListResourcesResult, ReadResourceResult, Resource, ResourceContents, ServerCapabilities,
+    CacheScope, ListResourceTemplatesResult, ListResourcesResult, ReadResourceResult, Resource,
+    ResourceContents, ServerCapabilities,
 };
 
 use crate::template::TemplateEngine;
@@ -101,7 +102,19 @@ impl ResourceProvider {
                 // We don't know the size before rendering; MCP clients cope.
             })
             .collect();
+        // SEP-2549: immediately stale, private results avoid reusing docs across
+        // binary upgrades without promising a freshness interval.
         ListResourcesResult::with_all_items(resources)
+            .with_ttl_ms(0)
+            .with_cache_scope(CacheScope::Private)
+    }
+
+    /// No URI templates are exposed; every embedded card has a concrete URI.
+    #[must_use]
+    pub fn list_resource_templates(&self) -> ListResourceTemplatesResult {
+        ListResourceTemplatesResult::with_all_items(vec![])
+            .with_ttl_ms(0)
+            .with_cache_scope(CacheScope::Private)
     }
 
     /// Read one resource by URI (`tdmcp://docs/<id>`).
@@ -110,7 +123,9 @@ impl ResourceProvider {
 
         let body = self.engine.render(id, crate::template::RenderMode::Mcp)?;
         let contents = ResourceContents::text(body, uri_for(id)).with_mime_type("text/markdown");
-        Ok(ReadResourceResult::new(vec![contents]))
+        Ok(ReadResourceResult::new(vec![contents])
+            .with_ttl_ms(0)
+            .with_cache_scope(CacheScope::Private))
     }
 
     /// Number of catalog entries.

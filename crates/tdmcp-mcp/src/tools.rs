@@ -174,7 +174,7 @@ impl ToolName {
                 "Run Python in TD; failures return structured exception (type/frames/syntax); default diagnosticLevel detailed; formatMode debug adds capped locals; prints tee to Debug DAT / logs."
             }
             Self::Inspect => {
-                "Structural read for an explicit paths[] batch (required, non-empty; soft-capped at 256). No auto-recursion — caller chooses nodes. Empty include defaults to nodes+errors+warnings; params and content opt-in; non-empty include is an allowlist. When nodes is included, each ok node includes positional inputs/outputs peer lists ({path, name, opType} or null per connector; [] when empty). Params entries are {name, mode, val, expr?} (expr only when mode is EXPRESSION; val is evaluated and JSON-safe). Content (opt-in) returns DAT .text bodies (text+table) and GLSL shader stages by following DAT refs plus compileResult — no size cap; omit content key on non-eligible ops. DAT content also carries shader consumers[] diagnostics ({severity note|error, code tdmcp.shader.*, consumer, role, lines[]}; caps 2048 ops scanned / 64 consumers — see consumersTruncated); GLSL content carries classified compileState compiled|error. Reading compileResult forces a synchronous recompile of that consumer. Every node also returns comment (OP.comment) when non-empty — read it first, it is the operator's own account of its role (capped 1024 chars, commentTruncated when cut). Per-node summary includes a direct-child roster ({name, opType}, plus each child's comment when set — capped 160 chars); detailed adds path+family. Roster capped at 256 — when truncated see node.truncation. Bad paths return ok:false inline; siblings still succeed."
+                "Structural read; requires pid and non-empty paths[] (first 256 processed). No auto-recursion. Empty/omitted include = nodes+errors+warnings; non-empty = allowlist; params/content opt-in. nodes loads positional inputs/outputs and a direct-child roster (cap 256; detailed does not uncap). Bad paths return ok:false inline; siblings succeed. Errors/warnings are target-only, non-recursive; warnings can carry cook failures. Check observations.<field>.available and params[].evaluation: unavailable empty/null fallbacks are not clean evidence. Content supplies DAT/table text and followed GLSL stages (64 KiB UTF-8 per body), plus shader-consumer diagnostics (2048 ops scanned / 64 consumers). Check truncation metadata; compiler logs cap at 4096 UTF-8 bytes. compileState: compiled = affirmative complete recognized success; error = observed compile/link failure; unknown = insufficient or unreadable evidence; unsupported = no usable verified compile surface. No explicit force-cook, but compileResult reads force synchronous recompilation, including DAT consumers. Non-empty comments are authored metadata, not runtime evidence. See docs/CONTRACT.md for shapes, availability and caps."
             }
             Self::MutateNodes => {
                 "Ordered create/set/delete/connect/disconnect/place steps; sequential apply, stop on first hard error; later steps skipped (tdmcp.batch.skipped_dependent). Fix from failedAt only. create/set accept text: DAT body write (applied first; non-DAT target = hard error tdmcp.mutate.not_dat; create rolls back). create/set also accept comment: OP.comment, the node's own account of what it does and why — any family, an empty string clears it, and inspect returns it. Comment every non-obvious node you create: it is how the next agent (and the user) reads the network. After each successful text write the tool lints consuming GLSL ops and attaches per-step shaderDiagnostics[] ({severity note|error, code tdmcp.shader.*, consumer, consumerOpType, role, message, lines[]} for errors); summary adds shaderNotes/shaderErrors counts. Lint reads compileResult, forcing a synchronous recompile of each consumer; never flips ok. place drops a Palette component (.tox) into the network: pass paletteId (resolved against the palette_index roster on the daemon — an unknown id fails tdmcp.palette.unknown_id before TD is touched) or an absolute toxPath, never both; comment/values/flags apply exactly as on create, and the placed COMP is referenceable by later steps in the same batch, so place and connect in one call. See tdmcp://docs/palette."
@@ -512,6 +512,12 @@ pub struct CaptureParams {
     /// Job returned by a prior timed capture. Omit on status/cancel to discover the active job.
     #[serde(default)]
     pub job_id: Option<String>,
+    #[doc = "Status only: include stored samples (default true); false returns metadata without consuming samples."]
+    #[serde(default = "default_true")]
+    pub include_samples: bool,
+    #[doc = "Status only: zero-based stored-sample index, not a timeline offset (default 0)."]
+    #[serde(default)]
+    pub sample_offset: u32,
     /// Optional reset and sequential advance schedule; omitted means immediate capture.
     #[serde(default)]
     pub timing: Option<crate::timing::TimingOptions>,
@@ -565,6 +571,28 @@ impl DetailLevel {
     }
 }
 
+#[doc = "Parameter inspection mode."]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum ParamsMode {
+    #[doc = "Evaluate selected parameters (default)."]
+    #[default]
+    Values,
+    #[doc = "Return names only, without parameter evaluation or metadata reads."]
+    Names,
+}
+
+fn deserialize_child_limit<'de, D>(deserializer: D) -> Result<Option<LenientU32>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let limit = Option::<LenientU32>::deserialize(deserializer)?;
+    if limit.is_some_and(|n| n.get() == 0 || n.get() > CHILDREN_ROSTER_LIMIT as u32) {
+        return Err(serde::de::Error::custom("childLimit must be in 1..256"));
+    }
+    Ok(limit)
+}
+
 /// Args for inspect.
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -583,12 +611,46 @@ pub struct InspectParams {
     /// Sections to include. Empty/omitted = nodes+errors+warnings; params/content opt-in; non-empty = allowlist.
     #[serde(default)]
     pub include: Vec<InspectInclude>,
+    #[doc = "Exact case-sensitive parameter names; omitted/null = all, [] = none. Requires include params."]
+    #[serde(default)]
+    pub param_names: Option<Vec<String>>,
+    #[doc = "values (default) evaluates selected parameters; names returns only names. Requires include params."]
+    #[serde(default)]
+    pub params_mode: ParamsMode,
+    #[doc = "Zero-based direct-child offset, default 0. Offsets can shift on mutable graphs. Requires include nodes."]
+    #[serde(default)]
+    pub child_offset: Option<LenientU32>,
+    #[doc = "Direct-child page size, default 256; must be 1..256. Requires include nodes."]
+    #[serde(default, deserialize_with = "deserialize_child_limit")]
+    pub child_limit: Option<LenientU32>,
     /// Structural detail level.
     #[serde(default)]
     pub detail_level: DetailLevel,
     /// Diagnostic payload size (`summary` omits raw traceback).
     #[serde(default)]
     pub diagnostic_level: DiagnosticLevel,
+}
+
+fn bridge_inspect_params(params: &InspectParams) -> Value {
+    let mut wire = serde_json::json!({
+        "paths": params.paths,
+        "contextPath": params.context_path,
+        "include": params.include,
+        "detailLevel": params.detail_level.as_str(),
+    });
+    if let Some(names) = &params.param_names {
+        wire["paramNames"] = serde_json::json!(names);
+    }
+    if params.params_mode != ParamsMode::Values {
+        wire["paramsMode"] = serde_json::json!(params.params_mode);
+    }
+    if let Some(offset) = params.child_offset {
+        wire["childOffset"] = serde_json::json!(offset);
+    }
+    if let Some(limit) = params.child_limit {
+        wire["childLimit"] = serde_json::json!(limit);
+    }
+    wire
 }
 
 /// Policy for connecting to an input that already has connections.
@@ -1385,6 +1447,7 @@ async fn dispatch_tool_inner(
         }
         ToolName::Capture => {
             let params: CaptureParams = parse_args(catalog, tool, args.clone())?;
+            let sample_options = crate::timing::capture_sample_options(&params, &args);
             if params.action == crate::timing::JobAction::Start && params.path.is_none() {
                 return Err(coded_failure(
                     catalog,
@@ -1420,12 +1483,8 @@ async fn dispatch_tool_inner(
             let _slot =
                 begin_session_slot(session, catalog, "capture", DAEMON_SCOPE_LOCAL, params.pid)?;
             let method = BridgeMethod::Capture;
-            let outcome = enqueue_and_call(
-                registry,
-                bridge,
-                params.pid,
-                method,
-                serde_json::json!({
+            let outcome = enqueue_and_call(registry, bridge, params.pid, method, {
+                let mut wire = serde_json::json!({
                     "path": params.path,
                     "mode": params.mode.as_str(),
                     "contextPath": params.context_path,
@@ -1434,8 +1493,12 @@ async fn dispatch_tool_inner(
                     "jobId": params.job_id,
                     "timing": params.timing,
                     "inspect": params.inspect,
-                }),
-            )
+                });
+                for (key, value) in sample_options {
+                    wire[key] = value;
+                }
+                wire
+            })
             .await;
             if params.timing.is_some() || params.action != crate::timing::JobAction::Start {
                 return crate::outcomes::map_timing_outcome(
@@ -1501,17 +1564,6 @@ async fn dispatch_tool_inner(
             let _slot =
                 begin_session_slot(session, catalog, "inspect", DAEMON_SCOPE_LOCAL, params.pid)?;
             let method = BridgeMethod::Inspect;
-            let include: Vec<&str> = params
-                .include
-                .iter()
-                .map(|i| match i {
-                    InspectInclude::Nodes => "nodes",
-                    InspectInclude::Params => "params",
-                    InspectInclude::Errors => "errors",
-                    InspectInclude::Warnings => "warnings",
-                    InspectInclude::Content => "content",
-                })
-                .collect();
             // Soft-cap is enforced on the bridge; still forward the full list
             // so truncation metadata can report the requested count.
             let outcome = enqueue_and_call(
@@ -1519,12 +1571,7 @@ async fn dispatch_tool_inner(
                 bridge,
                 params.pid,
                 method,
-                serde_json::json!({
-                    "paths": params.paths,
-                    "contextPath": params.context_path,
-                    "include": include,
-                    "detailLevel": params.detail_level.as_str(),
-                }),
+                bridge_inspect_params(&params),
             )
             .await;
             let span_path = params.paths.first().cloned();
@@ -2023,6 +2070,45 @@ async fn clear_queue_keep_connected(registry: &Arc<Mutex<PidRegistry>>, pid: u32
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, reason = "unit tests")]
 mod timeout_tests {
+    #[test]
+    fn inspect_forwarding_preserves_defaults_and_normalizes_options() {
+        use super::{bridge_inspect_params, InspectParams};
+        use serde_json::json;
+        let defaults: InspectParams = serde_json::from_value(json!({
+            "pid": 1, "paths": ["/project1"]
+        }))
+        .unwrap();
+        assert_eq!(
+            bridge_inspect_params(&defaults),
+            json!({
+                "paths": ["/project1"], "contextPath": null, "include": [], "detailLevel": "summary"
+            })
+        );
+        let selected: InspectParams = serde_json::from_value(json!({
+            "pid": 1, "paths": ["/project1"], "paramNames": [], "paramsMode": "names",
+            "childOffset": " 256 ", "childLimit": "1", "include": ["nodes", "params"]
+        }))
+        .unwrap();
+        assert_eq!(
+            bridge_inspect_params(&selected),
+            json!({
+                "paths": ["/project1"], "contextPath": null, "include": ["nodes", "params"],
+                "detailLevel": "summary", "paramNames": [], "paramsMode": "names",
+                "childOffset": 256, "childLimit": 1
+            })
+        );
+        let explicit: InspectParams = serde_json::from_value(json!({
+            "pid": 1, "paths": ["/project1"], "paramNames": ["gain"], "paramsMode": "values",
+            "childOffset": 0, "childLimit": 256
+        }))
+        .unwrap();
+        let wire = bridge_inspect_params(&explicit);
+        assert_eq!(wire["paramNames"], json!(["gain"]));
+        assert_eq!(wire["childOffset"], 0);
+        assert_eq!(wire["childLimit"], 256);
+        assert!(wire.get("paramsMode").is_none());
+    }
+
     #[test]
     fn safe_connect_rejects_stale_bridge_instead_of_downgrading() {
         use super::{bridge_mutate_steps, MutateStep};

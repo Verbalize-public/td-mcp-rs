@@ -29,6 +29,10 @@ Optional `warmupFrames` happen before sample zero, separately accounted.
 `capture` returns `jobId`. Poll `capture` with `action:"status"`, the same
 `pid`/`daemonId`, and `jobId`; samples carry offsets, timing, images and optional
 inspection. They advance locally between calls: polling does not step TD.
+For progress-only polls send `includeSamples:false` (returns `samples:[]`);
+fetch stored samples on demand with `sampleOffset` (a stored-sample cursor,
+repeatable; returns `totalSamples` / `nextSampleOffset` / `samplesComplete`) —
+avoiding image re-delivery on every poll.
 `repeat:{"count":3,"interval":30}` is equivalent to offsets 0/30/60.
 `stepFrames:1` advances once then captures. Use only one schedule form.
 `timing:{"after":"pause"}` captures and stays paused; `after:"play"` resumes

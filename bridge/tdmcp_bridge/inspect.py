@@ -394,6 +394,22 @@ def _attach_content(
         return
 
 
+def _selected_params(n: Any, param_names: list[str] | None, params_mode: str,
+                     detailed: bool) -> tuple[list[dict[str, Any]], list[str]]:
+    if param_names == []:
+        return [], []
+    if param_names is None and params_mode == "values":
+        return [_inspect_param_entry(p, detailed=detailed) for p in n.pars()], []
+    requested = None if param_names is None else set(param_names)
+    selected = [(p.name, p) for p in n.pars()
+                if requested is None or p.name in requested]
+    found = {name for name, _ in selected}
+    missing = list(dict.fromkeys(name for name in (param_names or []) if name not in found))
+    entries = [{"name": name} if params_mode == "names"
+               else _inspect_param_entry(p, detailed=detailed) for name, p in selected]
+    return entries, missing
+
+
 def build_inspect_node(
     n: Any,
     *,
@@ -403,17 +419,24 @@ def build_inspect_node(
     want_errors: bool = False,
     want_warnings: bool = False,
     want_content: bool = False,
+    param_names: list[str] | None = None,
+    params_mode: str = "values",
+    child_offset: int | None = None,
+    child_limit: int | None = None,
     lint_ctx: Any = None,
     scope_root: str | None = None,
 ) -> dict[str, Any]:
     """Shape one inspect node payload (pure enough for unit tests without TD)."""
     children: list[dict[str, Any]] = []
     child_count = 0
+    paging = child_offset is not None or child_limit is not None
+    offset = 0 if child_offset is None else child_offset
+    limit = CHILDREN_ROSTER_LIMIT if child_limit is None else child_limit
     if want_nodes:
         raw_children = list(n.children)  # TD OP.children is a list property
         child_count = len(raw_children)
         detailed = detail_level == "detailed"
-        for child in raw_children[:CHILDREN_ROSTER_LIMIT]:
+        for child in raw_children[offset:offset + limit]:
             if detailed:
                 entry: dict[str, Any] = {
                     "path": getattr(child, "path", None),
@@ -464,15 +487,40 @@ def build_inspect_node(
                     "Use execute_python if you need the full name list",
                 ],
             }
+        if paging:
+            next_offset = offset + len(children)
+            out["childrenPage"] = {
+                "offset": offset,
+                "limit": limit,
+                "total": child_count,
+                "nextOffset": next_offset if next_offset < child_count else None,
+                "complete": offset == 0 and len(children) == child_count,
+            }
+            if len(children) < child_count:
+                out["truncation"].update({
+                    "limit": limit,
+                    "message": f"Direct-child page returned {len(children)} of {child_count} at offset {offset}",
+                    "mitigation": [
+                        "Continue with childrenPage.nextOffset when non-null",
+                        "Offsets are unstable if the child roster changes between calls",
+                    ],
+                })
         for field in ("inputs", "outputs"):
             out[field] = _observe(
                 out, field, lambda: _wire_peers(getattr(n, field), strict=True), []
             )
     if want_params:
-        out["params"] = _observe(
-            out, "params", lambda: [_inspect_param_entry(p, detailed=detail_level == "detailed")
-                                   for p in n.pars()], []
+        entries, missing = _observe(
+            out, "params", lambda: _selected_params(
+                n, param_names, params_mode, detail_level == "detailed"), ([], None)
         )
+        out["params"] = entries
+        if param_names is not None:
+            out["paramsSelection"] = {
+                "requested": param_names,
+                "missing": missing,
+                "complete": missing == [],
+            }
     # Content can synchronously compile shaders; observe messages afterward so
     # one reply does not combine a fresh compile verdict with stale cook errors.
     if want_content:
@@ -517,6 +565,28 @@ def handle_inspect(params: dict[str, Any]) -> dict[str, Any]:
             "message": "inspect requires a non-empty paths array",
         }
 
+    param_names = params.get("paramNames")
+    params_mode = params.get("paramsMode", "values")
+    child_offset = params.get("childOffset")
+    child_limit = params.get("childLimit")
+    invalid = None
+    if param_names is not None and (
+        not isinstance(param_names, list) or any(not isinstance(name, str) for name in param_names)
+    ):
+        invalid = "paramNames must be an array of exact names or null"
+    elif params_mode not in ("values", "names"):
+        invalid = "paramsMode must be values or names"
+    elif child_offset is not None and (
+        type(child_offset) is not int or not 0 <= child_offset <= 0xFFFFFFFF
+    ):
+        invalid = "childOffset must be an unsigned 32-bit integer"
+    elif child_limit is not None and (
+        type(child_limit) is not int or not 1 <= child_limit <= CHILDREN_ROSTER_LIMIT
+    ):
+        invalid = "childLimit must be in 1..256"
+    if invalid is not None:
+        return {"ok": False, "code": "tdmcp.args.wrong_type", "message": invalid}
+
     context_path = params.get("contextPath")
     include = params.get("include") or []
     detail_level = params.get("detailLevel") or "summary"
@@ -558,6 +628,10 @@ def handle_inspect(params: dict[str, Any]) -> dict[str, Any]:
                 want_errors=want_errors,
                 want_warnings=want_warnings,
                 want_content=want_content,
+                param_names=param_names,
+                params_mode=params_mode,
+                child_offset=child_offset,
+                child_limit=child_limit,
                 lint_ctx=(_TdMutateContext(context_path) if want_content else None),
                 scope_root=context_path or "/project1",
             )

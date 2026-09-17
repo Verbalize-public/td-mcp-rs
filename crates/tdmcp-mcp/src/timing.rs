@@ -21,6 +21,22 @@ pub enum JobAction {
     Release,
 }
 
+pub(crate) fn capture_sample_options(
+    params: &crate::tools::CaptureParams,
+    args: &serde_json::Value,
+) -> serde_json::Map<String, serde_json::Value> {
+    let mut options = serde_json::Map::new();
+    if params.action == JobAction::Status {
+        if args.get("includeSamples").is_some() {
+            options.insert("includeSamples".into(), params.include_samples.into());
+        }
+        if args.get("sampleOffset").is_some() {
+            options.insert("sampleOffset".into(), params.sample_offset.into());
+        }
+    }
+    options
+}
+
 /// Public reset signal owned by the network, not an arbitrary script.
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -134,4 +150,53 @@ pub struct RecordParams {
     /// Artifact read length (default/max 262144 bytes).
     #[serde(default)]
     pub length: Option<u32>,
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, reason = "unit tests")]
+mod tests {
+    use super::*;
+    use crate::tools::CaptureParams;
+    use serde_json::json;
+
+    #[test]
+    fn capture_status_forwards_only_explicit_sample_options() {
+        for (extra, expected) in [
+            (json!({}), json!({})),
+            (
+                json!({"includeSamples": false}),
+                json!({"includeSamples": false}),
+            ),
+            (
+                json!({"includeSamples": true}),
+                json!({"includeSamples": true}),
+            ),
+            (json!({"sampleOffset": 0}), json!({"sampleOffset": 0})),
+            (json!({"sampleOffset": 2}), json!({"sampleOffset": 2})),
+            (
+                json!({"includeSamples": false, "sampleOffset": 1}),
+                json!({"includeSamples": false, "sampleOffset": 1}),
+            ),
+        ] {
+            let mut args = json!({"pid": 1, "action": "status"});
+            args.as_object_mut()
+                .unwrap()
+                .extend(extra.as_object().unwrap().clone());
+            let params: CaptureParams = serde_json::from_value(args.clone()).unwrap();
+            assert_eq!(
+                serde_json::Value::Object(capture_sample_options(&params, &args)),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn capture_sample_options_do_not_change_other_actions() {
+        for action in ["start", "cancel", "read", "release"] {
+            let args =
+                json!({"pid": 1, "action": action, "includeSamples": false, "sampleOffset": 9});
+            let params: CaptureParams = serde_json::from_value(args.clone()).unwrap();
+            assert!(capture_sample_options(&params, &args).is_empty());
+        }
+    }
 }

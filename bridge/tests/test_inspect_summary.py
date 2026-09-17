@@ -266,6 +266,177 @@ class InspectSummaryRosterTest(unittest.TestCase):
         self.assertEqual(out["children"][0]["name"], "fallback1")
 
 
+class InspectRequestOptionsTest(unittest.TestCase):
+    def call(self, node, **options):
+        with patch.dict(sys.modules, {"td": SimpleNamespace()}):
+            with patch.object(tdmcp_bridge, "tdmcp_resolve", return_value=node):
+                return tdmcp_bridge.handle_inspect({"paths": ["/project1"], **options})
+
+    def test_filter_before_evaluation_and_exact_missing_names(self):
+        selected = FakeInspectPar("gain", val=3)
+        selected.eval = MagicMock(return_value=3)
+        excluded = FakeInspectPar("other")
+        excluded.eval = MagicMock(side_effect=AssertionError("must not evaluate"))
+        out = self.call(_fake_node([], pars=[selected, excluded]), include=["params"],
+                        paramNames=["gain", "Gain", "gain", "missing"])["nodes"][0]
+        self.assertEqual([p["name"] for p in out["params"]], ["gain"])
+        self.assertEqual(out["params"][0]["val"], 3)
+        self.assertEqual(out["paramsSelection"], {
+            "requested": ["gain", "Gain", "gain", "missing"],
+            "missing": ["Gain", "missing"], "complete": False})
+        selected.eval.assert_called_once_with()
+        excluded.eval.assert_not_called()
+
+    def test_names_only_never_reads_value_or_metadata(self):
+        class NamesOnly:
+            name = "gain"
+
+            def __getattr__(self, name):
+                raise AssertionError(f"unexpected read: {name}")
+
+        for detail in ["summary", "detailed"]:
+            out = self.call(_fake_node([], pars=[NamesOnly()]), include=["params"],
+                            paramsMode="names", detailLevel=detail)["nodes"][0]
+            self.assertEqual(out["params"], [{"name": "gain"}])
+            self.assertEqual(out["observations"]["params"], {"available": True})
+            self.assertNotIn("paramsSelection", out)
+
+    def test_empty_selection_does_not_enumerate_or_evaluate(self):
+        node = _fake_node([])
+        node.pars = MagicMock(side_effect=AssertionError("must not enumerate"))
+        out = self.call(node, include=["params"], paramNames=[])["nodes"][0]
+        self.assertEqual(out["params"], [])
+        self.assertEqual(out["paramsSelection"], {"requested": [], "missing": [], "complete": True})
+        node.pars.assert_not_called()
+
+    def test_missing_and_unavailable_are_distinct(self):
+        node = _fake_node([])
+        out = self.call(node, include=["params"], paramNames=["absent"])["nodes"][0]
+        self.assertEqual(out["paramsSelection"]["missing"], ["absent"])
+        self.assertFalse(out["paramsSelection"]["complete"])
+        node.pars = MagicMock(side_effect=RuntimeError("unreadable"))
+        out = self.call(node, include=["params"], paramNames=["absent"])["nodes"][0]
+        self.assertEqual(out["params"], [])
+        self.assertIsNone(out["paramsSelection"]["missing"])
+        self.assertFalse(out["paramsSelection"]["complete"])
+        self.assertFalse(out["observations"]["params"]["available"])
+
+    def test_selected_failed_evaluation_keeps_availability(self):
+        par = FakeInspectPar("gain", eval_raises=RuntimeError("broken"))
+        out = self.call(_fake_node([], pars=[par]), include=["params"],
+                        paramNames=["gain"])["nodes"][0]
+        self.assertTrue(out["paramsSelection"]["complete"])
+        self.assertFalse(out["params"][0]["evaluation"]["available"])
+        self.assertIsNone(out["params"][0]["val"])
+
+    def test_options_do_not_load_excluded_sections(self):
+        node = _fake_node([], errors="bad", warnings="warning")
+        node.pars = MagicMock(side_effect=AssertionError("not loaded"))
+        out = self.call(node, include=["errors", "warnings"], paramNames=["gain"],
+                        paramsMode="names", childOffset=1, childLimit=1)["nodes"][0]
+        for key in ["params", "paramsSelection", "children", "childrenPage"]:
+            self.assertNotIn(key, out)
+        self.assertEqual(out["errors"], ["bad"])
+        self.assertEqual(out["warnings"], ["warning"])
+        self.assertIn("timing", out)
+        node.pars.assert_not_called()
+
+    def test_null_and_omitted_options_preserve_response(self):
+        node = _fake_node([_fake_child("one")], pars=[FakeInspectPar("gain", val=1)])
+        plain = self.call(node, include=["nodes", "params"])["nodes"][0]
+        explicit = self.call(node, include=["nodes", "params"], paramNames=None,
+                             paramsMode="values", childOffset=None, childLimit=None)["nodes"][0]
+        plain.pop("timing")
+        explicit.pop("timing")
+        self.assertEqual(plain, explicit)
+        self.assertNotIn("childrenPage", plain)
+        self.assertNotIn("paramsSelection", plain)
+
+    def test_real_pages_cover_more_than_cap_without_recursion(self):
+        node = _fake_node([_fake_child(f"op{i}") for i in range(259)])
+        first = self.call(node, include=["nodes"], childOffset=0)["nodes"][0]
+        last = self.call(node, include=["nodes"], childOffset=256)["nodes"][0]
+        self.assertEqual(first["childrenPage"], {
+            "offset": 0, "limit": 256, "total": 259, "nextOffset": 256, "complete": False})
+        self.assertEqual(last["childrenPage"], {
+            "offset": 256, "limit": 256, "total": 259, "nextOffset": None, "complete": False})
+        self.assertEqual([c["name"] for c in first["children"] + last["children"]],
+                         [f"op{i}" for i in range(259)])
+        self.assertEqual(last["childrenReturned"], 3)
+        self.assertTrue(last["childrenTruncated"])
+        self.assertTrue(all("children" not in c for c in first["children"]))
+
+    def test_small_detailed_page_and_out_of_range_offset(self):
+        node = _fake_node([_fake_child(f"op{i}") for i in range(3)])
+        page = self.call(node, include=["nodes"], childOffset=1, childLimit=1,
+                         detailLevel="detailed")["nodes"][0]
+        self.assertEqual(page["children"][0]["path"], "/project1/op1")
+        self.assertEqual(page["childrenPage"]["nextOffset"], 2)
+        self.assertEqual(page["truncation"]["limit"], 1)
+        page = self.call(node, include=["nodes"], childOffset=99)["nodes"][0]
+        self.assertEqual(page["children"], [])
+        self.assertIsNone(page["childrenPage"]["nextOffset"])
+        self.assertFalse(page["childrenPage"]["complete"])
+
+    def test_complete_single_and_empty_pages(self):
+        for children in [[], [_fake_child("one")]]:
+            page = self.call(_fake_node(children), include=["nodes"], childLimit=1)["nodes"][0]
+            self.assertTrue(page["childrenPage"]["complete"])
+            self.assertIsNone(page["childrenPage"]["nextOffset"])
+            self.assertNotIn("childrenTruncated", page)
+
+    def test_selection_and_paging_do_not_persist_between_calls(self):
+        node = _fake_node([_fake_child("one"), _fake_child("two")],
+                          pars=[FakeInspectPar("gain", val=1)])
+        selected = self.call(node, include=["nodes", "params"], paramNames=[],
+                             paramsMode="names", childOffset=1, childLimit=1)["nodes"][0]
+        plain = self.call(node, include=["nodes", "params"])["nodes"][0]
+        self.assertEqual(selected["params"], [])
+        self.assertEqual(len(selected["children"]), 1)
+        self.assertEqual(plain["params"][0]["val"], 1)
+        self.assertEqual(len(plain["children"]), 2)
+        self.assertNotIn("childrenPage", plain)
+        self.assertNotIn("paramsSelection", plain)
+
+    def test_names_filter_treats_wildcards_as_literal(self):
+        node = _fake_node([], pars=[FakeInspectPar("gain"), FakeInspectPar("g*")])
+        out = self.call(node, include=["params"], paramsMode="names",
+                        paramNames=["g*", "Gain"])["nodes"][0]
+        self.assertEqual(out["params"], [{"name": "g*"}])
+        self.assertEqual(out["paramsSelection"]["missing"], ["Gain"])
+
+    def test_paging_and_selection_are_per_node_with_partial_success(self):
+        node = _fake_node([_fake_child("one"), _fake_child("two")],
+                          pars=[FakeInspectPar("gain")])
+        with patch.dict(sys.modules, {"td": SimpleNamespace()}):
+            with patch.object(tdmcp_bridge, "tdmcp_resolve", side_effect=[node, None, _fake_node([])]):
+                out = tdmcp_bridge.handle_inspect({
+                    "paths": ["/project1", "/missing", "/empty"], "include": ["nodes", "params"],
+                    "childOffset": 1, "childLimit": 1, "paramNames": ["gain"], "paramsMode": "names"})
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["nodes"][0]["children"][0]["name"], "two")
+        self.assertTrue(out["nodes"][0]["paramsSelection"]["complete"])
+        self.assertFalse(out["nodes"][1]["ok"])
+        self.assertEqual(out["nodes"][2]["childrenPage"]["total"], 0)
+        self.assertEqual(out["nodes"][2]["paramsSelection"]["missing"], ["gain"])
+
+    def test_invalid_bridge_options_fail_before_resolution(self):
+        for options in [
+            {"childLimit": 0}, {"childLimit": 257}, {"childLimit": True},
+            {"childLimit": 1.5}, {"childLimit": "1"}, {"childOffset": -1},
+            {"childOffset": 4294967296}, {"childOffset": False},
+            {"paramNames": "gain"}, {"paramNames": [1]},
+            {"paramsMode": "names-only"}, {"paramsMode": None},
+        ]:
+            with self.subTest(options=options):
+                with patch.dict(sys.modules, {"td": SimpleNamespace()}):
+                    with patch.object(tdmcp_bridge, "tdmcp_resolve") as resolve:
+                        out = tdmcp_bridge.handle_inspect({"paths": ["/project1"], **options})
+                self.assertFalse(out["ok"])
+                self.assertEqual(out["code"], "tdmcp.args.wrong_type")
+                resolve.assert_not_called()
+
+
 class InspectParamsTest(unittest.TestCase):
     def test_constant_par_no_expr_key(self) -> None:
         node = _fake_node([], pars=[FakeInspectPar("resolutionw", val=128)])

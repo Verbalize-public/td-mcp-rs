@@ -170,6 +170,11 @@ pub fn map_script_outcome(
                 Err(failed_one(item))
             } else {
                 let mut body = serde_json::json!({ "ok": true, "result": value.get("result") });
+                for field in ["resultTruncated", "truncation"] {
+                    if let Some(metadata) = value.get(field) {
+                        body[field] = metadata.clone();
+                    }
+                }
                 if let Some(logs) = env.logs {
                     body["logs"] = Value::String(logs);
                 } else if let Some(logs) = value.get("logs") {
@@ -1020,6 +1025,33 @@ mod tests {
             FormatMode::Normal,
         );
         assert_eq!(item.code, codes::SCRIPT_TOO_LARGE);
+    }
+
+    #[test]
+    fn script_success_preserves_truncation_metadata() {
+        let bridge_value = json!({
+            "ok": true,
+            "result": "truncated result",
+            "resultTruncated": true,
+            "truncation": {
+                "field": "result",
+                "limit": 4194304,
+                "code": "tdmcp.script.result_too_large",
+                "message": "Result truncated; the script already ran",
+                "mitigation": ["Return a smaller result"]
+            },
+            "logs": "completed"
+        });
+        let result = map_script_outcome(
+            &Catalog::fallback(),
+            Pid::new(1),
+            BridgeOutcome::Ok(bridge_value.clone()),
+            DiagnosticLevel::Summary,
+            FormatMode::Normal,
+            None,
+        )
+        .expect("truncated successful execution stays successful");
+        assert_eq!(result, bridge_value);
     }
 
     #[test]

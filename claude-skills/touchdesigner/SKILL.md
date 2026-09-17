@@ -16,9 +16,11 @@ catalog). With MCP, discover it through `resources/list` and load it through
 `resources/read` using the host's resource interface; then follow its reference
 links. With installed filesystem skills, read this file and its linked cards.
 Tool availability, resource availability, and a connected TD process are
-separate checks. Use `describe_tools` for the exposed schemas; do not invent
-tool names from resource names. A harness or persona should route here rather
-than copy these procedures.
+separate checks. Use schemas already exposed by the host; call `describe_tools`
+only when schema information is missing or unclear, not as a routine full-catalog
+fetch. It describes tools, not dynamic tool activation. Do not invent tool names
+from resource names. A harness or persona should route here rather than copy
+these procedures.
 
 ## Working loop
 
@@ -28,15 +30,29 @@ than copy these procedures.
    daemon, PID, project and authorized subtree; reconfirm after a restart.
    If the task needs a new process, use `spawn_td` and
    [`lifecycle`](./reference/lifecycle.md).
-2. Use `inspect` for structure, parameters, wires, and errors. Add
-   `include: ["content"]` for DAT text and shader sources.
+2. Use `inspect` progressively: default sections are nodes, errors and warnings;
+   non-empty `include` is an allowlist. For parameter-name discovery use
+   `include:["params"], paramsMode:"names"` (only `{name}`, no value/metadata
+   reads). Then select exact case-sensitive `paramNames` with `paramsMode:"values"`
+   (default); omitted/null names select all, `[]` selects none. Check
+   `paramsSelection.missing` / `complete` when selecting names and each value's
+   `evaluation.available`; name coverage is not evaluation success.
+   With `include:["nodes"]`, page direct children using `childOffset` (zero-based,
+   default 0) and `childLimit` (1–256, default 256); follow `childrenPage.nextOffset`.
+   A final page is not a complete roster; offsets can shift when the graph changes.
+   Options are request-local, not recursive. Add `content` for DAT/shader sources;
+   content and warning enrichment can evaluate separately from names-only params.
    `editor_context` supplies a location hint, not permission to edit.
 3. Apply changes with `mutate_nodes`. Keep bridged calls sequential on each
    pid. Explain a complex or branched network with OpSketch before building;
    a small parameter fix needs no separate design ceremony.
-4. Inspect the changed parent COMP. For visual claims, capture the output
-   and examine the image. Report observed failures and unverified behavior
-   separately; successful execution alone does not prove the result.
+4. Verify a bounded, deduplicated set of canonical changed paths, affected
+   destinations and relevant parents—not just the parent COMP. Include both
+   errors and warnings and check their observation availability. On partial
+   failure, inspect successful steps and the failed step's possible effects
+   before retrying. Verify deletions through the surviving parent roster, not
+   deleted paths as success targets. Follow [`definition-of-done`](./reference/definition-of-done.md);
+   shader compilation, viewed pixels and timed behavior need distinct evidence.
 
 ## Choose the tool
 
@@ -53,7 +69,7 @@ than copy these procedures.
 | Start / stop TouchDesigner | `spawn_td` / `kill_td`; [`lifecycle`](./reference/lifecycle.md) |
 | Blocking dialogs | `dialogs`; [`popups`](./reference/popups.md) |
 | Offline projects and bridge installation | [`project-io`](./reference/project-io.md) |
-| Tool schemas | `describe_tools` |
+| Missing or unclear tool schemas | `describe_tools` on demand; reuse exposed schemas |
 
 ## Constraints that prevent common failures
 

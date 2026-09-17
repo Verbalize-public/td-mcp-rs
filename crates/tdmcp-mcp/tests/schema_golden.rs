@@ -115,6 +115,46 @@ fn known_issues_scratch_fixture_matches_current_tool_types() {
 }
 
 #[test]
+fn capture_status_sample_options_defaults_and_validation() {
+    let defaults: tdmcp_mcp::CaptureParams =
+        serde_json::from_value(serde_json::json!({"pid": 1, "action": "status"})).unwrap();
+    assert!(defaults.include_samples);
+    assert_eq!(defaults.sample_offset, 0);
+    let explicit: tdmcp_mcp::CaptureParams = serde_json::from_value(serde_json::json!({
+        "pid": 1, "action": "status", "includeSamples": false, "sampleOffset": 2
+    }))
+    .unwrap();
+    assert!(!explicit.include_samples);
+    assert_eq!(explicit.sample_offset, 2);
+    for invalid in [
+        serde_json::json!({"sampleOffset": -1}),
+        serde_json::json!({"sampleOffset": 0.5}),
+        serde_json::json!({"sampleOffset": true}),
+        serde_json::json!({"sampleOffset": "0"}),
+        serde_json::json!({"sampleOffset": null}),
+        serde_json::json!({"sampleOffset": 4294967296_u64}),
+        serde_json::json!({"includeSamples": 0}),
+        serde_json::json!({"includeSamples": "false"}),
+        serde_json::json!({"includeSamples": null}),
+    ] {
+        let mut args = serde_json::json!({"pid": 1, "action": "status"});
+        args.as_object_mut()
+            .unwrap()
+            .extend(invalid.as_object().unwrap().clone());
+        assert!(serde_json::from_value::<tdmcp_mcp::CaptureParams>(args).is_err());
+    }
+    let schema = input_schema_for(ToolName::Capture);
+    assert_eq!(schema["properties"]["includeSamples"]["default"], true);
+    assert_eq!(schema["properties"]["includeSamples"]["type"], "boolean");
+    assert_eq!(schema["properties"]["sampleOffset"]["default"], 0);
+    assert_eq!(schema["properties"]["sampleOffset"]["minimum"], 0);
+    assert_eq!(schema["properties"]["sampleOffset"]["type"], "integer");
+    let record = input_schema_for(ToolName::Record);
+    assert!(record["properties"].get("includeSamples").is_none());
+    assert!(record["properties"].get("sampleOffset").is_none());
+}
+
+#[test]
 fn fleet_unknown_include_rejected() {
     let err = serde_json::from_value::<tdmcp_mcp::FleetParams>(serde_json::json!({
         "include": ["typo"]
@@ -123,6 +163,41 @@ fn fleet_unknown_include_rejected() {
         err.is_err(),
         "unknown fleet include enum variant must fail deserialize"
     );
+}
+
+#[test]
+fn inspect_request_local_options_validate() {
+    for extra in [
+        serde_json::json!({"childOffset": " 256 ", "childLimit": "1"}),
+        serde_json::json!({"childOffset": 0, "childLimit": 256}),
+        serde_json::json!({"paramNames": [], "paramsMode": "names"}),
+        serde_json::json!({"paramNames": ["gain"], "paramsMode": "values"}),
+    ] {
+        let mut args = serde_json::json!({"pid": 1, "paths": ["/project1"]});
+        args.as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        let parsed = serde_json::from_value::<tdmcp_mcp::InspectParams>(args);
+        assert!(parsed.is_ok(), "{parsed:?}");
+    }
+    for extra in [
+        serde_json::json!({"childLimit": 0}),
+        serde_json::json!({"childLimit": 257}),
+        serde_json::json!({"childLimit": "257"}),
+        serde_json::json!({"childOffset": -1}),
+        serde_json::json!({"childOffset": 4294967296_u64}),
+        serde_json::json!({"childLimit": true}),
+        serde_json::json!({"childLimit": 1.5}),
+        serde_json::json!({"paramNames": "gain"}),
+        serde_json::json!({"paramNames": [1]}),
+        serde_json::json!({"paramsMode": "names-only"}),
+    ] {
+        let mut args = serde_json::json!({"pid": 1, "paths": ["/project1"]});
+        args.as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        assert!(serde_json::from_value::<tdmcp_mcp::InspectParams>(args).is_err());
+    }
 }
 
 #[test]

@@ -173,6 +173,60 @@ async fn stdio_proxy_tools_list_and_fleet_on_wire() {
         } else {
             assert!(result.get("resultType").is_none());
         }
+        for (id, method, params, field) in [
+            (
+                10,
+                "resources/read",
+                json!({"uri": "tdmcp://docs/operate"}),
+                "contents",
+            ),
+            (11, "resources/list", json!({}), "resources"),
+            (
+                12,
+                "resources/templates/list",
+                json!({}),
+                "resourceTemplates",
+            ),
+        ] {
+            let request = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params});
+            write
+                .write_all(format!("{request}\n").as_bytes())
+                .await
+                .unwrap();
+            line.clear();
+            tokio::time::timeout(Duration::from_secs(10), read.read_line(&mut line))
+                .await
+                .expect("resource response timeout")
+                .unwrap();
+            let response: serde_json::Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(response["id"], id);
+            assert!(response.get("error").is_none(), "{response}");
+            let result = &response["result"];
+            assert!(result[field].is_array(), "{response}");
+            if method == "resources/read" {
+                assert_eq!(result[field][0]["uri"], "tdmcp://docs/operate");
+                assert_eq!(result[field][0]["mimeType"], "text/markdown");
+                assert!(!result[field][0]["text"].as_str().unwrap().is_empty());
+            } else if method == "resources/list" {
+                assert!(result[field]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|resource| resource["uri"] == "tdmcp://docs/operate"));
+            } else {
+                assert_eq!(result[field], json!([]));
+            }
+            if version == "2026-07-28" {
+                assert_eq!(result["resultType"], "complete", "{method}");
+                assert_eq!(result["ttlMs"], 0, "{method}: missing cache TTL");
+                assert_eq!(
+                    result["cacheScope"], "private",
+                    "{method}: missing cache scope"
+                );
+            } else {
+                assert!(result.get("resultType").is_none(), "{method}");
+            }
+        }
         let call = json!({"jsonrpc": "2.0", "id": 3, "method": "tools/call",
             "params": {"name": "fleet", "arguments": {}}});
         write
