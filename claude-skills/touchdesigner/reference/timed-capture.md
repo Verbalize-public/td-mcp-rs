@@ -69,6 +69,16 @@ This works through federation without accessing a remote filesystem path.
 For visual claims, decode/view the resulting video; container validation alone
 does not establish intended pixels. Cancellation may retain a partial artifact.
 
+Keep the same confirmed `pid`/`daemonId` and `jobId` on status, read and release
+calls. Write decoded chunks in byte order to the authorized output path; verify
+the downloaded byte count and container metadata before reporting the file as
+saved. View representative frames for the claimed appearance and state the
+sampling depth; metadata alone does not prove every frame's visual quality.
+Release only after retrieval/verification or an explicit decision to discard.
+The bridge's private retained artifact is temporary, not a durable deliverable.
+Record final play/frame state separately from the movie, and say whether the
+project itself was saved.
+
 Bounds: 16 capture samples / 8 MiB aggregate results; 3600 advances or video
 frames; 512 MiB video; 1–600 second job deadline. At most eight jobs are retained
 per bridge generation. Download promptly; `release` deletes retained results

@@ -69,9 +69,64 @@ Proximity, Neighbor. Custom compute: GLSL POP / GLSL Advanced POP / Copy GLSL PO
   first thing to wire when a POP chain misbehaves.
 - Rendering: put POPs inside a Geometry COMP, apply a MAT, render with Render TOP.
   DMX POPs output directly to DMX/Art-Net/sACN fixtures.
-- Python (CPU side, use `delayed=True` to avoid stalls):
+- Python (CPU side: `delayed=True` avoids stalls but is not a fresh synchronous read):
   `op('pop1').pointAttributes` (iterate for `.name/.size/.type`),
   `pointAttributesChanged`, `op('pop1').points('Attr')`, `op('pop1').dimension`.
+
+## Minimal renderable scene (verified 2025.32460, Wine/Linux)
+
+Use a fresh owned COMP; inspect defaults before changing them.
+
+1. Create Geometry COMP, Camera COMP, Constant MAT and Render TOP. A fresh Geometry
+   COMP in this build contains a rendered `torus1` **torusPOP**. Remove only that
+   identified default in the COMP you just created, not an arbitrary user node.
+2. Inside Geometry: Circle POP → GLSL POP → Out POP. Choose explicit connector
+   indices. Set the terminal Out POP render flag; disabling it removed geometry
+   in the isolated test. Keep the Geometry COMP rendering enabled.
+3. On GLSL POP, set `outputattrs='*'`, `attr0name='color'`, and
+   `attr0numcomps='4'` (menu token, not index 4). The compute DAT can write
+   `Color[id] = vec4(1.0, 0.2, 0.05, 1.0)` after the standard
+   `uint id=TDIndex(); if(id>=TDNumElements()) return;` guard. Verify downstream
+   Color exists. Keep the bound non-passive general Info DAT for full compiler
+   diagnostics (the bridge follows it); unknown status is not success. Inspect
+   errors and actually capture the rendered result.
+4. Assign the MAT to Geometry and camera/geometry references to Render TOP. A
+   camera at z=5 viewed this unit circle. A sibling camera reference `cam` worked;
+   do not apply the expression `op()` path rule to parameter strings.
+5. Capture the explicit Render TOP. Transparent background (`bgcolora=0`) retained
+   colored geometry and alpha; opaque output is an option, not a requirement.
+   Inspect RGB and alpha separately when compositing looks empty.
+
+Point primitives were visible as small dots; closed line strips remained outlines.
+Use separate surface connectivity for filled geometry. A sparse visible line can
+receive capture classification `black` because the mean is low: view pixels
+rather than treating that heuristic as proof of an empty render. These statements
+are scoped to this build/configuration, not universal primitive guarantees.
+
+## Plot a CHOP without losing the baseline
+
+On `choptoPOP` (a generator with no wire inputs), set the CHOP reference,
+`specifypos=true`, and `attrscope='P(1)'` for one amplitude channel. This kept
+P.x distributed from -1 to 1 and wrote samples into P.y on TD 2025.32460. Default
+`attrscope='P'` wrote the channel into P.x, leaving y/z zero. Verify using
+`points('P', count=5, delayed=False)` and `numPoints(delayed=False)`; point count
+is a method. Use `chop.numSamples` plus indexed channel access, not Channel
+iteration or `channel.numSamples`.
+
+## Stateful effects need reset and actual frame advancement
+
+Feedback TOP and Trail POP both advanced under callback-based timed capture in
+the 2025.32460 test. Repeated same-frame forced cooks are not equivalent. A
+public reset pulse wired through Parameter Execute DAT (`onpulse`, not `pulse`)
+was verified before sampling. Trail with 64 input points produced 128/192/448
+points at offsets 0/1/5 after two initialization frames, and rendered instead of
+universally wedging. Initialization is fixture-specific. See
+[`timed-capture`](./timed-capture.md) and [`reset-state`](./reset-state.md).
+
+Merge POP wires plus a reference to an already wired source did not duplicate
+points in the tested 4+7-point fixture, even with forced cooks. Do not mark
+input-reference parameters read-only or clear them automatically. Reproduce the
+actual topology/build first.
 
 ## Current gaps (vs SOPs)
 

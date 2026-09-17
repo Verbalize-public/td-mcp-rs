@@ -272,7 +272,8 @@ class InspectParamsTest(unittest.TestCase):
         out = tdmcp_bridge.build_inspect_node(node, want_nodes=False, want_params=True)
         self.assertEqual(
             out["params"],
-            [{"name": "resolutionw", "mode": "CONSTANT", "val": 128}],
+            [{"name": "resolutionw", "mode": "CONSTANT", "val": 128,
+              "evaluation": {"available": True}}],
         )
         self.assertNotIn("expr", out["params"][0])
 
@@ -295,6 +296,7 @@ class InspectParamsTest(unittest.TestCase):
                 "name": "resolutionw",
                 "mode": "EXPRESSION",
                 "val": 3554,
+                "evaluation": {"available": True},
                 "expr": "absTime.seconds*4",
             }],
         )
@@ -345,6 +347,8 @@ class InspectParamsTest(unittest.TestCase):
                 "name": "resolutionw",
                 "mode": "EXPRESSION",
                 "val": None,
+                "evaluation": {"available": False, "code": "tdmcp.op.observation_unavailable",
+                               "errorType": "RuntimeError", "message": "bad expr"},
                 "expr": "1/0",
             }],
         )
@@ -1040,11 +1044,11 @@ class InspectShaderLintContentTest(unittest.TestCase):
         out = tdmcp_bridge.build_inspect_node(node, want_nodes=False, want_content=True)
         self.assertEqual(out["content"]["compileState"], "error")
 
-    def test_glsl_pop_omits_compile_state(self) -> None:
+    def test_glsl_pop_reports_unsupported_compile_state(self) -> None:
         node = _fake_node([], path="/project1/p", family="POP", op_type="glslPOP",
                           compile_result="")
         out = tdmcp_bridge.build_inspect_node(node, want_nodes=False, want_content=True)
-        self.assertNotIn("compileState", out["content"])
+        self.assertEqual(out["content"]["compileState"], "unsupported")
 
 
 class InspectCommentTest(unittest.TestCase):

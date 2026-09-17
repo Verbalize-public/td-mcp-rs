@@ -1,0 +1,100 @@
+{
+  "description": "Unbound scratch fixture: bind a confirmed PID/daemon and fresh canonical COMP context before any call. Not a live acceptance result.",
+  "build": [
+    {
+      "op": "create",
+      "path": "source_a",
+      "opType": "constantTOP",
+      "comment": "First distinguishable graph source for explicit input-0 wiring"
+    },
+    {
+      "op": "create",
+      "path": "source_b",
+      "opType": "constantTOP",
+      "comment": "Second graph source for explicit input-1 wiring"
+    },
+    {
+      "op": "create",
+      "path": "merge",
+      "opType": "compositeTOP",
+      "comment": "Two distinct source identities, no implicit append"
+    },
+    {
+      "op": "create",
+      "path": "out",
+      "opType": "nullTOP",
+      "comment": "Explicit capture boundary for this scratch fixture"
+    },
+    {
+      "op": "connect",
+      "src": "source_a",
+      "dst": "merge",
+      "dstInput": 0,
+      "onOccupied": "error"
+    },
+    {
+      "op": "connect",
+      "src": "source_b",
+      "dst": "merge",
+      "dstInput": 1,
+      "onOccupied": "error"
+    },
+    {
+      "op": "connect",
+      "src": "merge",
+      "dst": "out",
+      "dstInput": 0,
+      "onOccupied": "error"
+    }
+  ],
+  "protectedRewire": [
+    {
+      "op": "connect",
+      "src": "source_b",
+      "dst": "merge",
+      "dstInput": 0,
+      "onOccupied": "error"
+    }
+  ],
+  "legacyRewire": [
+    {
+      "op": "connect",
+      "src": "source_b",
+      "dst": "merge",
+      "dstInput": 0,
+      "onOccupied": "replace"
+    }
+  ],
+  "inspect": {
+    "paths": [
+      "source_a",
+      "source_b",
+      "merge",
+      "out"
+    ],
+    "include": [
+      "nodes",
+      "params",
+      "errors",
+      "warnings"
+    ],
+    "detailLevel": "detailed"
+  },
+  "capture": {
+    "path": "out",
+    "mode": "top",
+    "maxSize": 128
+  },
+  "timedCapture": {
+    "path": "out",
+    "mode": "top",
+    "maxSize": 128,
+    "timing": {
+      "sampleFrames": [
+        0,
+        1
+      ],
+      "after": "pause"
+    }
+  }
+}

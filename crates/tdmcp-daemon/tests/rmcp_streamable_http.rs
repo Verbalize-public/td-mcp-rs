@@ -201,15 +201,112 @@ async fn initialize_advertises_tools_capability() {
 }
 
 #[tokio::test]
+async fn tools_list_cache_hints_over_real_transport() {
+    let bridge: Arc<dyn BridgeRpc> = Arc::new(FakeBridgeRpc::responding(json!({})));
+    let (client, url, ct) = spawn(bridge).await;
+
+    for version in ["2025-06-18", "2026-07-28"] {
+        let mut request = client
+            .post(&url)
+            .timeout(std::time::Duration::from_secs(10))
+            .header("Content-Type", "application/json")
+            .header("Accept", "application/json, text/event-stream")
+            .header("Mcp-Protocol-Version", version)
+            .header("Mcp-Method", "tools/list");
+        let params = if version == "2025-06-18" {
+            let session = initialize(&client, &url).await;
+            request = request.header("mcp-session-id", session.to_string());
+            json!({})
+        } else {
+            json!({"_meta": {
+                "io.modelcontextprotocol/protocolVersion": version,
+                "io.modelcontextprotocol/clientInfo": {"name": "test", "version": "1.0"},
+                "io.modelcontextprotocol/clientCapabilities": {}
+            }})
+        };
+        let response = request
+            .json(&json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": params}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+        let body = response.text().await.unwrap();
+        let response: Value = serde_json::from_str(&body).unwrap_or_else(|_| {
+            sse_data_events(&body)
+                .into_iter()
+                .find(|v| v.get("id") == Some(&json!(2)))
+                .expect("tools/list response event")
+        });
+        assert_eq!(response["id"], 2);
+        assert!(response.get("error").is_none(), "{response}");
+        let result = &response["result"];
+        assert!(result["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tool| tool["name"] == "fleet"));
+        if version == "2026-07-28" {
+            assert_eq!(result["resultType"], "complete");
+            assert_eq!(result["ttlMs"], 0);
+            assert_eq!(result["cacheScope"], "private");
+        } else {
+            assert!(result.get("resultType").is_none());
+        }
+    }
+    ct.cancel();
+}
+
+#[tokio::test]
 async fn fleet_tool_call_round_trips_over_real_transport() {
     let bridge: Arc<dyn BridgeRpc> = Arc::new(FakeBridgeRpc::responding(json!({})));
     let (client, url, ct) = spawn(bridge).await;
 
-    let session_id = initialize(&client, &url).await;
-    let result = call_tool(&client, &url, &session_id, 2, "fleet", json!({})).await;
-
-    assert_eq!(result["result"]["isError"], false);
-    assert!(result["result"]["structuredContent"]["processes"].is_array());
+    for version in ["2025-06-18", "2026-07-28"] {
+        let response =
+            if version == "2025-06-18" {
+                let session = initialize(&client, &url).await;
+                call_tool(&client, &url, &session, 2, "fleet", json!({})).await
+            } else {
+                let response = client
+                .post(&url)
+                .timeout(std::time::Duration::from_secs(10))
+                .header("Accept", "application/json, text/event-stream")
+                .header("Mcp-Protocol-Version", version)
+                .header("Mcp-Method", "tools/call")
+                .header("Mcp-Name", "fleet")
+                .json(&json!({
+                    "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                    "params": {"name": "fleet", "arguments": {}, "_meta": {
+                        "io.modelcontextprotocol/protocolVersion": version,
+                        "io.modelcontextprotocol/clientInfo": {"name": "test", "version": "1.0"},
+                        "io.modelcontextprotocol/clientCapabilities": {}
+                    }}
+                }))
+                .send().await.unwrap();
+                assert_eq!(response.status(), 200);
+                let body = response.text().await.unwrap();
+                serde_json::from_str::<Value>(&body).unwrap_or_else(|_| {
+                    sse_data_events(&body)
+                        .into_iter()
+                        .find(|v| v.get("id") == Some(&json!(2)))
+                        .expect("fleet response event")
+                })
+            };
+        assert_eq!(response["id"], 2);
+        assert!(response.get("error").is_none(), "{response}");
+        let result = &response["result"];
+        assert_eq!(result["isError"], false);
+        assert_eq!(result["structuredContent"]["processes"][0]["pid"], 34);
+        assert_eq!(result["content"][0]["type"], "text");
+        let text: Value =
+            serde_json::from_str(result["content"][0]["text"].as_str().unwrap()).unwrap();
+        assert_eq!(text, result["structuredContent"]);
+        if version == "2026-07-28" {
+            assert_eq!(result["resultType"], "complete", "{response}");
+        } else {
+            assert!(result.get("resultType").is_none(), "{response}");
+        }
+    }
 
     ct.cancel();
 }
@@ -263,6 +360,80 @@ async fn script_failure_surfaces_as_tool_error_with_diagnostics() {
     assert!(sc.get("applied").is_none());
 
     ct.cancel();
+}
+
+#[tokio::test]
+async fn capture_keeps_explicit_target_and_promotes_image_over_mcp() {
+    #[derive(Default)]
+    struct CaptureBridge(tokio::sync::Mutex<Vec<(u32, String, Value)>>);
+
+    #[async_trait::async_trait]
+    impl BridgeRpc for CaptureBridge {
+        async fn call(
+            &self,
+            pid: u32,
+            method: &str,
+            params: Value,
+        ) -> Result<Value, tdmcp_mcp::BridgeRpcError> {
+            self.0
+                .lock()
+                .await
+                .push((pid, method.to_owned(), params.clone()));
+            Ok(json!({"ok":true, "path":params["path"], "bytes":1,
+                      "mimeType":"image/png", "imageBase64":"eA=="}))
+        }
+    }
+
+    // This harness omits the daemon actor that normally completes queue entries;
+    // isolate each valid request rather than adding a fake timing-based drain.
+    for (id, pid) in [(2, json!(34)), (3, json!("34"))] {
+        let bridge = Arc::new(CaptureBridge::default());
+        let (client, url, ct) = spawn(bridge.clone()).await;
+        let session = initialize(&client, &url).await;
+        let response = call_tool(
+            &client,
+            &url,
+            &session,
+            id,
+            "capture",
+            json!({"pid":pid, "path":"/project1/out1", "mode":"top", "maxSize":512}),
+        )
+        .await;
+        assert_eq!(response["result"]["isError"], false, "{response}");
+        let result = &response["result"];
+        assert_eq!(result["structuredContent"]["path"], "/project1/out1");
+        assert!(result["structuredContent"].get("imageBase64").is_none());
+        assert!(result["content"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["type"] == "image" && item["data"] == "eA=="));
+        let calls = bridge.0.lock().await.clone();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].0, 34);
+        assert_eq!(calls[0].1, "capture");
+        assert_eq!(calls[0].2["maxSize"], 512);
+        assert_eq!(calls[0].2["mode"], "top");
+        let missing = call_tool(
+            &client,
+            &url,
+            &session,
+            4,
+            "capture",
+            json!({"path":"/project1/out1", "mode":"top"}),
+        )
+        .await;
+        assert_eq!(missing["result"]["isError"], true);
+        let item = &missing["result"]["structuredContent"]["items"][0];
+        assert_eq!(item["code"], "tdmcp.args.missing_field");
+        assert_eq!(item["span"]["field"], "pid");
+        assert_eq!(
+            bridge.0.lock().await.len(),
+            1,
+            "invalid requests must not reach TD"
+        );
+        ct.cancel();
+    }
 }
 
 #[tokio::test]

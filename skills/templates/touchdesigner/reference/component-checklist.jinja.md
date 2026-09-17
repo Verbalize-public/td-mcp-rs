@@ -22,7 +22,7 @@ Custom pars depth: {{ skill("custom-parameters") }}.
 
 | Kind | Mechanism | Use for |
 |------|-----------|---------|
-| Operator input | `In TOP` / `In CHOP` / `In POP` / `In DAT` / `In SOP` | External textures, audio, point data, tables the COMP consumes | Public input to wire to
+| Operator input | `In TOP` / `In CHOP` / `In POP` / `In DAT` / `In SOP` | Public inputs for external textures, audio, point data and tables |
 | Operator output | `Out` ops  | Public result others Select or wire to |
 | Controls | Custom parameters on the root COMP | Floats, toggles, menus, RGB, pulses, op path (when not revalent to reference from In/Out only) |
 

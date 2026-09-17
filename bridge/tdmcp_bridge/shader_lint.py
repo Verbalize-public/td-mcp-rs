@@ -1,12 +1,13 @@
 """Shared shader-compile lint: consumer discovery + compileResult classifier.
 
-Best-effort enrichment only — every entry point degrades silently and never
-raises. Implements live-verified TD patterns:
-``OP.errors()`` is silent for shader failures, so status comes exclusively
-from ``OP.compileResult`` (present on glslTOP/glslmultiTOP/glslMAT only).
+Best-effort enrichment only; unavailable compile evidence is never success.
+The verified compileResult consumers are glslTOP/glslmultiTOP/glslMAT.
+GLSL POP can use an existing bound non-passive general Info DAT. Other
+consumers or missing surfaces remain unsupported; no nodes are created by reads.
 """
 from __future__ import annotations
 
+from itertools import islice
 from typing import Any
 
 from .constants import SHADER_CONSUMER_LIMIT, SHADER_SCAN_LIMIT
@@ -63,50 +64,141 @@ def _eval_par(n: Any, par_name: str) -> Any:
         return None
 
 
-def _read_compile_result(n: Any) -> Any:
-    """Raw ``n.compileResult`` read; None when missing/raising."""
+COMPILE_LOG_MAX_BYTES = 4096
+
+
+def _observe_pop_info(n: Any) -> dict[str, Any] | None:
+    """Read an existing, bound non-passive general Info DAT; never create one.
+
+    Verified against fresh success/failure logs on TD 2025.32460. Docked nodes
+    are preferred, then siblings; each candidate list is capped at 64.
+    """
+    candidates = []
     try:
-        return getattr(n, "compileResult", None)
+        candidates.extend(islice(iter(n.docked), 64))
     except Exception:  # noqa: BLE001
-        return None
+        pass
+    try:
+        candidates.extend(islice(iter(n.parent().children), 64))
+    except Exception:  # noqa: BLE001
+        pass
+    seen = set()
+    for info in candidates:
+        try:
+            path = info.path
+            if path in seen or info.opType != "infoDAT" or not info.valid:
+                continue
+            seen.add(path)
+            target = _eval_par(info, "op")
+            if getattr(target, "path", None) != n.path:
+                continue
+            if _eval_par(info, "infotype") != "general" or _eval_par(info, "passive") is not False:
+                continue
+        except Exception:  # noqa: BLE001 — no verified binding
+            continue
+        try:
+            verdict = _classify_compile_text(info.text)
+        except Exception as exc:  # noqa: BLE001 — unavailable is not compiled
+            verdict = _classify_compile_text(None)
+            verdict["readError"] = {"type": type(exc).__name__, "message": str(exc)[:256]}
+        verdict.update(source="infoDAT", infoDatPath=path)
+        return verdict
+    return None
+
+
+def observe_compile_result(n: Any, op_type: str) -> dict[str, Any]:
+    """Read one verified surface; shared by inspect and mutation lint."""
+    if op_type == "glslPOP":
+        observed = _observe_pop_info(n)
+        if observed is not None:
+            return observed
+    try:
+        raw = getattr(n, "compileResult", None)
+    except Exception as exc:  # noqa: BLE001 — unavailable is not compiled
+        item = classify_compile_result(op_type, None)
+        item["readError"] = {"type": type(exc).__name__, "message": str(exc)[:256]}
+        return item
+    item = classify_compile_result(op_type, raw)
+    if op_type not in _COMPILE_RESULT_OP_TYPES:
+        # Preserve TD errors without inventing a compiler API or verdict.
+        try:
+            error_text = n.errors()
+            encoded = str(error_text or "").encode("utf-8")
+            item["operatorErrors"] = encoded[:COMPILE_LOG_MAX_BYTES].decode("utf-8", errors="ignore")
+            item["operatorErrorsAvailable"] = True
+            item["operatorErrorsTruncated"] = len(encoded) > COMPILE_LOG_MAX_BYTES
+        except Exception as exc:  # noqa: BLE001
+            item["operatorErrorsAvailable"] = False
+            item["operatorErrorsReadError"] = {"type": type(exc).__name__, "message": str(exc)[:256]}
+    return item
 
 
 def classify_compile_result(op_type: str, compile_result: Any) -> dict[str, Any]:
-    """Classify one ``compileResult`` read.
+    """Require affirmative, recognized evidence; never infer success from silence.
 
-    Returns ``{severity, code, message[, lines]}``; callers add
-    consumer/consumerOpType/role. ``compile_result=None`` means the attribute
-    was missing or unreadable.
+    Only verified consumer types are classified. Logs are bounded before parsing;
+    truncation may prove an observed error but can never prove overall success.
     """
-    if op_type not in _COMPILE_RESULT_OP_TYPES or compile_result is None:
-        reason = (
-            f"{op_type} exposes no compileResult surface"
-            if op_type not in _COMPILE_RESULT_OP_TYPES
-            else f"{op_type} returned no compileResult"
-        )
+    if op_type not in _COMPILE_RESULT_OP_TYPES:
         return {
             "severity": "note",
             "code": "tdmcp.shader.unsupported_consumer",
-            "message": f"{reason}; compile state not checked",
+            "message": f"{op_type} has no usable compile-status surface in this observation; compile state not checked",
         }
-    text = str(compile_result)
-    error_lines = [ln for ln in text.splitlines() if ln.startswith("ERROR:")]
+    return _classify_compile_text(compile_result)
+
+
+def _classify_compile_text(compile_result: Any) -> dict[str, Any]:
+    """Classify bounded text obtained from a verified compile-log surface."""
+    text = compile_result if isinstance(compile_result, str) else ""
+    encoded = text.encode("utf-8")
+    truncated = len(encoded) > COMPILE_LOG_MAX_BYTES
+    log = encoded[:COMPILE_LOG_MAX_BYTES].decode("utf-8", errors="ignore")
+    evidence = {"log": log, "logTruncated": truncated}
+    lines = log.splitlines()
+    error_lines = [line for line in lines if (
+        line.lstrip().lower().startswith("error:")
+        or line.strip().lower() in ("compile failed", "link failed", "compilation failed")
+    )]
     if error_lines:
         return {
             "severity": "error",
             "code": "tdmcp.shader.compile_failed",
-            "message": f"shader compile failed ({len(error_lines)} error line(s))",
+            "message": f"shader compile failed ({len(error_lines)} observed error line(s))",
             "lines": error_lines,
+            **evidence,
         }
-    parts = []
-    if "Compiled Successfully" in text:
-        parts.append("Compiled Successfully")
-    if "Linked Successfully" in text:
-        parts.append("Linked Successfully")
+    # Known TD section headers must each be followed by positive evidence.
+    parts: list[str] = []
+    unknown = False
+    pending_section = False
+    for line in lines:
+        token = line.strip()
+        if not token or set(token) == {"="}:
+            continue
+        if token in ("Compiled Successfully", "Linked Successfully"):
+            pending_section = False
+            if token not in parts:
+                parts.append(token)
+        elif token.endswith("Shader Compile Results:") or token == "Program Link Results:":
+            unknown = unknown or pending_section
+            pending_section = True
+        elif token.startswith("WARNING:"):
+            continue
+        else:
+            unknown = True
+    if parts and not (unknown or pending_section or truncated):
+        return {
+            "severity": "note",
+            "code": "tdmcp.shader.compiled",
+            "message": ", ".join(parts),
+            **evidence,
+        }
     return {
         "severity": "note",
-        "code": "tdmcp.shader.compiled",
-        "message": ", ".join(parts) if parts else "compiled",
+        "code": "tdmcp.shader.state_unknown",
+        "message": "Compile evidence is missing, empty, unrecognized, incomplete or truncated; success not established",
+        **evidence,
     }
 
 
@@ -161,7 +253,7 @@ def discover_consumers(
                     roles.append(role)
             if not roles:
                 continue
-            classified = classify_compile_result(child_type, _read_compile_result(child))
+            classified = observe_compile_result(child, child_type)
             for role in roles:
                 if len(consumers) >= consumer_limit:
                     overflow += 1

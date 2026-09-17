@@ -111,6 +111,167 @@ fn fast_reconnect_config() -> ReconnectConfig {
 }
 
 #[tokio::test]
+async fn stdio_proxy_tools_list_and_fleet_on_wire() {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+    for version in ["2025-06-18", "2026-07-28"] {
+        let bridge: Arc<dyn BridgeRpc> = Arc::new(FakeBridgeRpc::responding(json!({
+            "ok": true, "path": "/project1/out1", "bytes": 1,
+            "mimeType": "image/png", "imageBase64": "eA=="
+        })));
+        let (url, _addr, ct) = spawn_http_daemon(bridge).await;
+        let (client_side, server_side) = tokio::io::duplex(64 * 1024);
+        let (server_read, server_write) = tokio::io::split(server_side);
+        let url = url.clone();
+        let proxy_task =
+            tokio::spawn(async move { run_stdio_proxy_rw(&url, server_read, server_write).await });
+        let (read, mut write) = tokio::io::split(client_side);
+        let mut read = BufReader::new(read);
+        let init = json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "protocolVersion": version,
+                "capabilities": {},
+                "clientInfo": {"name": "test", "version": "1.0"}
+            }
+        });
+        write
+            .write_all(format!("{init}\n").as_bytes())
+            .await
+            .unwrap();
+        let mut line = String::new();
+        tokio::time::timeout(Duration::from_secs(10), read.read_line(&mut line))
+            .await
+            .expect("initialize timeout")
+            .unwrap();
+        let init: serde_json::Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(init["result"]["protocolVersion"], version);
+        let initialized = json!({"jsonrpc": "2.0", "method": "notifications/initialized"});
+        let list = json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}});
+        write
+            .write_all(format!("{initialized}\n{list}\n").as_bytes())
+            .await
+            .unwrap();
+        line.clear();
+        tokio::time::timeout(Duration::from_secs(10), read.read_line(&mut line))
+            .await
+            .expect("tools/list timeout")
+            .unwrap();
+        let response: serde_json::Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(response["id"], 2);
+        assert!(response.get("error").is_none(), "{response}");
+        let result = &response["result"];
+        assert!(result["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tool| tool["name"] == "fleet"));
+        if version == "2026-07-28" {
+            assert_eq!(result["resultType"], "complete");
+            assert_eq!(result["ttlMs"], 0);
+            assert_eq!(result["cacheScope"], "private");
+        } else {
+            assert!(result.get("resultType").is_none());
+        }
+        let call = json!({"jsonrpc": "2.0", "id": 3, "method": "tools/call",
+            "params": {"name": "fleet", "arguments": {}}});
+        write
+            .write_all(format!("{call}\n").as_bytes())
+            .await
+            .unwrap();
+        line.clear();
+        tokio::time::timeout(Duration::from_secs(10), read.read_line(&mut line))
+            .await
+            .expect("fleet timeout")
+            .unwrap();
+        let response: serde_json::Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(response["id"], 3);
+        assert!(response.get("error").is_none(), "{response}");
+        let result = &response["result"];
+        assert_eq!(result["isError"], false);
+        assert_eq!(result["structuredContent"]["processes"][0]["pid"], 34);
+        assert_eq!(result["content"][0]["type"], "text");
+        let text: serde_json::Value =
+            serde_json::from_str(result["content"][0]["text"].as_str().unwrap()).unwrap();
+        assert_eq!(text, result["structuredContent"]);
+        if version == "2026-07-28" {
+            assert_eq!(result["resultType"], "complete", "{response}");
+        } else {
+            assert!(result.get("resultType").is_none(), "{response}");
+        }
+        for (id, name, arguments) in [
+            (4, "fleet", json!({"include": ["typo"]})),
+            (5, "no_such_tool", json!({})),
+            (
+                6,
+                "capture",
+                json!({"pid": 34, "path": "/project1/out1", "mode": "top"}),
+            ),
+        ] {
+            let call = json!({"jsonrpc": "2.0", "id": id, "method": "tools/call",
+                "params": {"name": name, "arguments": arguments}});
+            write
+                .write_all(format!("{call}\n").as_bytes())
+                .await
+                .unwrap();
+            line.clear();
+            tokio::time::timeout(Duration::from_secs(10), read.read_line(&mut line))
+                .await
+                .expect("tool response timeout")
+                .unwrap();
+            let response: serde_json::Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(response["id"], id, "{response}");
+            if name == "no_such_tool" {
+                assert!(response.get("result").is_none(), "{response}");
+                assert_eq!(response["error"]["code"], -32602, "{response}");
+                assert!(response["error"]["message"]
+                    .as_str()
+                    .unwrap()
+                    .contains(name));
+                continue;
+            }
+            assert!(response.get("error").is_none(), "{response}");
+            let result = &response["result"];
+            if version == "2026-07-28" {
+                assert_eq!(result["resultType"], "complete", "{response}");
+            } else {
+                assert!(result.get("resultType").is_none(), "{response}");
+            }
+            let content = result["content"].as_array().unwrap();
+            let text = content.iter().find(|item| item["type"] == "text").unwrap();
+            if name == "fleet" {
+                let text: serde_json::Value =
+                    serde_json::from_str(text["text"].as_str().unwrap()).unwrap();
+                assert_eq!(text, result["structuredContent"]);
+                assert_eq!(result["isError"], true, "{response}");
+                let item = &result["structuredContent"]["items"][0];
+                assert_eq!(item["code"], "tdmcp.args.unknown_variant");
+                assert_eq!(item["span"]["field"], "include[0]");
+            } else {
+                assert_eq!(result["isError"], false, "{response}");
+                assert_eq!(result["structuredContent"]["path"], "/project1/out1");
+                assert!(result["structuredContent"].get("imageBase64").is_none());
+                let images: Vec<_> = content
+                    .iter()
+                    .filter(|item| item["type"] == "image")
+                    .collect();
+                assert_eq!(images.len(), 1, "{response}");
+                assert_eq!(images[0]["data"], "eA==");
+                assert_eq!(images[0]["mimeType"], "image/png");
+            }
+        }
+        drop(write);
+        drop(read);
+        tokio::time::timeout(Duration::from_secs(10), proxy_task)
+            .await
+            .expect("proxy shutdown timeout")
+            .expect("join proxy")
+            .expect("proxy exit");
+        ct.cancel();
+    }
+}
+
+#[tokio::test]
 async fn stdio_proxy_fleet_round_trip() {
     let bridge: Arc<dyn BridgeRpc> = Arc::new(FakeBridgeRpc::responding(json!({})));
     let (url, _addr, ct) = spawn_http_daemon(bridge).await;

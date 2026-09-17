@@ -2,7 +2,9 @@
 
 A modal popup wedges TD's main thread: every bridged call stalls until its
 budget expires while `ping` still answers. td-mcp-rs detects popups
-daemon-side and fails calls fast instead of letting them time out blind.
+daemon-side on supported backends and can fail calls fast when a blocker is
+detected. Backend/permission limitations mean no detected popup is not proof
+that no modal exists; retain the actual diagnostic and visibility limits.
 
 ## Triage flow
 
@@ -19,7 +21,7 @@ daemon-side and fails calls fast instead of letting them time out blind.
 | --- | --- | ---|
 | hard | unexpected node name duplication, THREAD CONFLICT, cross-thread reference | surface loudly; fix the cause, never click through |
 | soft | "Backwards Compatiblity Issue" (TD's own typo) | usually safe after reading; still explicit |
-| unknown | unclassified | treat as soft-until-read |
+| unknown | unclassified | read before deciding; do not blindly dismiss |
 
 ## macOS
 
@@ -53,8 +55,8 @@ That is a strong signal the main thread is stuck, not merely busy.
 - Save-prompts are never auto-answered — decide about unsaved work first.
 - Interception (`tdmcp.dialog.blocking`) fires before enqueue, so a wedged TD
   costs milliseconds, not budget timeouts.
-- Spawned processes are watched from t=0 — startup modals (version/compat/
-  licence) are visible even before any handshake.
+- On supported backends, spawned processes are watched from t=0 — detected
+  startup modals (version/compat/licence) can appear before any handshake.
 
 ## Related
 

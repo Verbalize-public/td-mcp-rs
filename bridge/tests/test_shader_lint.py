@@ -18,6 +18,7 @@ from tdmcp_bridge.shader_lint import (  # noqa: E402
     classify_compile_result,
     discover_consumers,
     lint_dat_consumers,
+    observe_compile_result,
 )
 
 # Live-verified glslTOP success string.
@@ -107,15 +108,33 @@ class TestClassifyCompileResult(unittest.TestCase):
         self.assertEqual(item["code"], "tdmcp.shader.compile_failed")
         self.assertEqual(item["lines"], FAILURE_LINES)
 
-    def test_empty_string_counts_as_compiled(self) -> None:
-        item = classify_compile_result("glslTOP", "")
-        self.assertEqual(item["severity"], "note")
-        self.assertEqual(item["code"], "tdmcp.shader.compiled")
+    def test_unknown_results_never_claim_success(self) -> None:
+        for raw in (None, "", "unrecognized driver log",
+                    "Compiled Successfully\nunknown stage result", 123):
+            with self.subTest(raw=raw):
+                item = classify_compile_result("glslTOP", raw)
+                self.assertEqual(item["code"], "tdmcp.shader.state_unknown")
 
-    def test_missing_result_is_unsupported(self) -> None:
-        item = classify_compile_result("glslTOP", None)
-        self.assertEqual(item["severity"], "note")
+    def test_error_takes_precedence_over_success(self) -> None:
+        for error in ("  ERROR: bad token", "Error: Compile failed", "Link failed"):
+            with self.subTest(error=error):
+                item = classify_compile_result("glslTOP", SUCCESS_TOP + error)
+                self.assertEqual(item["code"], "tdmcp.shader.compile_failed")
+                self.assertIn(error, item["lines"])
+
+    def test_log_is_bounded_and_truncation_never_proves_success(self) -> None:
+        raw = SUCCESS_TOP + ("\n" * 5000) + "ERROR: tail"
+        item = classify_compile_result("glslTOP", raw)
+        self.assertNotEqual(item["code"], "tdmcp.shader.compiled")
+        self.assertLessEqual(len(item["log"].encode("utf-8")), 4096)
+        self.assertTrue(item["logTruncated"])
+
+    def test_unsupported_consumer_retains_operator_error_without_compile_verdict(self) -> None:
+        node = SimpleNamespace(errors=lambda: "Error: Compile failed")
+        item = observe_compile_result(node, "glslPOP")
         self.assertEqual(item["code"], "tdmcp.shader.unsupported_consumer")
+        self.assertEqual(item["operatorErrors"], "Error: Compile failed")
+        self.assertTrue(item["operatorErrorsAvailable"])
 
     def test_glslpop_excluded_by_optype(self) -> None:
         item = classify_compile_result("glslPOP", "anything")

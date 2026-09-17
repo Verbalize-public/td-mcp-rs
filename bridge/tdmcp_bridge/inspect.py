@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import traceback
+from itertools import islice
 from typing import Any
 
 from .constants import (
@@ -23,7 +24,7 @@ from .shader_lint import (
     _GLSL_OP_TYPES,
     _GLSL_STAGE_PARS,
     _eval_par,
-    classify_compile_result,
+    observe_compile_result,
     lint_dat_consumers,
 )
 
@@ -71,20 +72,24 @@ def _wire_peer(op: Any) -> dict[str, Any] | None:
     }
 
 
-def _wire_peers(seq: Any) -> list[dict[str, Any] | None]:
+def _wire_peers(seq: Any, *, strict: bool = False) -> list[dict[str, Any] | None]:
     """Positional wire list from TD OP.inputs / OP.outputs; best-effort → []."""
     try:
         items = list(seq) if seq is not None else []
-    except Exception:  # noqa: BLE001 — wire enrichment must never fail inspect
+    except Exception:  # noqa: BLE001 — public reads retain availability separately
+        if strict:
+            raise
         return []
     return [_wire_peer(item) for item in items]
 
 
-def _op_messages(fn: Any) -> list[str]:
+def _op_messages(fn: Any, *, strict: bool = False) -> list[str]:
     """Normalize TD OP.errors()/warnings() (str) or list-like fakes to string[]."""
     try:
         raw = fn()
     except Exception:  # noqa: BLE001
+        if strict:
+            raise
         return []
     if raw is None:
         return []
@@ -101,6 +106,27 @@ def _op_messages(fn: Any) -> list[str]:
         if s:
             out.append(s)
     return out
+
+
+def _unavailable(exc: Exception) -> dict[str, Any]:
+    return {
+        "available": False,
+        "code": "tdmcp.op.observation_unavailable",
+        "errorType": type(exc).__name__,
+        "message": str(exc)[:256],
+    }
+
+
+def _observe(out: dict[str, Any], field: str, read: Any, fallback: Any) -> Any:
+    """Keep compatibility values while distinguishing a failed read from empty."""
+    observations = out.setdefault("observations", {})
+    try:
+        value = read()
+    except Exception as exc:  # noqa: BLE001 — section failure, not batch failure
+        observations[field] = _unavailable(exc)
+        return fallback
+    observations[field] = {"available": True}
+    return value
 
 
 def _is_enable_parm_warning(msg: str) -> bool:
@@ -189,17 +215,34 @@ def _json_safe_par_val(val: Any) -> Any:
         return str(val)
 
 
-def _inspect_param_entry(p: Any) -> dict[str, Any]:
+def _inspect_param_entry(p: Any, *, detailed: bool = False) -> dict[str, Any]:
     """One params[] entry: name + mode + JSON-safe val; expr when EXPRESSION."""
     mode = _par_mode_name(p)
     entry: dict[str, Any] = {"name": getattr(p, "name", None), "mode": mode}
     try:
         entry["val"] = _json_safe_par_val(p.eval())
-    except Exception:  # noqa: BLE001
+        entry["evaluation"] = {"available": True}
+    except Exception as exc:  # noqa: BLE001
         entry["val"] = None
+        entry["evaluation"] = _unavailable(exc)
     if mode == "EXPRESSION":
         expr = getattr(p, "expr", None)
         entry["expr"] = "" if expr is None else str(expr)
+    if detailed:
+        entry["storedValue"] = _observe(entry, "storedValue", lambda: _json_safe_par_val(p.val), None)
+        try:
+            if p.isMenu:
+                names = list(islice(iter(p.menuNames), 33))
+                labels = list(islice(iter(p.menuLabels), 33))
+                entry["menu"] = {
+                    "available": True,
+                    "names": [str(name)[:128] for name in names[:32]],
+                    "labels": [str(label)[:128] for label in labels[:32]],
+                    "truncated": len(names) > 32 or len(labels) > 32
+                    or any(len(str(value)) > 128 for value in names + labels),
+                }
+        except Exception as exc:  # noqa: BLE001 — metadata does not prove a closed menu
+            entry["menu"] = _unavailable(exc)
     return entry
 
 
@@ -280,27 +323,32 @@ def _shader_stage_from_ref(role: str, ref: Any) -> dict[str, Any] | None:
 
 
 def _shader_content(n: Any) -> dict[str, Any]:
-    """Shape GLSL content: compileResult + followed DAT stages."""
+    """Read compile evidence once; preserve failed stage-reference evaluations."""
     op_type = getattr(n, "opType", None) or ""
-    compile_raw = getattr(n, "compileResult", None)
-    compile_result = "" if compile_raw is None else str(compile_raw)
+    verdict = observe_compile_result(n, op_type)
     stages: list[dict[str, Any]] = []
     for par_name, role in _GLSL_STAGE_PARS.get(op_type, ()):
-        ref = _eval_par(n, par_name)
-        stage = _shader_stage_from_ref(role, ref)
+        try:
+            par = getattr(getattr(n, "par", None), par_name, None)
+            if par is None:
+                continue
+            ref = par.eval()
+            stage = _shader_stage_from_ref(role, ref)
+        except Exception as exc:  # noqa: BLE001 — keep the other shader stages
+            stage = {"role": role, "parameter": par_name, "evaluation": _unavailable(exc)}
         if stage is not None:
             stages.append(stage)
-    out: dict[str, Any] = {
+    return {
         "kind": "shader",
-        "compileResult": compile_result,
+        "compileResult": verdict.get("log", ""),
+        "compileDiagnostic": verdict,
+        "compileState": {
+            "tdmcp.shader.compiled": "compiled",
+            "tdmcp.shader.compile_failed": "error",
+            "tdmcp.shader.unsupported_consumer": "unsupported",
+        }.get(verdict["code"], "unknown"),
         "stages": stages,
     }
-    # Same classifier as mutate lint; omitted for unsupported surfaces (glslPOP).
-    verdict = classify_compile_result(op_type, compile_raw)
-    if verdict["code"] != "tdmcp.shader.unsupported_consumer":
-        out["compileState"] = "error" if verdict["severity"] == "error" else "compiled"
-    return out
-
 
 def _attach_dat_consumers(
     content: dict[str, Any], n: Any, lint_ctx: Any, scope_root: str | None
@@ -416,20 +464,23 @@ def build_inspect_node(
                     "Use execute_python if you need the full name list",
                 ],
             }
-        try:
-            out["inputs"] = _wire_peers(getattr(n, "inputs", []))
-        except Exception:  # noqa: BLE001
-            out["inputs"] = []
-        try:
-            out["outputs"] = _wire_peers(getattr(n, "outputs", []))
-        except Exception:  # noqa: BLE001
-            out["outputs"] = []
+        for field in ("inputs", "outputs"):
+            out[field] = _observe(
+                out, field, lambda: _wire_peers(getattr(n, field), strict=True), []
+            )
     if want_params:
-        out["params"] = [_inspect_param_entry(p) for p in n.pars()]
+        out["params"] = _observe(
+            out, "params", lambda: [_inspect_param_entry(p, detailed=detail_level == "detailed")
+                                   for p in n.pars()], []
+        )
+    # Content can synchronously compile shaders; observe messages afterward so
+    # one reply does not combine a fresh compile verdict with stale cook errors.
+    if want_content:
+        _attach_content(n, out, lint_ctx=lint_ctx, scope_root=scope_root)
     if want_errors:
-        out["errors"] = _op_messages(getattr(n, "errors", lambda: ""))
+        out["errors"] = _observe(out, "errors", lambda: _op_messages(n.errors, strict=True), [])
     if want_warnings:
-        warnings = _op_messages(getattr(n, "warnings", lambda: ""))
+        warnings = _observe(out, "warnings", lambda: _op_messages(n.warnings, strict=True), [])
         out["warnings"] = warnings
         if any(_is_enable_parm_warning(w) for w in warnings):
             try:
@@ -439,8 +490,6 @@ def build_inspect_node(
             if issues:
                 out["parmExprIssues"] = issues
                 out["diagnostics"] = _enable_expr_diagnostics(issues)
-    if want_content:
-        _attach_content(n, out, lint_ctx=lint_ctx, scope_root=scope_root)
     return out
 
 

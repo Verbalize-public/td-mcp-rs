@@ -53,9 +53,16 @@ ui = ui  # bare alias; td.ui always safe
 
 `td.*` always works for anything on the TD module (including opTypes).
 
-**Relative `op()` / path strings:** sibling / same-network → bare name
-(`op('null_out')`); direct child inside this COMP → `op('./null_out')`; parent hop
-→ `op('../null_out')`. See [`network-design`](./network-design.md) relative references.
+**Do not conflate path contexts.** Structured tool paths use `contextPath`
+(default `/project1`). In `execute_python`, global `op` is `td.op`; use absolute
+paths or the one-argument `tdmcp_resolve(path)` helper, already bound to the call
+context. Parameter expressions have an owner: inspect `me` and `parent()` first.
+On TD 2025.32460, an expression on a POP resolved `op('..')` to its parent,
+while a Render TOP camera parameter string `cam` found a sibling camera and
+`../cam` did not. OP-path parameter strings are not Python expressions.
+For a COMP parameter reading an internal node, prefer explicit `me.op('child')`.
+Test references after moving/reopening a reusable COMP; do not force all internal
+references to absolute paths. See [`network-design`](./network-design.md).
 
 Auto-imported stdlib (also bare in `execute_python`): `math`, `re`, `sys`, `collections`, `enum`, `inspect`
 
@@ -197,6 +204,17 @@ n.tags = {'tag1', 'tag2'}
 
 ## Par — parameter access
 
+Use `inspect` with `include:["params"]` and `detailLevel:"detailed"` to read
+current menu names/labels (bounded), stored values, evaluated values and modes.
+Check `evaluation.available` before interpreting `val:null`; check `menu.available`
+and truncation before treating the menu list as complete. Menu labels are not
+necessarily valid value tokens. Dynamic/custom menus may accept other values;
+never silently lowercase or autocorrect a user value. `mutate_nodes` rejects
+invalid tokens/indices for readable built-in closed `Menu` parameters with no
+menu source; `StrMenu` and custom/source-driven menus are not hard-rejected.
+A rejected later field does not roll back fields already applied.
+
+
 ```python
 p = n.par.tx        # or n.par['tx']
 
@@ -306,7 +324,9 @@ n.write('text')         # Append
 
 ```python
 # POP — modern GPU geometry
-p.numPoints, p.numPrims, p.numVerts
+p.numPoints(delayed=False)  # Method, not a property (verified 2025.32460)
+# max=True requests allocated capacity, not actual point count.
+# delayed=True returns a delayed GPU read; do not use it as immediate evidence.
 p.bounds, p.computeBounds()
 p.pointAttributes, p.primAttributes, p.vertAttributes
 p.save('file.*')

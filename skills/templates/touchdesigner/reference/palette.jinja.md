@@ -8,12 +8,12 @@ something Derivative already shipped — `palette_index` finds it,
 
 A folder tree of `.tox` components: Derivative's own under the TD install
 (`Tools`, `Techniques`, `UI`, `Generators`, `ImageFilters`, `POPs`, …) plus
-whatever the user keeps in their own palette folder. Each entry is a complete,
-tested COMP — a particle system, an audio analyser, a widget set.
+whatever the user keeps in their own palette folder. Entries package components
+such as particle systems, audio analysers and widget sets.
 
-**Reach for one first.** A palette component beats a hand-built network on
-every axis that matters: it is already debugged, it carries a designed custom-
-parameter API, and it costs one mutate step instead of twenty.
+**Check for one first.** A suitable component can supply an existing custom-
+parameter API and avoid rebuilding a subsystem. Verify fit, build compatibility,
+hardware dependencies and card freshness before choosing it.
 
 ## Ids
 
@@ -27,6 +27,9 @@ user:MyRig/projector
 `builtin` = shipped with the install; `user` = the user's own palette folder.
 Ids are stable across machines, so they are safe to write into a plan or a
 comment.
+
+A stable ID does not guarantee identical `.tox` contents across installations.
+Check the card's fingerprint/staleness and the selected installation.
 
 ## Finding one
 
@@ -54,6 +57,9 @@ bridged-call gate ({{ skill("tooling-concurrency") }}).
 A palette component lands through `mutate_nodes`, as a `place` step — so it
 shares the batch, the ordering, and the rollback with everything else you are
 building:
+
+The examples below are steps, not complete tool calls. Wrap them in the
+`mutate_nodes` arguments with the confirmed `pid` and, when needed, `daemonId`.
 
 ```json
 {"op": "place", "path": "/project1/fx/parts",
@@ -117,7 +123,7 @@ parts baseCOMP {Birthrate:2000, Life:3.0} [custom]  # stock builtin:Tools/partic
 | `tdmcp.palette.not_indexed` | Nothing scanned yet — run `action:"scan"` |
 | `tdmcp.palette.unknown_id` | No such id; `list` to find the real one |
 | `tdmcp.palette.tox_missing` | Indexed file is gone — re-scan |
-| `tdmcp.palette.load_failed` | TD refused the `.tox` (build mismatch, corrupt file) |
+| `tdmcp.palette.load_failed` | TD did not load the `.tox`; inspect path visibility/translation, build and file evidence before assigning a cause |
 
 A `place` step carrying both `paletteId` and `toxPath`, or neither, is rejected
 before the batch starts — pick one.

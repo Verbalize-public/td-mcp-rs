@@ -529,6 +529,19 @@ entries:
       - kind: tool
         id: mutate_nodes
 
+  - code: tdmcp.par.invalid_menu_value
+    layer: mutate
+    message: "Invalid value for a built-in closed menu"
+    mitigation:
+      - "Use an exact menuNames token or an in-range integer index; labels and case variants are not tokens"
+      - "Read allowedValues on the failed step or inspect detailed parameter metadata"
+      - "Earlier fields may already be applied; reconcile before retrying"
+    references:
+      - kind: tool
+        id: inspect
+      - kind: tool
+        id: mutate_nodes
+
   - code: tdmcp.mutate.step_failed
     layer: mutate
     message: "Mutate step failed with a TD-side exception"
@@ -566,6 +579,26 @@ entries:
       - kind: tool
         id: mutate_nodes
 
+  - code: tdmcp.wire.input_occupied
+    layer: mutate
+    message: "Destination input already has connections"
+    mitigation:
+      - "Choose an explicit unused dstInput; no automatic append is performed"
+      - "Use onOccupied=replace only when rewiring is intended"
+    references:
+      - kind: tool
+        id: mutate_nodes
+
+  - code: tdmcp.wire.occupancy_unknown
+    layer: mutate
+    message: "Destination input occupancy could not be observed"
+    mitigation:
+      - "Inspect the destination before allowing replacement"
+      - "onOccupied=error fails without changing wires when occupancy is unreadable"
+    references:
+      - kind: tool
+        id: mutate_nodes
+
   - code: tdmcp.wire.connect_failed
     layer: mutate
     message: "Connector connect/disconnect raised a TD-side error"
@@ -597,7 +630,7 @@ entries:
     layer: mutate
     message: "Shader consumer compile failed"
     mitigation:
-      - "Read item lines[] — verbatim ERROR: lines carry the DAT path + line number"
+      - "Read bounded log and lines[]; recognized error lines may carry a DAT path and line number"
       - "Fix the stage DAT body (line numbers include any preamble you wrote)"
       - "Re-write via mutate_nodes text and re-check shaderDiagnostics"
     references:
@@ -606,11 +639,33 @@ entries:
       - kind: tool
         id: inspect
 
+  - code: tdmcp.shader.state_unknown
+    layer: mutate
+    message: "Shader compilation success could not be established"
+    mitigation:
+      - "Read the bounded log and readError; absence of errors is not proof of compilation"
+      - "Inspect the consumer on this TD build and preserve unknown status until verified"
+    references:
+      - kind: tool
+        id: inspect
+      - kind: tool
+        id: mutate_nodes
+
+  - code: tdmcp.op.observation_unavailable
+    layer: structure
+    message: "An inspection field could not be observed"
+    mitigation:
+      - "Check observations and evaluation status before treating empty or null fields as clean"
+      - "Retry a narrow inspection after resolving the reported read error"
+    references:
+      - kind: tool
+        id: inspect
+
   - code: tdmcp.shader.unsupported_consumer
     layer: mutate
     message: "Consumer exposes no compile-status surface"
     mitigation:
-      - "glslPOP has no verified compileResult in this TD build — status unknown"
+      - "For glslPOP, retain a bound general Info DAT with passive off; the bridge never creates one during reads"
       - "Check OP.errors() / an Info DAT for that consumer instead"
     references:
       - kind: tool

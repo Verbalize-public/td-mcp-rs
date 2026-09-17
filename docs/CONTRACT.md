@@ -313,6 +313,12 @@ When `nodes` is loaded, each ok node always includes:
 
 Index order matches connector order (OpSketch `<- a, b`). Wire reads are best-effort: an access/iteration failure yields `[]` for that side and never flips node or top-level `ok`. `detailLevel` does not change wire peer shape.
 
+Loaded inputs/outputs/params/errors/warnings also report `observations.<field>`:
+`{available:true}` on successful reads, or `{available:false, code,
+errorType, message}` on failure (`tdmcp.op.observation_unavailable`; error
+message capped at 256 characters). An empty fallback on an unavailable field
+is **not** a clean result. These statuses are additive and never flip tool ok.
+
 Many TD cook problems (invalid select path, missing movie file, …) surface as **warnings**, not `errors` — live DoD for structural messages should not assume a non-empty `errors` array.
 
 **Enable-expr enrichment:** when the `warnings` section is loaded and any warning matches TD’s enable-parm wording (case-insensitive substring: `enable parm expressions` / `enable expression`), the bridge may attach structured siblings on that node:
@@ -324,7 +330,7 @@ Many TD cook problems (invalid select path, missing movie file, …) surface as 
 
 Both keys are **omitted when empty**. Independent of `include: params`. Never flips node or top-level `ok`. Coarse `warnings[]` strings are always kept.
 
-When `params` is included, each entry is `{ name, mode, val, expr? }`:
+When `params` is included, each entry is `{ name, mode, val, evaluation, expr? }`:
 
 
 | Field  | Content                                                                     |
@@ -333,10 +339,22 @@ When `params` is included, each entry is `{ name, mode, val, expr? }`:
 | `mode` | `ParMode` name string (`CONSTANT`, `EXPRESSION`, …)                         |
 | `val`  | Evaluated value, JSON-safe (live `OP` → path string; eval failure → `null`) |
 | `expr` | Present only when `mode == "EXPRESSION"` — the expression string            |
+| `evaluation` | `{available:true}` for a successful eval (including actual null), or the unavailable status above |
+
+With `detailLevel:detailed`, parameter entries additionally include `storedValue`
+(the constant-mode `.val`, read separately without a second `.eval()`) and its
+`observations.storedValue` status. Menus expose `menu:{available,names,labels,
+truncated}`: at most 32 entries of 128 characters each. Unreadable menu metadata
+reports an unavailable status instead. `mutate_nodes` validates exact tokens or
+in-range integral indices only for readable built-in `Menu` parameters with
+`menuSource == None` and at most 256 entries. Invalid values fail before that
+assignment with `tdmcp.par.invalid_menu_value` and bounded `allowedValues` on the
+step; earlier fields may already be applied. `StrMenu`, custom, source-driven,
+unreadable and oversized menus remain unvalidated; never auto-correct case.
 
 
 
-When `content` is included, eligible nodes gain a `content` object (omitted on non-DAT / non-GLSL ops). Independent of `detailLevel` (roster shape only). Each DAT or followed shader body is capped at a 64 KiB UTF-8 preview, without splitting characters. Truncation and content read/follow failures never flip node or top-level `ok`.
+When `content` is included, eligible nodes gain a `content` object (omitted on non-DAT / non-GLSL ops). Content shape is independent of `detailLevel`. Each DAT or followed shader body is capped at a 64 KiB UTF-8 preview, without splitting characters. Truncation and content read/follow failures never flip node or top-level `ok`.
 
 **DAT** (`family == "DAT"` / `isDAT`):
 
@@ -356,11 +374,12 @@ When `content` is included, eligible nodes gain a `content` object (omitted on n
 | Field | Content |
 | ----- | ------- |
 | `kind` | `"shader"` |
-| `compileResult` | `OP.compileResult` string (may be empty) |
-| `compileState?` | `"compiled"` \| `"error"` — classified from the same `compileResult` read (no extra reads); omitted on `glslPOP` (no verified compile surface) |
+| `compileResult` | Bounded compiler text (up to 4096 UTF-8 bytes) from `OP.compileResult` or a verified Info DAT; empty when unavailable |
+| `compileState` | `"compiled"`, `"error"`, `"unknown"`, or `"unsupported"` — shared classifier; GLSL POP uses an existing bound non-passive general Info DAT when available |
+| `compileDiagnostic` | Classified diagnostic plus bounded `log`, `logTruncated`, `readError?`, and `source:infoDAT` / `infoDatPath` for the POP fallback; success requires affirmative complete recognized evidence, not absence of errors |
 | `stages` | Followed DAT refs — see role map below |
 
-Each stage is `{ role, path, opType, bytes, text }` when the DAT resolves, with the same optional `totalBytes` / `textTruncation` fields and preview cap as DAT content. Broken/invalid follow yields `{ role, path, opType?, error }` with no `text`. Unset/null DAT pars omit that stage.
+Each stage is `{ role, path, opType, bytes, text }` when the DAT resolves, with the same optional `totalBytes` / `textTruncation` fields and preview cap as DAT content. Broken/invalid follow yields `{ role, path, opType?, error }` with no `text`. Unset/null DAT pars omit that stage. Failed reference evaluations retain `{role, parameter, evaluation:{available:false, code, errorType, message}}` instead of looking unbound.
 
 | Op | Pars → `role` |
 | -- | ------------- |
@@ -368,13 +387,19 @@ Each stage is `{ role, path, opType, bytes, text }` when the DAT resolves, with 
 | `glslMAT` | `pdat`→`pixel`, `vdat`→`vertex`, `gdat`→`geometry`, `predat`→`pre` |
 | `glslPOP` | `computedat`→`compute` |
 
-Info DAT compile dumps are ordinary DAT `content` (not merged into the GLSL node). Prefer `inspect` + `include: content` over `execute_python` for DAT/GLSL body reads.
+GLSL POP has no verified `OP.compileResult`, but its bound Info DAT exposes fresh
+compiler logs on TD 2025.32460. The bridge searches at most 64 docked and 64
+sibling candidates, requires `opType:infoDAT`, a matching evaluated `op` target,
+`infotype:general`, and `passive:false`, then reads one text surface. It never
+creates an observer. Missing/unverified observers remain unsupported; failed or
+unrecognized reads remain unknown. Preserve the auto-created Info DAT or provide
+a correctly bound one. Direct Info DAT `content` reads also remain available.
 
 **Cooking:** `inspect` does **not** force-cook. TD cooks on demand when operators are read; agents that need a forced cook use `execute_python` (`op('…').cook(force=True)`). Errors/warnings remain non-recursive (target only).
 
 ### `inspect` / `detailLevel`
 
-Applies **only when `nodes` is included** (see `inspect` / `include` — default empty `include` includes `nodes`). When `nodes` is excluded, no child-roster fields are present.
+Controls child-roster detail when `nodes` is included, and parameter metadata when `params` is included. With `nodes` excluded, no child-roster fields are present.
 
 
 | Level               | Direct `children` entries | Counts / truncation                                        |
@@ -549,11 +574,37 @@ Step shapes:
 | `disconnect` | `path`, `input?` (default 0)                                    | `path.inputConnectors[input].disconnect()`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 
 
+**Connection safety.** `connect` accepts `onOccupied:"replace"|"error"`
+(default `replace` for compatibility). It never auto-appends. Safe mode
+(`error`) rejects an occupied input with `tdmcp.wire.input_occupied`,
+or unreadable occupancy with `tdmcp.wire.occupancy_unknown`, before calling
+connect. In safe mode, an already-identical sole connector is a no-op
+(`unchanged:true`); legacy mode still calls TD connect as before.
+Summary and detailed replies both echo `src`, `path` (destination),
+`srcOutput`, `dstInput`, `previousConnections:[{path}]` (up to 32),
+and `connectionObservation:{available,truncated?,errorType?,message?}`.
+Safe requests use a private bridge operation (`connect_checked`) so an older
+Python bridge rejects the step as unknown instead of silently ignoring the new
+policy. Refresh the daemon and loaded bridge together; earlier applied steps
+remain applied on such a failure. The private operation is not an MCP step enum.
+Legacy replacement reports a warning lint when the input is occupied or
+unreadable; inspect resulting wires rather than treating the warning as a
+verified list of displaced sources. Defaults remain index zero on both sides.
+
+**Fixed batch context and renamed parents.** Creating a COMP never changes
+`contextPath`. A create/place alias also remaps descendants, choosing the
+longest matching path-segment prefix. Creating the same requested parent again
+supersedes its previous descendant aliases. Only step `path/src/dst` fields
+are remapped, never values or Python expressions; aliases do not survive calls.
+To target a pre-existing occupant, split batches and use its inspected path.
+For a simple robust workflow, create the parent first, read its canonical path,
+then use that path as the next batch context.
+
 `values` = `.par.*` only. `flags` = direct OP attributes (`node.<name> = val`); allowlist = operate-relevant TD Common Flags subset: `activeViewer`, `allowCooking`, `bypass`, `cloneImmune`, `display`, `lock`, `render`, `viewer`. Unknown flag names → `tdmcp.flag.unknown`. When a name is in the wrong bag (flag under `values` / param under `flags`), the hard code stays (`tdmcp.par.unknown` / `tdmcp.flag.unknown`) and a best-effort nested lint (`tdmcp.par.wrong_collection` / `tdmcp.flag.wrong_collection`) may be attached — hints never auto-redirect and never change the hard outcome. Same-collection near-misses (typo / case) may attach `tdmcp.par.similar_name` or `tdmcp.op.similar_type` with `suggestion.replace` — also best-effort, never changing the hard code. Wire errors: `tdmcp.wire.bad_index` (connector index OOB), `tdmcp.wire.connect_failed` (TD connector exception); missing ops reuse `tdmcp.op.not_found`.
 
-**Text writes & shader lint.** `create`/`set` accept optional `text` (string) — applied **before** `values`. The target must be a DAT: otherwise hard step error `tdmcp.mutate.not_dat` (on `create`, the usual rollback destroys the node). After every successful `text` write, consuming GLSL ops are linted: stage-reference pars (`pixeldat`/`vertexdat`/`computedat`/`predat` on glslTOP/glslmultiTOP; `pdat`/`vdat`/`gdat`/`predat` on glslMAT; `computedat` on glslPOP) are scanned within the `contextPath` subtree (default `/project1`; ≤2048 ops scanned), each consumer's `OP.compileResult` is classified (reading forces a synchronous recompile of that consumer), and results attach as `steps[i].shaderDiagnostics[]`: `{severity: "note"|"error", code: "tdmcp.shader.compiled" | "tdmcp.shader.compile_failed" | "tdmcp.shader.unsupported_consumer", consumer, consumerOpType, role, message, lines[]}` — `lines[]` carries verbatim `ERROR:` lines, errors only; `glslPOP` consumers report `unsupported_consumer` (no verified compile surface). Batch summary adds `shaderNotes` / `shaderErrors` counts when nonzero. Consumers cap at 64 per DAT (`tdmcp.shader.consumers_truncated` on overflow in inspect content). Lint is best-effort enrichment: it never flips step/tool `ok`. `detailLevel: detailed` echoes `steps[i].textLength`, never the body.
+**Text writes & shader lint.** `create`/`set` accept optional `text` (string) — applied **before** `values`. The target must be a DAT: otherwise hard step error `tdmcp.mutate.not_dat` (on `create`, the usual rollback destroys the node). After every successful `text` write, consuming GLSL ops are linted: stage-reference pars (`pixeldat`/`vertexdat`/`computedat`/`predat` on glslTOP/glslmultiTOP; `pdat`/`vdat`/`gdat`/`predat` on glslMAT; `computedat` on glslPOP) are scanned within the `contextPath` subtree (default `/project1`; ≤2048 ops scanned), each consumer's verified compile surface is classified (direct `OP.compileResult`, or an existing bound non-passive general Info DAT for GLSL POP; reads can force compilation), and results attach as `steps[i].shaderDiagnostics[]`: `{severity: "note"|"error", code: "tdmcp.shader.compiled" | "tdmcp.shader.compile_failed" | "tdmcp.shader.state_unknown" | "tdmcp.shader.unsupported_consumer", consumer, consumerOpType, role, message, lines[]}` — `lines[]` carries observed error lines (including indented/case-varied `Error:` and explicit compile/link failures); `log` is capped at 4096 UTF-8 bytes with `logTruncated`, and `readError?` preserves read failures. Empty, missing, foreign, incomplete, or truncated evidence is `state_unknown`, never success; `glslPOP` consumers use the Info DAT fallback above; without it they report `unsupported_consumer`, with bounded `operatorErrors` and explicit `operatorErrorsAvailable` / `operatorErrorsTruncated` / `operatorErrorsReadError?` when read. Empty operator errors do not establish compilation success. Batch summary adds `shaderNotes` / `shaderErrors` counts when nonzero. Consumers cap at 64 per DAT (`tdmcp.shader.consumers_truncated` on overflow in inspect content). Lint is best-effort enrichment: it never flips step/tool `ok`. `detailLevel: detailed` echoes `steps[i].textLength`, never the body.
 
-Verified live (TD 2025.32460, 2026-08-23): `dat.text = str` is a read/write attribute on text/table DATs (not a par); `OP.compileResult` exists on `glslTOP`/`glslmultiTOP`/`glslMAT` and is absent on `glslPOP`, and *reading* it forces the synchronous recompile that makes status fresh-by-read; success strings echo `Compiled Successfully` (plus `Linked Successfully` on `glslMAT` — classification never keys off success text); failing stages carry lines prefixed `ERROR:` with the full DAT path + line embedded; `OP.errors()` stays empty on compile failure, so `compileResult` is the only reliable status surface.
+Verified live (TD 2025.32460, 2026-08-23): `dat.text = str` is a read/write attribute on text/table DATs (not a par); `OP.compileResult` exists on `glslTOP`/`glslmultiTOP`/`glslMAT` and is absent on `glslPOP`, and *reading* it forces the synchronous recompile that makes status fresh-by-read; success strings echo `Compiled Successfully` (plus `Linked Successfully` on `glslMAT` — current classification requires affirmative recognized success, never absence of errors); failing stages carry lines prefixed `ERROR:` with the full DAT path + line embedded; `OP.errors()` can stay empty on TOP compile failure. The later known-issues live pass verified that GLSL POP auto-created Info DAT text supplies fresh success and failure logs, including DAT paths and line numbers, without a manual cook; POP operator errors alone only gave a short failure message.
 
 **Comment writes.** `create`/`set` accept optional `comment` (string) — applied **after** `text`, **before** `values`. It writes `OP.comment`, a plain read/write `str` present on every operator family (not a `.par`, not a flag — hence its own step field rather than a `values` / `flags` entry). An empty string clears the comment; omitting the field leaves any existing comment untouched. Accepted on any target with no family restriction; a write failure is `tdmcp.mutate.step_failed` with `field: "comment"` (on `create`, the usual rollback destroys the node). `detailLevel: detailed` echoes `steps[i].comment`. Read back through `inspect` (`comment` on the node, and on the parent's child roster — see `inspect` / `include`).
 

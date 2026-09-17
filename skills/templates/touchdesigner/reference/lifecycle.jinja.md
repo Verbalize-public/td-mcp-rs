@@ -14,8 +14,8 @@ Outcomes. Non-handshake outcomes come back as a **successful tool result with
 | Payload | Meaning | Next step |
 | --- | --- | --- |
 | `{ok:true, pid, handshake:{title,toePath}, startupDialogs?}` | Ready; pid is addressable everywhere | operate normally |
-| `{ok:false, outcome:"wait_timeout", stillAlive, startupDialogs}` **with** `startupDialogs` non-empty | A startup modal is blocking the handshake | dismiss via `dialogs`, then poll `fleet` — see {{ skill("popups") }} |
-| `{ok:false, outcome:"wait_timeout", stillAlive}` with no dialogs | Process exists but has not connected | Check licence, project path and launcher; poll this pid instead of spawning again |
+| `{ok:false, outcome:"wait_timeout", stillAlive, startupDialogs}` **with** `startupDialogs` non-empty | Dialogs were observed; a blocking modal is a possible cause | read them before choosing an action, then poll `fleet` — see {{ skill("popups") }} |
+| `{ok:false, outcome:"wait_timeout", stillAlive}` with no dialogs | No handshake by the deadline; check `stillAlive` separately | Reconcile this PID and backend visibility before respawning; absent dialog evidence does not prove no modal |
 | `{ok:false, outcome:"exited_early", exitCode, pid}` | Process died before connecting | read `exitCode`; fix cause |
 
 Hard failures never reach the table above — they are real diagnostics:
@@ -32,6 +32,11 @@ Fleet rows for spawned pids carry `spawn: {startedAt, exePath}` and may show
 provenance.
 
 ## Kill
+
+Record which process this task created, its daemon/PID and project path.
+An agent or job identifier is not a TD PID. A fleet listing alone grants no
+permission to close human-opened projects. Limit cleanup to task-owned
+throwaway instances unless the user authorized stopping another process.
 
 `kill_td` refuses pids that are neither registered nor
 `TouchDesigner.exe` (`tdmcp.kill.not_td_pid`). Args: `pid` (required),
@@ -57,8 +62,9 @@ If an installation needs a custom Wine runner or environment, configure
 
 ## Startup popups
 
-Opening a foreign-build project pops version/compat warnings. They are always
-surfaced in spawn payloads — never auto-dismissed. Prefer fixing the
+Opening a foreign-build project can produce version/compat warnings. Supported
+dialog backends surface detected warnings in spawn payloads; detection is not
+available everywhere. Never dismiss an unread warning. Prefer fixing the
 install/project build skew over dismissing forever (see {{ skill("popups") }}).
 
 ## Related

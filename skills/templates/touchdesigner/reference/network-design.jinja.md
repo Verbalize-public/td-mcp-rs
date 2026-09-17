@@ -24,6 +24,22 @@ terminal null with the component's name (`TABLE` inside `base_TABLE`); either wa
 terminal null's name is a contract — renaming it breaks selects, so name it once,
 deliberately. Keep module DAT names short (`mod.` access reads better).
 
+## Explicit mutation intent
+
+`mutate_nodes` uses one fixed `contextPath` (default `/project1`) for the whole
+batch. Creating a COMP does not enter it. Create the parent, use its returned
+canonical path as the next batch context, then create children relative to it.
+Within one batch, renamed create/place paths and their descendants follow the
+most-specific create alias; aliases do not rewrite parameter strings/expressions
+or survive calls. Split batches to target a pre-existing occupant instead.
+
+For multi-input wiring, always specify `dstInput` (0, 1, 2, …); omitted means
+zero, not append. Prefer `onOccupied:"error"` to protect existing wiring; use
+`"replace"` only for intentional rewires. Check summary connector indices,
+`previousConnections`, `connectionObservation`, and warning lints. A failed
+step can leave earlier steps applied: reconcile before retrying, never replay
+the whole batch blindly.
+
 ## Data-flow hygiene
 
 - **Stateful subsystems must have a public reset signal.** Route the project's

@@ -95,6 +95,9 @@ fn args_error(
     path: String,
     err: &serde_json::Error,
 ) -> ToolCallError {
+    // serde_path_to_error represents the arguments root as ".", not a field.
+    // Normalize before joining a missing field or rendering a root type error.
+    let path = if path == "." { String::new() } else { path };
     let msg = strip_position(&err.to_string());
     let name = tool.wire_str();
     let schema = input_schema_for(tool);
@@ -486,6 +489,58 @@ mod tests {
                 assert!(item.message.contains("script"), "{}", item.message);
             }
             other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn capture_target_validation_and_root_spans() {
+        use crate::tools::CaptureParams;
+        let catalog = Catalog::fallback();
+        for pid in [json!(43), json!("43")] {
+            for action in ["start", "status", "cancel", "release"] {
+                let params = parse_args::<CaptureParams>(
+                    &catalog,
+                    ToolName::Capture,
+                    json!({"pid": pid, "path": "/project1/out1", "mode": "top",
+                           "maxSize": 512, "action": action}),
+                )
+                .expect("explicit target accepted");
+                assert_eq!(params.pid.get(), 43);
+            }
+        }
+        for (args, code, field) in [
+            (
+                json!({"path":"/project1/out1"}),
+                "tdmcp.args.missing_field",
+                "pid",
+            ),
+            (
+                json!({"action":"status", "jobId":"job"}),
+                "tdmcp.args.missing_field",
+                "pid",
+            ),
+            (json!({"pid":null}), "tdmcp.args.wrong_type", "pid"),
+            (json!({"pid":"wrong"}), "tdmcp.args.wrong_type", "pid"),
+            (
+                json!({"pid":43, "mode":"pop_data"}),
+                "tdmcp.args.unknown_variant",
+                "mode",
+            ),
+            (
+                json!({"pid":43, "unknown":true}),
+                "tdmcp.args.unknown_field",
+                "unknown",
+            ),
+        ] {
+            let err = parse_args::<CaptureParams>(&catalog, ToolName::Capture, args)
+                .expect_err("invalid request");
+            let ToolCallError::Failed(payload) = err else {
+                panic!("unexpected error");
+            };
+            let item = &payload.diagnostics.items[0];
+            assert_eq!(item.code, code);
+            assert_eq!(item.span.field.as_deref(), Some(field));
+            assert!(!item.message.contains(".."), "{}", item.message);
         }
     }
 

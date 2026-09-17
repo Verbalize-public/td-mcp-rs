@@ -200,6 +200,11 @@
               "default": 0,
               "description": "Destination input connector index (default 0)."
             },
+            "onOccupied": {
+              "$ref": "#/$defs/OnOccupied",
+              "default": "replace",
+              "description": "Occupied-input policy (default replace); error also rejects unreadable occupancy."
+            },
             "op": {
               "const": "connect",
               "type": "string"
@@ -300,6 +305,21 @@
             "path"
           ],
           "type": "object"
+        }
+      ]
+    },
+    "OnOccupied": {
+      "description": "Policy for connecting to an input that already has connections.",
+      "oneOf": [
+        {
+          "const": "replace",
+          "description": "Preserve legacy TD connect behavior; report the occupied input.",
+          "type": "string"
+        },
+        {
+          "const": "error",
+          "description": "Refuse occupied or unreadable inputs without changing any connection.",
+          "type": "string"
         }
       ]
     },

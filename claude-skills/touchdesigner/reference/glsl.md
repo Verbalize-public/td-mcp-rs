@@ -25,11 +25,22 @@ Promote with relative exprs — see [`network-design`](./network-design.md).
 
 ## Definition of Done
 
-1. Compile clean (zero errors and warnings) via live `inspect`
-2. Look claim → [`look-grade`](./look-grade.md) (non-black capture)
+1. Affirmative `compileState:"compiled"` plus available error/warning reads via
+   live `inspect`; `unknown` or `unsupported` is not a compile pass. A successful
+   text write does not prove compilation. Use `compileDiagnostic` / bounded logs
+   for evidence. GLSL POP uses an existing Info DAT bound to that POP, with
+   `infotype:general` and passive off (verified 2025.32460). Preserve its default
+   docked Info DAT: it exposes full compiler paths/lines despite the missing
+   `OP.compileResult` attribute. The bridge never creates one during inspection.
+   Without a usable observer, status remains unsupported and `operatorErrors`
+   are best-effort fallback evidence, not proof of success.
+2. Look claim → [`look-grade`](./look-grade.md) (capture compared with requested appearance)
 3. Inputs wired match source channel list
 
-Black + clean compile = FAIL (unfed uniform / missing input / Extend ≠ Repeat).
+Unexpected black output needs investigation (uniforms, inputs, extend mode);
+intentional masks, solids and fades are judged against the requested result.
+Start from a known-rendering baseline, then change one stage at a time. Keep
+failure notes scoped to the observed build, parameters and topology.
 
 ## Safety
 

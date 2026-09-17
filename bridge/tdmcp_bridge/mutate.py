@@ -1,6 +1,7 @@
 """Ordered mutate steps (create / set / delete / connect / disconnect)."""
 from __future__ import annotations
 
+from itertools import islice
 from typing import Any
 
 from .constants import _FLAG_NAMES
@@ -144,6 +145,34 @@ def _echo_op_type(err: dict[str, Any], node: Any) -> dict[str, Any]:
     return err
 
 
+def _validate_menu_value(par: Any, value: Any) -> dict[str, Any] | None:
+    """Reject coercion only for observed built-in closed Menu parameters.
+
+    StrMenu accepts arbitrary tokens. Custom/source-driven/unreadable/large menus
+    remain unvalidated rather than guessing a closed-world contract.
+    """
+    try:
+        if str(par.style) != "Menu" or par.isCustom or par.menuSource is not None:
+            return None
+        names = list(islice(iter(par.menuNames), 257))
+        if not names or len(names) > 256 or not all(isinstance(n, str) for n in names):
+            return None
+    except Exception:  # noqa: BLE001 — unavailable metadata is not invalid input
+        return None
+    valid = (isinstance(value, str) and value in names) or (
+        isinstance(value, (int, float)) and not isinstance(value, bool)
+        and 0 <= value < len(names) and int(value) == value
+    )
+    if valid:
+        return None
+    return {
+        "ok": False, "code": "tdmcp.par.invalid_menu_value",
+        "message": "Value is not a current closed-menu token or valid index; parameter unchanged",
+        "requestedValue": value, "allowedValues": [name[:128] for name in names[:32]],
+        "allowedValuesTruncated": len(names) > 32 or any(len(name) > 128 for name in names),
+    }
+
+
 def _apply_values(node: Any, values: dict[str, Any]) -> dict[str, Any] | None:
     """Assign plain parameter values. Returns an error step dict, or None on ok."""
     for name, val in values.items():
@@ -163,6 +192,10 @@ def _apply_values(node: Any, values: dict[str, Any]) -> dict[str, Any] | None:
                 ),
                 node,
             )
+        invalid = _validate_menu_value(par, val)
+        if invalid is not None:
+            invalid.update(path=getattr(node, "path", None), field=name)
+            return _echo_op_type(invalid, node)
         try:
             if hasattr(par, "val"):
                 par.val = val
@@ -478,6 +511,9 @@ def apply_step(
             return _step_set(ctx, step, context_path, detail_level)
         if op == "delete":
             return _step_delete(ctx, step, context_path)
+        if op == "connect_checked":
+            # Private bridge op: stale packages reject it before any rewire.
+            return _step_connect(ctx, {**step, "onOccupied": "error"}, context_path, detail_level)
         if op == "connect":
             return _step_connect(ctx, step, context_path, detail_level)
         if op == "disconnect":
@@ -911,6 +947,13 @@ def _step_connect(
     dst_path = _absolutize_path(step.get("dst") or "", context_path)
     src_output = _connector_index(step, "srcOutput", 0)
     dst_input = _connector_index(step, "dstInput", 0)
+    policy = step.get("onOccupied", "replace")
+    if policy not in ("replace", "error"):
+        return {"ok": False, "code": "tdmcp.mutate.step_failed",
+                "field": "onOccupied", "message": "onOccupied must be replace or error"}
+    if src_output < 0 or dst_input < 0:
+        return {"ok": False, "code": "tdmcp.wire.bad_index",
+                "message": "connector indices must be non-negative", "path": dst_path}
 
     src = ctx.resolve(src_path)
     if src is None:
@@ -954,7 +997,35 @@ def _step_connect(
                 ),
                 "path": dst_canon,
             }
-        out_c.connect(in_c)
+        observation: dict[str, Any] = {"available": True}
+        previous: list[dict[str, Any]] = []
+        unchanged = False
+        occupied = False
+        try:
+            peers = list(islice(iter(in_c.connections), 33))
+            occupied = bool(peers)
+            for peer in peers[:32]:
+                previous.append({"path": peer.owner.path})
+            observation["truncated"] = len(peers) > 32
+            # TD returns distinct Python wrappers for the same connector.
+            # Canonical owner path + output index, not wrapper equality, is identity.
+            unchanged = (policy == "error" and len(peers) == 1
+                         and peers[0].owner.path == src_canon
+                         and peers[0].index == src_output)
+        except Exception as exc:  # noqa: BLE001 — safe mode must fail closed
+            observation = {"available": False, "errorType": type(exc).__name__,
+                           "message": str(exc)[:256]}
+        evidence = {"path": dst_canon, "src": src_canon, "srcOutput": src_output,
+                    "dstInput": dst_input, "previousConnections": previous,
+                    "connectionObservation": observation}
+        if policy == "error" and not observation["available"]:
+            return {"ok": False, "code": "tdmcp.wire.occupancy_unknown",
+                    "message": "Input occupancy could not be read; connection unchanged", **evidence}
+        if policy == "error" and occupied and not unchanged:
+            return {"ok": False, "code": "tdmcp.wire.input_occupied",
+                    "message": "Input is occupied; choose another dstInput or explicitly replace", **evidence}
+        if not unchanged:
+            out_c.connect(in_c)
     except IndexError as exc:
         return {
             "ok": False,
@@ -970,11 +1041,13 @@ def _step_connect(
             "path": dst_canon,
         }
 
-    out: dict[str, Any] = {"ok": True, "path": dst_canon}
-    if detail_level == "detailed":
-        out["src"] = src_canon
-        out["srcOutput"] = src_output
-        out["dstInput"] = dst_input
+    out: dict[str, Any] = {"ok": True, **evidence, "unchanged": unchanged}
+    if not observation["available"]:
+        out["lints"] = [{"severity": "warning", "code": "tdmcp.wire.occupancy_unknown",
+                         "message": "Connected using legacy policy; previous occupancy is unknown"}]
+    elif occupied and not unchanged:
+        out["lints"] = [{"severity": "warning", "code": "tdmcp.wire.input_occupied",
+                         "message": "Connected to an occupied input with replacement permitted; inspect resulting wires"}]
     return out
 
 
@@ -1036,6 +1109,15 @@ def _step_disconnect(
     return out
 
 
+def _remap_alias(path: str, aliases: dict[str, str]) -> str:
+    """Apply the most specific create-intent alias, never a partial path segment."""
+    matches = [key for key in aliases if path == key or path.startswith(key + "/")]
+    if not matches:
+        return path
+    requested = max(matches, key=len)
+    return aliases[requested] + path[len(requested):]
+
+
 def _rewrite_step_aliases(
     step: dict[str, Any],
     aliases: dict[str, str],
@@ -1054,8 +1136,8 @@ def _rewrite_step_aliases(
             if not isinstance(raw, str) or not raw:
                 continue
             abs_path = _absolutize_path(raw, context_path)
-            mapped = aliases.get(abs_path)
-            if mapped:
+            mapped = _remap_alias(abs_path, aliases)
+            if mapped != abs_path:
                 out[key] = mapped
         return out
     except Exception:  # noqa: BLE001
@@ -1070,7 +1152,7 @@ def _alias_lookup(
         if not path:
             return path
         abs_path = _absolutize_path(path, context_path)
-        return aliases.get(abs_path, abs_path)
+        return _remap_alias(abs_path, aliases)
     except Exception:  # noqa: BLE001
         return path
 
@@ -1121,12 +1203,13 @@ def run_mutate_steps(
                         step.get("path") or "", context_path
                     )
                     actual = result.get("path")
-                    if (
-                        isinstance(actual, str)
-                        and actual
-                        and actual != requested
-                    ):
-                        aliases[requested] = actual
+                    if isinstance(actual, str) and actual:
+                        # A new create intent supersedes older descendant intents.
+                        for key in list(aliases):
+                            if key == requested or key.startswith(requested + "/"):
+                                del aliases[key]
+                        if actual != requested:
+                            aliases[requested] = actual
                 except Exception:  # noqa: BLE001 — never fail the batch
                     pass
         else:

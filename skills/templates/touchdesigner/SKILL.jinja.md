@@ -11,10 +11,21 @@ description: >-
 Use live evidence to choose the next operation. Read the references relevant
 to the task; there is no need to load the entire manual.
 
+This is the canonical TD operating entry point (`operate` in the resource
+catalog). With MCP, discover it through `resources/list` and load it through
+`resources/read` using the host's resource interface; then follow its reference
+links. With installed filesystem skills, read this file and its linked cards.
+Tool availability, resource availability, and a connected TD process are
+separate checks. Use `describe_tools` for the exposed schemas; do not invent
+tool names from resource names. A harness or persona should route here rather
+than copy these procedures.
+
 ## Working loop
 
 1. Call `fleet`. Select the intended connected `pid`; include `daemonId`
-   for a remote or ambiguous target. Inspect the project/path before editing.
+   for a remote or ambiguous target. Put `pid` in the actual arguments of
+   every targeted call; naming it in prose does not select it. Confirm the
+   daemon, PID, project and authorized subtree; reconfirm after a restart.
    If the task needs a new process, use `spawn_td` and
    {{ skill("lifecycle") }}.
 2. Use `inspect` for structure, parameters, wires, and errors. Add
@@ -37,6 +48,7 @@ to the task; there is no need to load the entire manual.
 | Exact operator types and Python members | `api_help` |
 | Python beyond the structured tools | `execute_python`; read {{ skill("python-api") }} first |
 | Rendered output or CHOP samples | `capture`; {{ skill("look-grade") }} |
+| Exact frame samples or video artifacts | `capture` with `timing` / `record`; {{ skill("timed-capture") }} |
 | Stock components | `palette_index` → `mutate_nodes` with `op: "place"`; {{ skill("palette") }} |
 | Start / stop TouchDesigner | `spawn_td` / `kill_td`; {{ skill("lifecycle") }} |
 | Blocking dialogs | `dialogs`; {{ skill("popups") }} |
@@ -61,6 +73,9 @@ to the task; there is no need to load the entire manual.
   global reset at integration time. Verify reset then sequential advancement;
   follow {{ skill("reset-state") }} before claiming stateful work complete.
 - Check play state when updates or captures appear stale.
+- Before reporting completion, distinguish verified structure, observed pixels,
+  timed behavior and saved artifacts. Include final transport state and whether
+  the project was saved; follow {{ skill("definition-of-done") }}.
 - After three failed probes without new evidence, stop repeating them and
   report the blocker. A new diagnosis can justify a different probe.
 

@@ -34,6 +34,22 @@ a check could not run. A node comment records intent; it is not proof.
 Scale verification to the task. A parameter adjustment does not require
 packaging a component or reorganizing an unrelated network.
 
+## Handoff and persistence
+
+Report structure, appearance, temporal behavior and persistence separately.
+A working live network is not a saved `.toe`; a completed recording is not yet
+a durable downloaded file. For requested deliverables, name the saved path and
+verification performed, or say explicitly what remains unsaved/unverified.
+Save only to the authorized destination; preserve unrelated project contents.
+Report the final frame/play state and any intentional transport changes.
+For partial or stopped work, identify completed outputs and the remaining scope.
+
+Keep failure receipts precise: daemon/PID, TD build where relevant, operator
+path, exact arguments, response and validation layer. Separate an observed
+failure from its suspected cause. A failed diagnostic does not by itself mean
+the user's requested result failed, and a failed recipe on one topology/build
+does not establish that an operator family is universally broken.
+
 ## Related
 
 - [`network-design`](./network-design.md) — layout and relative references

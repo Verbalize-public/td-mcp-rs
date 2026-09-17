@@ -11,8 +11,9 @@ that let you pick a component without loading it are *authored by you*, from
 probe evidence. Nothing generates them — the tools produce evidence and store
 what you write.
 
-The builtin palette is large (hundreds of components). Do not try to describe
-it in one run. Describe the slice you need, when you need it.
+The builtin palette is large (hundreds of components). Divide the requested
+scope into bounded, resumable slices, including when the user requests the
+whole library. Keep completed IDs and remaining work explicit.
 
 ## The loop
 
@@ -24,6 +25,11 @@ loads arbitrary components. Spawn a throwaway:
 ```
 
 `spawn_td` creates it from the shipped template. Depth: {{ skill("lifecycle") }}.
+Confirm the returned PID is connected. Run a small canary before scaling:
+verify load, digest and cleanup on this installation. Under Wine, verify the
+actual runner/prefix and TD-visible path; do not assume one machine's drive
+mapping applies everywhere. A failed canary is a reason to pause and diagnose,
+not to blacklist the whole library.
 
 **2. Scan the roster** — offline, no `pid`:
 
@@ -42,7 +48,7 @@ any time; it reconciles against disk and never discards cards.
 | `category` | `"Tools"` also matches `Tools/Sub` |
 | `source` | `builtin` or `user` |
 | `match` | `*` / `?` glob over the id |
-| `status` | `undescribed` · `described` · `stale` · `failed` · `ignored` |
+| `status` | `all` (default) · `undescribed` · `described` · `stale` · `failed` · `ignored` |
 | `includeIgnored` | Include blacklisted entries (default: exclude) |
 
 **4. Probe a small batch** — bridged, needs `pid`:
@@ -88,8 +94,17 @@ destroy window. A black or uniform frame is reported, not stored.
 
 **6. Repeat** from step 4. The same selection returns the *next* batch each
 time, because describing a component drops it out of `status:"undescribed"` —
-so the loop is the same call until `{action:"stats"}` shows no `undescribed`
-left in your slice.
+so re-list the selected slice to verify that its remaining set shrinks.
+Global `stats` is a cross-check, not proof that a particular slice is complete.
+For forced regeneration of already-described entries or an all-status selection,
+freeze an explicit ID roster, partition it and track completed IDs. Such a
+selector does not shrink when cards are written; repeatedly taking the first
+batch can process the same components forever.
+
+Read each stored card back after a write timeout before retrying: the write may
+have persisted. Check summary/body and fingerprint separately from probe status;
+an old failed probe flag can coexist with useful content. A repaired probe path
+does not prove every requested card was regenerated.
 
 A probe never returns an unexplained empty result. If nothing ran you get a
 `note` saying why — everything matched was blacklisted, or nothing matched at
@@ -106,7 +121,7 @@ source TOP".
 The `body` is read only when someone has already narrowed to this component, so
 make it decision-grade:
 
-```markdown
+````markdown
 **What:** one paragraph — what it does, how it works at a glance.
 **When:** the situation that should make you reach for it; and when not to.
 
@@ -119,10 +134,12 @@ scope: particlesGpu (COMP:baseCOMP, pars: Birthrate, Life, Reset) nodes=…
 ```
 
 **Gotchas:** cooks every frame even when idle; Reset needed after changing Emitter.
-```
+````
 
-Transcribe the OpSketch from the digest — node roster, opTypes, wires,
-comments — never invent it. Grammar: {{ skill("opsketch-notation") }};
+Transcribe only what the digest contains: interface, available node roster and
+opTypes. Include wires/comments only if actually returned or independently
+inspected; an interface digest alone cannot establish internal wiring.
+Grammar: {{ skill("opsketch-notation") }};
 what earns a `{}` block: {{ skill("opsketch-importance-gating") }}.
 Sketch the component's **interface and shape**, not every internal node; if it
 has 200 children, sketch the COMP-level outline only.
@@ -150,17 +167,28 @@ also clears an auto-ignore and its strike count.
 
 ### Recovering from a wedge
 
-The ids of an in-flight batch are recorded before dispatch, so the culprit is
-recoverable after TD dies:
+The ids of an in-flight batch are recorded before dispatch, so the suspect set
+is recoverable after TD dies:
 
 1. Calls stall → `dialogs` to see if a modal is blocking ({{ skill("popups") }}).
-2. Still wedged → `kill_td`.
+2. Still wedged → stop new probes; use {{ skill("lifecycle") }} to stop only
+   the task-owned throwaway PID. Other agents sharing it must stop too.
 3. `palette_index` `{action:"list", select:{status:"failed"}}` — the batch's
    entries come back marked `suspect`.
-4. `{action:"ignore", patterns:["<the id>"]}`, then resume the loop.
+4. Quarantine the suspect batch with `{action:"ignore", patterns:["<the id>"]}`
+   as appropriate; preserve its IDs and evidence before resuming on a healthy
+   owned process. A suspect batch does not identify one proven culprit.
 
-Do not retry a suspect component hoping for a different result. Ignore it and
-move on — that is what the list is for.
+Do not retry a suspect component without a new diagnosis. Distinguish a
+component-specific failure from a shared loader/path/environment failure before
+expanding the blacklist. Exact-ID selectors bypass exclusions: review them
+before dispatch, rather than accidentally retrying quarantined work.
+
+On stop/cancel, stop dispatching, account for in-flight work and preserve the
+completed, remaining and suspect IDs. Report cleanup as unverified if the
+process cannot answer; a terminal tool/job status alone does not prove the
+scratch COMP was removed. Parallel helpers may author from collected digests;
+live work on one daemon/PID remains sequential ({{ skill("tooling-concurrency") }}).
 
 ## Adding your own components
 
@@ -186,8 +214,8 @@ still served, but treat it as a hint. Re-probe and re-`describe` to clear it.
 - [ ] The scratch COMP is gone — `inspect` on `/` shows no probe leftovers
 - [ ] Every card's `summary` reads as a search hit, not a category label
 - [ ] Every OpSketch transcribed from the digest, nothing invented
-- [ ] Components that wedged or failed are on the blacklist, not left to retry
-- [ ] `{action:"stats"}` shows the target slice fully described
+- [ ] Suspect components quarantined; shared environment failures distinguished
+- [ ] Selected roster reconciled against stored cards; remaining work reported
 
 ## Related
 

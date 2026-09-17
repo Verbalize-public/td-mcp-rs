@@ -66,6 +66,55 @@ fn deny_unknown_fields_rejects_extra() {
 }
 
 #[test]
+fn connection_policy_survives_typed_serialization() {
+    for policy in [None, Some("replace"), Some("error")] {
+        let mut value = serde_json::json!({"op":"connect", "src":"a", "dst":"b"});
+        if let Some(policy) = policy {
+            value["onOccupied"] = serde_json::json!(policy);
+        }
+        let parsed: tdmcp_mcp::MutateStep = serde_json::from_value(value).unwrap();
+        let wire = serde_json::to_value(parsed).unwrap();
+        assert_eq!(wire["dstInput"], 0);
+        assert_eq!(wire["onOccupied"], policy.unwrap_or("replace"));
+    }
+    let invalid = serde_json::from_value::<tdmcp_mcp::MutateStep>(
+        serde_json::json!({"op":"connect", "src":"a", "dst":"b", "onOccupied":"append"}),
+    );
+    assert!(invalid.is_err(), "never infer an append policy");
+}
+
+#[test]
+fn known_issues_scratch_fixture_matches_current_tool_types() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../scripts/fixtures/known_issues/capture_wiring.json"
+    ))
+    .unwrap();
+    for name in ["build", "protectedRewire", "legacyRewire"] {
+        let steps: Vec<tdmcp_mcp::MutateStep> =
+            serde_json::from_value(fixture[name].clone()).unwrap();
+        assert!(!steps.is_empty());
+        let bound = serde_json::json!({
+            "pid": 42, "contextPath": "/project1/owned_fixture", "steps": fixture[name]
+        });
+        let _: tdmcp_mcp::MutateNodesParams = serde_json::from_value(bound).unwrap();
+    }
+    for name in ["inspect", "capture", "timedCapture"] {
+        let mut bound = fixture[name].clone();
+        assert!(
+            bound.get("pid").is_none(),
+            "fixture must require explicit binding"
+        );
+        bound["pid"] = serde_json::json!(42);
+        bound["contextPath"] = serde_json::json!("/project1/owned_fixture");
+        if name == "inspect" {
+            let _: tdmcp_mcp::InspectParams = serde_json::from_value(bound).unwrap();
+        } else {
+            let _: tdmcp_mcp::CaptureParams = serde_json::from_value(bound).unwrap();
+        }
+    }
+}
+
+#[test]
 fn fleet_unknown_include_rejected() {
     let err = serde_json::from_value::<tdmcp_mcp::FleetParams>(serde_json::json!({
         "include": ["typo"]

@@ -22,9 +22,9 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use rmcp::model::{
-    CallToolRequestParams, CallToolResponse, Implementation, InitializeRequestParams,
+    CacheScope, CallToolRequestParams, CallToolResponse, Implementation, InitializeRequestParams,
     InitializeResult, ListResourcesResult, ListToolsResult, PaginatedRequestParams,
-    ProtocolVersion, ReadResourceRequestParams, ReadResourceResponse, ServerInfo, Tool,
+    ProtocolVersion, ReadResourceRequestParams, ReadResourceResponse, ResultType, ServerInfo, Tool,
 };
 use rmcp::service::RequestContext;
 use rmcp::{ErrorData, RoleServer, ServerHandler, ServiceError, ServiceExt};
@@ -266,7 +266,9 @@ impl ServerHandler for StdioProxy {
             .into_iter()
             .map(tool_from_descriptor)
             .collect();
-        Ok(ListToolsResult::with_all_items(tools))
+        Ok(ListToolsResult::with_all_items(tools)
+            .with_ttl_ms(0)
+            .with_cache_scope(CacheScope::Private))
     }
 
     fn get_tool(&self, name: &str) -> Option<Tool> {
@@ -302,10 +304,17 @@ impl ServerHandler for StdioProxy {
     ) -> Result<CallToolResponse, ErrorData> {
         let link = self.ensure_link().await?;
         let budget = link.config().tool_call_budget(&request.name);
-        self.forward_bounded(&link, budget, |peer| async move {
-            peer.call_tool_once(request).await
-        })
-        .await
+        let mut response = self
+            .forward_bounded(&link, budget, |peer| async move {
+                peer.call_tool_once(request).await
+            })
+            .await?;
+        if let CallToolResponse::Complete(result) = &mut response {
+            // The HTTP peer may use a legacy protocol and omit this field.
+            // Restore it for modern stdio clients; rmcp strips it for legacy peers.
+            result.result_type = Some(ResultType::COMPLETE);
+        }
+        Ok(response)
     }
 }
 

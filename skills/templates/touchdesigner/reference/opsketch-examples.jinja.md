@@ -22,6 +22,15 @@ Raw (`inspect`, abbreviated):
 ]
 ```
 
+Additional inspected connector evidence (not inferred from node order):
+
+```text
+/project1/fx/moviein1 -> /project1/fx/level1  # in0
+/project1/fx/level1 -> /project1/fx/blur1  # in0
+/project1/fx/blur1 -> /project1/fx/xform1  # in0
+/project1/fx/xform1 -> /project1/fx/out1  # in0
+```
+
 OpSketch:
 
 ```text
@@ -59,11 +68,11 @@ though their only role is feeding a non-adjacent param — a node named in a wir
 from the sketch is a bug, not a valid omission:
 
 ```text
-scope: /project1/hub  (COMP:baseCOMP)  nodes=6 wires=6
+scope: /project1/hub  (COMP:baseCOMP)  nodes=6 wires=3
 
 noise1   noiseTOP
 blur1    blurTOP        <- noise1              {size:~op('lfo1')['chan1']}
-select1  selectTOP      {select:/project1/media/moviein1}
+select1  selectTOP      {select:../media/moviein1}
 lfo1     lfoCHOP
 xform1   transformTOP   {tx:~op('lfo1')['chan1']}
 out1     outTOP         <- blur1, select1
@@ -71,6 +80,8 @@ out1     outTOP         <- blur1, select1
 
 `size` and `tx` both use `~` (export/bind are live non-Python links), not `=` — `=` is reserved
 for actual Python expression mode.
+`wires=3` counts connector wires; parameter references and export/bind links
+are represented in the parameter blocks rather than that count.
 
 ## Example C — custom COMP + extension
 

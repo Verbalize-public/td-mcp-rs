@@ -154,24 +154,24 @@ definition-of-done:
   output_path: touchdesigner/reference/definition-of-done.md
   title: Definition of Done
   description: >-
-    Structural Definition of Done: PASS/FAIL/BLOCKED/SKIP verdicts, doubt rules,
-    final grid pass, structural checklist. Use before claiming a TD task done.
+    Verify changed networks and distinguish failed, verified, and unverified
+    claims. Use before handing off TD work, saved outputs, or remaining scope.
 
 look-grade:
   template_path: touchdesigner/reference/look-grade.jinja.md
   output_path: touchdesigner/reference/look-grade.md
   title: Look / FPS grade
   description: >-
-    Grade look / FPS claims from captures. Use when a visual or motion claim
-    needs PASS/FAIL backed by capture evidence.
+    Grade look / FPS claims from correctly targeted captures. Use when visual,
+    motion, or performance claims need observed evidence and explicit limits.
 
 tooling-concurrency:
   template_path: touchdesigner/reference/tooling-concurrency.jinja.md
   output_path: touchdesigner/reference/tooling-concurrency.md
   title: Tooling concurrency
   description: >-
-    Sequential bridged tools, session_busy/queue_busy handling, daemon gates.
-    Use when calling bridged tools or after a busy error.
+    Coordinate shared-PID work, sequential bridged calls, and timeout recovery.
+    Use when delegating live work or handling busy and uncertain write outcomes.
 
 play-state:
   template_path: touchdesigner/reference/play-state.jinja.md

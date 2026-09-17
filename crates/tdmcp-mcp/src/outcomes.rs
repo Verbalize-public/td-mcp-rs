@@ -524,6 +524,16 @@ pub fn map_mutate_outcome(
     match outcome {
         BridgeOutcome::Ok(value) => {
             let env = BridgeResultEnvelope::from_value(&value);
+            let mut data = serde_json::json!({
+                "applied": value.get("applied").cloned().unwrap_or(Value::from(0)),
+                "failedAt": value.get("failedAt").cloned().unwrap_or(Value::Null),
+                "steps": value.get("steps").cloned().unwrap_or_else(|| Value::Array(vec![])),
+            });
+            for field in ["shaderNotes", "shaderErrors"] {
+                if let Some(count) = value.get(field).and_then(Value::as_u64).filter(|n| *n > 0) {
+                    data[field] = Value::from(count);
+                }
+            }
             // Soft failure: bridge returns applied/failedAt/steps even when ok:false.
             if env.is_error() || value.get("ok") == Some(&Value::Bool(false)) {
                 let failed_at = value
@@ -549,19 +559,10 @@ pub fn map_mutate_outcome(
                 // Best-effort: never let malformed bridge lints drop the hard error.
                 splice_api_help_references(&mut item, &failure);
                 item.lints = failure.lints;
-                let data = Some(serde_json::json!({
-                    "applied": value.get("applied").cloned().unwrap_or(Value::from(0)),
-                    "failedAt": value.get("failedAt").cloned().unwrap_or(Value::Null),
-                    "steps": value.get("steps").cloned().unwrap_or_else(|| Value::Array(vec![])),
-                }));
-                return Err(failed_one_with_image_and_data(item, None, data));
+                return Err(failed_one_with_image_and_data(item, None, Some(data)));
             }
-            Ok(serde_json::json!({
-                "ok": true,
-                "applied": value.get("applied").cloned().unwrap_or(Value::from(0)),
-                "failedAt": value.get("failedAt").cloned().unwrap_or(Value::Null),
-                "steps": value.get("steps").cloned().unwrap_or_else(|| Value::Array(vec![])),
-            }))
+            data["ok"] = Value::Bool(true);
+            Ok(data)
         }
         BridgeOutcome::QueueBusy => Err(queue_busy(catalog, "mutate_nodes", pid)),
         BridgeOutcome::Transport(err) => Err(transport(catalog, "mutate_nodes", pid, err)),
@@ -596,12 +597,15 @@ fn mutate_failure_from_steps(value: &Value) -> MutateStepFailure {
                     codes::OP_NOT_FOUND => codes::OP_NOT_FOUND,
                     codes::OP_UNKNOWN_TYPE => codes::OP_UNKNOWN_TYPE,
                     codes::PAR_UNKNOWN => codes::PAR_UNKNOWN,
+                    codes::PAR_INVALID_MENU_VALUE => codes::PAR_INVALID_MENU_VALUE,
                     codes::FLAG_UNKNOWN => codes::FLAG_UNKNOWN,
                     codes::BATCH_SKIPPED_DEPENDENT => codes::BATCH_SKIPPED_DEPENDENT,
                     codes::MUTATE_STEP_FAILED => codes::MUTATE_STEP_FAILED,
                     codes::MUTATE_NOT_DAT => codes::MUTATE_NOT_DAT,
                     codes::WIRE_BAD_INDEX => codes::WIRE_BAD_INDEX,
                     codes::WIRE_CONNECT_FAILED => codes::WIRE_CONNECT_FAILED,
+                    codes::WIRE_INPUT_OCCUPIED => codes::WIRE_INPUT_OCCUPIED,
+                    codes::WIRE_OCCUPANCY_UNKNOWN => codes::WIRE_OCCUPANCY_UNKNOWN,
                     _ => codes::MUTATE_STEP_FAILED,
                 };
                 let message = step
@@ -914,6 +918,47 @@ mod tests {
         match err {
             ToolCallError::Failed(payload) => payload.diagnostics.items[0].clone(),
             other => panic!("unexpected error: {other}"),
+        }
+    }
+
+    #[test]
+    fn guarded_mutation_codes_survive_top_level_promotion() {
+        for code in [
+            codes::WIRE_INPUT_OCCUPIED,
+            codes::WIRE_OCCUPANCY_UNKNOWN,
+            codes::PAR_INVALID_MENU_VALUE,
+        ] {
+            let item = fail_item(json!({"ok":false,"applied":0,"failedAt":0,
+                "steps":[{"ok":false,"path":"/project1/merge","code":code,
+                          "message":"connection unchanged"}]}));
+            assert_eq!(item.code, code);
+            assert_eq!(item.span.mutation_index, Some(0));
+            assert_eq!(item.context.op_path.as_deref(), Some("/project1/merge"));
+        }
+    }
+
+    #[test]
+    fn shader_summary_survives_success_and_partial_failure() {
+        for ok in [true, false] {
+            let value = json!({"ok":ok,"applied":1,"failedAt":if ok {Value::Null} else {json!(1)},
+                "shaderErrors":1,"shaderNotes":2,
+                "steps":[{"ok":true,"shaderDiagnostics":[{"severity":"error"}]},
+                         {"ok":ok,"code":codes::PAR_INVALID_MENU_VALUE}]});
+            let result = map_mutate_outcome(
+                &Catalog::fallback(),
+                Pid::new(1),
+                None,
+                BridgeOutcome::Ok(value),
+                DiagnosticLevel::Summary,
+            );
+            let payload = match result {
+                Ok(value) => value,
+                Err(ToolCallError::Failed(failure)) => failure.structured_content(),
+                other => panic!("unexpected result: {other:?}"),
+            };
+            assert_eq!(payload["shaderErrors"], 1);
+            assert_eq!(payload["shaderNotes"], 2);
+            assert_eq!(payload["ok"], ok);
         }
     }
 

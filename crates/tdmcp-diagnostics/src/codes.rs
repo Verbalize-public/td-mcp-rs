@@ -173,6 +173,8 @@ pub const OP_PATHS_TRUNCATED: &str = "tdmcp.op.paths_truncated";
 pub const OP_PATHS_REQUIRED: &str = "tdmcp.op.paths_required";
 /// Per-path inspect shaping failed after resolve.
 pub const OP_INSPECT_FAILED: &str = "tdmcp.op.inspect_failed";
+/// An inspection field could not be read; empty fallback is not clean evidence.
+pub const OP_OBSERVATION_UNAVAILABLE: &str = "tdmcp.op.observation_unavailable";
 /// Unknown or unresolved opType for create.
 pub const OP_UNKNOWN_TYPE: &str = "tdmcp.op.unknown_type";
 
@@ -199,6 +201,8 @@ pub const BATCH_SKIPPED_DEPENDENT: &str = "tdmcp.batch.skipped_dependent";
 
 /// Unknown parameter on node.
 pub const PAR_UNKNOWN: &str = "tdmcp.par.unknown";
+/// Requested value would be silently coerced by a built-in closed menu.
+pub const PAR_INVALID_MENU_VALUE: &str = "tdmcp.par.invalid_menu_value";
 /// Unknown operator flag name (not in the operate-relevant Common Flags subset).
 pub const FLAG_UNKNOWN: &str = "tdmcp.flag.unknown";
 /// Lint: name belongs under flags, not values/expressions/pulse.
@@ -219,9 +223,15 @@ pub const MUTATE_NOT_DAT: &str = "tdmcp.mutate.not_dat";
 pub const WIRE_BAD_INDEX: &str = "tdmcp.wire.bad_index";
 /// Connector connect/disconnect raised a TD-side error.
 pub const WIRE_CONNECT_FAILED: &str = "tdmcp.wire.connect_failed";
+/// Destination input is occupied.
+pub const WIRE_INPUT_OCCUPIED: &str = "tdmcp.wire.input_occupied";
+/// Destination occupancy could not be observed.
+pub const WIRE_OCCUPANCY_UNKNOWN: &str = "tdmcp.wire.occupancy_unknown";
 
 /// Shader lint: consumer compiled successfully (soft note).
 pub const SHADER_COMPILED: &str = "tdmcp.shader.compiled";
+/// No affirmative, complete shader compile evidence is available.
+pub const SHADER_STATE_UNKNOWN: &str = "tdmcp.shader.state_unknown";
 /// Shader lint: consumer compile failed; item `lines[]` carries verbatim ERROR: lines.
 pub const SHADER_COMPILE_FAILED: &str = "tdmcp.shader.compile_failed";
 /// Shader lint: consumer exposes no compile-status surface (e.g. glslPOP).
@@ -344,6 +354,7 @@ pub const ALL: &[&str] = &[
     OP_PATHS_TRUNCATED,
     OP_PATHS_REQUIRED,
     OP_INSPECT_FAILED,
+    OP_OBSERVATION_UNAVAILABLE,
     OP_UNKNOWN_TYPE,
     EDITOR_CONTEXT_FAILED,
     EDITOR_PANE_FAILED,
@@ -355,6 +366,7 @@ pub const ALL: &[&str] = &[
     API_HELP_CLASSES_TRUNCATED,
     BATCH_SKIPPED_DEPENDENT,
     PAR_UNKNOWN,
+    PAR_INVALID_MENU_VALUE,
     FLAG_UNKNOWN,
     PAR_WRONG_COLLECTION,
     FLAG_WRONG_COLLECTION,
@@ -365,7 +377,10 @@ pub const ALL: &[&str] = &[
     MUTATE_NOT_DAT,
     WIRE_BAD_INDEX,
     WIRE_CONNECT_FAILED,
+    WIRE_INPUT_OCCUPIED,
+    WIRE_OCCUPANCY_UNKNOWN,
     SHADER_COMPILED,
+    SHADER_STATE_UNKNOWN,
     SHADER_COMPILE_FAILED,
     SHADER_UNSUPPORTED_CONSUMER,
     SHADER_CONSUMERS_TRUNCATED,

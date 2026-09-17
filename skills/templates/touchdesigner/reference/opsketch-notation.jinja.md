@@ -70,8 +70,7 @@ Wire / reference kinds map to OpSketch as follows (positional `<-` from inspect
 | `op` (operator input) | positional `<- a, b` on the consuming node's line | inspect `inputs[].path` leaves |
 | `comp` (COMP hierarchy input) | positional `<- a, b` on the consuming COMP's line | COMP inspect `inputs` |
 | `select` (Select/ref parameter) | inline `{select:<path>}` on the node owning the parameter | `inspect` params |
-| `export` / `bind` (parm mode) | inline `{<par>:~<source>}` on the owning node — both are live,
-  non-Python links, so both use the `~` prefix; reserve `=` for actual Python expression mode | `inspect` params / mode |
+| `export` / `bind` (parm mode) | inline `{<par>:~<source>}` on the owning node — both use `~` for live non-Python links; reserve `=` for Python expressions | `inspect` params / mode |
 
 ## Nesting
 

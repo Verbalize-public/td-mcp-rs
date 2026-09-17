@@ -79,8 +79,8 @@ not the original Shadertoy source.
       uniform = warning = not done)
 - [ ] Every `iChannel` maps to a wired `sTD2DInputs[n]` / `sTDCubeInputs[n]`
       matching the source channel list
-- [ ] Look claim graded via [`look-grade`](./look-grade.md) — non-black `capture`;
-      black + clean compile = FAIL
+- [ ] Look claim graded via [`look-grade`](./look-grade.md) — capture compared with
+      the source's expected appearance and time; investigate unexpected black
 - [ ] Same compile error after 3 distinct fixes → stop and ask
 
 ## Other source dialects (same bridge idea)

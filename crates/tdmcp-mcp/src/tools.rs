@@ -591,6 +591,17 @@ pub struct InspectParams {
     pub diagnostic_level: DiagnosticLevel,
 }
 
+/// Policy for connecting to an input that already has connections.
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum OnOccupied {
+    /// Preserve legacy TD connect behavior; report the occupied input.
+    #[default]
+    Replace,
+    /// Refuse occupied or unreadable inputs without changing any connection.
+    Error,
+}
+
 /// One ordered mutate step (`create` / `set` / `delete` / `connect` / `disconnect`).
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "lowercase", deny_unknown_fields)]
@@ -655,6 +666,9 @@ pub enum MutateStep {
         /// Destination input connector index (default 0).
         #[serde(default, rename = "dstInput")]
         dst_input: LenientU32,
+        /// Occupied-input policy (default replace); error also rejects unreadable occupancy.
+        #[serde(default, rename = "onOccupied")]
+        on_occupied: OnOccupied,
     },
     /// Place a Palette component (`.tox`) into the network.
     ///
@@ -687,6 +701,28 @@ pub enum MutateStep {
         #[serde(default)]
         input: LenientU32,
     },
+}
+
+// Old Python bridges ignore unknown step fields. Use a distinct internal op for
+// safe connects so an old bridge rejects the step instead of silently rewiring.
+fn bridge_mutate_steps(steps: &[MutateStep]) -> Result<Value, serde_json::Error> {
+    steps
+        .iter()
+        .map(|step| {
+            let mut wire = serde_json::to_value(step)?;
+            if matches!(
+                step,
+                MutateStep::Connect {
+                    on_occupied: OnOccupied::Error,
+                    ..
+                }
+            ) {
+                wire["op"] = Value::String("connect_checked".to_owned());
+            }
+            Ok(wire)
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .map(Value::Array)
 }
 
 /// Args for mutate_nodes.
@@ -1526,7 +1562,7 @@ async fn dispatch_tool_inner(
                 params.pid,
             )?;
             let method = BridgeMethod::MutateNodes;
-            let steps = serde_json::to_value(&params.steps)
+            let steps = bridge_mutate_steps(&params.steps)
                 .map_err(|e| serialize_failed(catalog, tool, "mutate steps", &e))?;
             let outcome = enqueue_and_call(
                 registry,
@@ -1987,6 +2023,24 @@ async fn clear_queue_keep_connected(registry: &Arc<Mutex<PidRegistry>>, pid: u32
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, reason = "unit tests")]
 mod timeout_tests {
+    #[test]
+    fn safe_connect_rejects_stale_bridge_instead_of_downgrading() {
+        use super::{bridge_mutate_steps, MutateStep};
+        let steps: Vec<MutateStep> = serde_json::from_value(serde_json::json!([
+            {"op":"connect", "src":"a", "dst":"b", "onOccupied":"error"},
+            {"op":"connect", "src":"a", "dst":"b"}
+        ]))
+        .unwrap();
+        let wire = bridge_mutate_steps(&steps).unwrap();
+        assert_eq!(wire[0]["op"], "connect_checked");
+        assert_eq!(wire[0]["onOccupied"], "error");
+        assert_eq!(wire[1]["op"], "connect");
+        assert!(
+            serde_json::from_value::<MutateStep>(wire[0].clone()).is_err(),
+            "internal op must not leak into the public MCP schema"
+        );
+    }
+
     use super::{derive_timeout, BRIDGE_TIMEOUT, PROXY_TIMEOUT};
     use std::time::Duration;
 

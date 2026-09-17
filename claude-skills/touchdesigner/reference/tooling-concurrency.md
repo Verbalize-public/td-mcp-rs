@@ -21,6 +21,20 @@ Sequential bridged tools against one TD `pid` — HARD RULE for agents.
 
 ## Daemon gates (summary)
 
+Coordinate all agents using the same actual daemon/PID, even across MCP
+sessions. Session gates are not ownership locks between collaborators.
+Assign one caller to live inspection, mutation and Palette probing on that
+process; helpers can analyze collected digests in parallel. Separate owned TD
+processes permit independent live work when resources allow it. Do not assume
+that launching more agents creates more TD capacity.
+
+A timeout does not prove cancellation or absence of a side effect. Preserve
+the exact request and response, check process/bridge state with `fleet`, and
+reconcile the affected state once responsive before retrying a mutation.
+For offline Palette writes, read the card back before retrying. If the TD main
+thread appears wedged, stop dispatching live work and use the lifecycle
+recovery procedure; do not restart a user's instance to clear a queue.
+
 - **Session chill:** `(mcp_session_id, daemon_scope, pid)` — one in-flight bridged tool (local or proxied).
 - **Federation:** pass optional `daemonId` on pid tools when the master aggregates multiple daemons; ambiguous pid → `tdmcp.federation.ambiguous_pid`.
 - **Pid exclusive:** per-pid task queue rejects enqueue if non-empty (on the daemon that owns the pid)

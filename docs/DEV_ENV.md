@@ -34,6 +34,25 @@ Replace 123 with the discovered PID. `TDMCP_DAEMON_URL` selects the HTTP origin
 and `TDMCP_PSK` supplies a key. The client uses real MCP initialization,
 sessions, and tool calls—not the daemon's compatibility tools endpoint.
 
+## Manual stdio when the harness connection is unavailable
+
+Use the executable directly, without changing the harness profile:
+
+```sh
+python scripts/mcp_stdio_probe.py --binary target/debug/tdmcp-daemon fleet
+python scripts/mcp_stdio_probe.py --binary target/debug/tdmcp-daemon capture '{"pid":123,"path":"/project1/out1","maxSize":256}' --out capture-result.json
+```
+
+Replace the example PID with the confirmed owned target. This uses the actual
+MCP initialize/notification/tools-call protocol over a short-lived proxy process;
+the daemon is retained. Calls are sequential and never automatically replayed
+after a timeout. An existing output path is rejected before dispatch. The JSON
+result preserves image content but saving JSON alone is not visual verification.
+Use this route only when authorized for the target and operation.
+
+The known-issues regression sources and per-stage expectations are in
+[scripts/fixtures/known_issues](../scripts/fixtures/known_issues/README.md).
+
 ## Live acceptance
 
 Start a scratch .toe, confirm its bridge connects, then inspect, mutate a small

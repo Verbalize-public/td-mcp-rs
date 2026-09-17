@@ -24,13 +24,22 @@ from the sequential-bridged-call gate ([`tooling-concurrency`](./tooling-concurr
   0-byte file.
 - `.text` sidecars carry a 27-byte envelope; never hand-edit bytes around it —
   rewrite via the tools.
-- Structural round-trip is guaranteed; byte-identical output is not.
+- Check structural round-trip with lint and filesystem evidence; byte-identical
+  output is not promised. Lint does not prove live behavior or preservation of
+  custom-parameter semantics: verify those in TD when the task requires them.
 
 ## Bridge install
 
 `project_install_bridge` rewrites `bootstrap`, `callbacks`, and
 `tdmcp_exec` payloads from the daemon's embedded sources. The exec DAT mirrors
 callbacks — all three are rewritten together.
+
+Distinguish repository source, daemon-embedded payloads, installed DATs and the
+live loaded bridge. Record relevant versions/hashes before and after an update;
+matching source hashes alone do not prove the running instance was updated.
+Preserve an untouched baseline/backup for comparison. Refresh bridge payloads
+surgically; do not replace a user's whole starter project with a stock template
+merely to update three DATs.
 
 | Arg | Default | Meaning |
 | --- | --- | --- |

@@ -16,18 +16,28 @@ content when PNG is present (`imageBase64` stripped from structured after
 promotion). Default `maxSize` is **512** (longer-side cap).
 
 **Store-first (chat thrift):** prefer path + short note in returns; reuse the
-same capture until a mutate that could change the look; do not re-inject huge
+same capture while relevant parameters, time, inputs and reset state remain
+unchanged; do not re-inject huge
 dumps. Store-first does **not** mean “chat never sees pixels” — the MCP image
 attachment is valid evidence when the model can see it.
 
 Modes (tool is self-describing): `top` / `preview` / `auto` / `chop_data` /
-`pop_data` (+ preview aliases). Prefer `auto` unless you need a specific mode.
+`chop_image` / `pop` (the last two are preview aliases). Prefer `auto` unless
+you need a specific mode.
+
+Send the target in the call itself, for example
+`{"pid":123,"path":"/project1/fx/out1","mode":"top","maxSize":512}`,
+replacing the example PID/path with the confirmed target and adding `daemonId`
+when needed. On validation failure, compare the exact transmitted arguments
+with `describe_tools`, correct the call, and distinguish client/schema rejection
+from TD execution. Do not record a tool defect from an intended-but-unsent PID.
 
 ## Vision path
 
 1. `capture` on the claimed surface (store-first path + image when PNG).
 2. If the current model **cannot** see the image artifact, use a vision-capable
-   helper with path + claim, then grade from that observation.
+   helper with path + claim if one is available and authorized, then grade from
+   that observation. Otherwise leave the visual claim unverified.
 3. Operating agent still emits the final verdict.
 
 Judge against the requested output. Black and uniform-frame classifications
@@ -49,6 +59,7 @@ evidence. Independent captures on a freely playing timeline do not prove exact
 sample spacing. Stepped samples do not establish real-time FPS.
 Use {{ skill("timed-capture") }} for prepared sample schedules and video jobs;
 check terminal state and actual offsets before grading their samples.
+Movie FPS metadata describes playback rate, not measured live performance.
 
 ## Related
 
