@@ -2,7 +2,9 @@
 
 Required when building or changing stateful behavior: feedback, accumulators,
 simulations, timers, transitions, history buffers, or script-owned state.
-Apply this contract to the components in the task's scope.
+Apply this contract to the components in the task's scope. An unrelated scalar
+repair or read-only screenshot in a stateful COMP does not authorize resetting
+its history or redesigning project-global reset.
 
 ## Public reset contract
 

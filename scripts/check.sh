@@ -16,6 +16,7 @@ echo "== bridge python tests (pytest) =="
 python3 -m pytest bridge/tests -v
 
 python3 scripts/check_docs.py
+python3 scripts/check_guidance.py
 python3 -m unittest discover -s scripts/tests
 
 echo "OK: check green"

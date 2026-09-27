@@ -550,6 +550,90 @@ primer/cook-and-families:
         assert_eq!(results.len(), 4);
     }
 
+    #[test]
+    fn guidance_registry_and_both_render_modes_cover_migration() {
+        let registry: serde_json::Value =
+            serde_json::from_str(include_str!("../../../skills/GUIDANCE.json"))
+                .expect("guidance authoring registry");
+        let cat = Catalog::from_manifest_yaml(crate::MANIFEST_YAML).expect("manifest");
+        let engine = TemplateEngine::new(cat.clone(), &crate::TEMPLATES).expect("templates");
+        let cards = registry["cards"].as_object().expect("cards");
+        assert_eq!(
+            cards.len(),
+            cat.len(),
+            "every card needs explicit disposition"
+        );
+        let legacy = registry["legacyIds"].as_array().expect("legacy IDs");
+        assert_eq!(
+            legacy.len(),
+            33,
+            "preserve the original public resource set"
+        );
+        for id in legacy {
+            assert!(cat.get(id.as_str().expect("id")).is_some());
+        }
+        let owners = registry["ruleOwners"].as_object().expect("rule ownership");
+        assert_eq!(owners.len(), 20);
+        for index in 1..=20 {
+            let owner = owners[&format!("G{index:02}")].as_str().expect("owner");
+            assert!(cat.get(owner).is_some(), "unknown canonical owner: {owner}");
+        }
+        for entry in cat.iter() {
+            let meta = &cards[&entry.id];
+            assert_eq!(
+                meta["trigger"].as_str(),
+                Some(entry.description.as_str()),
+                "manifest/authoring trigger drift: {}",
+                entry.id
+            );
+            for field in [
+                "trigger",
+                "nonTrigger",
+                "audience",
+                "kind",
+                "migration",
+                "evidenceScope",
+            ] {
+                assert!(
+                    !meta[field].as_str().expect(field).is_empty(),
+                    "{}: {field}",
+                    entry.id
+                );
+            }
+            assert!(cat
+                .get(meta["canonicalOwner"].as_str().expect("canonical owner"))
+                .is_some());
+            for mode in [RenderMode::Mcp, RenderMode::FileSystem] {
+                let rendered = engine.render(&entry.id, mode).expect("render");
+                if matches!(entry.id.as_str(), "operate" | "python-api") {
+                    eprintln!(
+                        "guidance-size id={} mode={mode:?} chars={} utf8Bytes={} (not tokens)",
+                        entry.id,
+                        rendered.chars().count(),
+                        rendered.len()
+                    );
+                }
+                assert!(!rendered.contains("Editorial preview"));
+                assert!(!rendered.contains("{{ skill("));
+                assert!(!rendered.contains(".jinja.md"));
+                assert!(rendered.contains("**Canonical:**"));
+            }
+        }
+        let entry = engine.render("python-api", RenderMode::Mcp).unwrap();
+        let reference = engine.render("python-reference", RenderMode::Mcp).unwrap();
+        for heading in reference.lines().filter(|line| line.starts_with("## ")) {
+            assert!(
+                entry.contains(heading),
+                "lost old Python heading: {heading}"
+            );
+        }
+        assert!(
+            entry.len() < reference.len(),
+            "execution contract should be smaller than reference"
+        );
+        assert!(entry.contains("tdmcp://docs/python-reference"));
+    }
+
     // -- template lint (whole embedded pack) ---------------------------------
 
     /// Cross-reference discipline for the shipped pack: no hardcoded `.md`

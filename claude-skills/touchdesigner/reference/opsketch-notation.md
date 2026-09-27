@@ -116,6 +116,31 @@ higher depth.
 Node count alone is not a trigger. This reference does not add design ceremony
 to read-only or simple edits.
 
+## Parameter importance
+
+For a task-specific sketch, show parameters that explain the requested behavior:
+observed non-default values, expression/bind/export relationships, authored DAT
+code or references to it, and relevant custom controls. Never claim an unknown
+value equals a factory default merely because it is `0`, `1`, empty or a common
+color. If default status is unknown, omit only when immaterial to this sketch;
+otherwise keep the observed value or perform a focused lookup.
+
+Passthrough Nulls and In/Out boundary nodes often need only name/type/wires;
+Selects need their target when it explains the flow. This is a presentation
+default, not a ban on inspecting or showing behavior-changing parameters on
+these types. A compact sketch is not an exhaustive evidence response.
+
+Illustrative planned contrast (not a claim about an observed project):
+
+```text
+level1   levelTOP
+blur1    blurTOP        <- level1  {size:12.0}
+```
+
+Omit empty `{}` blocks. Include the fields needed for the actual explanation,
+not every parameter and not zero parameters by rule. Preserve uncertainty and
+link to further evidence where the sketch alone is insufficient.
+
 ## Related
 
 | File | Topic |

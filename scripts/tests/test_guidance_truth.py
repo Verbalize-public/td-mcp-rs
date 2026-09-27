@@ -56,7 +56,7 @@ class GuidanceTruthTests(unittest.TestCase):
         self.assertTrue(observed["ok"])
         self.assertTrue(observed["result"]["legacyPositional"]["rejected"])
         self.assertEqual(observed["result"]["pixel"], observed["result"]["uv"])
-        text = (ROOT / "skills/templates/touchdesigner/reference/python-api.jinja.md").read_text()
+        text = (ROOT / "skills/templates/touchdesigner/reference/python-reference.jinja.md").read_text()
         self.assertIn("t.sample(x=0, y=0)", text)
         self.assertIn("t.sample(u=0.5, v=0.5)", text)
         self.assertNotIn("t.sample(x, y, u='pixel')", text)

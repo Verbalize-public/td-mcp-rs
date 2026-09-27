@@ -1,10 +1,14 @@
 # OpSketch examples
 
-Worked before → after pairs. Raw surfaces are fabricated but schema-faithful; OpSketch follows [`opsketch-notation`](./opsketch-notation.md) + [`opsketch-importance-gating`](./opsketch-importance-gating.md).
+Worked before → after pairs. These are synthetic explanatory fragments, not
+live observations or complete response schemas. Requests explicitly labeled
+below are validated examples; topology/source claims remain illustrative.
+OpSketch follows [`opsketch-notation`](./opsketch-notation.md).
 
 ## Example A — live `inspect`
 
-Raw (`inspect`, abbreviated):
+Illustrative value summary (not raw `inspect` JSON; `properties` is a teaching
+notation here, not a response field):
 
 ```json
 [
@@ -104,7 +108,7 @@ fx1 baseCOMP {Speed:1.5, Seed:7} [ext]
 
 ## Example D — `api_help` class card + filtered index
 
-Class card (`api_help`, abbreviated):
+Complete `api_help` request (substitute the confirmed PID):
 
 ```json
 {

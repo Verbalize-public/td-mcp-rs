@@ -1,7 +1,10 @@
 # Definition of Done (structural)
 
-Verify the requested behavior at the surface it affects. Use
-[`look-grade`](./look-grade.md) for visual and performance claims.
+Choose claim-specific evidence through [`verify-handoff`](./verify-handoff.md); the
+sections below retain the structural/coverage reference. Apply only checks
+relevant to the requested outcome. Use [`visual-timing`](./visual-timing.md) and
+[`look-grade`](./look-grade.md) for appearance, motion and live-performance claims.
+A read-only explanation does not require mutation or saving.
 
 ## Evidence
 

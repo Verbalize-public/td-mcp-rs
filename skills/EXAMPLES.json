@@ -1,0 +1,600 @@
+{
+  "version": 1,
+  "blocks": [
+    {
+      "id": "skills/templates/touchdesigner/reference/custom-parameters.jinja.md:0",
+      "language": "python",
+      "sha256": "9e2b534d9e13fbbb27e55d0b22b28753a30d882ccb6e1b35a32fd6a33a0d0bc8",
+      "kind": "python-fragment",
+      "context": "TD reference fragments; owner/object prerequisites appear in adjacent prose/comments. Not a standalone MCP script.",
+      "expected": "Python syntax only here; relevant namespace/semantic behavior covered by explicit bridge tests, not universal native proof."
+    },
+    {
+      "id": "skills/templates/touchdesigner/reference/custom-parameters.jinja.md:1",
+      "language": "python",
+      "sha256": "7f27625a65c55aa981873c42aee73d230ab5df4b0538c491e9d2fa3d7c1f1c6b",
+      "kind": "python-fragment",
+      "context": "TD reference fragments; owner/object prerequisites appear in adjacent prose/comments. Not a standalone MCP script.",
+      "expected": "Python syntax only here; relevant namespace/semantic behavior covered by explicit bridge tests, not universal native proof."
+    },
+    {
+      "id": "skills/templates/touchdesigner/reference/custom-parameters.jinja.md:2",
+      "language": "python",
+      "sha256": "a68b18e3dce922d8568ac799a5917117501896ad1cf365a80e84b653498feaad",
+      "kind": "python-fragment",
+      "context": "TD reference fragments; owner/object prerequisites appear in adjacent prose/comments. Not a standalone MCP script.",
+      "expected": "Python syntax only here; relevant namespace/semantic behavior covered by explicit bridge tests, not universal native proof."
+    },
+    {
+      "id": "skills/templates/touchdesigner/reference/custom-parameters.jinja.md:3",
+      "language": "python",
+      "sha256": "6b5cb3d698f70df9b427cf1653db9c8dd846b4935e3277c2db18111d754dade8",
+      "kind": "python-fragment",
+      "context": "TD reference fragments; owner/object prerequisites appear in adjacent prose/comments. Not a standalone MCP script.",
+      "expected": "Python syntax only here; relevant namespace/semantic behavior covered by explicit bridge tests, not universal native proof."
+    },
+    {
+      "id": "skills/templates/touchdesigner/reference/custom-parameters.jinja.md:4",
+      "language": "python",
+      "sha256": "72d2fed4ac7f35af7b228ac7677fa3244808fac25e4cb08c5b78814486690b7a",
+      "kind": "python-fragment",
+      "context": "TD reference fragments; owner/object prerequisites appear in adjacent prose/comments. Not a standalone MCP script.",
+      "expected": "Python syntax only here; relevant namespace/semantic behavior covered by explicit bridge tests, not universal native proof."
+    },
+    {
+      "id": "skills/templates/touchdesigner/reference/custom-parameters.jinja.md:5",
+      "language": "python",
+      "sha256": "2fa199b2c76ca42865ce2bb025fa324082957769606df0365d3ccdefef8798f8",
+      "kind": "python-fragment",
+      "context": "TD reference fragments; owner/object prerequisites appear in adjacent prose/comments. Not a standalone MCP script.",
+      "expected": "Python syntax only here; relevant namespace/semantic behavior covered by explicit bridge tests, not universal native proof."
+    },
+    {
+      "id": "skills/templates/touchdesigner/reference/lifecycle-files.jinja.md:0",
+      "language": "json",
+      "sha256": "56c60e1cf6e5a722178c5161a877499938e3a06d1308715565ef5dd1c8cf6007",
+      "kind": "request",
+      "context": "Illustrative targets must be rebound to confirmed authorized resources; validation never executes this request.",
+      "expected": "Generated JSON Schema and actual Serde decoder accept the request shape; TD outcome depends on target state.",
+      "tool": "spawn_td",
+      "arguments": {
+        "projectPath": "/authorized/scratch/new.toe",
+        "createIfMissing": true
+      }
+    },
+    {
+      "id": "skills/templates/touchdesigner/reference/observe-change.jinja.md:0",
+      "language": "json",
+      "sha256": "6c19dc04c9a9b2918c9acac61efec4de8a8c319fe536f62a42dd69cd6b172fac",
+      "kind": "request",
+      "context": "Illustrative targets must be rebound to confirmed authorized resources; validation never executes this request.",
+      "expected": "Generated JSON Schema and actual Serde decoder accept the request shape; TD outcome depends on target state.",
+      "tool": "inspect",
+      "arguments": {
+        "pid": 123,
+        "paths": [
+          "/project1/fx"
+        ],
+        "include": [
+          "params"
+        ],
+        "paramNames": [
+          "Gain"
+        ],
+        "paramsMode": "values"
+      }
+    },
+    {
+      "id": "skills/templates/touchdesigner/reference/observe-change.jinja.md:1",
+      "language": "json",
+      "sha256": "eb2e87678ea22c7a07f50bd2c8e0b9c364f937c59a64e7e4d80aed1e2ad769c5",
+      "kind": "request",
+      "context": "Illustrative targets must be rebound to confirmed authorized resources; validation never executes this request.",
+      "expected": "Generated JSON Schema and actual Serde decoder accept the request shape; TD outcome depends on target state.",
+      "tool": "mutate_nodes",
+      "arguments": {
+        "pid": 123,
+        "steps": [
+          {
+            "op": "set",
+            "path": "/project1/fx",
+            "values": {
+              "Gain": 0.8
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "skills/templates/touchdesigner/reference/observe-change.jinja.md:2",
+      "language": "json",
+      "sha256": "56158c1c1968b1a5613b40f3cd90c9ecac4bbe8a0f6e8dc7e52a3d4463e02d2b",
+      "kind": "request",
+      "context": "Illustrative targets must be rebound to confirmed authorized resources; validation never executes this request.",
+      "expected": "Generated JSON Schema and actual Serde decoder accept the request shape; TD outcome depends on target state.",
+      "tool": "inspect",
+      "arguments": {
+        "pid": 123,
+        "paths": [
+          "/project1/fx"
+        ],
+        "include": [
+          "params",
+          "errors",
+          "warnings"
+        ],
+        "paramNames": [
+          "Gain"
+        ]
+      }
+    },
+    {
+      "id": "skills/templates/touchdesigner/reference/opsketch-examples.jinja.md:0",
+      "language": "json",
+      "sha256": "8f748fae1573b2af9def24a61ac87f14a0474503a28e7df62d35e5c3495c05a4",
+      "kind": "explanatory-fragment",
+      "context": "Illustrative reference/notation; not a complete tool call or automatic action.",
+      "expected": "Explains a selected concept; no runtime success claim."
+    },
+    {
+      "id": "skills/templates/touchdesigner/reference/opsketch-examples.jinja.md:1",
+      "language": "text",
+      "sha256": "f5b9dbe6ad7bfde83f995689f03347de0da70e5a683f74b1160820cba95a7d47",
+      "kind": "explanatory-fragment",
+      "context": "Illustrative reference/notation; not a complete tool call or automatic action.",
+      "expected": "Explains a selected concept; no runtime success claim."
+    },
+    {
+      "id": "skills/templates/touchdesigner/reference/opsketch-examples.jinja.md:2",
+      "language": "text",
+      "sha256": "6c82ca4ce2d73087047b2d61a834c08726dbd9e7f5cdef6fa0294658804947f7",
+      "kind": "explanatory-fragment",
+      "context": "Illustrative reference/notation; not a complete tool call or automatic action.",
+      "expected": "Explains a selected concept; no runtime success claim."
+    },
+    {
+      "id": "skills/templates/touchdesigner/reference/opsketch-examples.jinja.md:3",
+      "language": "text",
+      "sha256": "f6aa0a85cfc5afad5e6be704ccf87f2ef9256014ba704144568f33ac46e68afb",
+      "kind": "explanatory-fragment",
+      "context": "Illustrative reference/notation; not a complete tool call or automatic action.",
+      "expected": "Explains a selected concept; no runtime success claim."
+    },
+    {
+      "id": "skills/templates/touchdesigner/reference/opsketch-examples.jinja.md:4",
+      "language": "text",
+      "sha256": "181bc96ca35713c95ef6dc7d391847398270f8b7f134b244fc6f52247bc68f9e",
+      "kind": "explanatory-fragment",
+      "context": "Illustrative reference/notation; not a complete tool call or automatic action.",
+      "expected": "Explains a selected concept; no runtime success claim."
+    },
+    {
+      "id": "skills/templates/touchdesigner/reference/opsketch-examples.jinja.md:5",
+      "language": "text",
+      "sha256": "4a5536fee63fcd2aeb5d60c63654e52a0812da06f92472eeac231e8eb9f19c3e",
+      "kind": "explanatory-fragment",
+      "context": "Illustrative reference/notation; not a complete tool call or automatic action.",
+      "expected": "Explains a selected concept; no runtime success claim."
+    },
+    {
+      "id": "skills/templates/touchdesigner/reference/opsketch-examples.jinja.md:6",
+      "language": "json",
+      "sha256": "ac13eea624b8b6d75aa4c438a5d1832107144ccfb33497949c880930e7390b6e",
+      "kind": "request",
+      "context": "Illustrative targets must be rebound to confirmed authorized resources; validation never executes this request.",
+      "expected": "Generated JSON Schema and actual Serde decoder accept the request shape; TD outcome depends on target state.",
+      "tool": "api_help",
+      "arguments": {
+        "pid": 12345,
+        "queries": [
+          {
+            "kind": "class",
+            "name": "noiseTOP"
+          },
+          {
+            "kind": "classes",
+            "family": "TOP",
+            "prefix": "noise"
+          }
+        ],
+        "detailLevel": "summary"
+      }
+    },
+    {
+      "id": "skills/templates/touchdesigner/reference/opsketch-examples.jinja.md:7",
+      "language": "json",
+      "sha256": "be617b9d4874d911136a2de81d087e9139248dceba255b1ccc2813cbac6f86e9",
+      "kind": "explanatory-fragment",
+      "context": "Illustrative reference/notation; not a complete tool call or automatic action.",
+      "expected": "Explains a selected concept; no runtime success claim."
+    },
+    {
+      "id": "skills/templates/touchdesigner/reference/opsketch-notation.jinja.md:0",
+      "language": "text",
+      "sha256": "9137421b9bd61dd3479b5fe257ec83936f020733756c1479f655ac610078cb43",
+      "kind": "explanatory-fragment",
+      "context": "Illustrative reference/notation; not a complete tool call or automatic action.",
+      "expected": "Explains a selected concept; no runtime success claim."
+    },
+    {
+      "id": "skills/templates/touchdesigner/reference/opsketch-notation.jinja.md:1",
+      "language": "text",
+      "sha256": "c8ebd9166eced32c795553f26099933be5b2e1c856d8a729ff9f4f25bdb3f069",
+      "kind": "explanatory-fragment",
+      "context": "Illustrative reference/notation; not a complete tool call or automatic action.",
+      "expected": "Explains a selected concept; no runtime success claim."
+    },
+    {
+      "id": "skills/templates/touchdesigner/reference/opsketch-notation.jinja.md:2",
+      "language": "text",
+      "sha256": "210ba4f49ab404e7f450fbc0cceddf17dccc6381e1e26ba378717624a806c289",
+      "kind": "explanatory-fragment",
+      "context": "Illustrative reference/notation; not a complete tool call or automatic action.",
+      "expected": "Explains a selected concept; no runtime success claim."
+    },
+    {
+      "id": "skills/templates/touchdesigner/reference/opsketch-notation.jinja.md:3",
+      "language": "text",
+      "sha256": "261e5e3c4ae0a74c29ecd049f3df7126bc20af26c6a2ae00eaf83abdf003c02f",
+      "kind": "explanatory-fragment",
+      "context": "Illustrative reference/notation; not a complete tool call or automatic action.",
+      "expected": "Explains a selected concept; no runtime success claim."
+    },
+    {
+      "id": "skills/templates/touchdesigner/reference/palette-curation.jinja.md:0",
+      "language": "json",
+      "sha256": "42484e779e1200d18d16623c9f45317b31cee86ee9a21d0ebe5c599146ff71c1",
+      "kind": "request",
+      "context": "Illustrative targets must be rebound to confirmed authorized resources; validation never executes this request.",
+      "expected": "Generated JSON Schema and actual Serde decoder accept the request shape; TD outcome depends on target state.",
+      "tool": "palette_probe",
+      "arguments": {
+        "pid": 1234,
+        "select": {
+          "category": "Tools",
+          "status": "undescribed",
+          "limit": 3
+        }
+      }
+    },
+    {
+      "id": "skills/templates/touchdesigner/reference/palette-scan.jinja.md:0",
+      "language": "json",
+      "sha256": "0c7da577930df5ac6434ddee581186d17892aa39ddf534e2754b3d68e0ae0071",
+      "kind": "request",
+      "context": "Illustrative targets must be rebound to confirmed authorized resources; validation never executes this request.",
+      "expected": "Generated JSON Schema and actual Serde decoder accept the request shape; TD outcome depends on target state.",
+      "tool": "spawn_td",
+      "arguments": {
+        "projectPath": "<scratch>/palette_probe.toe",
+        "createIfMissing": true
+      }
+    },
+    {
+      "id": "skills/templates/touchdesigner/reference/palette-scan.jinja.md:1",
+      "language": "json",
+      "sha256": "f3588b262538cf34c5f9b3812cf789d61af67e321021514c0d0a70b2f3c10452",
+      "kind": "request",
+      "context": "Illustrative targets must be rebound to confirmed authorized resources; validation never executes this request.",
+      "expected": "Generated JSON Schema and actual Serde decoder accept the request shape; TD outcome depends on target state.",
+      "tool": "palette_index",
+      "arguments": {
+        "action": "scan"
+      }
+    },
+    {
+      "id": "skills/templates/touchdesigner/reference/palette-scan.jinja.md:2",
+      "language": "json",
+      "sha256": "5f08ccab4d35a57215431a5e94abcca85df9a9427dbf65d6cc391b74bc21d4fb",
+      "kind": "request",
+      "context": "Illustrative targets must be rebound to confirmed authorized resources; validation never executes this request.",
+      "expected": "Generated JSON Schema and actual Serde decoder accept the request shape; TD outcome depends on target state.",
+      "tool": "palette_probe",
+      "arguments": {
+        "pid": 1234,
+        "select": {
+          "category": "Tools",
+          "status": "undescribed",
+          "limit": 3
+        }
+      }
+    },
+    {
+      "id": "skills/templates/touchdesigner/reference/palette-scan.jinja.md:3",
+      "language": "json",
+      "sha256": "79b4c8ea1d6b9216d05e51f72537a436c79916c36d6b93532d52f96deba62676",
+      "kind": "request",
+      "context": "Illustrative targets must be rebound to confirmed authorized resources; validation never executes this request.",
+      "expected": "Generated JSON Schema and actual Serde decoder accept the request shape; TD outcome depends on target state.",
+      "tool": "palette_index",
+      "arguments": {
+        "action": "describe",
+        "paletteId": "builtin:Tools/particlesGpu",
+        "summary": "GPU particle system; source TOP in, rendered particles out.",
+        "tags": [
+          "particles",
+          "gpu",
+          "instancing"
+        ],
+        "body": "…"
+      }
+    },
+    {
+      "id": "skills/templates/touchdesigner/reference/palette-scan.jinja.md:4",
+      "language": "markdown",
+      "sha256": "e59e1e079ca7cad2a06d03a35dfab2ebe3abaf2c384b5ce02884e4fdb92c6283",
+      "kind": "explanatory-fragment",
+      "context": "Illustrative reference/notation; not a complete tool call or automatic action.",
+      "expected": "Explains a selected concept; no runtime success claim."
+    },
+    {
+      "id": "skills/templates/touchdesigner/reference/palette.jinja.md:0",
+      "language": "text",
+      "sha256": "bf512b38e8291afffa1325d3614795b6e8b3b39acb376403539f19be094de835",
+      "kind": "explanatory-fragment",
+      "context": "Illustrative reference/notation; not a complete tool call or automatic action.",
+      "expected": "Explains a selected concept; no runtime success claim."
+    },
+    {
+      "id": "skills/templates/touchdesigner/reference/palette.jinja.md:1",
+      "language": "json",
+      "sha256": "5703cb9048e3f851eb2b9df8e71c99d5aa0792f3612d8ce85f9b2a833987bd04",
+      "kind": "request-fragment",
+      "context": "Illustrative targets must be rebound to confirmed authorized resources; validation never executes this request.",
+      "expected": "Generated JSON Schema and actual Serde decoder accept the request shape; TD outcome depends on target state.",
+      "tool": "mutate_nodes",
+      "arguments": {
+        "pid": 123,
+        "steps": [
+          {
+            "op": "place",
+            "path": "/project1/fx/parts",
+            "paletteId": "builtin:Tools/particlesGpu",
+            "comment": "stock GPU particles — Birthrate driven by the audio chain"
+          }
+        ]
+      }
+    },
+    {
+      "id": "skills/templates/touchdesigner/reference/palette.jinja.md:2",
+      "language": "json",
+      "sha256": "14f33e5944025abeb5ebbe87d1c35418e905e37e1c7a1824d9bada1c55e8abf4",
+      "kind": "request-fragment",
+      "context": "Illustrative targets must be rebound to confirmed authorized resources; validation never executes this request.",
+      "expected": "Generated JSON Schema and actual Serde decoder accept the request shape; TD outcome depends on target state.",
+      "tool": "mutate_nodes",
+      "arguments": {
+        "pid": 123,
+        "steps": [
+          {
+            "op": "place",
+            "path": "/project1/parts",
+            "paletteId": "builtin:Tools/particlesGpu"
+          },
+          {
+            "op": "connect",
+            "src": "/project1/parts",
+            "dst": "/project1/out1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "skills/templates/touchdesigner/reference/palette.jinja.md:3",
+      "language": "text",
+      "sha256": "f3debe9627e02474919dc992100234d4b4a238929b257ebcc976c3b4467f83a2",
+      "kind": "explanatory-fragment",
+      "context": "Illustrative reference/notation; not a complete tool call or automatic action.",
+      "expected": "Explains a selected concept; no runtime success claim."
+    },
+    {
+      "id": "skills/templates/touchdesigner/reference/parameter-reference.jinja.md:0",
+      "language": "python",
+      "sha256": "92bcfcfe7fe1c4c4af4945a4c4ce94775138be4264986f68af50f84340e3e9d2",
+      "kind": "python-fragment",
+      "context": "TD reference fragments; owner/object prerequisites appear in adjacent prose/comments. Not a standalone MCP script.",
+      "expected": "Python syntax only here; relevant namespace/semantic behavior covered by explicit bridge tests, not universal native proof."
+    },
+    {
+      "id": "skills/templates/touchdesigner/reference/parameter-reference.jinja.md:1",
+      "language": "python",
+      "sha256": "93f298ea0d1ae2afc56fa74869de8727fef2c80a42728517fc59032c45b7519c",
+      "kind": "python-fragment",
+      "context": "TD reference fragments; owner/object prerequisites appear in adjacent prose/comments. Not a standalone MCP script.",
+      "expected": "Python syntax only here; relevant namespace/semantic behavior covered by explicit bridge tests, not universal native proof."
+    },
+    {
+      "id": "skills/templates/touchdesigner/reference/python-reference.jinja.md:0",
+      "language": "python",
+      "sha256": "72c439c60e2d089cc8981a0b4ae425e6ff7a1f4dde01dfc5e3dc8b716930c522",
+      "kind": "python-fragment",
+      "context": "TD reference fragments; owner/object prerequisites appear in adjacent prose/comments. Not a standalone MCP script.",
+      "expected": "Python syntax only here; relevant namespace/semantic behavior covered by explicit bridge tests, not universal native proof."
+    },
+    {
+      "id": "skills/templates/touchdesigner/reference/python-reference.jinja.md:1",
+      "language": "python",
+      "sha256": "98449c6a913e25d3f804d8b0a6dba55b1c3b62e3a79357c85502abe2200ce89d",
+      "kind": "python-fragment",
+      "context": "TD reference fragments; owner/object prerequisites appear in adjacent prose/comments. Not a standalone MCP script.",
+      "expected": "Python syntax only here; relevant namespace/semantic behavior covered by explicit bridge tests, not universal native proof."
+    },
+    {
+      "id": "skills/templates/touchdesigner/reference/python-reference.jinja.md:2",
+      "language": "python",
+      "sha256": "b4d13516b051a9cabf829ef6bc7b075a6a2211b22110d3a2e09d4ed99edcd65b",
+      "kind": "python-fragment",
+      "context": "TD reference fragments; owner/object prerequisites appear in adjacent prose/comments. Not a standalone MCP script.",
+      "expected": "Python syntax only here; relevant namespace/semantic behavior covered by explicit bridge tests, not universal native proof."
+    },
+    {
+      "id": "skills/templates/touchdesigner/reference/python-reference.jinja.md:3",
+      "language": "python",
+      "sha256": "26b65929c3ba2855eaae7039a41ddf0bf3c22573ac4926086a3cae72290170fb",
+      "kind": "python-fragment",
+      "context": "TD reference fragments; owner/object prerequisites appear in adjacent prose/comments. Not a standalone MCP script.",
+      "expected": "Python syntax only here; relevant namespace/semantic behavior covered by explicit bridge tests, not universal native proof."
+    },
+    {
+      "id": "skills/templates/touchdesigner/reference/python-reference.jinja.md:4",
+      "language": "python",
+      "sha256": "3c94ba58be6aa6f55c88dc2ea30dbf0363119cbce2eb4b6c97d9000f6a27e593",
+      "kind": "python-fragment",
+      "context": "TD reference fragments; owner/object prerequisites appear in adjacent prose/comments. Not a standalone MCP script.",
+      "expected": "Python syntax only here; relevant namespace/semantic behavior covered by explicit bridge tests, not universal native proof."
+    },
+    {
+      "id": "skills/templates/touchdesigner/reference/python-reference.jinja.md:5",
+      "language": "python",
+      "sha256": "40dc1d3377092df838f737c44ad798e7237d19039ccd2af75d0f67d6fcc2521b",
+      "kind": "python-fragment",
+      "context": "TD reference fragments; owner/object prerequisites appear in adjacent prose/comments. Not a standalone MCP script.",
+      "expected": "Python syntax only here; relevant namespace/semantic behavior covered by explicit bridge tests, not universal native proof."
+    },
+    {
+      "id": "skills/templates/touchdesigner/reference/python-reference.jinja.md:6",
+      "language": "python",
+      "sha256": "ff96ae18862b50859a454109bc6afcc0ed6319721a5a5cfd5e3c6d7fd7e40f77",
+      "kind": "python-fragment",
+      "context": "TD reference fragments; owner/object prerequisites appear in adjacent prose/comments. Not a standalone MCP script.",
+      "expected": "Python syntax only here; relevant namespace/semantic behavior covered by explicit bridge tests, not universal native proof."
+    },
+    {
+      "id": "skills/templates/touchdesigner/reference/python-reference.jinja.md:7",
+      "language": "python",
+      "sha256": "789745b74f6adc5a25e3a69a5e8948d79f242ef85d782dbbd2316e8a1362c200",
+      "kind": "python-fragment",
+      "context": "TD reference fragments; owner/object prerequisites appear in adjacent prose/comments. Not a standalone MCP script.",
+      "expected": "Python syntax only here; relevant namespace/semantic behavior covered by explicit bridge tests, not universal native proof."
+    },
+    {
+      "id": "skills/templates/touchdesigner/reference/python-reference.jinja.md:8",
+      "language": "python",
+      "sha256": "2e822dab8ff7f8169e7f66ca3eed59d047926abd01b30d99c15a979cd2d5553c",
+      "kind": "python-fragment",
+      "context": "TD reference fragments; owner/object prerequisites appear in adjacent prose/comments. Not a standalone MCP script.",
+      "expected": "Python syntax only here; relevant namespace/semantic behavior covered by explicit bridge tests, not universal native proof."
+    },
+    {
+      "id": "skills/templates/touchdesigner/reference/python-reference.jinja.md:9",
+      "language": "python",
+      "sha256": "f07477dc615af3f561b730d33de9d1ad3e99dc46be8a7420c5abb3715b92ef79",
+      "kind": "python-fragment",
+      "context": "TD reference fragments; owner/object prerequisites appear in adjacent prose/comments. Not a standalone MCP script.",
+      "expected": "Python syntax only here; relevant namespace/semantic behavior covered by explicit bridge tests, not universal native proof."
+    },
+    {
+      "id": "skills/templates/touchdesigner/reference/shadertoy-conversion.jinja.md:0",
+      "language": "glsl",
+      "sha256": "db8ff8527254e0a04309684433421e5294448b3f43fe15008117d5a6a55d393d",
+      "kind": "explanatory-fragment",
+      "context": "Illustrative reference/notation; not a complete tool call or automatic action.",
+      "expected": "Explains a selected concept; no runtime success claim."
+    },
+    {
+      "id": "skills/templates/touchdesigner/reference/td-glsl-ground-truth.jinja.md:0",
+      "language": "glsl",
+      "sha256": "57af28a10b5a7c8608f79a6f4412ba6cbd51d88016048104763243d861221168",
+      "kind": "explanatory-fragment",
+      "context": "Illustrative reference/notation; not a complete tool call or automatic action.",
+      "expected": "Explains a selected concept; no runtime success claim."
+    },
+    {
+      "id": "skills/templates/touchdesigner/reference/td-glsl-ground-truth.jinja.md:1",
+      "language": "glsl",
+      "sha256": "45de065782e984d99ce6cc7a92db2ea5ae5b3be625abc9d761bc6d063ab7fe97",
+      "kind": "explanatory-fragment",
+      "context": "Illustrative reference/notation; not a complete tool call or automatic action.",
+      "expected": "Explains a selected concept; no runtime success claim."
+    },
+    {
+      "id": "skills/templates/touchdesigner/reference/td-glsl-ground-truth.jinja.md:2",
+      "language": "glsl",
+      "sha256": "65d2621a510a0ef1894c86e5335211970702edc5b9010dffdb96df2ac23ed666",
+      "kind": "explanatory-fragment",
+      "context": "Illustrative reference/notation; not a complete tool call or automatic action.",
+      "expected": "Explains a selected concept; no runtime success claim."
+    },
+    {
+      "id": "skills/templates/touchdesigner/reference/timed-capture.jinja.md:0",
+      "language": "json",
+      "sha256": "43b14861239478aa9109cb9f0c70821435d43cecd2733063bab8856ee7d6054b",
+      "kind": "request",
+      "context": "Illustrative targets must be rebound to confirmed authorized resources; validation never executes this request.",
+      "expected": "Generated JSON Schema and actual Serde decoder accept the request shape; TD outcome depends on target state.",
+      "tool": "capture",
+      "arguments": {
+        "pid": 123,
+        "path": "/project1/fade/out1",
+        "timing": {
+          "reset": {
+            "path": "/project1/fade",
+            "parameter": "Reset"
+          },
+          "initializeFrames": 1,
+          "sampleFrames": [
+            0,
+            30,
+            60
+          ],
+          "after": "pause"
+        },
+        "inspect": {
+          "paths": [
+            "/project1/fade"
+          ],
+          "include": [
+            "params",
+            "errors",
+            "warnings"
+          ]
+        }
+      }
+    },
+    {
+      "id": "skills/templates/touchdesigner/reference/visual-timing.jinja.md:0",
+      "language": "json",
+      "sha256": "b417ce403d14e0383e618af857040edd5bc6b679be048d719494c0596d7dfc5b",
+      "kind": "request",
+      "context": "Illustrative targets must be rebound to confirmed authorized resources; validation never executes this request.",
+      "expected": "Generated JSON Schema and actual Serde decoder accept the request shape; TD outcome depends on target state.",
+      "tool": "capture",
+      "arguments": {
+        "pid": 123,
+        "action": "status",
+        "jobId": "returned-job-id",
+        "includeSamples": false
+      }
+    }
+  ],
+  "negativeRequests": [
+    {
+      "id": "probe-root-limit",
+      "tool": "palette_probe",
+      "arguments": {
+        "pid": 123,
+        "select": {
+          "category": "Tools"
+        },
+        "limit": 3
+      },
+      "expected": "unknown root field rejected before execution"
+    },
+    {
+      "id": "inspect-missing-paths",
+      "tool": "inspect",
+      "arguments": {
+        "pid": 123
+      },
+      "expected": "missing required paths rejected before execution"
+    }
+  ],
+  "nativeScripts": [
+    {
+      "path": "scripts/fixtures/guidance/top_sample.py",
+      "sha256": "2c62e30d1d5908edffc7820cbbd3ccac7a0999305e1bc6f9368d45d9004585a9",
+      "context": "Owned constantTOP /project1/guidance_probe/pixels; MCP Python.",
+      "evidence": "Keyword calls observed TD 2025.32460 Wine/Linux; full fixture fake-tested. Does not establish orientation/interpolation/performance."
+    }
+  ]
+}

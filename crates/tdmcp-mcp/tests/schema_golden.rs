@@ -155,6 +155,52 @@ fn capture_status_sample_options_defaults_and_validation() {
 }
 
 #[test]
+fn classified_guidance_requests_use_actual_decoders() {
+    fn decode(tool: &str, value: Value) -> Result<(), serde_json::Error> {
+        match tool {
+            "inspect" => serde_json::from_value::<tdmcp_mcp::InspectParams>(value).map(drop),
+            "mutate_nodes" => {
+                serde_json::from_value::<tdmcp_mcp::MutateNodesParams>(value).map(drop)
+            }
+            "capture" => serde_json::from_value::<tdmcp_mcp::CaptureParams>(value).map(drop),
+            "api_help" => serde_json::from_value::<tdmcp_mcp::ApiHelpParams>(value).map(drop),
+            "spawn_td" => {
+                serde_json::from_value::<tdmcp_mcp::lifecycle::SpawnTdParams>(value).map(drop)
+            }
+            "palette_probe" => {
+                serde_json::from_value::<tdmcp_mcp::palette::PaletteProbeParams>(value).map(drop)
+            }
+            "palette_index" => {
+                serde_json::from_value::<tdmcp_mcp::palette::PaletteIndexParams>(value).map(drop)
+            }
+            other => panic!("add a real decoder for documented tool {other}"),
+        }
+    }
+    let registry: Value =
+        serde_json::from_str(include_str!("../../../skills/EXAMPLES.json")).unwrap();
+    let mut count = 0;
+    for example in registry["blocks"].as_array().unwrap() {
+        if let Some(tool) = example["tool"].as_str() {
+            decode(tool, example["arguments"].clone())
+                .unwrap_or_else(|error| panic!("{}: {error}", example["id"]));
+            count += 1;
+        }
+    }
+    assert!(count >= 14, "do not silently remove example coverage");
+    for example in registry["negativeRequests"].as_array().unwrap() {
+        assert!(
+            decode(
+                example["tool"].as_str().unwrap(),
+                example["arguments"].clone()
+            )
+            .is_err(),
+            "negative accepted: {}",
+            example["id"]
+        );
+    }
+}
+
+#[test]
 fn palette_guidance_probe_example_uses_real_decoder() {
     let template =
         include_str!("../../../skills/templates/touchdesigner/reference/palette-scan.jinja.md");

@@ -12,8 +12,10 @@ cargo test --locked --workspace
 python -m pytest bridge/tests
 ```
 
-Install pytest in a virtual environment. `scripts/check.sh` and
-`scripts/check.ps1` wrap the local checks.
+Install test dependencies in an activated virtual environment with
+`python -m pip install -r scripts/requirements-test.txt`. `scripts/check.sh` and
+`scripts/check.ps1` wrap the local checks. The JSON Schema validator is test-only;
+no project script is executed by documentation validation.
 
 ## Where tests live
 

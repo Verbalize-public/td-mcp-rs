@@ -1,462 +1,102 @@
-# TD Python API — compact reference
+# Python execution contract
 
-Reference fragments use the execution context named in each section; they are
-not one runnable script. TD 2025.32460 embeds Python 3.11; other builds may differ.
+Current-tool procedure. Use {{ skill("operate") }} and the actual runtime schema. This is the short execution contract; the detailed language/API reference remains available on demand.
 
-For **exact** live class/member names on a connected TD pid, prefer `api_help`
-over guessing from this reference. MCP namespace rules are source-confirmed and
-fake-operator tested. Native observations are scoped to the facts/builds noted
-below; this is not a blanket verification of every API example.
+## When Python is justified
 
-## Scope: TD scripts vs `execute_python`
+Use a structured tool when it directly expresses the task. Python is appropriate for unsupported operations, custom numerical logic, or a coherent existing builder/test whose decomposition would add risk and calls. Do not write a broad network walk merely to discover names that `inspect` can return.
 
-| Context | What's in scope |
-|---------|-----------------|
-| Textport, DAT scripts, expressions, extensions | Full auto-globals: `me`, `op`, `root`, `parent`, `ui`, `project`, `absTime`, `tdu`, `run`, … **and** bare type objects (`noiseTOP`, `waveCHOP`, …) |
-| td-mcp-rs `execute_python` | **Core:** `td`, `op` (`td.op`), `result` (assign to return), `tdmcp_resolve`, `__tdmcp_context_path__`. **Aliases** (bound if present on `td`): `root`, `ui`, `project`, `absTime`, `tdu`, `run`, `ops`, `opex`, `passive`, `mod`. **Not** injected: `me`, `parent`, bare opTypes, `debug` |
+## Do not mix execution contexts
 
-```python
-# Textport / DAT — bare types + me/parent OK
-n = parent().create(noiseTOP, 'noise1')
+`execute_python` receives `script` and an explicit PID. Assign `result` inside the script to return data. `result`, `content`, `prompt`, `snippet` and `message` are not interchangeable tool-argument names. Use the complete current schema rather than a hand-maintained abbreviated list of optional fields.
 
-# execute_python — aliases OK; opTypes via td or string
-n = op('/project1/fx').create(td.noiseTOP, 'noise1')
-n = op('/project1/fx').create('noiseTOP', 'noise1')
-assert root.path == '/'
-ui = ui  # bare alias; td.ui always safe
-```
+The bridge provides `td`, `op`, `result`, `tdmcp_resolve` and documented conditional aliases. It does **not** provide a script-owner `me`, bare `parent`, bare operator classes or automatic stdlib imports. Import `math`, `json`, `sys`, etc. explicitly when needed. DAT scripts, parameter expressions and the textport have different contexts.
 
-`create(opType, name, initialize=True)` — `opType` is a type object (`td.noiseTOP` /
-`noiseTOP` in Textport) **or** the string `'noiseTOP'`. From an existing node:
-`type(n)` / `n.OPType`.
+Use absolute OP paths or `tdmcp_resolve` for the intended `contextPath`. That context is a resolution helper, **not an authorization boundary or Python sandbox**. Respect the task's actual scene/filesystem scope.
 
-## Global shortcuts
+## Resolve the uncertain symbol before another guess
 
-| Symbol | Purpose | `execute_python` |
-|--------|---------|------------------|
-| `me` | Current OP executing this code | **No** (no script-owner) |
-| `parent(n?)` | nth parent (1=direct); `parent.shortcut` for named | **No** bare (use `n.parent()` on a node) |
-| `root` | Top-level `/` component | Yes (alias) |
-| `op('path')` | First matching OP from `/`; returns `None` on miss | Yes |
-| `op(*pats)` | Multiple patterns, space/comma-separated | Yes |
-| `opex('path')` | Like `op()` but raises on miss (prefer in par expressions) | Yes (alias; miss → `tdError`) |
-| `ops(*pats)` | All matching OPs as list | Yes (alias) |
-| `passive(op)` | Non-cooking OP wrapper for read-only queries | Yes (alias) |
-| `run(code, delayFrames=0, delayMilliSeconds=0)` | Delayed execution → `Run` | Yes (alias) |
-| `debug(*args)` | Print + source location to textport | **No** (use `print`; MCP tees stdio → Debug DAT / `logs`) |
-| `absTime.frame`, `absTime.seconds` | Process-lifetime time | Yes (alias) |
-| `project.cookRate`, `project.name` | Session FPS / name | Yes (alias) |
-| `ui.panes`, `ui.undo`, … | Editor UI (prefer `editor_context` for panes) | Yes (alias) |
-| `tdu.rand(seed)`, `tdu.split(s)`, `tdu.Color/Vec/Mat` | Utilities | Yes (alias) |
-| `mod`, `iop`, `ipar` | Module-on-demand, internal shortcuts | `mod` yes; `iop`/`ipar` are COMP-local (not MCP globals) |
+Use current `api_help` class/classes queries and actual parameter names. If a needed member signature is not exposed, use an allowed, narrowly scoped documentation/member probe; do not invent an unsupported `api_help` query kind. Prefer exact observed symbols over memory of another DCC API.
 
-`td.*` always works for anything on the TD module (including opTypes).
+Distinguish namespace/import errors, TD member errors and the script's own logic failures; `api_help` is not a stdlib import resolver. After an AttributeError or wrong-type result, do not try a sequence of plausible alternatives. Identify the object's actual class and the failing member/parameter; make one evidence-backed repair. Read the relevant detailed reference only for the unresolved operation.
 
-**Do not conflate path contexts.** Structured tool paths use `contextPath`
-(default `/project1`). In `execute_python`, global `op` is `td.op`; use absolute
-paths or the one-argument `tdmcp_resolve(path)` helper, already bound to the call
-context. Parameter expressions have an owner: inspect `me` and `parent()` first.
-On TD 2025.32460, an expression on a POP resolved `op('..')` to its parent,
-while a Render TOP camera parameter string `cam` found a sibling camera and
-`../cam` did not. OP-path parameter strings are not Python expressions.
-For a COMP parameter reading an internal node, prefer explicit `me.op('child')`.
-Test references after moving/reopening a reusable COMP; do not force all internal
-references to absolute paths. See {{ skill("network-design") }}.
+## Keep execution and evidence bounded
 
-**No stdlib is auto-imported in `execute_python`.** Modules like `math`, `re`,
-`sys`, `collections`, `enum`, `inspect` are **not** injected — use them with an
-explicit `import` inside the script (`import math`, then `math.sqrt(...)`); a
-bare `math.sqrt(...)` without an import raises `NameError`. Some TD aliases
-(`op`, `root`, `ui`, …) are shared with MCP execution; `me`, bare `parent` and
-bare opTypes are not. Use the context table above rather than transferring the
-entire Textport/DAT/expression namespace to MCP.
+- Check script syntax before sending when an allowed local check can do so; syntax validity is not TD API validity.
+- Return the selected values needed for the next decision. Avoid printing the same JSON also assigned to `result`; keep relevant diagnostic logs when they matter.
+- Convert unsupported result objects deliberately, without silently changing numeric meaning. JSON serialization failure can occur **after** scene edits.
+- Do not block TD's main thread with sleeps while expecting frames/callbacks to advance. Use {{ skill("visual-timing") }}.
+- Use `try/finally` for temporary state you can actually restore. Restoring a play flag is not undoing accumulated simulation state or arbitrary script effects.
+- An exception, timeout or failed nested `exec` is not proof nothing changed. Follow {{ skill("recover") }}.
 
-## Type objects — starter catalog
-
-These are **classes on `td`** (and bare names in full TD scope). Use them with
-`COMP.create(...)` / `changeType(...)`. Names are case-sensitive; discover more via
-`api_help` `{kind:"classes", family:"TOP", prefix:"noise"}`.
-
-### Family bases (filters / isinstance)
-
-`OP` · `TOP` · `CHOP` · `DAT` · `COMP` · `SOP` · `POP` · `MAT` · `Par` · `ParGroup` · `Channel` · `Cell`
-
-```python
-n.findChildren(type=td.TOP, name='*', depth=1)
-isinstance(n, td.CHOP)          # True for any CHOP subclass
-n.asType(td.noiseTOP)           # IDE / type hint helper
-```
-
-### Common opTypes by family
-
-| Family | Starter types (pass to `create` / `changeType`) |
-|--------|--------------------------------------------------|
-| **TOP** | `noiseTOP`, `nullTOP`, `constantTOP`, `rampTOP`, `levelTOP`, `blurTOP`, `transformTOP`, `compositeTOP`, `selectTOP`, `moviefileinTOP`, `feedbackTOP`, `cacheTOP`, `lookupTOP`, `displaceTOP`, `thresholdTOP`, `edgeTOP`, `resolutionTOP`, `glslTOP`, `glslmultiTOP`, `hsvadjustTOP`, `inTOP`, `outTOP` |
-| **CHOP** | `waveCHOP`, `lfoCHOP`, `noiseCHOP`, `nullCHOP`, `constantCHOP`, `mathCHOP`, `mergeCHOP`, `selectCHOP`, `infoCHOP`, `audiofileinCHOP`, `inCHOP`, `outCHOP` |
-| **DAT** | `textDAT`, `tableDAT`, `nullDAT`, `selectDAT`, `scriptDAT`, `executeDAT`, `inDAT`, `outDAT` |
-| **COMP** | `baseCOMP`, `containerCOMP`, `geometryCOMP`, `cameraCOMP`, `lightCOMP` |
-| **POP** | `spherePOP`, `noisePOP`, `transformPOP`, `nullPOP`, `glslPOP`, `inPOP`, `outPOP` |
-| **SOP** | `boxSOP`, `nullSOP`, `inSOP`, `outSOP` |
-| **MAT** | `phongMAT`, `pbrMAT`, `glslMAT`, `inMAT`, `outMAT` |
-
-```python
-# Pattern — create + wire + set (requires an authorized target)
-fx = op('/project1').create(td.baseCOMP, 'fx')
-noise = fx.create(td.noiseTOP, 'noise1')
-blur  = fx.create(td.blurTOP, 'blur1')
-out   = fx.create(td.outTOP, 'out1')
-blur.setInputs([noise])
-out.setInputs([blur])
-blur.par.size = 12
-size = blur.par.size.eval()   # always prefer .eval() when reading
-```
-
-Exact spelling traps (live-verified): `hsvadjustTOP` (not `hsvAdjustTOP`),
-`geometryCOMP` (not `geoCOMP`). On `tdmcp.op.unknown_type`, retry `api_help` with the
-suggested name or `{kind:"classes", prefix:"…"}`.
-
-## Wiring (inputs / Connectors)
-
-`inspect` surfaces positional wires on each node when `nodes` is included
-(`inputs` / `outputs` peer lists — `{path, name, opType}` or `null` per slot).
-Prefer that for network understanding. Use Python `n.inputs` / `n.outputs` (or
-`mutate_nodes` connect/disconnect) only as a last resort or for one-off writes:
-
-```python
-# Reliable — OP lists (elements are OPs with .path)
-blur.inputs          # -> [noiseTOP, ...]
-noise.outputs        # -> [blurTOP, ...]
-blur.setInputs([noise])
-blur.setInputs([None])   # disconnect slot 0
-
-# Connector API — NO .op attribute (AttributeError)
-ic = blur.inputConnectors[0]
-ic.owner.path              # this OP
-# ic.inOP / ic.outOP are often None — do not rely on them for "who is wired"
-# Peer via connections:
-peer = ic.connections[0].owner if ic.connections else None
-```
-
-## OP — every node inherits this
-
-```python
-n = op('node')
-
-# Identity
-n.name, n.path, n.id, n.base, n.digits, n.valid
-
-# Type
-n.type        # 'noise'
-n.family      # 'TOP'
-n.opType      # 'noiseTOP' (for create())
-n.OPType      # same string; also type(n) → class object
-n.isCHOP, n.isCOMP, n.isDAT, n.isTOP, n.isSOP, n.isMAT, n.isPOP
-n.isFilter, n.minInputs, n.maxInputs
-
-# Hierarchy — parent is a ParentShortcut; CALL it
-n.parent()            # parent(1) OP
-n.parent(1).path
-# n.parent.path  → tdAttributeError (ParentShortcut has no .path)
-n.children            # list[OP]
-n.numChildren
-n.inputs, n.outputs   # wired neighbor OPs (not Connectors)
-n.dock, n.docked
-
-# Parameters
-n.par.tx           # dot access
-n.par['tx']        # subscript access
-n.parGroup.t       # vector group (x,y,z)
-n.customPars, n.customPages, n.pages
-
-# Flags (bool, R/W)
-n.bypass, n.display, n.render, n.lock, n.viewer
-n.activeViewer, n.allowCooking, n.current, n.selected
-n.cloneImmune, n.python
-
-# Layout
-n.nodeX, n.nodeY, n.nodeWidth, n.nodeHeight
-n.nodeCenterX, n.nodeCenterY
-n.color           # (r, g, b) tuple
-n.comment         # R/W str, every family, '' by default — prefer mutate_nodes `comment`
-
-# Cook
-n.cpuCookTime, n.gpuCookTime, n.totalCooks
-n.cookedThisFrame
-n.cpuMemory, n.gpuMemory
-
-# Key methods
-n.create(td.waveCHOP, 'name')     # COMP-only: create child
-n.copy(src_op, name='new')        # COMP-only: copy into this
-n.destroy()
-n.cook(force=False, recurse=False)
-n = n.changeType(td.nullCHOP)     # Returns NEW OP — reassign!
-n.setInputs([op1, op2, None])     # None disconnects slot
-n.copyParameters(other)
-n.findChildren(type=td.CHOP, name='*', depth=1, tags=[], parName='clone')
-n.evalExpression('me.digits')     # Eval code in this OP's context
-n.addError('msg') / n.addWarning('msg')  # Only during cook
-n.errors(recurse=False) / n.clearScriptErrors(recurse=True)
-n.openViewer() / n.closeViewer()
-n.asType(td.baseCOMP)             # IDE type hint
-
-# Storage
-n.store('key', val)
-n.fetch('key', default=0)
-n.unstore('key*')
-n.fetchOwner('key')
-n.tags = {'tag1', 'tag2'}
-```
-
-## Par — parameter access
-
-Use `inspect` with `include:["params"]` and `detailLevel:"detailed"` to read
-current menu names/labels (bounded), stored values, evaluated values and modes.
-Check `evaluation.available` before interpreting `val:null`; check `menu.available`
-and truncation before treating the menu list as complete. Menu labels are not
-necessarily valid value tokens. Dynamic/custom menus may accept other values;
-never silently lowercase or autocorrect a user value. `mutate_nodes` rejects
-invalid tokens/indices for readable built-in closed `Menu` parameters with no
-menu source; `StrMenu` and custom/source-driven menus are not hard-rejected.
-A rejected later field does not roll back fields already applied.
-
-
-```python
-p = n.par.tx        # or n.par['tx']
-
-# Value — always prefer .eval()
-p.eval()            # Current value (all modes) ✅
-p.val               # CONSTANT mode only — avoid unless you know mode
-p.expr              # Expression string
-p.mode              # ParMode.CONSTANT / EXPRESSION / EXPORT / BIND
-p.default, p.name, p.label, p.owner, p.index
-
-# Type checks
-p.isMenu, p.isNumber, p.isFloat, p.isInt, p.isString
-p.isToggle, p.isPulse, p.isMomentary, p.isOP, p.isCustom
-
-# Menu params
-p.menuNames, p.menuLabels, p.menuIndex
-
-# Range
-p.min, p.max, p.clampMin, p.clampMax
-p.normMin, p.normMax, p.normVal
-
-# Binding
-p.bindExpr, p.bindMaster, p.bindReferences
-p.enable, p.enableExpr, p.readOnly
-
-# Methods
-p.pulse(value=1, frames=0, seconds=0)
-p.reset()
-p.destroy()         # Custom-only; invalidates all Par refs
-p.isSamePar(other)  # Identity — prefer over relying on == / is
-p.evalOPs()         # Multi-OP parameter → list[OP]
-p.evalFile()        # File path → tdu.FileInfo
-```
-
-## TOP
-
-The two `sample` calls below were native-observed on TD 2025.32460 under
-Wine/Linux with a uniform 256×256 Constant TOP; both returned its RGBA value.
-Positional sampling was rejected on that build. This does not validate coordinate
-orientation, interpolation or every TOP method below. The native method docs warn
-that `sample` can stall the graphics pipeline and download the **entire texture**,
-not just one pixel; use it for debugging/non-realtime workflows.
-
-```python
-t = op('noise1')          # any TOP
-t.width, t.height
-t.aspectWidth, t.aspectHeight, t.aspect, t.depth
-t.pixelFormat, t.pixelFormatName
-t.sample(x=0, y=0)        # pixel coordinates: keyword arguments
-t.sample(u=0.5, v=0.5)    # normalized UV coordinates: keyword arguments
-t.numpyArray()            # image as numpy
-t.save('file.png')
-t.cudaMemory              # CUDA interop when available
-```
-
-## CHOP
-
-```python
-c = n['chan1']          # Exact name
-c = n[3]                # Index
-c = n.chan('chan*')     # Pattern → first or None
-n.chans('a*', 'b*')     # List of channels
-n.numChans, n.numSamples
-n.numpyArray()          # Shape (numChans, numSamples)
-c.eval(), c.eval(index)
-c.name, c.index
-n.save('file.clip')     # .clip/.chan/.aiff
-n.export, n.rate
-```
-
-## DAT — table & text
-
-Prefer `inspect` with `include: ["content"]` to read DAT bodies (text + table
-TSV via `.text`) and GLSL shader stages. Each text preview is capped at 64 KiB;
-`textTruncation` and `totalBytes` identify larger bodies. Read further slices with
-`execute_python`: `result = op(path).text[start:end]` (character offsets).
-Use the Python surface below when mutating or when `execute_python` is otherwise
-required.
-
-```python
-# Content
-n.text                  # Tab-delimited (R/W)
-n.csv                   # CSV (multi-line cells)
-n.jsonObject            # Parse as dict
-n.numRows, n.numCols
-n.isText, n.isTable     # Discriminate text vs table presentation
-
-# Cells
-n[2, 3]                 # Index
-n['row', 'col']         # Label (e.g. n['x','val'].val)
-n.cell(2, 'col')        # Pattern matching
-n.row('name', val=True) # → list of cells / values
-n.col('name', val=True)
-n.rows('A*')            # Pattern
-n.findCell('pattern', cols=['name'])
-
-# Mutate
-n.appendRow([v1, v2])
-n.appendCol([v1, v2])
-n.insertRow([vals], nameOrIndex=0)
-n.replaceRow('name', [vals])
-n.deleteRow('name'), n.deleteCol('name')
-n.setSize(rows, cols)
-n.clear(keepSize=False)
-n.copy(other_dat)
-
-# Execute
-n.run(*args, delayFrames=0)
-n.module                # Import as Python module
-print('...', file=n)    # Redirect stdout
-n.write('text')         # Append
-```
-
-## POP / SOP (geometry)
-
-```python
-# POP — modern GPU geometry
-p.numPoints(delayed=False)  # Method, not a property (verified 2025.32460)
-# max=True requests allocated capacity, not actual point count.
-# delayed=True returns a delayed GPU read; do not use it as immediate evidence.
-p.bounds, p.computeBounds()
-p.pointAttributes, p.primAttributes, p.vertAttributes
-p.save('file.*')
-
-# SOP — legacy CPU geometry
-s.numPoints, s.numPrims
-s.center, s.bounds, s.computeBounds()
-```
-
-## COMP
-
-```python
-n.create(td.waveCHOP, 'name')
-n.copy(src_op, name='new')
-n.copyOPs([op1, op2])        # Preserves wires
-n.loadTox('file.tox')
-n.save('file.tox')
-n.findChildren(type=td.CHOP, name='*', depth=1, tags=[], parName='clone')
-
-# Variables
-n.setVar('MEDIA', 'C:/path')
-n.vars('A*')
-
-# Layout
-n.layout(horizontal=True)
-n.layout(gridRows=10)
-
-# Extensions / VFS
-n.extensions
-n.vfs
-```
-
-## Custom parameters (COMP-only)
-
-Full when-to-use + styles + gotchas: {{ skill("custom-parameters") }}.
-Only COMPs have `appendCustomPage` (TOP/CHOP/DAT cannot). Names: uppercase start +
-lowercase/digits only (`Amount` OK; `speed` / `my_amount` / `myAmount` fail).
-
-```python
-comp = op('/project1/fx')
-page = comp.appendCustomPage('Controls')
-
-# append* -> ParGroup; defaults/min/max are NOT create kwargs
-page.appendFloat('Gain', label='Gain')
-comp.par.Gain.default, comp.par.Gain.min, comp.par.Gain.max = 1.0, 0.0, 2.0
-comp.par.Gain.clampMin = comp.par.Gain.clampMax = True
-comp.par.Gain.val = 1.0
-
-page.appendToggle('Enable', label='Enable')
-comp.par.Enable = True                    # fresh toggles default False
-comp.par.Gain.enableExpr = 'me.par.Enable'  # bare 'Enable' does NOT work
-
-page.appendMenu('Mode', label='Mode')
-comp.par.Mode.menuNames = ['palette', 'custom']   # set on Par, not ParGroup
-comp.par.Mode.menuLabels = ['Palette', 'Custom']
-comp.par.Mode = 'custom'
-
-page.appendRGB('Color', label='Color')
-comp.parGroup.Color = (1.0, 0.4, 0.1)      # -> Colorr/Colorg/Colorb
-page.appendWH('Resolution', label='Resolution')  # -> Resolutionw/h
-page.appendPulse('Reset', label='Reset')
-comp.par.Reset.pulse()
-
-# Read
-comp.par.Gain.eval()                      # scalar
-list(comp.parGroup.Color.eval())          # list (also for size-1 groups)
-
-# Child references
-child = comp.op('noise1')
-child.par.resolutionw.expr = 'parent().par.Resolutionw'  # .expr => EXPRESSION
-Mode = type(child.par.amp.mode)           # ParMode NOT on td in execute_python
-child.par.amp.bindExpr = 'parent().par.Gain'
-child.par.amp.mode = Mode.BIND
-
-# Pages / teardown
-comp.customPages                          # custom only (not comp.pages)
-comp.sortCustomPages('Controls', 'About')
-comp.par.Gain.destroy()                   # one par
-# page.destroy() / comp.destroyCustomPars()  # page / all custom+pages
-
-# replace=True (default) on re-append WIPES prior default/min/max/help
-```
-
-## Pattern matching
-
-`*` (any), `?` (one char), `[abc]` (one of), `[!abc]` (not). Multiple patterns space/comma-separated.
-
-## Gotchas
-
-1. **`.eval()` always** — `par.tx.eval()`, not `par.tx.val` unless you know it's constant
-2. **`.changeType()` returns new OP** — always reassign: `n = n.changeType(td.nullCHOP)`
-3. **`Par` identity** — prefer `.isSamePar()`; do not use `is` (`p1 is p2` is False for the same par)
-4. **Threads can't touch TD objects or UI**, including native Textport streams.
-   `execute_python` runs on TD's main thread. Schedule `run()` callbacks there
-   before yielding; do not call `td.run`, `op`, `ui`, or parameter methods from
-   a worker. Workers do plain Python/I/O and exchange plain data with a
-   main-thread callback. The bridge defers worker prints, but that does not
-   make other TD API calls thread-safe.
-5. **OP `id` is session-only** — not persistent across save/load
-6. **`print` in `execute_python`** — teed to Debug DAT / returned `logs`; bare `debug()` is not injected
-7. **`opex()` in expressions** — raises clear error instead of `NoneType has no attribute 'par'`
-8. **`passive(op)` for read-only** — skips cook, safe for info queries
-9. **`execute_python` namespace** — core + closed aliases (see Scope), not a security sandbox. Bare `noiseTOP` / `me` / `parent` / `debug` → `NameError`. Use `td.noiseTOP` or string form; use `n.parent()` on a node
-10. **`n.parent` is a ParentShortcut** — call `n.parent()` / `n.parent(1)`; `n.parent.path` fails
-11. **Wiring** — use `n.inputs` / `n.outputs` (OPs). Connector has **no** `.op`; `inOP`/`outOP` often `None`; peer via `connector.connections[i].owner`
-12. **opType spelling** — camelCase guesses often fail (`hsvadjustTOP`, `geometryCOMP`); confirm with `api_help`
+Future script-source references, numerical tools and evidence readers are used only after their actual schemas/capabilities are available. Do not turn a release-plan name into a tool call.
 
 ## Related
 
-| Topic | Where |
-|-------|----------------|
-| Full opType index / member cards | Live `api_help` (`class` / `classes`+filters) |
-| Extensions, Execute DAT callbacks | {{ skill("primer/scripting-surfaces") }} |
-| Parameter mode decisions | {{ skill("primer/parameters-and-channels") }} |
-| OpSketch create/wire recipes | {{ skill("opsketch-examples") }} |
+- {{ skill("operate") }}
+- {{ skill("python-reference") }}
+- {{ skill("custom-parameters") }}
+- {{ skill("primer/scripting-surfaces") }}
+- {{ skill("recover") }}
 
+**Canonical:** {{ skill("python-api") }}
 
----
+## Compatibility reference index
 
-**Canonical:** {{ skill("python-api") }} 
+Old section links remain navigation to the retained technical reference.
+
+## Scope: TD scripts vs `execute_python`
+
+See {{ skill("python-reference") }} for this reference section.
+
+## Global shortcuts
+
+See {{ skill("python-reference") }} for this reference section.
+
+## Type objects — starter catalog
+
+See {{ skill("python-reference") }} for this reference section.
+
+## Wiring (inputs / Connectors)
+
+See {{ skill("python-reference") }} for this reference section.
+
+## OP — every node inherits this
+
+See {{ skill("python-reference") }} for this reference section.
+
+## Par — parameter access
+
+See {{ skill("python-reference") }} for this reference section.
+
+## TOP
+
+See {{ skill("python-reference") }} for this reference section.
+
+## CHOP
+
+See {{ skill("python-reference") }} for this reference section.
+
+## DAT — table & text
+
+See {{ skill("python-reference") }} for this reference section.
+
+## POP / SOP (geometry)
+
+See {{ skill("python-reference") }} for this reference section.
+
+## COMP
+
+See {{ skill("python-reference") }} for this reference section.
+
+## Custom parameters (COMP-only)
+
+See {{ skill("python-reference") }} for this reference section.
+
+## Pattern matching
+
+See {{ skill("python-reference") }} for this reference section.
+
+## Gotchas
+
+See {{ skill("python-reference") }} for this reference section.

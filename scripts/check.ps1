@@ -22,6 +22,9 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 python scripts/check_docs.py
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+python scripts/check_guidance.py
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
 python -m unittest discover -s scripts/tests
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 

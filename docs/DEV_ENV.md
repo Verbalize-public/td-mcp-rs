@@ -5,20 +5,26 @@ cannot prove that an actual network cooks or renders correctly.
 
 ## Rebuild and install
 
-When changing daemon code, stop running daemon/proxy processes before building.
-On Unix:
+Build and test without stopping user-owned processes:
 
 ```sh
-pkill -f tdmcp-daemon
 cargo build --workspace
-target/debug/tdmcp-daemon install --force
-target/debug/tdmcp-daemon ensure
+python scripts/package_smoke.py target/debug/tdmcp-daemon
 ```
 
-On Windows, stop `tdmcp-daemon.exe` with Task Manager or
-`taskkill /IM tdmcp-daemon.exe /F`, then use the corresponding executable paths.
-Restart the assistant's MCP connection if its transport closed.
-Stop after three repeated failures with no new evidence; inspect logs/file locks.
+The package smoke uses its own temporary data/config directories and listener
+ports. For live testing, similarly isolate data/config, HTTP and bridge ports,
+and use a task-owned scratch project. Never stop all daemons or TD instances by
+executable name. Before deployment to an existing installation, identify the exact
+PID, executable, listener and connected projects; coordinate consequential
+interruption and preserve configuration/customized templates. Use a scoped
+`install --force` only when that installation is authorized for refresh.
+
+Record source/build/installed identities separately. Rebuilding does not refresh
+an already-running process, and embedded skill resources may remain stale in an
+old proxy even after files change. Verify the actual served resources and loaded
+bridge after any authorized restart. Stop after three failed probes with no new
+evidence; inspect ownership, logs and file locks rather than broadening cleanup.
 
 ## Probe through MCP
 

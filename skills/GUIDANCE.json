@@ -1,0 +1,586 @@
+{
+  "version": 1,
+  "purpose": "Authoring and testing metadata, not permissions or an automatic executor.",
+  "legacyIds": [
+    "component-checklist",
+    "custom-parameters",
+    "definition-of-done",
+    "glsl",
+    "lifecycle",
+    "look-grade",
+    "mutation-zones",
+    "network-design",
+    "node-comments",
+    "operate",
+    "operator-families",
+    "opsketch-examples",
+    "opsketch-importance-gating",
+    "opsketch-notation",
+    "palette",
+    "palette-scan",
+    "play-state",
+    "pops",
+    "popups",
+    "primer/cook-and-families",
+    "primer/editor-and-layout",
+    "primer/glsl-and-render",
+    "primer/parameters-and-channels",
+    "primer/performance",
+    "primer/scripting-surfaces",
+    "primer/tox-toe-components",
+    "project-io",
+    "python-api",
+    "reset-state",
+    "shadertoy-conversion",
+    "td-glsl-ground-truth",
+    "timed-capture",
+    "tooling-concurrency"
+  ],
+  "ruleOwners": {
+    "G01": "operate",
+    "G02": "operate",
+    "G03": "operate",
+    "G04": "observe-change",
+    "G05": "observe-change",
+    "G06": "observe-change",
+    "G07": "recover",
+    "G08": "recover",
+    "G09": "operate",
+    "G10": "python-api",
+    "G11": "python-api",
+    "G12": "timed-capture",
+    "G13": "look-grade",
+    "G14": "visual-timing",
+    "G15": "lifecycle-files",
+    "G16": "component-authoring",
+    "G17": "definition-of-done",
+    "G18": "operate",
+    "G19": "verify-handoff",
+    "G20": "operate"
+  },
+  "cards": {
+    "operate": {
+      "kind": "procedure",
+      "audience": "agent",
+      "trigger": "Inspect, build, debug, and capture TouchDesigner projects through td-mcp-rs. Entry point for live operator work, scripting, and offline project tools.",
+      "nonTrigger": "Does not require a live process for offline explanations or files.",
+      "canonicalOwner": "operate",
+      "capabilities": [
+        "current-tools"
+      ],
+      "migration": "compatible-id-and-path-retained",
+      "evidenceScope": "Source/unit/native claims are scoped individually; no blanket native verification."
+    },
+    "opsketch-notation": {
+      "kind": "reference",
+      "audience": "agent",
+      "trigger": "Sketch topology when planning branches/interfaces or explaining a network. Optional notation reference, not a node-count gate for ordinary edits.",
+      "nonTrigger": "Node count alone is not a sketch trigger.",
+      "canonicalOwner": "opsketch-notation",
+      "capabilities": [
+        "current-tools"
+      ],
+      "migration": "compatible-id-and-path-retained",
+      "evidenceScope": "Source/unit/native claims are scoped individually; no blanket native verification."
+    },
+    "opsketch-importance-gating": {
+      "kind": "compatibility",
+      "audience": "agent",
+      "trigger": "Decide which parameters to surface in an OpSketch. Use when sketching a network or judging whether a parameter belongs in a node's {} block.",
+      "nonTrigger": "Do not load or execute examples unless they resolve a task-relevant question.",
+      "canonicalOwner": "opsketch-notation",
+      "capabilities": [
+        "current-tools"
+      ],
+      "migration": "compatible-id-and-path-retained",
+      "evidenceScope": "Source/unit/native claims are scoped individually; no blanket native verification."
+    },
+    "opsketch-examples": {
+      "kind": "reference",
+      "audience": "agent",
+      "trigger": "Worked OpSketch transcriptions. Use when unsure how to sketch a live inspect result, a wire summary, a custom COMP, or an api_help card.",
+      "nonTrigger": "Do not load or execute examples unless they resolve a task-relevant question.",
+      "canonicalOwner": "opsketch-examples",
+      "capabilities": [
+        "current-tools"
+      ],
+      "migration": "compatible-id-and-path-retained",
+      "evidenceScope": "Source/unit/native claims are scoped individually; no blanket native verification."
+    },
+    "python-api": {
+      "kind": "procedure",
+      "audience": "agent",
+      "trigger": "Choose and run custom Python with explicit imports, scope and effect checks. Read before first MCP Python use; follow technical references only for unresolved APIs. Not a sandbox or an obligatory full manual for scalar edits.",
+      "nonTrigger": "Not required for a structured scalar read/write with no custom Python.",
+      "canonicalOwner": "python-api",
+      "capabilities": [
+        "current-tools"
+      ],
+      "migration": "split-entry-anchors-preserved",
+      "evidenceScope": "Source/unit/native claims are scoped individually; no blanket native verification."
+    },
+    "custom-parameters": {
+      "kind": "procedure",
+      "audience": "agent",
+      "trigger": "Create, read, and update COMP custom parameters. Use when adding pages/pars, menus, toggles, pulses, About fields, or enableExpr bindings.",
+      "nonTrigger": "Do not load or execute examples unless they resolve a task-relevant question.",
+      "canonicalOwner": "custom-parameters",
+      "capabilities": [
+        "current-tools"
+      ],
+      "migration": "compatible-id-and-path-retained",
+      "evidenceScope": "Source/unit/native claims are scoped individually; no blanket native verification."
+    },
+    "mutation-zones": {
+      "kind": "reference",
+      "audience": "agent",
+      "trigger": "Choose where to build and mutate. Use before creating or changing nodes: self-created named COMP, user-authorized subtree, or editor hint confirmed with inspect.",
+      "nonTrigger": "Do not load or execute examples unless they resolve a task-relevant question.",
+      "canonicalOwner": "mutation-zones",
+      "capabilities": [
+        "current-tools"
+      ],
+      "migration": "compatible-id-and-path-retained",
+      "evidenceScope": "Source/unit/native claims are scoped individually; no blanket native verification."
+    },
+    "network-design": {
+      "kind": "procedure",
+      "audience": "agent",
+      "trigger": "Network design conventions: structure, naming, data-flow hygiene, layout, relative references. Use when building or reorganizing a network or a reusable COMP.",
+      "nonTrigger": "Not unrelated layout/architecture cleanup during a narrow repair.",
+      "canonicalOwner": "network-design",
+      "capabilities": [
+        "current-tools"
+      ],
+      "migration": "compatible-id-and-path-retained",
+      "evidenceScope": "Source/unit/native claims are scoped individually; no blanket native verification."
+    },
+    "node-comments": {
+      "kind": "reference",
+      "audience": "agent",
+      "trigger": "Write and read OP.comment so a network explains itself. Use when creating or restructuring any node, or when reading an unfamiliar network.",
+      "nonTrigger": "Read-only discrepancy is not authorization to edit comments.",
+      "canonicalOwner": "node-comments",
+      "capabilities": [
+        "current-tools"
+      ],
+      "migration": "compatible-id-and-path-retained",
+      "evidenceScope": "Source/unit/native claims are scoped individually; no blanket native verification."
+    },
+    "component-checklist": {
+      "kind": "procedure",
+      "audience": "agent",
+      "trigger": "Audit a reusable COMP: In/Out boundary, About page, custom pars, relative refs, state reset, performance, preview. Use before shipping or cloning a COMP.",
+      "nonTrigger": "Not a release checklist for scalar edits, read-only audits or scratch probes.",
+      "canonicalOwner": "component-checklist",
+      "capabilities": [
+        "current-tools"
+      ],
+      "migration": "compatible-id-and-path-retained",
+      "evidenceScope": "Source/unit/native claims are scoped individually; no blanket native verification."
+    },
+    "reset-state": {
+      "kind": "procedure",
+      "audience": "agent",
+      "trigger": "Require working reset controls for stateful components, propagate project reset, and verify by reset then sequential advancement. Use when building stateful behavior or checking repeatable transitions and simulations.",
+      "nonTrigger": "Not a global reset retrofit for unrelated edits or screenshots.",
+      "canonicalOwner": "reset-state",
+      "capabilities": [
+        "current-tools"
+      ],
+      "migration": "compatible-id-and-path-retained",
+      "evidenceScope": "Source/unit/native claims are scoped individually; no blanket native verification."
+    },
+    "timed-capture": {
+      "kind": "procedure",
+      "audience": "agent",
+      "trigger": "Reset then advance for frame-controlled captures and N-frame TOP videos. Use for sample schedules, paired inspection, job status/cancel, and artifact retrieval.",
+      "nonTrigger": "Do not load or execute examples unless they resolve a task-relevant question.",
+      "canonicalOwner": "timed-capture",
+      "capabilities": [
+        "current-tools"
+      ],
+      "migration": "compatible-id-and-path-retained",
+      "evidenceScope": "Source/unit/native claims are scoped individually; no blanket native verification."
+    },
+    "operator-families": {
+      "kind": "reference",
+      "audience": "agent",
+      "trigger": "Operator family semantics and the pull-based cook model. Use when choosing which family to reach for, converting between families, or explaining cook behavior.",
+      "nonTrigger": "Do not load or execute examples unless they resolve a task-relevant question.",
+      "canonicalOwner": "operator-families",
+      "capabilities": [
+        "current-tools"
+      ],
+      "migration": "compatible-id-and-path-retained",
+      "evidenceScope": "Source/unit/native claims are scoped individually; no blanket native verification."
+    },
+    "pops": {
+      "kind": "reference",
+      "audience": "agent",
+      "trigger": "POP family deep dive: data model, attributes, workhorse POPs, interchange, gaps vs SOPs. Use when building or debugging GPU point/particle geometry.",
+      "nonTrigger": "Do not load or execute examples unless they resolve a task-relevant question.",
+      "canonicalOwner": "pops",
+      "capabilities": [
+        "current-tools"
+      ],
+      "migration": "compatible-id-and-path-retained",
+      "evidenceScope": "Source/unit/native claims are scoped individually; no blanket native verification."
+    },
+    "glsl": {
+      "kind": "procedure",
+      "audience": "agent",
+      "trigger": "TD GLSL dialect and port workflow. Use when authoring or converting GLSL for a GLSL TOP/MAT, feeding uniforms, or debugging compile/look failures.",
+      "nonTrigger": "Do not load or execute examples unless they resolve a task-relevant question.",
+      "canonicalOwner": "glsl",
+      "capabilities": [
+        "current-tools"
+      ],
+      "migration": "compatible-id-and-path-retained",
+      "evidenceScope": "Source/unit/native claims are scoped individually; no blanket native verification."
+    },
+    "shadertoy-conversion": {
+      "kind": "procedure",
+      "audience": "agent",
+      "trigger": "Wrap-don't-rewrite Shadertoy → TouchDesigner procedure. Use when porting a Shadertoy shader into a GLSL TOP.",
+      "nonTrigger": "Do not load or execute examples unless they resolve a task-relevant question.",
+      "canonicalOwner": "shadertoy-conversion",
+      "capabilities": [
+        "current-tools"
+      ],
+      "migration": "compatible-id-and-path-retained",
+      "evidenceScope": "Source/unit/native claims are scoped individually; no blanket native verification."
+    },
+    "td-glsl-ground-truth": {
+      "kind": "reference",
+      "audience": "agent",
+      "trigger": "TD GLSL ground truth: sampler arrays, the TDTexInfo res trap, uniforms, compute, GLSL MAT vs TOP. Use when a shader misbehaves or to avoid Vulkan crashes.",
+      "nonTrigger": "Do not load or execute examples unless they resolve a task-relevant question.",
+      "canonicalOwner": "td-glsl-ground-truth",
+      "capabilities": [
+        "current-tools"
+      ],
+      "migration": "compatible-id-and-path-retained",
+      "evidenceScope": "Source/unit/native claims are scoped individually; no blanket native verification."
+    },
+    "definition-of-done": {
+      "kind": "procedure",
+      "audience": "agent",
+      "trigger": "Verify changed networks and distinguish failed, verified, and unverified claims. Use before handing off TD work, saved outputs, or remaining scope.",
+      "nonTrigger": "Do not load or execute examples unless they resolve a task-relevant question.",
+      "canonicalOwner": "definition-of-done",
+      "capabilities": [
+        "current-tools"
+      ],
+      "migration": "compatible-id-and-path-retained",
+      "evidenceScope": "Source/unit/native claims are scoped individually; no blanket native verification."
+    },
+    "look-grade": {
+      "kind": "procedure",
+      "audience": "agent",
+      "trigger": "Grade look / FPS claims from correctly targeted captures. Use when visual, motion, or performance claims need observed evidence and explicit limits.",
+      "nonTrigger": "Do not load or execute examples unless they resolve a task-relevant question.",
+      "canonicalOwner": "look-grade",
+      "capabilities": [
+        "current-tools"
+      ],
+      "migration": "compatible-id-and-path-retained",
+      "evidenceScope": "Source/unit/native claims are scoped individually; no blanket native verification."
+    },
+    "tooling-concurrency": {
+      "kind": "procedure",
+      "audience": "agent",
+      "trigger": "Coordinate shared-PID work, sequential bridged calls, and timeout recovery. Use when delegating live work or handling busy and uncertain write outcomes.",
+      "nonTrigger": "Do not load or execute examples unless they resolve a task-relevant question.",
+      "canonicalOwner": "tooling-concurrency",
+      "capabilities": [
+        "current-tools"
+      ],
+      "migration": "compatible-id-and-path-retained",
+      "evidenceScope": "Source/unit/native claims are scoped individually; no blanket native verification."
+    },
+    "play-state": {
+      "kind": "procedure",
+      "audience": "agent",
+      "trigger": "Diagnose static output and timeline state when TD looks stuck or captures look frozen. Paused transport alone does not prove nothing can cook.",
+      "nonTrigger": "Do not load or execute examples unless they resolve a task-relevant question.",
+      "canonicalOwner": "play-state",
+      "capabilities": [
+        "current-tools"
+      ],
+      "migration": "compatible-id-and-path-retained",
+      "evidenceScope": "Source/unit/native claims are scoped individually; no blanket native verification."
+    },
+    "primer/cook-and-families": {
+      "kind": "primer",
+      "audience": "agent",
+      "trigger": "Condensed cook model and seven families for quick orientation. Use before deeper family or cook-model questions.",
+      "nonTrigger": "Do not load or execute examples unless they resolve a task-relevant question.",
+      "canonicalOwner": "primer/cook-and-families",
+      "capabilities": [
+        "current-tools"
+      ],
+      "migration": "compatible-id-and-path-retained",
+      "evidenceScope": "Source/unit/native claims are scoped individually; no blanket native verification."
+    },
+    "primer/editor-and-layout": {
+      "kind": "primer",
+      "audience": "agent",
+      "trigger": "Network editor, panes, and layout hygiene. Use when placing or reorganizing nodes.",
+      "nonTrigger": "Do not load or execute examples unless they resolve a task-relevant question.",
+      "canonicalOwner": "primer/editor-and-layout",
+      "capabilities": [
+        "current-tools"
+      ],
+      "migration": "compatible-id-and-path-retained",
+      "evidenceScope": "Source/unit/native claims are scoped individually; no blanket native verification."
+    },
+    "primer/parameters-and-channels": {
+      "kind": "primer",
+      "audience": "agent",
+      "trigger": "Four parameter modes, reading with .eval(), driving motion/look. Use before parameter-mode decisions.",
+      "nonTrigger": "Do not load or execute examples unless they resolve a task-relevant question.",
+      "canonicalOwner": "primer/parameters-and-channels",
+      "capabilities": [
+        "current-tools"
+      ],
+      "migration": "compatible-id-and-path-retained",
+      "evidenceScope": "Source/unit/native claims are scoped individually; no blanket native verification."
+    },
+    "primer/scripting-surfaces": {
+      "kind": "primer",
+      "audience": "agent",
+      "trigger": "Compare textport, DAT scripts, extensions, expressions and MCP execution contexts when choosing a scripting surface. MCP Python is not a sandbox.",
+      "nonTrigger": "Do not load or execute examples unless they resolve a task-relevant question.",
+      "canonicalOwner": "primer/scripting-surfaces",
+      "capabilities": [
+        "current-tools"
+      ],
+      "migration": "compatible-id-and-path-retained",
+      "evidenceScope": "Source/unit/native claims are scoped individually; no blanket native verification."
+    },
+    "primer/tox-toe-components": {
+      "kind": "primer",
+      "audience": "agent",
+      "trigger": "Project files (.toe / .tox) and the reusable-COMP checklist summary. Use when packaging or cloning components.",
+      "nonTrigger": "Do not load or execute examples unless they resolve a task-relevant question.",
+      "canonicalOwner": "primer/tox-toe-components",
+      "capabilities": [
+        "current-tools"
+      ],
+      "migration": "compatible-id-and-path-retained",
+      "evidenceScope": "Source/unit/native claims are scoped individually; no blanket native verification."
+    },
+    "primer/glsl-and-render": {
+      "kind": "primer",
+      "audience": "agent",
+      "trigger": "Where shaders live (GLSL TOP / MAT, multi-buffer) and the 3D-to-pixels chain. Use before GLSL or render work.",
+      "nonTrigger": "Do not load or execute examples unless they resolve a task-relevant question.",
+      "canonicalOwner": "primer/glsl-and-render",
+      "capabilities": [
+        "current-tools"
+      ],
+      "migration": "compatible-id-and-path-retained",
+      "evidenceScope": "Source/unit/native claims are scoped individually; no blanket native verification."
+    },
+    "primer/performance": {
+      "kind": "primer",
+      "audience": "agent",
+      "trigger": "Cook cost and FPS evidence habits. Use when diagnosing performance or claiming FPS.",
+      "nonTrigger": "Do not load or execute examples unless they resolve a task-relevant question.",
+      "canonicalOwner": "primer/performance",
+      "capabilities": [
+        "current-tools"
+      ],
+      "migration": "compatible-id-and-path-retained",
+      "evidenceScope": "Source/unit/native claims are scoped individually; no blanket native verification."
+    },
+    "project-io": {
+      "kind": "procedure",
+      "audience": "agent",
+      "trigger": "Offline .toe/.tox work through official tools: td_installs, project_unpack, project_pack, project_lint, project_install_bridge. Read before expanding/packing projects or touching bridge DATs.",
+      "nonTrigger": "Do not load or execute examples unless they resolve a task-relevant question.",
+      "canonicalOwner": "project-io",
+      "capabilities": [
+        "current-tools"
+      ],
+      "migration": "compatible-id-and-path-retained",
+      "evidenceScope": "Source/unit/native claims are scoped individually; no blanket native verification."
+    },
+    "lifecycle": {
+      "kind": "procedure",
+      "audience": "agent",
+      "trigger": "spawn_td / kill_td playbook: deterministic pid ownership, spawn outcome taxonomy, graceful-vs-force kill ladder. Read before starting/stopping TouchDesigner.",
+      "nonTrigger": "No automatic spawn/kill merely because fleet discovery ran.",
+      "canonicalOwner": "lifecycle",
+      "capabilities": [
+        "current-tools"
+      ],
+      "migration": "compatible-id-and-path-retained",
+      "evidenceScope": "Source/unit/native claims are scoped individually; no blanket native verification."
+    },
+    "popups": {
+      "kind": "procedure",
+      "audience": "agent",
+      "trigger": "Detect and clear OS dialogs blocking TouchDesigner (fleet popups + dialogs tool), including startup version/compat warnings after spawn_td.",
+      "nonTrigger": "Do not load or execute examples unless they resolve a task-relevant question.",
+      "canonicalOwner": "popups",
+      "capabilities": [
+        "current-tools"
+      ],
+      "migration": "compatible-id-and-path-retained",
+      "evidenceScope": "Source/unit/native claims are scoped individually; no blanket native verification."
+    },
+    "palette": {
+      "kind": "procedure",
+      "audience": "agent",
+      "trigger": "Find and place TouchDesigner Palette components (.tox library) instead of rebuilding them. Use before hand-building a particle system, audio analyser, widget set, or any network a stock component already covers.",
+      "nonTrigger": "Do not load or execute examples unless they resolve a task-relevant question.",
+      "canonicalOwner": "palette",
+      "capabilities": [
+        "current-tools"
+      ],
+      "migration": "compatible-id-and-path-retained",
+      "evidenceScope": "Source/unit/native claims are scoped individually; no blanket native verification."
+    },
+    "palette-scan": {
+      "kind": "procedure",
+      "audience": "agent",
+      "trigger": "Maintain an explicitly requested Palette slice with isolated probes, authored cards and completion accounting. A missing summary during ordinary component selection does not trigger whole-library curation.",
+      "nonTrigger": "Missing summary during find/place does not authorize library maintenance.",
+      "canonicalOwner": "palette-scan",
+      "capabilities": [
+        "current-tools"
+      ],
+      "migration": "compatible-id-and-path-retained",
+      "evidenceScope": "Source/unit/native claims are scoped individually; no blanket native verification."
+    },
+    "observe-change": {
+      "kind": "procedure",
+      "audience": "agent",
+      "trigger": "Read known values or apply bounded graph changes with focused verification. Discover names only when unknown; no automatic design or packaging ceremony.",
+      "nonTrigger": "Do not load or execute examples unless they resolve a task-relevant question.",
+      "canonicalOwner": "observe-change",
+      "capabilities": [
+        "current-tools"
+      ],
+      "migration": "new",
+      "evidenceScope": "Source/unit/native claims are scoped individually; no blanket native verification."
+    },
+    "recover": {
+      "kind": "procedure",
+      "audience": "agent",
+      "trigger": "Classify failed, partial or uncertain requests and choose one evidence-backed repair. Expected negative tests are not automatically repaired.",
+      "nonTrigger": "Do not load or execute examples unless they resolve a task-relevant question.",
+      "canonicalOwner": "recover",
+      "capabilities": [
+        "current-tools"
+      ],
+      "migration": "new",
+      "evidenceScope": "Source/unit/native claims are scoped individually; no blanket native verification."
+    },
+    "lifecycle-files": {
+      "kind": "procedure",
+      "audience": "agent",
+      "trigger": "Choose existing/new processes and live-save/offline-file procedures with scoped ownership. Do not create blank substitutes for missing existing work.",
+      "nonTrigger": "Do not load or execute examples unless they resolve a task-relevant question.",
+      "canonicalOwner": "lifecycle-files",
+      "capabilities": [
+        "current-tools"
+      ],
+      "migration": "new",
+      "evidenceScope": "Source/unit/native claims are scoped individually; no blanket native verification."
+    },
+    "visual-timing": {
+      "kind": "procedure",
+      "audience": "agent",
+      "trigger": "Iterate early on viewed output; distinguish stills, motion and live FPS. Not every scalar edit needs reset, capture or performance measurement.",
+      "nonTrigger": "Not a requirement to measure every evidence dimension for every task.",
+      "canonicalOwner": "visual-timing",
+      "capabilities": [
+        "current-tools"
+      ],
+      "migration": "new",
+      "evidenceScope": "Source/unit/native claims are scoped individually; no blanket native verification."
+    },
+    "component-authoring": {
+      "kind": "procedure",
+      "audience": "agent",
+      "trigger": "Build reusable interfaces, scoped topology and durable component artifacts. Release conventions do not apply automatically to scratch probes or repairs.",
+      "nonTrigger": "Not every node edit is reusable-component authoring.",
+      "canonicalOwner": "component-authoring",
+      "capabilities": [
+        "current-tools"
+      ],
+      "migration": "new",
+      "evidenceScope": "Source/unit/native claims are scoped individually; no blanket native verification."
+    },
+    "palette-curation": {
+      "kind": "procedure",
+      "audience": "agent",
+      "trigger": "Track an authorized curation worklist through probe, describe and readback. Ordinary find/place tasks do not trigger this maintenance procedure.",
+      "nonTrigger": "Not ordinary component selection or an unasked whole-library refresh.",
+      "canonicalOwner": "palette-curation",
+      "capabilities": [
+        "current-tools"
+      ],
+      "migration": "new",
+      "evidenceScope": "Source/unit/native claims are scoped individually; no blanket native verification."
+    },
+    "verify-handoff": {
+      "kind": "procedure",
+      "audience": "agent",
+      "trigger": "Separate applied, observed, saved and reload-tested claims at delivery or continuation. Missing evidence is unverified, not automatically failed.",
+      "nonTrigger": "Do not load or execute examples unless they resolve a task-relevant question.",
+      "canonicalOwner": "verify-handoff",
+      "capabilities": [
+        "current-tools"
+      ],
+      "migration": "new",
+      "evidenceScope": "Source/unit/native claims are scoped individually; no blanket native verification."
+    },
+    "python-reference": {
+      "kind": "reference",
+      "audience": "agent",
+      "trigger": "Look up detailed TD members, contexts, wiring and family examples when needed. Use python-api for the short execution contract, not this entire reference.",
+      "nonTrigger": "Do not load or execute examples unless they resolve a task-relevant question.",
+      "canonicalOwner": "python-reference",
+      "capabilities": [
+        "current-tools"
+      ],
+      "migration": "new",
+      "evidenceScope": "Source/unit/native claims are scoped individually; no blanket native verification."
+    },
+    "parameter-reference": {
+      "kind": "reference",
+      "audience": "agent",
+      "trigger": "Look up Par metadata, modes and COMP interface fragments. Preserve existing bindings and values; reference examples do not authorize destructive migration.",
+      "nonTrigger": "Do not load or execute examples unless they resolve a task-relevant question.",
+      "canonicalOwner": "parameter-reference",
+      "capabilities": [
+        "current-tools"
+      ],
+      "migration": "new",
+      "evidenceScope": "Source/unit/native claims are scoped individually; no blanket native verification."
+    },
+    "reference-index": {
+      "kind": "reference",
+      "audience": "agent",
+      "trigger": "Find specialist references for an unresolved TD question. This index and its links are optional navigation, never a recursive reading checklist.",
+      "nonTrigger": "Do not load or execute examples unless they resolve a task-relevant question.",
+      "canonicalOwner": "reference-index",
+      "capabilities": [
+        "current-tools"
+      ],
+      "migration": "new",
+      "evidenceScope": "Source/unit/native claims are scoped individually; no blanket native verification."
+    }
+  },
+  "sizePolicy": {
+    "entrySoftChars": 4000,
+    "procedureSoftChars": 5000,
+    "exceptions": {
+      "python-api": "Retains legacy heading anchors forwarding to split references; compatibility overhead measured separately."
+    }
+  }
+}

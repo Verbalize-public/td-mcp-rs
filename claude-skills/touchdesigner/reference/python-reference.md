@@ -1,0 +1,372 @@
+# TD Python technical reference
+
+Reference fragments use the execution context named in each section; they are
+not one runnable script. TD 2025.32460 embeds Python 3.11; other builds may differ.
+
+For **exact** live class/member names on a connected TD pid, prefer `api_help`
+over guessing from this reference. MCP namespace rules are source-confirmed and
+fake-operator tested. Native observations are scoped to the facts/builds noted
+below; this is not a blanket verification of every API example.
+
+## Scope: TD scripts vs `execute_python`
+
+| Context | What's in scope |
+|---------|-----------------|
+| Textport, DAT scripts, expressions, extensions | Full auto-globals: `me`, `op`, `root`, `parent`, `ui`, `project`, `absTime`, `tdu`, `run`, … **and** bare type objects (`noiseTOP`, `waveCHOP`, …) |
+| td-mcp-rs `execute_python` | **Core:** `td`, `op` (`td.op`), `result` (assign to return), `tdmcp_resolve`, `__tdmcp_context_path__`. **Aliases** (bound if present on `td`): `root`, `ui`, `project`, `absTime`, `tdu`, `run`, `ops`, `opex`, `passive`, `mod`. **Not** injected: `me`, `parent`, bare opTypes, `debug` |
+
+```python
+# Textport / DAT — bare types + me/parent OK
+n = parent().create(noiseTOP, 'noise1')
+
+# execute_python — aliases OK; opTypes via td or string
+n = op('/project1/fx').create(td.noiseTOP, 'noise1')
+n = op('/project1/fx').create('noiseTOP', 'noise1')
+assert root.path == '/'
+ui = ui  # bare alias; td.ui always safe
+```
+
+`create(opType, name, initialize=True)` — `opType` is a type object (`td.noiseTOP` /
+`noiseTOP` in Textport) **or** the string `'noiseTOP'`. From an existing node:
+`type(n)` / `n.OPType`.
+
+## Global shortcuts
+
+| Symbol | Purpose | `execute_python` |
+|--------|---------|------------------|
+| `me` | Current OP executing this code | **No** (no script-owner) |
+| `parent(n?)` | nth parent (1=direct); `parent.shortcut` for named | **No** bare (use `n.parent()` on a node) |
+| `root` | Top-level `/` component | Yes (alias) |
+| `op('path')` | First matching OP from `/`; returns `None` on miss | Yes |
+| `op(*pats)` | Multiple patterns, space/comma-separated | Yes |
+| `opex('path')` | Like `op()` but raises on miss (prefer in par expressions) | Yes (alias; miss → `tdError`) |
+| `ops(*pats)` | All matching OPs as list | Yes (alias) |
+| `passive(op)` | Non-cooking OP wrapper for read-only queries | Yes (alias) |
+| `run(code, delayFrames=0, delayMilliSeconds=0)` | Delayed execution → `Run` | Yes (alias) |
+| `debug(*args)` | Print + source location to textport | **No** (use `print`; MCP tees stdio → Debug DAT / `logs`) |
+| `absTime.frame`, `absTime.seconds` | Process-lifetime time | Yes (alias) |
+| `project.cookRate`, `project.name` | Session FPS / name | Yes (alias) |
+| `ui.panes`, `ui.undo`, … | Editor UI (prefer `editor_context` for panes) | Yes (alias) |
+| `tdu.rand(seed)`, `tdu.split(s)`, `tdu.Color/Vec/Mat` | Utilities | Yes (alias) |
+| `mod`, `iop`, `ipar` | Module-on-demand, internal shortcuts | `mod` yes; `iop`/`ipar` are COMP-local (not MCP globals) |
+
+`td.*` always works for anything on the TD module (including opTypes).
+
+**Do not conflate path contexts.** Structured tool paths use `contextPath`
+(default `/project1`). In `execute_python`, global `op` is `td.op`; use absolute
+paths or the one-argument `tdmcp_resolve(path)` helper, already bound to the call
+context. Parameter expressions have an owner: inspect `me` and `parent()` first.
+On TD 2025.32460, an expression on a POP resolved `op('..')` to its parent,
+while a Render TOP camera parameter string `cam` found a sibling camera and
+`../cam` did not. OP-path parameter strings are not Python expressions.
+For a COMP parameter reading an internal node, prefer explicit `me.op('child')`.
+Test references after moving/reopening a reusable COMP; do not force all internal
+references to absolute paths. See [`network-design`](./network-design.md).
+
+**No stdlib is auto-imported in `execute_python`.** Modules like `math`, `re`,
+`sys`, `collections`, `enum`, `inspect` are **not** injected — use them with an
+explicit `import` inside the script (`import math`, then `math.sqrt(...)`); a
+bare `math.sqrt(...)` without an import raises `NameError`. Some TD aliases
+(`op`, `root`, `ui`, …) are shared with MCP execution; `me`, bare `parent` and
+bare opTypes are not. Use the context table above rather than transferring the
+entire Textport/DAT/expression namespace to MCP.
+
+## Type objects — starter catalog
+
+These are **classes on `td`** (and bare names in full TD scope). Use them with
+`COMP.create(...)` / `changeType(...)`. Names are case-sensitive; discover more via
+`api_help` `{kind:"classes", family:"TOP", prefix:"noise"}`.
+
+### Family bases (filters / isinstance)
+
+`OP` · `TOP` · `CHOP` · `DAT` · `COMP` · `SOP` · `POP` · `MAT` · `Par` · `ParGroup` · `Channel` · `Cell`
+
+```python
+n.findChildren(type=td.TOP, name='*', depth=1)
+isinstance(n, td.CHOP)          # True for any CHOP subclass
+n.asType(td.noiseTOP)           # IDE / type hint helper
+```
+
+### Common opTypes by family
+
+| Family | Starter types (pass to `create` / `changeType`) |
+|--------|--------------------------------------------------|
+| **TOP** | `noiseTOP`, `nullTOP`, `constantTOP`, `rampTOP`, `levelTOP`, `blurTOP`, `transformTOP`, `compositeTOP`, `selectTOP`, `moviefileinTOP`, `feedbackTOP`, `cacheTOP`, `lookupTOP`, `displaceTOP`, `thresholdTOP`, `edgeTOP`, `resolutionTOP`, `glslTOP`, `glslmultiTOP`, `hsvadjustTOP`, `inTOP`, `outTOP` |
+| **CHOP** | `waveCHOP`, `lfoCHOP`, `noiseCHOP`, `nullCHOP`, `constantCHOP`, `mathCHOP`, `mergeCHOP`, `selectCHOP`, `infoCHOP`, `audiofileinCHOP`, `inCHOP`, `outCHOP` |
+| **DAT** | `textDAT`, `tableDAT`, `nullDAT`, `selectDAT`, `scriptDAT`, `executeDAT`, `inDAT`, `outDAT` |
+| **COMP** | `baseCOMP`, `containerCOMP`, `geometryCOMP`, `cameraCOMP`, `lightCOMP` |
+| **POP** | `spherePOP`, `noisePOP`, `transformPOP`, `nullPOP`, `glslPOP`, `inPOP`, `outPOP` |
+| **SOP** | `boxSOP`, `nullSOP`, `inSOP`, `outSOP` |
+| **MAT** | `phongMAT`, `pbrMAT`, `glslMAT`, `inMAT`, `outMAT` |
+
+```python
+# Pattern — create + wire + set (requires an authorized target)
+fx = op('/project1').create(td.baseCOMP, 'fx')
+noise = fx.create(td.noiseTOP, 'noise1')
+blur  = fx.create(td.blurTOP, 'blur1')
+out   = fx.create(td.outTOP, 'out1')
+blur.setInputs([noise])
+out.setInputs([blur])
+blur.par.size = 12
+size = blur.par.size.eval()   # always prefer .eval() when reading
+```
+
+Exact spelling traps (live-verified): `hsvadjustTOP` (not `hsvAdjustTOP`),
+`geometryCOMP` (not `geoCOMP`). On `tdmcp.op.unknown_type`, retry `api_help` with the
+suggested name or `{kind:"classes", prefix:"…"}`.
+
+## Wiring (inputs / Connectors)
+
+`inspect` surfaces positional wires on each node when `nodes` is included
+(`inputs` / `outputs` peer lists — `{path, name, opType}` or `null` per slot).
+Prefer that for network understanding. Use Python `n.inputs` / `n.outputs` (or
+`mutate_nodes` connect/disconnect) only as a last resort or for one-off writes:
+
+```python
+# Reliable — OP lists (elements are OPs with .path)
+blur.inputs          # -> [noiseTOP, ...]
+noise.outputs        # -> [blurTOP, ...]
+blur.setInputs([noise])
+blur.setInputs([None])   # disconnect slot 0
+
+# Connector API — NO .op attribute (AttributeError)
+ic = blur.inputConnectors[0]
+ic.owner.path              # this OP
+# ic.inOP / ic.outOP are often None — do not rely on them for "who is wired"
+# Peer via connections:
+peer = ic.connections[0].owner if ic.connections else None
+```
+
+## OP — every node inherits this
+
+```python
+n = op('node')
+
+# Identity
+n.name, n.path, n.id, n.base, n.digits, n.valid
+
+# Type
+n.type        # 'noise'
+n.family      # 'TOP'
+n.opType      # 'noiseTOP' (for create())
+n.OPType      # same string; also type(n) → class object
+n.isCHOP, n.isCOMP, n.isDAT, n.isTOP, n.isSOP, n.isMAT, n.isPOP
+n.isFilter, n.minInputs, n.maxInputs
+
+# Hierarchy — parent is a ParentShortcut; CALL it
+n.parent()            # parent(1) OP
+n.parent(1).path
+# n.parent.path  → tdAttributeError (ParentShortcut has no .path)
+n.children            # list[OP]
+n.numChildren
+n.inputs, n.outputs   # wired neighbor OPs (not Connectors)
+n.dock, n.docked
+
+# Parameters
+n.par.tx           # dot access
+n.par['tx']        # subscript access
+n.parGroup.t       # vector group (x,y,z)
+n.customPars, n.customPages, n.pages
+
+# Flags (bool, R/W)
+n.bypass, n.display, n.render, n.lock, n.viewer
+n.activeViewer, n.allowCooking, n.current, n.selected
+n.cloneImmune, n.python
+
+# Layout
+n.nodeX, n.nodeY, n.nodeWidth, n.nodeHeight
+n.nodeCenterX, n.nodeCenterY
+n.color           # (r, g, b) tuple
+n.comment         # R/W str, every family, '' by default — prefer mutate_nodes `comment`
+
+# Cook
+n.cpuCookTime, n.gpuCookTime, n.totalCooks
+n.cookedThisFrame
+n.cpuMemory, n.gpuMemory
+
+# Key methods
+n.create(td.waveCHOP, 'name')     # COMP-only: create child
+n.copy(src_op, name='new')        # COMP-only: copy into this
+n.destroy()
+n.cook(force=False, recurse=False)
+n = n.changeType(td.nullCHOP)     # Returns NEW OP — reassign!
+n.setInputs([op1, op2, None])     # None disconnects slot
+n.copyParameters(other)
+n.findChildren(type=td.CHOP, name='*', depth=1, tags=[], parName='clone')
+n.evalExpression('me.digits')     # Eval code in this OP's context
+n.addError('msg') / n.addWarning('msg')  # Only during cook
+n.errors(recurse=False) / n.clearScriptErrors(recurse=True)
+n.openViewer() / n.closeViewer()
+n.asType(td.baseCOMP)             # IDE type hint
+
+# Storage
+n.store('key', val)
+n.fetch('key', default=0)
+n.unstore('key*')
+n.fetchOwner('key')
+n.tags = {'tag1', 'tag2'}
+```
+
+## Par — parameter access
+
+See [`parameter-reference`](./parameter-reference.md) for this retained technical section.
+
+## TOP
+
+The two `sample` calls below were native-observed on TD 2025.32460 under
+Wine/Linux with a uniform 256×256 Constant TOP; both returned its RGBA value.
+Positional sampling was rejected on that build. This does not validate coordinate
+orientation, interpolation or every TOP method below. The native method docs warn
+that `sample` can stall the graphics pipeline and download the **entire texture**,
+not just one pixel; use it for debugging/non-realtime workflows.
+
+```python
+t = op('noise1')          # any TOP
+t.width, t.height
+t.aspectWidth, t.aspectHeight, t.aspect, t.depth
+t.pixelFormat, t.pixelFormatName
+t.sample(x=0, y=0)        # pixel coordinates: keyword arguments
+t.sample(u=0.5, v=0.5)    # normalized UV coordinates: keyword arguments
+t.numpyArray()            # image as numpy
+t.save('file.png')
+t.cudaMemory              # CUDA interop when available
+```
+
+## CHOP
+
+```python
+c = n['chan1']          # Exact name
+c = n[3]                # Index
+c = n.chan('chan*')     # Pattern → first or None
+n.chans('a*', 'b*')     # List of channels
+n.numChans, n.numSamples
+n.numpyArray()          # Shape (numChans, numSamples)
+c.eval(), c.eval(index)
+c.name, c.index
+n.save('file.clip')     # .clip/.chan/.aiff
+n.export, n.rate
+```
+
+## DAT — table & text
+
+Prefer `inspect` with `include: ["content"]` to read DAT bodies (text + table
+TSV via `.text`) and GLSL shader stages. Each text preview is capped at 64 KiB;
+`textTruncation` and `totalBytes` identify larger bodies. Read further slices with
+`execute_python`: `result = op(path).text[start:end]` (character offsets).
+Use the Python surface below when mutating or when `execute_python` is otherwise
+required.
+
+```python
+# Content
+n.text                  # Tab-delimited (R/W)
+n.csv                   # CSV (multi-line cells)
+n.jsonObject            # Parse as dict
+n.numRows, n.numCols
+n.isText, n.isTable     # Discriminate text vs table presentation
+
+# Cells
+n[2, 3]                 # Index
+n['row', 'col']         # Label (e.g. n['x','val'].val)
+n.cell(2, 'col')        # Pattern matching
+n.row('name', val=True) # → list of cells / values
+n.col('name', val=True)
+n.rows('A*')            # Pattern
+n.findCell('pattern', cols=['name'])
+
+# Mutate
+n.appendRow([v1, v2])
+n.appendCol([v1, v2])
+n.insertRow([vals], nameOrIndex=0)
+n.replaceRow('name', [vals])
+n.deleteRow('name'), n.deleteCol('name')
+n.setSize(rows, cols)
+n.clear(keepSize=False)
+n.copy(other_dat)
+
+# Execute
+n.run(*args, delayFrames=0)
+n.module                # Import as Python module
+print('...', file=n)    # Redirect stdout
+n.write('text')         # Append
+```
+
+## POP / SOP (geometry)
+
+```python
+# POP — modern GPU geometry
+p.numPoints(delayed=False)  # Method, not a property (verified 2025.32460)
+# max=True requests allocated capacity, not actual point count.
+# delayed=True returns a delayed GPU read; do not use it as immediate evidence.
+p.bounds, p.computeBounds()
+p.pointAttributes, p.primAttributes, p.vertAttributes
+p.save('file.*')
+
+# SOP — legacy CPU geometry
+s.numPoints, s.numPrims
+s.center, s.bounds, s.computeBounds()
+```
+
+## COMP
+
+```python
+n.create(td.waveCHOP, 'name')
+n.copy(src_op, name='new')
+n.copyOPs([op1, op2])        # Preserves wires
+n.loadTox('file.tox')
+n.save('file.tox')
+n.findChildren(type=td.CHOP, name='*', depth=1, tags=[], parName='clone')
+
+# Variables
+n.setVar('MEDIA', 'C:/path')
+n.vars('A*')
+
+# Layout
+n.layout(horizontal=True)
+n.layout(gridRows=10)
+
+# Extensions / VFS
+n.extensions
+n.vfs
+```
+
+## Custom parameters (COMP-only)
+
+See [`parameter-reference`](./parameter-reference.md) for this retained technical section.
+
+## Pattern matching
+
+`*` (any), `?` (one char), `[abc]` (one of), `[!abc]` (not). Multiple patterns space/comma-separated.
+
+## Gotchas
+
+1. **`.eval()` always** — `par.tx.eval()`, not `par.tx.val` unless you know it's constant
+2. **`.changeType()` returns new OP** — always reassign: `n = n.changeType(td.nullCHOP)`
+3. **`Par` identity** — prefer `.isSamePar()`; do not use `is` (`p1 is p2` is False for the same par)
+4. **Threads can't touch TD objects or UI**, including native Textport streams.
+   `execute_python` runs on TD's main thread. Schedule `run()` callbacks there
+   before yielding; do not call `td.run`, `op`, `ui`, or parameter methods from
+   a worker. Workers do plain Python/I/O and exchange plain data with a
+   main-thread callback. The bridge defers worker prints, but that does not
+   make other TD API calls thread-safe.
+5. **OP `id` is session-only** — not persistent across save/load
+6. **`print` in `execute_python`** — teed to Debug DAT / returned `logs`; bare `debug()` is not injected
+7. **`opex()` in expressions** — raises clear error instead of `NoneType has no attribute 'par'`
+8. **`passive(op)` for read-only** — skips cook, safe for info queries
+9. **`execute_python` namespace** — core + closed aliases (see Scope), not a security sandbox. Bare `noiseTOP` / `me` / `parent` / `debug` → `NameError`. Use `td.noiseTOP` or string form; use `n.parent()` on a node
+10. **`n.parent` is a ParentShortcut** — call `n.parent()` / `n.parent(1)`; `n.parent.path` fails
+11. **Wiring** — use `n.inputs` / `n.outputs` (OPs). Connector has **no** `.op`; `inOP`/`outOP` often `None`; peer via `connector.connections[i].owner`
+12. **opType spelling** — camelCase guesses often fail (`hsvadjustTOP`, `geometryCOMP`); confirm with `api_help`
+
+## Related
+
+| Topic | Where |
+|-------|----------------|
+| Full opType index / member cards | Live `api_help` (`class` / `classes`+filters) |
+| Extensions, Execute DAT callbacks | [`primer/scripting-surfaces`](../primer/scripting-surfaces.md) |
+| Parameter mode decisions | [`primer/parameters-and-channels`](../primer/parameters-and-channels.md) |
+| OpSketch create/wire recipes | [`opsketch-examples`](./opsketch-examples.md) |
+
+
+---
+
+**Canonical:** [`python-reference`](./python-reference.md)

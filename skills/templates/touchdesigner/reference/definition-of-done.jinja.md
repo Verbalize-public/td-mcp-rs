@@ -1,7 +1,10 @@
 # Definition of Done (structural)
 
-Verify the requested behavior at the surface it affects. Use
-{{ skill("look-grade") }} for visual and performance claims.
+Choose claim-specific evidence through {{ skill("verify-handoff") }}; the
+sections below retain the structural/coverage reference. Apply only checks
+relevant to the requested outcome. Use {{ skill("visual-timing") }} and
+{{ skill("look-grade") }} for appearance, motion and live-performance claims.
+A read-only explanation does not require mutation or saving.
 
 ## Evidence
 

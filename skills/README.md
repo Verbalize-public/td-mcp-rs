@@ -44,6 +44,29 @@ Each card uses a matching H1, a short orientation, its instructions,
 These render to MCP resource instructions or relative Markdown links.
 Do not hardcode either form in a template.
 
+## Authoring registry and examples
+
+`GUIDANCE.json` records the audience, trigger/non-trigger, canonical owner,
+capability scope and migration disposition of every public ID. Its `ruleOwners`
+map gives each behavioral rule one owner. This is validated authoring metadata,
+not runtime permission enforcement or an intent executor. Keep manifest retrieval
+descriptions and registry triggers identical.
+
+`EXAMPLES.json` classifies every fenced template block, including explanatory
+fragments and requests that need a `pid`/`steps` wrapper. Reviewed source hashes
+make unclassified edits fail. Complete requests are checked against full derived
+JSON Schema and the real Rust Serde decoders. Python fragments receive syntax
+checks, not invented namespace or native acceptance. Intentional negative requests
+must remain rejected. Native scripts list their exact context and evidence limits.
+After an example changes, review its classification/context/outcome and update its
+hash and arguments together; do not update fixtures just to hide a failing contract.
+
+Install test dependencies from `scripts/requirements-test.txt`, then run
+`python scripts/check_guidance.py`. This validator never executes project code
+or fetches external schemas. Bridge semantic tests and scoped native observations
+remain separate. Old resource IDs and important Python section anchors are kept;
+detailed members live in `python-reference` and `parameter-reference`.
+
 ## Validate and render
 
 Test the changed instructions against a representative task. Live behavior

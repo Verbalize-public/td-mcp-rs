@@ -43,11 +43,11 @@ opsketch-examples:
 python-api:
   template_path: touchdesigner/reference/python-api.jinja.md
   output_path: touchdesigner/reference/python-api.md
-  title: TD Python API
+  title: Python execution contract
   description: >-
-    Execution namespace and TD Python reference for custom scripts. Read the
-    execution contract before first use; deepen for uncertain APIs. Not a Python
-    sandbox; expressions and callbacks have different owner contexts.
+    Choose and run custom Python with explicit imports, scope and effect checks.
+    Read before first MCP Python use; follow technical references only for
+    unresolved APIs. Not a sandbox or an obligatory full manual for scalar edits.
 
 custom-parameters:
   template_path: touchdesigner/reference/custom-parameters.jinja.md
@@ -278,7 +278,86 @@ palette-scan:
   output_path: touchdesigner/reference/palette-scan.md
   title: Palette scan and describe
   description: >-
-    Build the palette knowledge base: scan the roster, probe components in a
-    throwaway TD, write their cards, and blacklist the ones that wedge. Use
-    when a component has no summary, or when adding your own .tox to the
-    palette.
+    Maintain an explicitly requested Palette slice with isolated probes,
+    authored cards and completion accounting. A missing summary during ordinary
+    component selection does not trigger whole-library curation.
+
+observe-change:
+  template_path: touchdesigner/reference/observe-change.jinja.md
+  output_path: touchdesigner/reference/observe-change.md
+  title: Observe or change
+  description: >-
+    Read known values or apply bounded graph changes with focused verification.
+    Discover names only when unknown; no automatic design or packaging ceremony.
+
+recover:
+  template_path: touchdesigner/reference/recover.jinja.md
+  output_path: touchdesigner/reference/recover.md
+  title: Recover without replaying
+  description: >-
+    Classify failed, partial or uncertain requests and choose one evidence-backed
+    repair. Expected negative tests are not automatically repaired.
+
+lifecycle-files:
+  template_path: touchdesigner/reference/lifecycle-files.jinja.md
+  output_path: touchdesigner/reference/lifecycle-files.md
+  title: Lifecycle and files
+  description: >-
+    Choose existing/new processes and live-save/offline-file procedures with
+    scoped ownership. Do not create blank substitutes for missing existing work.
+
+visual-timing:
+  template_path: touchdesigner/reference/visual-timing.jinja.md
+  output_path: touchdesigner/reference/visual-timing.md
+  title: Visual temporal and performance evidence
+  description: >-
+    Iterate early on viewed output; distinguish stills, motion and live FPS.
+    Not every scalar edit needs reset, capture or performance measurement.
+
+component-authoring:
+  template_path: touchdesigner/reference/component-authoring.jinja.md
+  output_path: touchdesigner/reference/component-authoring.md
+  title: Author or ship a component
+  description: >-
+    Build reusable interfaces, scoped topology and durable component artifacts.
+    Release conventions do not apply automatically to scratch probes or repairs.
+
+palette-curation:
+  template_path: touchdesigner/reference/palette-curation.jinja.md
+  output_path: touchdesigner/reference/palette-curation.md
+  title: Curate a bounded Palette selection
+  description: >-
+    Track an authorized curation worklist through probe, describe and readback.
+    Ordinary find/place tasks do not trigger this maintenance procedure.
+
+verify-handoff:
+  template_path: touchdesigner/reference/verify-handoff.jinja.md
+  output_path: touchdesigner/reference/verify-handoff.md
+  title: Verify claims and hand back work
+  description: >-
+    Separate applied, observed, saved and reload-tested claims at delivery or
+    continuation. Missing evidence is unverified, not automatically failed.
+
+python-reference:
+  template_path: touchdesigner/reference/python-reference.jinja.md
+  output_path: touchdesigner/reference/python-reference.md
+  title: TD Python technical reference
+  description: >-
+    Look up detailed TD members, contexts, wiring and family examples when needed.
+    Use python-api for the short execution contract, not this entire reference.
+
+parameter-reference:
+  template_path: touchdesigner/reference/parameter-reference.jinja.md
+  output_path: touchdesigner/reference/parameter-reference.md
+  title: Parameter technical reference
+  description: >-
+    Look up Par metadata, modes and COMP interface fragments. Preserve existing
+    bindings and values; reference examples do not authorize destructive migration.
+
+reference-index:
+  template_path: touchdesigner/reference/reference-index.jinja.md
+  output_path: touchdesigner/reference/reference-index.md
+  title: Technical reference index
+  description: >-
+    Find specialist references for an unresolved TD question. This index and its
+    links are optional navigation, never a recursive reading checklist.

@@ -3,7 +3,12 @@
 Sources: [First Things to Know](https://docs.derivative.ca/First_Things_to_Know_about_TouchDesigner),
 [OP Class](https://docs.derivative.ca/OP_Class), [TDFunctions](https://docs.derivative.ca/TDFunctions),
 and {{ skill("primer/editor-and-layout") }} for layout hygiene.
-These are the conventions agents building networks apply by default.
+Use when authoring or reorganizing a scoped network, after the task procedure
+in {{ skill("component-authoring") }}. These are design defaults, not authority
+to change an existing user's conventions. Scalar repairs and read-only audits
+do not require relayout, wrappers, metadata pages or unrelated cleanup. Apply
+only the sections that serve the requested artifact; verify affected topology
+and claims, and use {{ skill("recover") }} for partial/uncertain writes.
 
 ## Structure
 

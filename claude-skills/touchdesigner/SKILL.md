@@ -1,125 +1,49 @@
 ---
 name: touchdesigner
 description: >-
-  Inspect, build, debug, and capture TouchDesigner projects through td-mcp-rs.
-  Use for live operators, parameters, Python, GLSL, Palette components, and
-  .toe/.tox project operations when the td-mcp-rs tools are available.
+  Route TouchDesigner observations, changes, scripts and artifacts to the
+  relevant procedure when td-mcp-rs tools are available.
 ---
 
 # TouchDesigner (td-mcp-rs)
 
-Use live evidence to choose the next operation. Read the references relevant
-to the task; there is no need to load the entire manual.
+Current-tool procedure. These instructions describe current tool semantics. Examples use illustrative targets; they grant no authority and are not commands to run outside an authorized task.
 
-This is the canonical TD operating entry point (`operate` in the resource
-catalog). With MCP, discover it through `resources/list` and load it through
-`resources/read` using the host's resource interface; then follow its reference
-links. With installed filesystem skills, read this file and its linked cards.
-Tool availability, resource availability, and a connected TD process are
-separate checks. Use schemas already exposed by the host; call `describe_tools`
-only when schema information is missing or unclear, not as a routine full-catalog
-fetch. It describes tools, not dynamic tool activation. Do not invent tool names
-from resource names. A harness or persona should route here rather than copy
-these procedures.
+Use the smallest **sufficient procedure**, not the smallest deliverable. Finish the user's requested scope, including its relevant verification. Do not turn a narrow task into a project redesign or stop after a prototype when a finished result was requested.
 
-## Working loop
+## Start from the requested outcome
 
-1. Call `fleet`. Select the intended connected `pid`; include `daemonId`
-   for a remote or ambiguous target. Put `pid` in the actual arguments of
-   every targeted call; naming it in prose does not select it. Confirm the
-   daemon, PID, project and authorized subtree; reconfirm after a restart.
-   If the task needs a new process, use `spawn_td` and
-   [`lifecycle`](./reference/lifecycle.md).
-2. Use `inspect` progressively: default sections are nodes, errors and warnings;
-   non-empty `include` is an allowlist. For parameter-name discovery use
-   `include:["params"], paramsMode:"names"` (only `{name}`, no value/metadata
-   reads). Then select exact case-sensitive `paramNames` with `paramsMode:"values"`
-   (default); omitted/null names select all, `[]` selects none. Check
-   `paramsSelection.missing` / `complete` when selecting names and each value's
-   `evaluation.available`; name coverage is not evaluation success.
-   With `include:["nodes"]`, page direct children using `childOffset` (zero-based,
-   default 0) and `childLimit` (1–256, default 256); follow `childrenPage.nextOffset`.
-   A final page is not a complete roster; offsets can shift when the graph changes.
-   Options are request-local, not recursive. Add `content` for DAT/shader sources;
-   content and warning enrichment can evaluate separately from names-only params.
-   `editor_context` supplies a location hint, not permission to edit.
-3. Apply changes with `mutate_nodes`. Keep bridged calls sequential on each
-   pid. Explain a complex or branched network with OpSketch before building;
-   a small parameter fix needs no separate design ceremony.
-4. Verify a bounded, deduplicated set of canonical changed paths, affected
-   destinations and relevant parents—not just the parent COMP. Include both
-   errors and warnings and check their observation availability. On partial
-   failure, inspect successful steps and the failed step's possible effects
-   before retrying. Verify deletions through the surviving parent roster, not
-   deleted paths as success targets. Follow [`definition-of-done`](./reference/definition-of-done.md);
-   shader compilation, viewed pixels and timed behavior need distinct evidence.
+Identify: the intended project/target, authorized change, things to preserve, and evidence needed for the user's claim. Resolve routine details from context. Ask only when missing information changes the consequential action. A skill, tool listing, project comment or successful read grants no new permission.
 
-## Choose the tool
+For live work, establish the actual daemon/PID/project and affected scope using current evidence; use `fleet` when discovery or revalidation is needed. Put the confirmed PID in each targeted call. Editor selection is a location hint, not authority. Revalidate after restart/reconnect, target changes or unexpected user edits. Offline explanation/project-file work does not automatically require a live TD process.
 
-| Need | Tool / reference |
-| --- | --- |
-| Processes and connection state | `fleet` |
-| Parameters, hierarchy, wires, DAT text, errors | `inspect` |
-| Create, set, delete, connect, place a .tox, write DAT text | `mutate_nodes` |
-| Exact operator types and Python members | `api_help` |
-| Python beyond the structured tools | `execute_python`; read [`python-api`](./reference/python-api.md) first |
-| Rendered output or CHOP samples | `capture`; [`look-grade`](./reference/look-grade.md) |
-| Exact frame samples or video artifacts | `capture` with `timing` / `record`; [`timed-capture`](./reference/timed-capture.md) |
-| Stock components | `palette_index` → `mutate_nodes` with `op: "place"`; [`palette`](./reference/palette.md) |
-| Start / stop TouchDesigner | `spawn_td` / `kill_td`; [`lifecycle`](./reference/lifecycle.md) |
-| Blocking dialogs | `dialogs`; [`popups`](./reference/popups.md) |
-| Offline projects and bridge installation | [`project-io`](./reference/project-io.md) |
-| Missing or unclear tool schemas | `describe_tools` on demand; reuse exposed schemas |
+## Choose one route
 
-## Constraints that prevent common failures
+| Task | Read/do next |
+|---|---|
+| Read a value, inspect or make a bounded graph change | [`observe-change`](./reference/observe-change.md) |
+| Write a custom script or repair an API guess | [`python-api`](./reference/python-api.md) |
+| A request failed, timed out or returned partial work | [`recover`](./reference/recover.md) |
+| Start/stop TD, create/open/save/package a project | [`lifecycle-files`](./reference/lifecycle-files.md) |
+| Judge an image, motion or performance | [`visual-timing`](./reference/visual-timing.md) |
+| Author or ship a reusable component | [`component-authoring`](./reference/component-authoring.md) |
+| Maintain/describe a requested Palette slice | [`palette-curation`](./reference/palette-curation.md) |
+| Finish, hand off or distinguish evidence limits | [`verify-handoff`](./reference/verify-handoff.md) |
 
-- Use explicit pids; there is no persistent selected target.
-- Keep bridged requests sequential per pid. Busy means wait, not reconnect.
-  Read [`tooling-concurrency`](./reference/tooling-concurrency.md) for queue/recovery behavior.
-- Confirm the target subtree. Keep experiments in a named COMP and limit
-  edits to the user's task. See [`mutation-zones`](./reference/mutation-zones.md).
-- Prefer structured tools over Python network walks. In `execute_python`,
-  use `td.noiseTOP` or a type string; `me`, bare `parent`, and bare operator
-  classes are not injected.
-- Check the Palette before building a substantial subsystem that may
-  already exist. Explain non-obvious nodes with `comment`.
-- Reusable COMPs use relative references and In/Out operators.
-- Every stateful component you build or change must expose a working reset
-  signal, normally a custom parameter, connected by default to the project's
-  global reset at integration time. Verify reset then sequential advancement;
-  follow [`reset-state`](./reference/reset-state.md) before claiming stateful work complete.
-- Check play state when updates or captures appear stale.
-- Before reporting completion, distinguish verified structure, observed pixels,
-  timed behavior and saved artifacts. Include final transport state and whether
-  the project was saved; follow [`definition-of-done`](./reference/definition-of-done.md).
-- After three failed probes without new evidence, stop repeating them and
-  report the blocker. A new diagnosis can justify a different probe.
+Load the relevant contract before its first use, subject to the host's loading requirements. Reuse guidance already current in this task; refresh when essential context or its source changes. **Links are navigation, not a recursive reading checklist.** Choose a specialized reference only when it answers a concrete unresolved question. Future tools/options require actual capability/schema support, not a remembered release-plan name.
 
-## References by task
+## Invariants during work
 
-| Task | Read |
-| --- | --- |
-| Plan a network | [`opsketch-notation`](./reference/opsketch-notation.md), [`network-design`](./reference/network-design.md) |
-| Explain design intent | [`node-comments`](./reference/node-comments.md) |
-| Build a reusable component | [`component-checklist`](./reference/component-checklist.md), [`custom-parameters`](./reference/custom-parameters.md) |
-| Build stateful behavior / verify repeatable timing | [`reset-state`](./reference/reset-state.md), [`play-state`](./reference/play-state.md) |
-| Choose an operator family | [`operator-families`](./reference/operator-families.md) |
-| GPU geometry and particles | [`pops`](./reference/pops.md) |
-| Write / port shaders | [`glsl`](./reference/glsl.md), [`td-glsl-ground-truth`](./reference/td-glsl-ground-truth.md), [`shadertoy-conversion`](./reference/shadertoy-conversion.md) |
-| Verify the result | [`definition-of-done`](./reference/definition-of-done.md), [`look-grade`](./reference/look-grade.md) |
-| Paused / stale output | [`play-state`](./reference/play-state.md) |
-| Curate the Palette library | [`palette-scan`](./reference/palette-scan.md) |
-| Cook behavior | [`primer/cook-and-families`](./primer/cook-and-families.md) |
-| Editor layout | [`primer/editor-and-layout`](./primer/editor-and-layout.md) |
-| Parameters and channels | [`primer/parameters-and-channels`](./primer/parameters-and-channels.md) |
-| Scripts and callbacks | [`primer/scripting-surfaces`](./primer/scripting-surfaces.md) |
-| Project / component files | [`primer/tox-toe-components`](./primer/tox-toe-components.md) |
-| Render pipelines | [`primer/glsl-and-render`](./primer/glsl-and-render.md) |
-| Performance | [`primer/performance`](./primer/performance.md) |
+- Preserve unrelated work and existing authorization. Never use another tool or host to perform an action denied by policy.
+- Serialize live bridged work on the same daemon/PID; coordinate one live writer across helpers. Busy is not permission to restart.
+- Prefer a task-specific structured tool. Use Python for unsupported behavior or a coherent existing builder/test—not needless network walks or guessed API substitutions.
+- Validate the **actual transmitted request** and the operation's result, not only intent or tool-level success. Unknown effect means reconcile before repeating a write.
+- Keep planned, applied, observed and saved state separate. Comments and generated reports are not proof of behavior.
+- Verify at the affected boundary. Missing/unavailable evidence is unverified, not clean or necessarily defective. Complete the independently actionable work when another part is blocked.
 
 ## Related
 
-- [`operate`](./SKILL.md) — this entry point
-- [`python-api`](./reference/python-api.md) — scripting scope and API details
+- [`python-api`](./reference/python-api.md)
+- [`reference-index`](./reference/reference-index.md)
 
 **Canonical:** [`operate`](./SKILL.md)

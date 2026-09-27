@@ -1,7 +1,12 @@
 # Custom component checklist
 
-Reusable COMP boundary / About / reuse audit. Router: [`operate`](../SKILL.md).
-Custom pars depth: [`custom-parameters`](./custom-parameters.md).
+Conditional release profile for authoring or shipping a reusable COMP; start
+with [`component-authoring`](./component-authoring.md). This is not the DoD for scalar repairs,
+scratch probes or read-only audits. Match the agreed artifact requirements and
+existing project conventions; do not retrofit unrelated metadata or controls.
+Custom parameter detail: [`parameter-reference`](./parameter-reference.md) and
+[`custom-parameters`](./custom-parameters.md). Verify the chosen profile at the actual
+interface/save/reload boundary; missing native evidence remains unverified.
 
 ## Statefulness & resolution
 
