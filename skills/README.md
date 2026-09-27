@@ -7,7 +7,24 @@ The daemon serves one source in two forms: MCP resources at
 
 ## Write useful cards
 
-- Describe **when to use the card** in its manifest description.
+- Describe **when to use the card**, the next decision it supports, and important
+  non-triggers in its manifest description. Related links are navigation, not a
+  recursive reading requirement.
+- Give each procedure a trigger, needed facts, next action, success evidence and
+  failure/stop branch. Separate authority/protocol invariants from conditional
+  task procedures and optional style. A scalar edit or read-only audit does not
+  trigger the reusable-component release checklist.
+- Own each rule in one canonical card; repeat only short safety cues with links.
+  Preserve public IDs, file paths and important anchors when splitting references.
+  A card cannot grant permissions, activate unavailable tools or override scope.
+- Classify examples as complete MCP requests, Python execution scripts,
+  owner-scoped expressions/callbacks, explanatory fragments or intentional
+  negatives. Record context and expected outcome; schema validation alone cannot
+  establish TD semantics. Negative examples must not look like recommended calls.
+- Label evidence per claim: source-confirmed, unit-tested, native-observed on a
+  named build, or unverified. Never apply a blanket live-verification badge to a
+  reference based on one tested snippet. Future capabilities need explicit support
+  checks and must not be taught as current APIs.
 - Keep the umbrella short: route to focused reference cards instead of
   duplicating them. Every card must be reachable from `operate`.
 - Use progressive detail. Simple edits should not require a planning ceremony;

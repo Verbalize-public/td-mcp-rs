@@ -14,7 +14,8 @@ These are the conventions agents building networks apply by default.
   not long wires between levels, not deep hard-coded paths into another component's
   internals.
 - **Global OP Shortcuts** on major components keep references working when things move.
-- Null and Select OPs are computationally free — use them generously for legibility.
+- Null and Select OPs can clarify interfaces, but are not universally zero-cost;
+  measure the actual cook/dependency workload when performance matters.
 
 ## Naming
 
@@ -83,12 +84,20 @@ the whole batch blindly.
   box from `nodeX, nodeY, nodeWidth, nodeHeight` and check it against every
   sibling's box; on overlap, shift by at least the overlapping sibling's
   width/height plus a spacing margin. Use one fixed spacing constant per axis
-  per container rather than ad hoc offsets. When creating multiple nodes via
-  MCP (`mutate_nodes` create with `values` for `nodeX`/`nodeY`), set positions
-  explicitly at creation time — do
-  not rely on TD's default drop position, which stacks new nodes and guarantees
-  overlap on the very next node. Preferences → Network grid-snap is a UI aid
-  only; it does not prevent script-driven overlap.
+  per container rather than ad hoc offsets.
+- **Layout is not a `mutate_nodes` value.** The `create` / `set` step's `values`
+  map to **parameters** only, and `nodeX`/`nodeY`/`nodeWidth`/`nodeHeight` are
+  OP attributes, not parameters or supported flags — passing them in `values`
+  (or `flags`) fails that assignment with an unknown-parameter/flag error.
+  Earlier fields or steps may already have applied; reconcile before retrying. Set
+  layout explicitly with Python instead: a small `execute_python` step that
+  assigns `n.nodeX` / `n.nodeY` (or `TDFunctions.arrangeNode(...)`), or use a
+  runner script when creating a batch. Create nodes without a layout claim
+  first, then position them in that script, so you never rely on TD's default
+  drop position, which stacks new nodes and guarantees overlap on the very next
+  node. Layout is only required when you actually need a specific arrangement —
+  scalar values, wiring, or read-only work do not need it. Preferences →
+  Network grid-snap is a UI aid only; it does not prevent script-driven overlap.
 - **Reorganize using one of these patterns** (pick per-subtree, mix as needed):
   - **Linear chain** — one row per subsystem stage (input → process → output);
     `nodeX` increments by a fixed step, `nodeY` constant along the spine.

@@ -6,7 +6,17 @@
 handshake — connections from other instances never satisfy the wait.
 
 Args are all optional: `exePath` (wins) / `installId` (from `td_installs`) /
-`projectPath` / `args[]` / `waitTimeoutMs` (default **60000**).
+`projectPath` / `createIfMissing` / `templatePath` / `args[]` / `waitTimeoutMs`
+(default **60000**).
+
+**New vs existing project.** By default a missing `projectPath` is an error.
+Pass `createIfMissing:true` only for an intended **new** target: it copies the
+chosen template to that path before spawning, only if the path is absent.
+Template precedence is explicit `templatePath`, configured `[project].template_path`,
+then the installed template. The template can be user-customized; do not assume
+it is blank. Existing files are opened, not replaced by this option. Never use
+creation to substitute a blank file for missing existing work. A repaired request
+or created file is not proof the project started.
 
 Outcomes. Non-handshake outcomes come back as a **successful tool result with
 `ok:false`** — read the `outcome` field, not a diagnostic code:
@@ -24,8 +34,14 @@ without toeexpand/toecollapse) and `tdmcp.spawn.spawn_failed` (OS refused the
 launch, or that pid is already registered connected).
 
 After a `wait_timeout` with `stillAlive:true`, **do not call `spawn_td` again** —
-that TD is still running and you would start a second one. Dismiss the blocker
-with `dialogs`, then poll `fleet` until that pid reads `bridge:"connected"`.
+that TD is still running and you would start a second one. Address any reported
+blocker, then poll `fleet` until that pid reads `bridge:"connected"`.
+`dialogs` can list/dismiss a modal **only where a dialog backend exists**
+(Windows/macOS); under **Linux/Wine dialog automation is unavailable**
+(`tdmcp.dialog.unsupported`), so instead reconcile the process and its
+TD-visible path from evidence you can read (fleet status, installed-runner
+checks) and be explicit that you cannot dismiss a Wine modal. Never conclude a
+modal is absent merely because no dialog evidence came back.
 
 Fleet rows for spawned pids carry `spawn: {startedAt, exePath}` and may show
 `bridge:"starting"` pre-handshake. Human-opened instances never claim

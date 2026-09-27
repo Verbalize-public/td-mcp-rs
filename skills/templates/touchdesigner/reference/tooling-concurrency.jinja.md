@@ -6,8 +6,9 @@ Sequential bridged tools against one TD `pid` — HARD RULE for agents.
 
 | Kind | Tools | Rule |
 |------|-------|------|
-| **Bridged** | `execute_python`, `inspect`, `capture`, `record`, `mutate_nodes`, `api_help`, `editor_context` | At most **one** in-flight per `(mcp_session, daemon_scope, pid)` — `daemon_scope` is `local` or remote `daemonId` when federated |
+| **Bridged** | `execute_python`, `inspect`, `capture`, `record`, `mutate_nodes`, `api_help`, `editor_context`, `palette_probe` | At most **one** in-flight per `(mcp_session, daemon_scope, pid)` — `daemon_scope` is `local` or remote `daemonId` when federated. `palette_probe` is a live-TD probe: it takes a `pid` and passes `daemonId` through the same gate |
 | **Exempt** | `fleet`, `describe_tools` | Safe during an in-flight bridged call |
+| **Offline (not bridged)** | `palette_index` (scan / list / get / describe / ignore / unignore / forget) | No pid, session-gate exempt; safe any time, but its `select` shape is still schema-validated |
 
 ## What to do
 

@@ -8,7 +8,7 @@
 | DAT scripts / callbacks | Execute DAT family, panel/parameter/DAT/CHOP execute |
 | COMP Extensions | Promoted Python classes on components |
 | Parameter expressions | Per-parameter Python |
-| `execute_python` (MCP) | Sandboxed agent eval — see {{ skill("python-api") }} |
+| `execute_python` (MCP) | Python with a documented injected namespace, **not a security sandbox** — see {{ skill("python-api") }} |
 
 TD Python is **main-thread only**. Hand work back with
 `run(code, delayFrames=0)` when needed.

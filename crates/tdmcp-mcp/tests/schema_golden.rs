@@ -155,6 +155,27 @@ fn capture_status_sample_options_defaults_and_validation() {
 }
 
 #[test]
+fn palette_guidance_probe_example_uses_real_decoder() {
+    let template =
+        include_str!("../../../skills/templates/touchdesigner/reference/palette-scan.jinja.md");
+    let examples: Vec<Value> = template
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .filter(|value| value.get("pid").is_some() && value.get("select").is_some())
+        .collect();
+    assert!(!examples.is_empty(), "probe example must remain testable");
+    for example in examples {
+        let _: tdmcp_mcp::palette::PaletteProbeParams =
+            serde_json::from_value(example.clone()).expect("documented probe request");
+        assert!(example.get("limit").is_none());
+        assert_eq!(example["select"]["limit"], 3);
+        let mut invalid = example;
+        invalid["limit"] = serde_json::json!(3);
+        assert!(serde_json::from_value::<tdmcp_mcp::palette::PaletteProbeParams>(invalid).is_err());
+    }
+}
+
+#[test]
 fn fleet_unknown_include_rejected() {
     let err = serde_json::from_value::<tdmcp_mcp::FleetParams>(serde_json::json!({
         "include": ["typo"]

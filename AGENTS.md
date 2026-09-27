@@ -6,30 +6,30 @@ This project uses `/understand-chat` for codebase context. Run `/understand` fir
 
 ### Development Workflow
 
-1. **Install binary:** `tdmcp-daemon ensure`
-2. **Build:** `cargo build --workspace`
-3. **Check:** `cargo clippy --workspace --all-targets -- -D warnings`
-4. **Test:** `cargo test --workspace`
+1. **Build:** `cargo build --workspace`
+2. **Check:** `cargo clippy --locked --workspace --all-targets -- -D warnings`
+3. **Test:** `cargo test --locked --workspace`
+4. **Deploy only when needed:** follow the scoped installation/restart procedure
+   below; prefer a task-owned data directory for validation.
 
 ### MCP Restart (Critical!)
 
 When changing binary code:
 
-1. **Kill all running mcp daemons** (blindly):
-   ```powershell
-   # Windows
-   taskkill /IM tdmcp-daemon.exe /F
-   ```
-   ```bash
-   # Unix
-   pkill -f tdmcp-daemon
-   ```
+1. **Build and test first:** `cargo build --workspace` and the relevant checks.
+2. Identify the exact daemon PID, executable path, listener and connected TD
+   projects before deployment. Never stop processes by executable name or use
+   blanket `pkill` / `taskkill` commands. Coordinate any consequential interruption
+   of a user-owned instance; prefer isolated, task-owned test instances.
+3. Install the verified build using the documented installation procedure. Preserve
+   configuration and customized templates; `ensure` alone is not proof a
+   same-version build or its assets were refreshed.
+4. Restart only the identified, authorized instance when necessary, then verify
+   the running binary, served resources and loaded bridge separately. A rebuilt
+   file does not prove an existing process loaded it.
 
-2. **Then rebuild:** `cargo build --workspace`
-
-3. **Then install:** `tdmcp-daemon ensure`
-
-**Stop after 3 failures or handoff to user.** The daemon installed binary may be used by the harness or running standalone, causing file locks.
+**Stop after 3 failed probes with no new evidence.** Reconcile file locks and
+process ownership rather than repeating installation or broadening termination.
 
 ### Editing `bridge/bootstrap.py` or `bridge/tox_callbacks.py`?
 

@@ -3,10 +3,16 @@
 OpSketch is the **primary language** for thinking about, discussing, and returning
 TouchDesigner networks. SoT: {{ skill("opsketch-notation") }} (+ gating / examples).
 
-**Evidence split:** node roster / opTypes / params / errors / **positional wires**
-/ **comments** come from default `inspect`. Positional `<- a, b` uses each
-consumer's `inputs[].path` leaf (or known `mutate_nodes` connect results). Empty
-`inputs: []` = unwired. See {{ skill("python-api") }} → Wiring.
+**Evidence split:** default `inspect` requests nodes (roster and positional
+wires), errors and warnings, **not parameters**. A nonempty `include` is an
+allowlist: use `include:["nodes","params","errors","warnings"]` when all four
+are needed. For known parameters, select exact `paramNames` directly; use
+`paramsMode:"names"` only when names are unknown, then request needed values.
+Never invent a parameter value from a roster or names-only read. Comments are
+authored metadata, not proof. Positional `<- a, b` uses each observed consumer's
+`inputs` slots; retain null slots. An empty `inputs: []` establishes no observed
+inputs only when `observations.inputs.available` is true. Parent rosters do not
+establish child wiring or recursive health. See {{ skill("python-api") }} → Wiring.
 
 ## Header
 
@@ -102,10 +108,13 @@ higher depth.
 
 | Situation | Sketch? |
 |-----------|---------|
-| >3 nodes, or any non-trivial network (COMP hub, multi-family chain, branched data-flow) | **Yes — mandatory** |
-| Before/after any non-trivial wiring change | Yes |
-| Reporting a network to the director / user | Yes — return shape |
-| 1–3 trivial nodes ("what feeds `out1`?") | No — one line |
+| Unresolved branches/interfaces or topology decisions | Use a bounded sketch when it clarifies the decision |
+| Explaining a substantial wiring change | Useful before/after comparison, within the requested scope |
+| User requests a network map | Use this notation; distinguish planned from observed |
+| Known scalar edit or focused wiring question | Usually no sketch; a direct answer/readback suffices |
+
+Node count alone is not a trigger. This reference does not add design ceremony
+to read-only or simple edits.
 
 ## Related
 
@@ -117,7 +126,9 @@ higher depth.
 
 ## Definition of Done
 
-- [ ] Non-trivial network (>3 nodes, COMP hub, multi-family, branched data-flow) uses OpSketch
+For a sketch that the task actually needs:
+
+- [ ] Scope and planned-versus-observed status are explicit
 - [ ] Every shown param passes the importance gate
 - [ ] Wires shown incident-per-node
 - [ ] Family/opType/wire-kind matches live `inspect` / family tables — no invented synonyms

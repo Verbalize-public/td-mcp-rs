@@ -51,10 +51,13 @@ any time; it reconciles against disk and never discards cards.
 | `status` | `all` (default) · `undescribed` · `described` · `stale` · `failed` · `ignored` |
 | `includeIgnored` | Include blacklisted entries (default: exclude) |
 
-**4. Probe a small batch** — bridged, needs `pid`:
+**4. Probe a small batch** — bridged, needs `pid`. `limit` belongs **inside
+`select`** (shared selector with `palette_index`), not at the request root —
+the probe schema rejects unknown root fields, so a root-level `limit` fails
+validation rather than applying:
 
 ```json
-{"pid": 1234, "select": {"category": "Tools", "status": "undescribed"}, "limit": 3}
+{"pid": 1234, "select": {"category": "Tools", "status": "undescribed", "limit": 3}}
 ```
 
 Each component is loaded into a scratch COMP, digested, and destroyed. Keep

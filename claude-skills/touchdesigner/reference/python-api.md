@@ -1,13 +1,12 @@
 # TD Python API — compact reference
 
-All symbols auto-available in TD scripts / textport / expressions — no imports needed.
-Python 3.11.
+Reference fragments use the execution context named in each section; they are
+not one runnable script. TD 2025.32460 embeds Python 3.11; other builds may differ.
 
 For **exact** live class/member names on a connected TD pid, prefer `api_help`
-over guessing from this cheatsheet.
-
-Live-verified against td-mcp-rs `execute_python` (aliases + OP/Par/wiring surface).
-Wrong doc is worse than no doc — demote or drop anything not confirmed.
+over guessing from this reference. MCP namespace rules are source-confirmed and
+fake-operator tested. Native observations are scoped to the facts/builds noted
+below; this is not a blanket verification of every API example.
 
 ## Scope: TD scripts vs `execute_python`
 
@@ -49,7 +48,7 @@ ui = ui  # bare alias; td.ui always safe
 | `project.cookRate`, `project.name` | Session FPS / name | Yes (alias) |
 | `ui.panes`, `ui.undo`, … | Editor UI (prefer `editor_context` for panes) | Yes (alias) |
 | `tdu.rand(seed)`, `tdu.split(s)`, `tdu.Color/Vec/Mat` | Utilities | Yes (alias) |
-| `mod`, `iop`, `ipar` | Module-on-demand, internal shortcuts | `mod` yes; `iop`/`ipar` are COMP-local (not sandbox globals) |
+| `mod`, `iop`, `ipar` | Module-on-demand, internal shortcuts | `mod` yes; `iop`/`ipar` are COMP-local (not MCP globals) |
 
 `td.*` always works for anything on the TD module (including opTypes).
 
@@ -64,7 +63,13 @@ For a COMP parameter reading an internal node, prefer explicit `me.op('child')`.
 Test references after moving/reopening a reusable COMP; do not force all internal
 references to absolute paths. See [`network-design`](./network-design.md).
 
-Auto-imported stdlib (also bare in `execute_python`): `math`, `re`, `sys`, `collections`, `enum`, `inspect`
+**No stdlib is auto-imported in `execute_python`.** Modules like `math`, `re`,
+`sys`, `collections`, `enum`, `inspect` are **not** injected — use them with an
+explicit `import` inside the script (`import math`, then `math.sqrt(...)`); a
+bare `math.sqrt(...)` without an import raises `NameError`. Some TD aliases
+(`op`, `root`, `ui`, …) are shared with MCP execution; `me`, bare `parent` and
+bare opTypes are not. Use the context table above rather than transferring the
+entire Textport/DAT/expression namespace to MCP.
 
 ## Type objects — starter catalog
 
@@ -95,7 +100,7 @@ n.asType(td.noiseTOP)           # IDE / type hint helper
 | **MAT** | `phongMAT`, `pbrMAT`, `glslMAT`, `inMAT`, `outMAT` |
 
 ```python
-# Pattern — create + wire + set (sandbox-safe)
+# Pattern — create + wire + set (requires an authorized target)
 fx = op('/project1').create(td.baseCOMP, 'fx')
 noise = fx.create(td.noiseTOP, 'noise1')
 blur  = fx.create(td.blurTOP, 'blur1')
@@ -251,12 +256,20 @@ p.evalFile()        # File path → tdu.FileInfo
 
 ## TOP
 
+The two `sample` calls below were native-observed on TD 2025.32460 under
+Wine/Linux with a uniform 256×256 Constant TOP; both returned its RGBA value.
+Positional sampling was rejected on that build. This does not validate coordinate
+orientation, interpolation or every TOP method below. The native method docs warn
+that `sample` can stall the graphics pipeline and download the **entire texture**,
+not just one pixel; use it for debugging/non-realtime workflows.
+
 ```python
 t = op('noise1')          # any TOP
 t.width, t.height
 t.aspectWidth, t.aspectHeight, t.aspect, t.depth
 t.pixelFormat, t.pixelFormatName
-t.sample(x, y, u='pixel') # sample pixel / UV
+t.sample(x=0, y=0)        # pixel coordinates: keyword arguments
+t.sample(u=0.5, v=0.5)    # normalized UV coordinates: keyword arguments
 t.numpyArray()            # image as numpy
 t.save('file.png')
 t.cudaMemory              # CUDA interop when available
@@ -429,7 +442,7 @@ comp.par.Gain.destroy()                   # one par
 6. **`print` in `execute_python`** — teed to Debug DAT / returned `logs`; bare `debug()` is not injected
 7. **`opex()` in expressions** — raises clear error instead of `NoneType has no attribute 'par'`
 8. **`passive(op)` for read-only** — skips cook, safe for info queries
-9. **`execute_python` sandbox** — core + closed aliases (see Scope). Bare `noiseTOP` / `me` / `parent` / `debug` → `NameError`. Use `td.noiseTOP` or string form; use `n.parent()` on a node
+9. **`execute_python` namespace** — core + closed aliases (see Scope), not a security sandbox. Bare `noiseTOP` / `me` / `parent` / `debug` → `NameError`. Use `td.noiseTOP` or string form; use `n.parent()` on a node
 10. **`n.parent` is a ParentShortcut** — call `n.parent()` / `n.parent(1)`; `n.parent.path` fails
 11. **Wiring** — use `n.inputs` / `n.outputs` (OPs). Connector has **no** `.op`; `inOP`/`outOP` often `None`; peer via `connector.connections[i].owner`
 12. **opType spelling** — camelCase guesses often fail (`hsvadjustTOP`, `geometryCOMP`); confirm with `api_help`

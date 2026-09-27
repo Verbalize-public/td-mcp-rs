@@ -21,8 +21,8 @@ opsketch-notation:
   output_path: touchdesigner/reference/opsketch-notation.md
   title: OpSketch grammar
   description: >-
-    Sketch TouchDesigner networks before building or mutating them. Use when
-    planning, describing, or reporting any network of more than 3 nodes.
+    Sketch topology when planning branches/interfaces or explaining a network.
+    Optional notation reference, not a node-count gate for ordinary edits.
 
 opsketch-importance-gating:
   template_path: touchdesigner/reference/opsketch-importance-gating.jinja.md
@@ -45,8 +45,9 @@ python-api:
   output_path: touchdesigner/reference/python-api.md
   title: TD Python API
   description: >-
-    TD Python API cheatsheet, sandbox-safe for execute_python. Read before any
-    execute_python call or authored expression/script.
+    Execution namespace and TD Python reference for custom scripts. Read the
+    execution contract before first use; deepen for uncertain APIs. Not a Python
+    sandbox; expressions and callbacks have different owner contexts.
 
 custom-parameters:
   template_path: touchdesigner/reference/custom-parameters.jinja.md
@@ -178,8 +179,8 @@ play-state:
   output_path: touchdesigner/reference/play-state.md
   title: Play state
   description: >-
-    Timeline play/pause stalls cooking and captures. Use when TD looks stuck,
-    captures look frozen, or FPS/motion claims need evidence.
+    Diagnose static output and timeline state when TD looks stuck or captures
+    look frozen. Paused transport alone does not prove nothing can cook.
 
 primer/cook-and-families:
   template_path: touchdesigner/primer/cook-and-families.jinja.md
@@ -210,8 +211,8 @@ primer/scripting-surfaces:
   output_path: touchdesigner/primer/scripting-surfaces.md
   title: "Primer: scripting surfaces"
   description: >-
-    Where Python runs: textport, DAT scripts, extensions, expressions, and the
-    execute_python sandbox. Use before writing Python.
+    Compare textport, DAT scripts, extensions, expressions and MCP execution
+    contexts when choosing a scripting surface. MCP Python is not a sandbox.
 
 primer/tox-toe-components:
   template_path: touchdesigner/primer/tox-toe-components.jinja.md

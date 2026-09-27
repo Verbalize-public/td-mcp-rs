@@ -76,8 +76,11 @@ would a reader who has never seen this network guess wrong without it?
 2. Descend only into children whose comment (or absence of one) leaves the
    question open.
 3. When a comment contradicts the live wiring or parameters, `inspect` wins.
-   Fix the comment in the same pass — leaving a known-false comment in place is
-   a defect you introduced.
+   Fixing it is a **write**: only update the comment (in the same `mutate_nodes`
+   step that changes the node's role) when you are making that change and own
+   its scope. A **read-only walkthrough** that merely observes a stale comment
+   does not introduce it and does not authorize an edit — report the discrepancy
+   and its path instead of mutating on the reader's behalf.
 4. Carry the comments into your OpSketch (`# …` trailing form) so the sketch you
    return to the user preserves the intent, not just the topology —
    [`opsketch-notation`](./opsketch-notation.md).

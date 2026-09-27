@@ -12,10 +12,11 @@
 //!
 //! Server-initiated notifications are not forwarded.
 //!
-//! When the HTTP daemon connection is lost, the proxy attempts a reconnect-only
-//! heal (never spawns a daemon) and returns an informative
-//! `tdmcp.daemon.unreachable` error for the failed call. The next call benefits
-//! from a healed link.
+//! When the HTTP daemon connection is lost, the proxy attempts to reconnect.
+//! With the CLI-supplied respawn callback, sustained downtime can also ensure a
+//! daemon; callers without that callback remain reconnect-only. The failed call
+//! returns `tdmcp.daemon.unreachable` and is never silently replayed. A later
+//! call can use the healed link; possible effects still require reconciliation.
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};

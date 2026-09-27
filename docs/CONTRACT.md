@@ -50,8 +50,11 @@ control plane; Cursor invokes `tdmcp-daemon mcp`, which `ensure`s once at cold
 start then runs the stdio shim for the MCP client session.
 
 **Stdio proxy resilience:** if the HTTP link to the daemon is lost (e.g.
-`/admin/restart`, crash, idle-exit), the shim attempts a **reconnect-only**
-heal — it never spawns / upserts a daemon mid-session. Heal is single-flight
+`/admin/restart`, crash, idle-exit), the shim first attempts to reconnect.
+The CLI supplies a respawn callback: sustained downtime beyond the reconnect
+`stale` threshold can invoke `ensure_daemon` mid-session. A health watchdog
+also covers idle clients, with a 10-second respawn-attempt cooldown. Library
+proxies without that callback remain reconnect-only. Link healing is single-flight
 with **waiters** (bounded gate wait; concurrent callers share the in-flight
 outcome instead of failing open) and debounced for the gate holder; a
 background watcher keeps probing while unhealthy so a freshly-restarted
@@ -112,7 +115,7 @@ Handshake returns a local FS path to the bridge package directory. TD reloads fr
 | **Pid exclusive** | Per-pid `TaskQueue` — always exclusive enqueue | `tdmcp.bridge.queue_busy` |
 | **Timing reservation** | TD bridge process, across calls/sessions until job cleanup | `tdmcp.timing.busy` (names owning tool/job) |
 
-Bridged tools (`execute_python`, `inspect`, `capture`, `record`, `mutate_nodes`, `api_help`, `editor_context`) always enqueue **exclusive**. Client `exclusive` is accepted for wire compat and **ignored**. Shared multi-enqueue is not a supported mode.
+Bridged tools (`execute_python`, `inspect`, `capture`, `record`, `mutate_nodes`, `api_help`, `editor_context`, `palette_probe`) always enqueue **exclusive**. Client `exclusive` is accepted for wire compat and **ignored**. Shared multi-enqueue is not a supported mode.
 
 Timed capture/record jobs reserve transport in TD across callbacks, not by
 leaving the Rust RPC queue occupied. Only the owning tool's status/cancel calls
@@ -899,7 +902,8 @@ Canonical output echoes TD’s absolute `node.path`. `execute_python` is OpPath-
 
 - Always: `td` (TD module), `op` (`td.op`), `result` (pre-seeded `None`; assign to return)
 - Closed-set aliases bound only if present on `td`: `root`, `ui`, `project`, `absTime`, `tdu`, `run`, `ops`, `opex`, `passive`, `mod`
-- **Not** injected: `me`, `parent` (no script-owner OP context), bare opTypes (`noiseTOP`, … — use `td.noiseTOP` or the string form), `debug`
+- **Not** injected: `me`, `parent` (no script-owner OP context), bare opTypes (`noiseTOP`, … — use `td.noiseTOP` or the string form), `debug`, or standard-library modules (`math`, `json`, `sys`, etc.; import them explicitly).
+- `contextPath` only supplies resolution context; it is not a filesystem or Python security sandbox. Scripts remain capable of arbitrary supported Python operations within the caller's authorization.
 
 ### `execute_python` logs / Debug DAT — Shipped
 

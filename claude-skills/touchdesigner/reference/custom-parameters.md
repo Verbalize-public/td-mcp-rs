@@ -1,11 +1,10 @@
-# Custom parameters — live-verified
+# Custom parameters
 
-Companion to [`component-checklist`](./component-checklist.md). Snippets are sandbox-safe for
-td-mcp-rs `execute_python` unless noted.
-
-**Verified** against TD `2025.32460` via `execute_python` / `inspect` /
-`api_help` (Page / Par / ParGroup / COMP). Wrong doc is worse than no doc —
-re-probe before changing these facts.
+Companion to [`component-checklist`](./component-checklist.md). Snippets target the
+`execute_python` namespace unless noted; they still require an authorized COMP
+and are not security-sandboxed. Historical observations used TD `2025.32460`
+(Page / Par / ParGroup / COMP). This is not a claim that every snippet or other
+TD build has been verified; recheck the specific uncertain API when needed.
 
 ## When to use them
 
