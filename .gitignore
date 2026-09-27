@@ -12,5 +12,6 @@ __pycache__/
 _pack_bootstrap_tox/
 /td-sandbox/
 .ua/
+retroanalysis
 fixtures/dev/session/**
 !fixtures/dev/session/.gitkeep
