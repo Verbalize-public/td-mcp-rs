@@ -112,27 +112,23 @@ pub fn lint_expand_dir(dir: &Path) -> Vec<LintDiag> {
         }
     }
 
-    // Bridge subtree presence: the three DAT bodies must exist. Payload
+    // Bridge subtree presence: canonical names are reserved; renamed bridges
+    // need all three DATs plus the positive payload marker. Full payload
     // identity vs embedded sources is checked by project_install_bridge.
-    if let Some(bridge_dir) = crate::project_install::find_subtree(dir) {
-        for dat in ["bootstrap.text", "callbacks.text", "tdmcp_exec.text"] {
-            let p = bridge_dir.join(dat);
-            if !p.exists() {
-                out.push(diag(
-                    "project.bridge_subtree_missing",
-                    "error",
-                    p.display(),
-                    "bridge DAT missing",
-                ));
-            }
-        }
-    } else {
-        out.push(diag(
+    match crate::project_install::find_subtree(dir) {
+        Ok(Some(_)) => {}
+        Ok(None) => out.push(diag(
             "project.bridge_subtree_missing",
             "error",
             dir.display(),
-            "no tdmcp_rs COMP subtree",
-        ));
+            "no complete bridge COMP subtree",
+        )),
+        Err(error) => {
+            let message = error.to_string();
+            for path in error.paths() {
+                out.push(diag(error.code(), "error", path.display(), &message));
+            }
+        }
     }
     out
 }
@@ -262,7 +258,7 @@ mod tests {
     }
 
     #[test]
-    fn clean_minimal_project_has_no_errors() {
+    fn clean_project_with_unrelated_generic_dats_has_no_errors() {
         let dir = tempfile::tempdir().unwrap();
         let ed = dir.path().join("p.toe.dir");
         fs::create_dir_all(ed.join("project1")).unwrap();
@@ -270,16 +266,69 @@ mod tests {
         fs::write(ed.join("project1.n"), b"COMP:container\nend\n").unwrap();
         let bridge = ed.join("project1").join("tdmcp_rs");
         fs::create_dir_all(&bridge).unwrap();
+        fs::write(ed.join("project1").join("tdmcp_rs.n"), b"COMP:base\nend\n").unwrap();
         for dat in ["bootstrap.text", "callbacks.text", "tdmcp_exec.text"] {
             fs::write(bridge.join(dat), b"# x\n").unwrap();
         }
+        let generic = ed.join("project1").join("generic_scripts");
+        fs::create_dir_all(&generic).unwrap();
+        fs::write(
+            ed.join("project1").join("generic_scripts.n"),
+            b"COMP:base\nend\n",
+        )
+        .unwrap();
+        for dat in ["bootstrap.text", "callbacks.text", "tdmcp_exec.text"] {
+            fs::write(generic.join(dat), b"generic payload\n").unwrap();
+        }
         fs::write(
             tdmcp_projectio::toc::toc_path_for(&ed),
-            b".build\nproject1.n\n",
+            b".build\nproject1.n\nproject1/tdmcp_rs.n\n\
+              project1/tdmcp_rs/bootstrap.text\nproject1/tdmcp_rs/callbacks.text\n\
+              project1/tdmcp_rs/tdmcp_exec.text\nproject1/generic_scripts.n\n\
+              project1/generic_scripts/bootstrap.text\nproject1/generic_scripts/callbacks.text\n\
+              project1/generic_scripts/tdmcp_exec.text\n",
         )
         .unwrap();
         let diags = lint_expand_dir(&ed);
         assert!(!diags.iter().any(|d| d.severity == "error"), "{diags:?}");
+    }
+
+    #[test]
+    fn lint_reports_partial_and_duplicate_bridge_layouts_clearly() {
+        let partial_tmp = tempfile::tempdir().unwrap();
+        let partial = partial_tmp.path().join("partial.toe.dir");
+        fs::create_dir_all(partial.join("tdmcp_rs")).unwrap();
+        fs::write(partial.join(".build"), b"build 2025.32460\n").unwrap();
+        fs::write(partial.join("tdmcp_rs.n"), b"COMP:base\nend\n").unwrap();
+        fs::write(
+            partial.join("tdmcp_rs").join("bootstrap.text"),
+            b"# partial\n",
+        )
+        .unwrap();
+        fs::write(tdmcp_projectio::toc::toc_path_for(&partial), b".build\n").unwrap();
+        let diags = lint_expand_dir(&partial);
+        assert!(diags.iter().any(|diag| {
+            diag.code == "project.bridge_subtree_missing" && diag.message.contains("partial bridge")
+        }));
+
+        let duplicate_tmp = tempfile::tempdir().unwrap();
+        let duplicate = duplicate_tmp.path().join("duplicate.toe.dir");
+        fs::create_dir_all(&duplicate).unwrap();
+        fs::write(duplicate.join(".build"), b"build 2025.32460\n").unwrap();
+        for name in ["tdmcp_rs", "renamed_bridge"] {
+            let bridge = duplicate.join(name);
+            fs::create_dir_all(&bridge).unwrap();
+            fs::write(duplicate.join(format!("{name}.n")), b"COMP:base\nend\n").unwrap();
+            for dat in ["bootstrap.text", "callbacks.text", "tdmcp_exec.text"] {
+                fs::write(bridge.join(dat), b"# tdmcp_bridge complete\n").unwrap();
+            }
+        }
+        fs::write(tdmcp_projectio::toc::toc_path_for(&duplicate), b".build\n").unwrap();
+        let diags = lint_expand_dir(&duplicate);
+        assert!(diags.iter().any(|diag| {
+            diag.code == "project.bridge_subtree_missing"
+                && diag.message.contains("multiple complete")
+        }));
     }
 
     fn sibling(p: &Path, ext: &str) -> PathBuf {
@@ -304,13 +353,15 @@ mod tests {
             fs::create_dir_all(dir.join("project1").join("tdmcp_rs")).unwrap();
             fs::write(dir.join(".build"), b"version 099\n").unwrap();
             fs::write(dir.join("project1.n"), b"COMP:container\nend\n").unwrap();
+            fs::write(dir.join("project1").join("tdmcp_rs.n"), b"COMP:base\nend\n").unwrap();
             for dat in ["bootstrap.text", "callbacks.text", "tdmcp_exec.text"] {
                 fs::write(dir.join("project1").join("tdmcp_rs").join(dat), b"# x\n").unwrap();
             }
             fs::write(
                 sibling(&packed, ".toc"),
-                b".build\nproject1.n\nproject1/tdmcp_rs/bootstrap.text\n\
-                  project1/tdmcp_rs/callbacks.text\nproject1/tdmcp_rs/tdmcp_exec.text\n",
+                b".build\nproject1.n\nproject1/tdmcp_rs.n\n\
+                  project1/tdmcp_rs/bootstrap.text\nproject1/tdmcp_rs/callbacks.text\n\
+                  project1/tdmcp_rs/tdmcp_exec.text\n",
             )
             .unwrap();
         })

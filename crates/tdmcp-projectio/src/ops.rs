@@ -88,13 +88,34 @@ pub fn expand(
             packed: packed.to_path_buf(),
         });
     }
-    toc::validate_entries(dir.parent().unwrap_or(dir.as_path()), &entries)?;
+    if let Err(e) = validate_expanded_entries(&dir, &toc_path, &entries) {
+        cleanup_partials(packed);
+        return Err(e);
+    }
     Ok(ExpandOutcome {
         dir,
         toc: toc_path,
         entries: entries.len(),
         exit_code: output.code,
     })
+}
+
+fn validate_expanded_entries(
+    dir: &Path,
+    toc_path: &Path,
+    entries: &[String],
+) -> Result<(), ProjectIoError> {
+    toc::validate_entries(dir, entries)?;
+    for entry in entries {
+        let listed = toc::entry_path(dir, entry);
+        if !listed.is_file() {
+            return Err(ProjectIoError::TocInvalid {
+                path: toc_path.to_path_buf(),
+                reason: format!("listed file missing from expanded directory: {entry}"),
+            });
+        }
+    }
+    Ok(())
 }
 
 /// Collapse `src_dir` into `out` via `tools.collapse`, evidence-checked.
@@ -256,6 +277,28 @@ mod tests {
         assert!(matches!(
             res,
             Err(ProjectIoError::ExpandOutputMissing { .. })
+        ));
+        assert!(!sibling_with_ext(&packed, ".dir").exists());
+        assert!(!sibling_with_ext(&packed, ".toc").exists());
+    }
+
+    #[test]
+    fn expand_rejects_toc_entry_missing_from_actual_expand_dir_and_cleans() {
+        let dir = tempfile::tempdir().unwrap();
+        let packed = packed_fixture(dir.path());
+        let runner = FakeOfficialRunner::default();
+        runner.push_ok_with_effect(
+            0,
+            "",
+            expand_effect(".build\nproject1.n\nmissing/file.text\n"),
+        );
+
+        let result = expand(&packed, &tools_pair(), &runner);
+
+        assert!(matches!(
+            result,
+            Err(ProjectIoError::TocInvalid { reason, .. })
+                if reason.contains("missing/file.text")
         ));
         assert!(!sibling_with_ext(&packed, ".dir").exists());
         assert!(!sibling_with_ext(&packed, ".toc").exists());
