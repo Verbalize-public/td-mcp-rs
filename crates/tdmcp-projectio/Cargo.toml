@@ -11,11 +11,15 @@ workspace = true
 
 [dependencies]
 chrono = { workspace = true }
+renamore = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+winapi-util = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

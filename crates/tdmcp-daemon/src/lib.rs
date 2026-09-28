@@ -11,6 +11,7 @@ pub mod config;
 pub mod crashreport;
 pub mod dialogs;
 pub mod ensure;
+pub mod evidence_store;
 pub mod federation;
 pub mod http_util;
 pub mod idle;

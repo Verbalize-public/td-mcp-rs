@@ -54,10 +54,22 @@ dirs = "6"
 toml_edit = { version = "0.22", features = ["serde"] }
 include_dir = "0.7"
 minijinja = "2"
-eframe = { version = "0.35", default-features = true }
+# Keep eframe's normal desktop feature set, but choose winit's maintained
+# crossfont Wayland title renderer below instead of its ttf-parser-backed default.
+eframe = { version = "0.35", default-features = false, features = [
+    "accesskit",
+    "default_fonts",
+    "wayland",
+    "web_screen_reader",
+    "wgpu",
+    "x11",
+] }
 egui = "0.35"
 futures = "0.3"
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
+renamore = "=0.3.2"
+rusqlite = { version = "=0.40.2", default-features = false, features = ["bundled"] }
+sha2 = "=0.10.9"
 rmcp = { version = "3", default-features = false, features = [
     "server",
     "transport-streamable-http-server",
@@ -78,6 +90,7 @@ tokio = { version = "1.53", features = ["rt-multi-thread", "macros", "net", "syn
 tokio-util = "0.7"
 tower = "0.5"
 tracing = "0.1"
+winapi-util = "=0.1.11"
 windows = { version = "0.58", features = [
     "Win32_Foundation",
     "Win32_UI_WindowsAndMessaging",
@@ -99,7 +112,7 @@ ksni = { version = "0.3", default-features = false, features = ["blocking", "asy
 # connection (pointer state outside our window is invisible to winit; RISKS
 # R10). Same crate winit already loads, so no new dynamic deps.
 x11-dl = "2.21"
-winit = "0.30"
+winit = { version = "0.30", default-features = false, features = ["rwh_06"] }
 tempfile = "3"
 uuid = { version = "1", features = ["v4", "serde"] }
 

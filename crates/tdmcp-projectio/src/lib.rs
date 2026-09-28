@@ -10,8 +10,8 @@
 //!   silent 0-byte output file.
 //! - Missing tools are a typed availability condition, never a panic; Derivative
 //!   binaries are invoked where installed, never redistributed.
-//! - All mutation happens in staging directories and is published by atomic rename;
-//!   failures clean up their partials.
+//! - Collision-sensitive callers can publish with an atomic no-replace rename
+//!   where supported; multi-artifact publications still require caller rollback.
 //!
 //! Crate boundary: pure platform logic, no config-crate dependency — callers map
 //! `[official_tools]` config into [`resolve::ToolSource`].
@@ -19,6 +19,7 @@
 pub mod error;
 pub mod ops;
 pub mod palette;
+pub mod publish;
 pub mod resolve;
 pub mod runner;
 pub mod sidecar;

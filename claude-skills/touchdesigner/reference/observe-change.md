@@ -1,6 +1,6 @@
 # Observe or change
 
-Current-tool procedure. Apply the [`operate`](../SKILL.md). Substitute confirmed targets in examples.
+Current-tool procedure. Apply the invariants in [`operate`](../SKILL.md). Substitute confirmed targets in examples.
 
 ## Pick the observation that answers the question
 
@@ -44,7 +44,7 @@ Read back the relevant values/modes, affected destinations and diagnostic availa
 
 Applied-step count alone does not prove the intended value, connection or appearance. Check returned paths and warnings. Follow roster pages when absence/completeness matters; a last page is not a complete roster and live offsets can move.
 
-Read-only work stays read-only: report a stale comment or suspicious layout; do not fix it without scope. A scalar adjustment does not automatically authorize relayout, new controls, saving the original project or a packaging pass. Finish with the evidence appropriate to the requested claim, using [`verify-handoff`](./verify-handoff.md).
+Read-only work stays read-only: report a stale comment or suspicious layout; do not fix it without scope. A scalar adjustment does not automatically authorize relayout, new controls, saving the original project or a packaging pass. When the checks above settle a focused value/wire claim, report that evidence directly; no extra completion card is required. Use [`verify-handoff`](./verify-handoff.md) when a broader artifact, handoff or unresolved evidence distinction needs its procedure.
 
 ## Related
 
