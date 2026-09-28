@@ -20,9 +20,29 @@ use std::path::PathBuf;
 use serde_json::Value;
 use tdmcp_mcp::output_views::{EncodedOutput, OutputCodec, PresentationPlan};
 
+/// Resolve the configured corpus directory.
+///
+/// A relative path is resolved against the workspace root, not the test
+/// binary's working directory: cargo runs integration tests with the package
+/// root as cwd, so a path written the way a developer would type it from the
+/// repository root would otherwise be reported as "not a directory".
 fn corpus_dir() -> Option<PathBuf> {
     let configured = std::env::var_os("TDMCP_INSPECT_CORPUS")?;
-    Some(PathBuf::from(configured))
+    let path = PathBuf::from(configured);
+    if path.is_absolute() || path.exists() {
+        return Some(path);
+    }
+    // crates/tdmcp-mcp -> workspace root
+    let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(std::path::Path::parent)
+        .map_or_else(|| path.clone(), PathBuf::from);
+    let candidate = workspace.join(&path);
+    if candidate.is_dir() {
+        Some(candidate)
+    } else {
+        Some(path)
+    }
 }
 
 /// One recorded payload plus the provenance that makes a failure attributable.
