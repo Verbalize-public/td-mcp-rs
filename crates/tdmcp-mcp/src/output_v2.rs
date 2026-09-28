@@ -19,15 +19,20 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use chrono::Utc;
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 use tdmcp_core::{
     CapabilityManifest, CapabilityState, CapabilitySupport, EffectState, ExtensionData,
     FingerprintStrength, HashIdentity, MonotonicWindow, ObservationCoverage, ObservationIdentity,
     ObservationTarget, ObservationWindow, ObservedValue, OperationOutcome, OperationState,
-    OutputContract, OutputOptions, Pid, PidCorrelation, PidEntry, TargetFingerprint,
+    OutputContract, OutputOptions, OutputView, Pid, PidCorrelation, PidEntry, TargetFingerprint,
 };
 use uuid::Uuid;
+
+use crate::output_views::{
+    EncodedOutput, FullReason, OutputCodec, PlannedOutput, PresentationPlan,
+};
 
 /// Process-local monotonic clock, scoped by daemon instance identity.
 ///
@@ -299,13 +304,70 @@ struct ProcessFingerprintParts {
     start_time: Option<String>,
 }
 
+/// Representation a caller asked for, and the one actually returned.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Presentation {
+    /// The complete selected data in its ordinary representation.
+    Full,
+    /// A lossless compact document with an explicit codec header.
+    Compact,
+}
+
+/// Size accounting behind a representation decision.
+///
+/// These are counted serialized bytes, not tokens. Nothing in this response
+/// may be used to claim a token saving.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PresentationBytes {
+    /// Counted bytes of the full value, when it fit the budget.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub full: Option<usize>,
+    /// Counted bytes of the complete compact document, when one was built.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compact: Option<usize>,
+    /// Number of control transforms in the compact document.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transforms: Option<usize>,
+}
+
+/// What the caller asked for, what was returned, and why they differ.
+///
+/// A request for `compact` that receives the full value is recorded as such
+/// rather than passed off as a compact response. The planner is allowed to
+/// keep the full value, but the caller has to be able to see that it did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PresentationBlock {
+    /// Representation the caller requested.
+    pub requested: Presentation,
+    /// Representation actually returned.
+    pub applied: Presentation,
+    /// Stable reason the full value was kept despite a compact request.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub full_reason: Option<&'static str>,
+    /// Size accounting for the decision.
+    pub bytes: PresentationBytes,
+}
+
 /// Wrap a legacy value in the version 2 envelope.
 ///
-/// The legacy value is embedded under `data` unchanged; the identity,
-/// window, coverage, and outcome blocks are siblings. A caller that wants the
-/// old shape can read `data` and see exactly what it would have seen.
-#[must_use]
-pub fn wrap_v2(record: &ObservationRecord, legacy: Value) -> Value {
+/// `legacy` is the exact value a non-opt-in caller would have received, and it
+/// is what `payloadHash` in the identity digests. When a compact document is
+/// returned under `data`, decoding it yields exactly this value, so the digest
+/// still verifies against what the caller reconstructs.
+///
+/// Fails only when a selected compact document cannot be serialized. That is
+/// reported rather than downgraded to the full value, because returning full
+/// data under a `view: "compact"` request would satisfy the request on paper
+/// while giving the caller a different representation than the one it asked
+/// for.
+pub fn wrap_v2(
+    record: &ObservationRecord,
+    legacy: Value,
+    options: &OutputOptions,
+) -> Result<Value, crate::output_views::CodecError> {
     let identity = record.identity();
     let outcome = OperationOutcome {
         state: OperationState::Completed,
@@ -314,15 +376,129 @@ pub fn wrap_v2(record: &ObservationRecord, legacy: Value) -> Value {
         effect: EffectState::None,
         extensions: ExtensionData::new(),
     };
+
+    // Omission requests the full representation. Compact is never implicit.
+    let requested = match options.view {
+        Some(OutputView::Compact) => Presentation::Compact,
+        _ => Presentation::Full,
+    };
+    let planned = match requested {
+        // An explicit full request is not re-planned; a compact document here
+        // would contradict what the caller asked for.
+        Presentation::Full => None,
+        Presentation::Compact => Some(OutputCodec::default().encode(legacy.clone())),
+    };
+
+    // Destructure the plan once. `bytes` and `full_reason` are both derived
+    // from it, and `PresentationPlan` is not `Copy`.
+    let (planned, bytes, full_reason) = match planned {
+        Some(PlannedOutput { plan, output }) => {
+            let reason = match &plan {
+                PresentationPlan::Full { reason, .. } => Some(reason_str(*reason)),
+                PresentationPlan::Compact { .. } => None,
+            };
+            let bytes = match plan {
+                PresentationPlan::Full {
+                    full_bytes,
+                    candidate_bytes,
+                    reason: _,
+                } => PresentationBytes {
+                    full: full_bytes,
+                    compact: candidate_bytes,
+                    transforms: None,
+                },
+                PresentationPlan::Compact {
+                    full_bytes,
+                    compact_bytes,
+                    transforms,
+                } => PresentationBytes {
+                    full: Some(full_bytes),
+                    compact: Some(compact_bytes),
+                    transforms: Some(transforms),
+                },
+            };
+            (Some(output), bytes, reason)
+        }
+        None => (
+            None,
+            PresentationBytes {
+                full: None,
+                compact: None,
+                transforms: None,
+            },
+            None,
+        ),
+    };
+
+    // The representation actually returned is decided by `output` alone, not
+    // by the planner's intent, so an unexpected pairing degrades to a reported
+    // full value instead of trusting an invariant the types do not enforce.
+    let (data, applied) = match planned {
+        Some(EncodedOutput::Compact(compact)) => {
+            // A compact document that cannot be serialized is reported as an
+            // error. Falling back to the full value here would hand back a
+            // representation the caller did not ask for while reporting the
+            // request as satisfied.
+            let wire = serde_json::to_value(compact).map_err(|error| {
+                crate::output_views::CodecError::Serialization(error.to_string())
+            })?;
+            (wire, Presentation::Compact)
+        }
+        Some(EncodedOutput::Full(full)) => (full, Presentation::Full),
+        None => (legacy, Presentation::Full),
+    };
+    let presentation = PresentationBlock {
+        requested,
+        applied,
+        full_reason,
+        bytes,
+    };
+
     let mut out = Map::new();
     out.insert("contract".to_owned(), Value::String("v2".to_owned()));
     out.insert("identity".to_owned(), to_value(&identity));
     out.insert("window".to_owned(), to_value(&record.window));
     out.insert("coverage".to_owned(), to_value(&record.coverage));
     out.insert("outcome".to_owned(), to_value(&outcome));
-    out.insert("capabilities".to_owned(), to_value(&supported_manifest()));
-    out.insert("data".to_owned(), legacy);
-    Value::Object(out)
+    out.insert("presentation".to_owned(), to_value(&presentation));
+    out.insert("capabilities".to_owned(), to_value(&manifest_for(applied)));
+    out.insert("data".to_owned(), data);
+    Ok(Value::Object(out))
+}
+
+fn reason_str(reason: FullReason) -> &'static str {
+    match reason {
+        FullReason::NoTransforms => "no_transforms",
+        FullReason::NotSmaller => "not_smaller",
+        FullReason::TraversalBudget => "traversal_budget",
+        FullReason::SerializationBudget => "serialization_budget",
+        FullReason::TransformBudget => "transform_budget",
+    }
+}
+
+/// Capability manifest matching what this producer actually served.
+///
+/// `compact_view` is reported supported only when a compact document was
+/// really returned. When the planner kept the full value, the caller can see
+/// both that in `presentation` and that the capability was not exercised.
+fn manifest_for(applied: Presentation) -> CapabilityManifest {
+    let mut manifest = supported_manifest();
+    manifest.compact_view = match applied {
+        Presentation::Compact => CapabilitySupport {
+            state: CapabilityState::Supported,
+            reason: Some("a compact document was returned for this request".to_owned()),
+            extensions: ExtensionData::new(),
+        },
+        Presentation::Full => CapabilitySupport {
+            state: CapabilityState::Unknown,
+            reason: Some(
+                "the compact representation was not returned for this request; see presentation"
+                    .to_owned(),
+            ),
+            extensions: ExtensionData::new(),
+        },
+    };
+    manifest
 }
 
 fn to_value<T: serde::Serialize>(value: &T) -> Value {
@@ -371,6 +547,8 @@ mod tests {
     use super::*;
     use tdmcp_core::{PidRegistry, ProcessAttrs, ProcessFingerprint};
 
+    use crate::output_views::CompactOutput;
+
     fn legacy_inspect() -> Value {
         serde_json::json!({
             "ok": true,
@@ -406,6 +584,19 @@ mod tests {
             Some("1".into()),
         );
         reg
+    }
+
+    fn options(view: Option<OutputView>) -> OutputOptions {
+        OutputOptions {
+            contract: OutputContract::V2,
+            view,
+            retain: None,
+        }
+    }
+
+    /// Envelope for a request that named no view, which must never compact.
+    fn full_envelope(record: &ObservationRecord, legacy: Value) -> Value {
+        wrap_v2(record, legacy, &options(None)).unwrap()
     }
 
     #[test]
@@ -477,7 +668,7 @@ mod tests {
     #[test]
     fn the_envelope_embeds_the_legacy_value_unchanged() {
         let legacy = legacy_inspect();
-        let wrapped = wrap_v2(&record(&legacy, None), legacy.clone());
+        let wrapped = full_envelope(&record(&legacy, None), legacy.clone());
         assert_eq!(wrapped["data"], legacy);
         assert_eq!(wrapped["contract"], "v2");
     }
@@ -485,7 +676,7 @@ mod tests {
     #[test]
     fn the_envelope_keeps_missing_unavailable_and_captured_distinct() {
         let legacy = legacy_inspect();
-        let wrapped = wrap_v2(&record(&legacy, None), legacy);
+        let wrapped = full_envelope(&record(&legacy, None), legacy);
         let window = &wrapped["window"];
         // Captured: the producer really did read a monotonic interval. The
         // tagged form nests the payload under `value`, which is what keeps a
@@ -510,14 +701,14 @@ mod tests {
             target_for(None, Pid(1), None),
             None,
         );
-        let wrapped = wrap_v2(&record, legacy_inspect());
+        let wrapped = full_envelope(&record, legacy_inspect());
         assert_eq!(wrapped["window"]["monotonic"]["state"], "unavailable");
     }
 
     #[test]
     fn a_read_reports_no_effect_rather_than_an_unknown_one() {
         let legacy = legacy_inspect();
-        let wrapped = wrap_v2(&record(&legacy, None), legacy);
+        let wrapped = full_envelope(&record(&legacy, None), legacy);
         assert_eq!(wrapped["outcome"]["state"], "completed");
         assert_eq!(wrapped["outcome"]["effect"], "none");
     }
@@ -525,7 +716,7 @@ mod tests {
     #[test]
     fn the_payload_hash_identifies_the_exact_returned_bytes() {
         let legacy = legacy_inspect();
-        let wrapped = wrap_v2(&record(&legacy, None), legacy.clone());
+        let wrapped = full_envelope(&record(&legacy, None), legacy.clone());
         let digest = &wrapped["identity"]["payloadHash"];
         assert_eq!(digest["algorithm"], "sha256");
         assert_eq!(digest["encoding"], "lower_hex");
@@ -535,8 +726,8 @@ mod tests {
     #[test]
     fn two_captures_of_identical_bytes_get_distinct_observation_ids() {
         let legacy = legacy_inspect();
-        let first = wrap_v2(&record(&legacy, None), legacy.clone());
-        let second = wrap_v2(&record(&legacy, None), legacy.clone());
+        let first = full_envelope(&record(&legacy, None), legacy.clone());
+        let second = full_envelope(&record(&legacy, None), legacy.clone());
         // Same payload hash, different capture identity: a capture is an event.
         assert_eq!(
             first["identity"]["payloadHash"],
@@ -592,7 +783,7 @@ mod tests {
     #[test]
     fn the_envelope_reports_capability_state_so_a_caller_can_negotiate() {
         let legacy = legacy_inspect();
-        let wrapped = wrap_v2(&record(&legacy, None), legacy);
+        let wrapped = full_envelope(&record(&legacy, None), legacy);
         let capabilities = &wrapped["capabilities"];
         assert_eq!(capabilities["outputV2"]["state"], "supported");
         // Everything this producer cannot serve stays `unknown` on the wire,
@@ -604,7 +795,7 @@ mod tests {
     #[test]
     fn the_envelope_round_trips_through_the_contract_types() {
         let legacy = legacy_inspect();
-        let wrapped = wrap_v2(&record(&legacy, None), legacy);
+        let wrapped = full_envelope(&record(&legacy, None), legacy);
         let identity: ObservationIdentity =
             serde_json::from_value(wrapped["identity"].clone()).unwrap();
         assert_eq!(identity.contract, OutputContract::V2);
@@ -613,5 +804,124 @@ mod tests {
         let coverage: ObservationCoverage =
             serde_json::from_value(wrapped["coverage"].clone()).unwrap();
         assert_eq!(coverage.requested, 4);
+    }
+
+    /// A payload the version 1 codec genuinely factors into a compact document.
+    ///
+    /// Measured on this codec: 4 nodes x 3 params is `NotSmaller` (553 vs 721)
+    /// because the transform legend costs more than the repetition saves, while
+    /// 4 x 8 is `Compact` (1113 vs 1101). The compact view is chosen by
+    /// measurement, not assumed, which is why the fixture is sized to the
+    /// point where factoring actually pays.
+    fn fat_legacy() -> Value {
+        let node = |index: usize| {
+            let params: Vec<Value> = (0..8)
+                .map(|p| serde_json::json!({"name": format!("parameter_name_{p}")}))
+                .collect();
+            serde_json::json!({
+                "ok": true,
+                "path": format!("/project1/node_{index}"),
+                "params": params,
+            })
+        };
+        serde_json::json!({
+            "ok": true,
+            "nodes": [node(0), node(1), node(2), node(3)],
+        })
+    }
+
+    #[test]
+    fn omitting_the_view_returns_full_data_and_never_compacts() {
+        let legacy = fat_legacy();
+        let wrapped = full_envelope(&record(&legacy, None), legacy.clone());
+        assert_eq!(wrapped["presentation"]["requested"], "full");
+        assert_eq!(wrapped["presentation"]["applied"], "full");
+        assert_eq!(wrapped["data"], legacy);
+        // No byte accounting was performed for a representation nobody asked for.
+        assert!(wrapped["presentation"]["bytes"].get("full").is_none());
+    }
+
+    #[test]
+    fn a_compact_request_that_compacts_reports_both_and_decodes_back_exactly() {
+        let legacy = fat_legacy();
+        let wrapped = wrap_v2(
+            &record(&legacy, None),
+            legacy.clone(),
+            &options(Some(OutputView::Compact)),
+        )
+        .unwrap();
+        let presentation = &wrapped["presentation"];
+        assert_eq!(presentation["requested"], "compact");
+        assert_eq!(presentation["applied"], "compact");
+        assert!(presentation["fullReason"].is_null());
+
+        let full_bytes = presentation["bytes"]["full"].as_u64().unwrap();
+        let compact_bytes = presentation["bytes"]["compact"].as_u64().unwrap();
+        assert!(
+            compact_bytes < full_bytes,
+            "compact was applied but was not smaller: {compact_bytes} vs {full_bytes}"
+        );
+        assert!(presentation["bytes"]["transforms"].as_u64().unwrap() > 0);
+
+        // The compact document is what the caller receives, and it decodes back
+        // to exactly the value a non-compact caller would have received.
+        let decoded = OutputCodec::default()
+            .decode_compact(CompactOutput::from_wire_value(wrapped["data"].clone()).unwrap())
+            .unwrap();
+        assert_eq!(decoded, legacy);
+    }
+
+    #[test]
+    fn a_compact_request_that_cannot_compact_is_reported_not_passed_off_as_compact() {
+        // A payload with nothing the codec can factor: one node, no roster.
+        let legacy = serde_json::json!({"ok": true, "nodes": [{"ok": true, "path": "/p"}]});
+        let wrapped = wrap_v2(
+            &record(&legacy, None),
+            legacy.clone(),
+            &options(Some(OutputView::Compact)),
+        )
+        .unwrap();
+        let presentation = &wrapped["presentation"];
+        // The caller asked for compact and received full. That must be visible.
+        assert_eq!(presentation["requested"], "compact");
+        assert_eq!(presentation["applied"], "full");
+        assert!(!presentation["fullReason"].is_null());
+        // The full value is intact, not trimmed to make compact look plausible.
+        assert_eq!(wrapped["data"], legacy);
+    }
+
+    #[test]
+    fn compact_view_is_only_advertised_as_supported_when_it_was_returned() {
+        let legacy = fat_legacy();
+        let compact = wrap_v2(
+            &record(&legacy, None),
+            legacy.clone(),
+            &options(Some(OutputView::Compact)),
+        )
+        .unwrap();
+        assert_eq!(compact["capabilities"]["compactView"]["state"], "supported");
+
+        let full = full_envelope(&record(&legacy, None), legacy);
+        assert_eq!(full["capabilities"]["compactView"]["state"], "unknown");
+    }
+
+    #[test]
+    fn a_compact_response_keeps_the_payload_hash_verifiable_after_decoding() {
+        let legacy = fat_legacy();
+        let wrapped = wrap_v2(
+            &record(&legacy, None),
+            legacy.clone(),
+            &options(Some(OutputView::Compact)),
+        )
+        .unwrap();
+        let decoded = OutputCodec::default()
+            .decode_compact(CompactOutput::from_wire_value(wrapped["data"].clone()).unwrap())
+            .unwrap();
+        // The digest covers the legacy value, so a caller that reconstructs it
+        // from the compact document can still verify what it received.
+        assert_eq!(
+            wrapped["identity"]["payloadHash"]["value"],
+            hash_identity(&decoded).value
+        );
     }
 }

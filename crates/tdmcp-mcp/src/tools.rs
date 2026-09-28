@@ -1641,7 +1641,15 @@ async fn dispatch_tool_inner(
                 target,
                 bridge_generation,
             );
-            Ok(output_v2::wrap_v2(&record, legacy))
+            output_v2::wrap_v2(&record, legacy, &options).map_err(|error| {
+                coded_failure(
+                    catalog,
+                    tool,
+                    codes::OP_OBSERVATION_UNAVAILABLE,
+                    "output.view",
+                    format!("the requested output view could not be built: {error}"),
+                )
+            })
         }
         ToolName::MutateNodes => {
             let mut params: MutateNodesParams = parse_args(catalog, tool, args.clone())?;
