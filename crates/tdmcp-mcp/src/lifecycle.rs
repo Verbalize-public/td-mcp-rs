@@ -223,35 +223,64 @@ fn ensure_project_from_template(
             })?;
         }
     }
-    // Atomic copy: tmp file then rename to avoid partial .toe on crash.
-    let tmp = target_path.with_extension(format!(
-        "tmp-{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0)
-    ));
-    std::fs::copy(&template, &tmp).map_err(|e| CodedError {
-        message: format!("copy template -> {}: {e}", target_path.display()),
-        code: "spawn.create_failed",
-    })?;
-    // Best-effort atomic publish.
-    if let Err(e) = std::fs::rename(&tmp, target_path) {
-        // Cross-device rename may fail — fall back to copy+remove.
-        let _ = std::fs::copy(&tmp, target_path);
-        let _ = std::fs::remove_file(&tmp);
-        if !target_path.is_file() {
-            return Err(CodedError {
-                message: format!("publish template to {}: {e}", target_path.display()),
-                code: "spawn.create_failed",
-            });
-        }
-    }
+    publish_template_copy(&template, target_path)?;
     tracing::info!(
         template = %template.display(),
         target = %target_path.display(),
         "spawn_td: created new project from template"
     );
+    Ok(())
+}
+
+fn publish_template_copy(template: &Path, target: &Path) -> Result<(), CodedError> {
+    let temporary = target.with_extension(format!("tmp-{}", uuid::Uuid::new_v4().simple()));
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut output = options.open(&temporary).map_err(|error| CodedError {
+        message: format!("create staged project {}: {error}", temporary.display()),
+        code: "spawn.create_failed",
+    })?;
+    let copied = (|| -> std::io::Result<()> {
+        let mut input = std::fs::File::open(template)?;
+        std::io::copy(&mut input, &mut output)?;
+        output.sync_all()
+    })();
+    drop(output);
+    if let Err(error) =
+        copied.and_then(|()| tdmcp_projectio::publish::rename_noreplace(&temporary, target))
+    {
+        let cleanup = std::fs::remove_file(&temporary);
+        return Err(CodedError {
+            message: format!(
+                "project creation failed without replacing {}: {error}; staged cleanup: {}",
+                target.display(),
+                match cleanup {
+                    Ok(()) => "complete".to_owned(),
+                    Err(cleanup_error) =>
+                        format!("{cleanup_error}; retained at {}", temporary.display()),
+                }
+            ),
+            code: "spawn.create_failed",
+        });
+    }
+    #[cfg(unix)]
+    {
+        let parent = target
+            .parent()
+            .filter(|path| !path.as_os_str().is_empty())
+            .unwrap_or(Path::new("."));
+        if let Err(error) = std::fs::File::open(parent).and_then(|directory| directory.sync_all()) {
+            return Err(CodedError {
+                message: format!("project {} was created but directory sync failed: {error}; reconcile the file before retrying, no process launched", target.display()),
+                code: "spawn.create_failed",
+            });
+        }
+    }
     Ok(())
 }
 
@@ -315,25 +344,53 @@ pub async fn spawn_td(
             },
         );
         if !ok {
+            tokio::spawn(reap_owned_child(child, registry.clone(), pid, started_at));
             return Err(CodedError {
-                message: format!("pid {pid} already registered connected"),
+                message: format!("process {pid} was launched but registry ownership conflicts; reconcile before another spawn"),
                 code: "spawn.spawn_failed",
             });
         }
     }
     tracing::info!(pid, exe = %install.exe.display(), "TouchDesigner spawned");
 
-    // Detached waiter: survives client disconnect; always drives the row to a
-    // terminal state (Connected via handshake heal / removed on death).
+    let (rx, _owner) = spawn_waiter(
+        child,
+        registry.clone(),
+        pid,
+        started_at,
+        Duration::from_millis(wait_timeout_ms.max(1000)),
+    );
+
+    match rx.await {
+        Ok(v) => Ok(v),
+        Err(_) => Err(CodedError {
+            message: "spawn waiter dropped unexpectedly".into(),
+            code: "spawn.wait_timeout",
+        }),
+    }
+}
+
+fn spawn_waiter(
+    child: std::process::Child,
+    registry: Arc<AsyncMutex<PidRegistry>>,
+    pid: u32,
+    started_at: chrono::DateTime<chrono::Utc>,
+    wait_timeout: Duration,
+) -> (
+    tokio::sync::oneshot::Receiver<Value>,
+    tokio::task::JoinHandle<()>,
+) {
+    // Detached waiter survives client disconnect. A reply ends only the caller's
+    // wait: the same owned child is reaped after handshake or wait expiry too.
     let (tx, rx) = tokio::sync::oneshot::channel::<Value>();
-    let reg2 = registry.clone();
+    let reg2 = registry;
     let shared_dialogs = crate::dialogs::get().cloned();
-    tokio::spawn(async move {
+    let handle = tokio::spawn(async move {
         let mut child = child;
-        let deadline = Instant::now() + Duration::from_millis(wait_timeout_ms.max(1000));
+        let deadline = Instant::now() + wait_timeout;
         loop {
             if let Ok(Some(code)) = child.try_wait() {
-                reg2.lock().await.remove_starting(pid);
+                reap_owned_child(child, reg2, pid, started_at).await;
                 let _ = tx.send(json!({
                     "ok": false,
                     "outcome": "exited_early",
@@ -345,7 +402,11 @@ pub async fn spawn_td(
             {
                 let reg = reg2.lock().await;
                 if let Some(e) = reg.get(pid) {
-                    if e.bridge == tdmcp_core::BridgeStatus::Connected {
+                    if e.bridge == tdmcp_core::BridgeStatus::Connected
+                        && e.spawn
+                            .as_ref()
+                            .is_some_and(|spawn| spawn.started_at == started_at)
+                    {
                         let payload = json!({
                             "ok": true,
                             "pid": pid,
@@ -358,11 +419,15 @@ pub async fn spawn_td(
                             }),
                         });
                         let _ = tx.send(payload);
-                        return; // Connected row stays; normal ownership from here.
+                        drop(reg);
+                        reap_owned_child(child, reg2, pid, started_at).await;
+                        return;
                     }
                 } else {
-                    // Row vanished (external cleanup) — nothing to own.
+                    // Registry cleanup is not process exit: retain the child owner.
                     let _ = tx.send(json!({"ok": false, "outcome": "wait_timeout", "pid": pid}));
+                    drop(reg);
+                    reap_owned_child(child, reg2, pid, started_at).await;
                     return;
                 }
             }
@@ -376,20 +441,54 @@ pub async fn spawn_td(
                         d.snapshots.lock().unwrap_or_else(|p| p.into_inner()).get(&pid).cloned()
                     }),
                 }));
+                reap_owned_child(child, reg2, pid, started_at).await;
                 return;
             }
             tokio::time::sleep(Duration::from_millis(500)).await;
         }
     });
 
-    match rx.await {
-        Ok(v) => Ok(v),
-        Err(_) => Err(CodedError {
-            message: "spawn waiter dropped unexpectedly".into(),
-            code: "spawn.wait_timeout",
-        }),
+    (rx, handle)
+}
+
+// A reply/registry row lifetime is shorter than OS child ownership. This loop
+// never kills a process, and only removes a starting row with our exact spawn
+// provenance. Connected/disconnected cleanup remains the IPC session's job.
+async fn reap_owned_child(
+    mut child: std::process::Child,
+    registry: Arc<AsyncMutex<PidRegistry>>,
+    pid: u32,
+    started_at: chrono::DateTime<chrono::Utc>,
+) {
+    let mut wait_error_reported = false;
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => {
+                let mut reg = registry.lock().await;
+                if reg
+                    .get(pid)
+                    .and_then(|entry| entry.spawn.as_ref())
+                    .is_some_and(|spawn| spawn.started_at == started_at)
+                {
+                    reg.remove_starting(pid);
+                }
+                return;
+            }
+            Ok(None) => {}
+            Err(error) => {
+                if !wait_error_reported {
+                    tracing::warn!(pid, %error, "owned child wait failed; retaining supervision, exit unknown");
+                    wait_error_reported = true;
+                }
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
     }
 }
+
+#[cfg(test)]
+#[path = "lifecycle_reaper_tests.rs"]
+mod reaper_tests;
 
 /// True when the process image basename is TouchDesigner (any platform).
 fn is_touchdesigner_image(name: &str) -> bool {
