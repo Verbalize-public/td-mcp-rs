@@ -14,8 +14,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use tdmcp_core::{
-    AggregatedFleetProcess, BridgeMethod, DaemonId, LenientU32, OpPath, Pid, PidRegistry,
-    PidResolve, SlaveReachability, TaskMode,
+    AggregatedFleetProcess, BridgeMethod, DaemonId, LenientU32, OpPath, OutputOptions, Pid,
+    PidRegistry, PidResolve, SlaveReachability, TaskMode,
 };
 use tdmcp_diagnostics::{codes, DiagnosticLevel};
 use thiserror::Error;
@@ -30,6 +30,7 @@ use crate::outcomes::{
     map_mutate_outcome, map_perception_outcome, map_script_outcome, session_busy,
     slave_unreachable,
 };
+use crate::output_v2;
 use crate::schema::input_schema_for;
 use crate::server::FederationCtx;
 use crate::session_registry::{BridgeCallSlot, McpSessionRegistry, DAEMON_SCOPE_LOCAL};
@@ -629,6 +630,10 @@ pub struct InspectParams {
     /// Diagnostic payload size (`summary` omits raw traceback).
     #[serde(default)]
     pub diagnostic_level: DiagnosticLevel,
+    /// Opt in to the version 2 output contract. Omitting this returns the
+    /// existing response unchanged; it never implicitly selects a contract.
+    #[serde(default)]
+    pub output: Option<OutputOptions>,
 }
 
 fn bridge_inspect_params(params: &InspectParams) -> Value {
@@ -1575,6 +1580,8 @@ async fn dispatch_tool_inner(
             let method = BridgeMethod::Inspect;
             // Soft-cap is enforced on the bridge; still forward the full list
             // so truncation metadata can report the requested count.
+            let started_at = Utc::now();
+            let started_mono = output_v2::monotonic_nanos();
             let outcome = enqueue_and_call(
                 registry,
                 bridge,
@@ -1583,15 +1590,58 @@ async fn dispatch_tool_inner(
                 bridge_inspect_params(&params),
             )
             .await;
+            let completed_at = Utc::now();
+            let completed_mono = output_v2::monotonic_nanos();
             let span_path = params.paths.first().cloned();
-            map_inspect_outcome(
+            // Captured before the mapping call, which consumes `context_path`.
+            // The query hash must cover the selection actually sent.
+            let query_value =
+                serde_json::to_value(bridge_inspect_params(&params)).unwrap_or(Value::Null);
+            let legacy = map_inspect_outcome(
                 catalog,
                 params.pid,
                 span_path,
                 params.context_path,
                 outcome,
                 params.diagnostic_level,
-            )
+            )?;
+            // No `output` option means no contract was requested, so the legacy
+            // value is returned exactly as it was.
+            let Some(options) = params.output else {
+                return Ok(legacy);
+            };
+            if let Some(reason) = output_v2::retention_rejection(&options) {
+                return Err(coded_failure(
+                    catalog,
+                    tool,
+                    codes::ARGS_WRONG_TYPE,
+                    "output.retain",
+                    reason,
+                ));
+            }
+            // Read the identity fields under the lock rather than cloning the
+            // whole entry, so a concurrent handshake cannot make the reported
+            // fingerprint and generation come from two different connections.
+            let (target, bridge_generation) = {
+                let reg = registry.lock().await;
+                let entry = reg.get(params.pid.get());
+                let launcher_pid = entry.and_then(|e| e.spawn.as_ref()).map(|_| params.pid);
+                let generation = entry.map(|e| e.bridge_identity.connection_generation);
+                (
+                    output_v2::target_for(entry, params.pid, launcher_pid),
+                    generation,
+                )
+            };
+            let record = output_v2::record_observation(
+                &query_value,
+                &legacy,
+                started_at,
+                completed_at,
+                Some((started_mono, completed_mono)),
+                target,
+                bridge_generation,
+            );
+            Ok(output_v2::wrap_v2(&record, legacy))
         }
         ToolName::MutateNodes => {
             let mut params: MutateNodesParams = parse_args(catalog, tool, args.clone())?;
@@ -2076,6 +2126,100 @@ async fn enqueue_and_call(
 async fn clear_queue_keep_connected(registry: &Arc<Mutex<PidRegistry>>, pid: u32) {
     let mut reg = registry.lock().await;
     let _ = reg.cancel_queue_keep_connected(pid);
+}
+
+#[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    reason = "unit tests"
+)]
+mod output_v2_forwarding_tests {
+    use super::{bridge_inspect_params, InspectParams};
+    use serde_json::json;
+
+    #[test]
+    fn omitting_output_leaves_the_legacy_request_untouched() {
+        let params: InspectParams = serde_json::from_value(json!({
+            "pid": 1, "paths": ["/project1"]
+        }))
+        .unwrap();
+        assert!(params.output.is_none());
+        // Nothing about the opt-in reaches the bridge: the wire payload is
+        // byte-identical to the pre-contract request.
+        assert_eq!(
+            bridge_inspect_params(&params),
+            json!({
+                "paths": ["/project1"], "contextPath": null, "include": [], "detailLevel": "summary"
+            })
+        );
+    }
+
+    #[test]
+    fn requesting_a_contract_does_not_change_what_the_bridge_receives() {
+        let without: InspectParams = serde_json::from_value(json!({
+            "pid": 1, "paths": ["/project1"]
+        }))
+        .unwrap();
+        let with: InspectParams = serde_json::from_value(json!({
+            "pid": 1, "paths": ["/project1"], "output": {"contract": "v2"}
+        }))
+        .unwrap();
+        assert!(with.output.is_some());
+        // The contract selects how THIS backend presents the result. It must not
+        // change the work the bridge performs, or two callers asking the same
+        // question would observe different scenes.
+        assert_eq!(
+            bridge_inspect_params(&without),
+            bridge_inspect_params(&with)
+        );
+    }
+
+    #[test]
+    fn an_unknown_output_option_is_rejected_rather_than_ignored() {
+        let err = serde_json::from_value::<InspectParams>(json!({
+            "pid": 1, "paths": ["/project1"], "output": {"contract": "v2", "viev": "compact"}
+        }));
+        assert!(
+            err.is_err(),
+            "a misspelled option must not silently change fidelity"
+        );
+    }
+
+    #[test]
+    fn an_unknown_contract_version_is_rejected() {
+        let err = serde_json::from_value::<InspectParams>(json!({
+            "pid": 1, "paths": ["/project1"], "output": {"contract": "v3"}
+        }));
+        assert!(err.is_err());
+    }
+
+    #[test]
+    fn retain_false_is_accepted_and_recorded_explicitly() {
+        let params: InspectParams = serde_json::from_value(json!({
+            "pid": 1, "paths": ["/project1"], "output": {"contract": "v2", "retain": false}
+        }))
+        .unwrap();
+        let options = params.output.unwrap();
+        assert_eq!(options.retain, Some(false));
+        assert!(crate::output_v2::retention_rejection(&options).is_none());
+    }
+
+    #[test]
+    fn retain_true_is_accepted_by_the_parser_and_refused_by_the_producer() {
+        // Parsing succeeds; the refusal happens where the backend knows it
+        // cannot honor it. A parse-time rejection would report a type error
+        // for what is really an unsupported capability.
+        let params: InspectParams = serde_json::from_value(json!({
+            "pid": 1, "paths": ["/project1"], "output": {"contract": "v2", "retain": true}
+        }))
+        .unwrap();
+        let options = params.output.unwrap();
+        let reason = crate::output_v2::retention_rejection(&options);
+        assert!(reason.is_some());
+        assert!(reason.unwrap().contains("no permitted reader route"));
+    }
 }
 
 #[cfg(test)]

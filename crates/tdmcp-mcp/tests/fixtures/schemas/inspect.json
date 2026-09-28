@@ -78,6 +78,63 @@
       "description": "Operator path string passed to TD for resolution via `td.op()`.",
       "type": "string"
     },
+    "OutputContract": {
+      "description": "Output contract selected by an opt-in request.",
+      "oneOf": [
+        {
+          "const": "v2",
+          "description": "Typed version 2 output.",
+          "type": "string"
+        }
+      ]
+    },
+    "OutputOptions": {
+      "additionalProperties": false,
+      "description": "Per-request opt-in to version 2 output.\n\nOmission of this entire object keeps the existing legacy response. The\noptions are strict so a misspelled or future unsupported option cannot\nsilently change response fidelity.",
+      "properties": {
+        "contract": {
+          "$ref": "#/$defs/OutputContract",
+          "description": "Requested response contract. Currently only `v2` is defined."
+        },
+        "retain": {
+          "description": "Request retention of the captured projection. Omission does not request\nretention; `Some(false)` records an explicit inline-only preference. A\nproducer must reject `Some(true)` when retention is not implemented or\nno permitted reader route exists.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "view": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OutputView"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Requested representation. Omission requests the full representation;\nit never implicitly enables compact output."
+        }
+      },
+      "required": [
+        "contract"
+      ],
+      "type": "object"
+    },
+    "OutputView": {
+      "description": "Representation requested for a version 2 result.",
+      "oneOf": [
+        {
+          "const": "full",
+          "description": "Complete selected data using its ordinary representation.",
+          "type": "string"
+        },
+        {
+          "const": "compact",
+          "description": "A lossless readable compact representation when supported and smaller.",
+          "type": "string"
+        }
+      ]
+    },
     "ParamsMode": {
       "description": "Parameter inspection mode.",
       "oneOf": [
@@ -172,6 +229,18 @@
         "$ref": "#/$defs/InspectInclude"
       },
       "type": "array"
+    },
+    "output": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/OutputOptions"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Opt in to the version 2 output contract. Omitting this returns the\nexisting response unchanged; it never implicitly selects a contract."
     },
     "paramNames": {
       "default": null,

@@ -18,6 +18,7 @@ pub mod evidence;
 mod fleet;
 pub mod lifecycle;
 mod outcomes;
+pub mod output_v2;
 pub mod output_views;
 pub mod palette;
 
