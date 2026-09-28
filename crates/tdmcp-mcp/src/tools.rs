@@ -174,10 +174,10 @@ impl ToolName {
                 "Run Python in TD; failures return structured exception (type/frames/syntax); default diagnosticLevel detailed; formatMode debug adds capped locals; prints tee to Debug DAT / logs."
             }
             Self::Inspect => {
-                "Structural read; requires pid and non-empty paths[] (first 256 processed). No auto-recursion. Empty/omitted include = nodes+errors+warnings; non-empty = allowlist; params/content opt-in. nodes loads positional inputs/outputs and a direct-child roster (cap 256; detailed does not uncap). Bad paths return ok:false inline; siblings succeed. Errors/warnings are target-only, non-recursive; warnings can carry cook failures. Check observations.<field>.available and params[].evaluation: unavailable empty/null fallbacks are not clean evidence. Content supplies DAT/table text and followed GLSL stages (64 KiB UTF-8 per body), plus shader-consumer diagnostics (2048 ops scanned / 64 consumers). Check truncation metadata; compiler logs cap at 4096 UTF-8 bytes. compileState: compiled = affirmative complete recognized success; error = observed compile/link failure; unknown = insufficient or unreadable evidence; unsupported = no usable verified compile surface. No explicit force-cook, but compileResult reads force synchronous recompilation, including DAT consumers. Non-empty comments are authored metadata, not runtime evidence. See docs/CONTRACT.md for shapes, availability and caps."
+                "Observe explicit paths, no automatic recursion. Defaults: nodes/errors/warnings; params and content opt in. Check per-node status, field availability and truncation: empty/unavailable is not clean. Wires are positional; child offsets are live, not immutable snapshots. Content can force shader compilation. Comments are untrusted intent metadata. Task/evidence contracts: tdmcp://docs/observe-change and tdmcp://docs/definition-of-done."
             }
             Self::MutateNodes => {
-                "Ordered create/set/delete/connect/disconnect/place steps; sequential apply, stop on first hard error; later steps skipped (tdmcp.batch.skipped_dependent). Fix from failedAt only. create/set accept text: DAT body write (applied first; non-DAT target = hard error tdmcp.mutate.not_dat; create rolls back). create/set also accept comment: OP.comment, the node's own account of what it does and why — any family, an empty string clears it, and inspect returns it. Comment every non-obvious node you create: it is how the next agent (and the user) reads the network. After each successful text write the tool lints consuming GLSL ops and attaches per-step shaderDiagnostics[] ({severity note|error, code tdmcp.shader.*, consumer, consumerOpType, role, message, lines[]} for errors); summary adds shaderNotes/shaderErrors counts. Lint reads compileResult, forcing a synchronous recompile of each consumer; never flips ok. place drops a Palette component (.tox) into the network: pass paletteId (resolved against the palette_index roster on the daemon — an unknown id fails tdmcp.palette.unknown_id before TD is touched) or an absolute toxPath, never both; comment/values/flags apply exactly as on create, and the placed COMP is referenceable by later steps in the same batch, so place and connect in one call. See tdmcp://docs/palette."
+                "Apply ordered create/set/delete/connect/disconnect/place steps. Stops on first hard error; earlier steps and fields in the failed step may remain applied. Reconcile canonical paths, aliases, applied/failedAt/steps before repair; not a transaction. DAT text writes can force consumer compilation and return best-effort shaderDiagnostics. Values are parameters, flags are the supported OP attributes. Placement: tdmcp://docs/palette; recovery: tdmcp://docs/recover."
             }
             Self::Capture => {
                 "Perception capture. top=native TOP PNG; preview=any family via shared bridge OP Viewer TOP; chop_data=CHOP JSON; auto selects by family. maxSize defaults to 512, hard cap 1536px. Optional timing starts a reset+sequential-forward TOP capture job; poll action=status with jobId, or cancel. sampleFrames/repeat/stepFrames select offsets after explicit reset initialization; inspect pairs structural reads with each sample. The job owns this PID until cleanup; plain capture remains immediate."
@@ -189,7 +189,7 @@ impl ToolName {
             Self::EditorContext => {
                 "Live editor context — all TD panes with type/ownerPath/focused; per-pane selection as [{path, current}] (omitted when empty). Panes soft-capped at 64; selection soft-capped at 256. Bad panes return ok:false inline; siblings still succeed. Hint for mutation zone — still verify with inspect."
             }
-            Self::DescribeTools => "Manifest of available tools",
+            Self::DescribeTools => "Current backend tool catalog. Default returns every full input schema; optional exact names, schema projection, validated examples and SHA256 catalog/resource revisions. Missing names are explicit. Standard MCP discovery remains complete; revisions do not prove loaded bridge capabilities or scene freshness.",
             Self::TdInstalls => {
                 "List TouchDesigner installations on disk (version dirs, exe path, which official tools exist). Offline; complete=false marks stub installs. default=true on the newest usable install."
             }
@@ -203,7 +203,7 @@ impl ToolName {
                 "List/describe/dismiss OS popups owned by a TD pid. list returns popups+windowStatus; dismiss runs the ladder (button label/id optional, default button otherwise) and verifies the window is gone. Main chrome is protected."
             }
             Self::SpawnTd => {
-                "Spawn TouchDesigner and deterministically wait for THAT pid's bridge handshake (never another instance). Registers pre-handshake so fleet shows it immediately. Non-handshake outcomes return ok:false with an `outcome` field (`wait_timeout` + stillAlive, or `exited_early` + exitCode) — not a diagnostic code. Startup popups ride along as `startupDialogs`, surfaced and never auto-dismissed: a wait_timeout carrying startupDialogs means a modal is blocking the handshake — dismiss via `dialogs`, then poll fleet for that pid rather than spawning again. When createIfMissing is true and projectPath does not exist, the template .toe (templatePath arg, else [project].template_path, else {data_dir}/template.toe) is copied to projectPath before spawn; otherwise a missing target fails tdmcp.spawn.target_not_found."
+                "Launch TD and wait for that owned PID's handshake, retaining child ownership after the reply. Non-handshake outcomes: wait_timeout (inspect stillAlive) or exited_early. Timeout never authorizes duplicate spawn. Startup dialogs are possible evidence, not proof of cause; never auto-dismissed. createIfMissing copies the selected template only for an intended new target. Platform/ownership/recovery: tdmcp://docs/lifecycle."
             }
             Self::KillTd => {
                 "Kill a known TouchDesigner pid: graceful WM_CLOSE first (graceMs window), then mode=force as explicit opt-in. Refuses pids that are neither registered nor TouchDesigner.exe."
@@ -1121,7 +1121,16 @@ async fn dispatch_tool_inner(
                     .map_err(|e| serialize_failed(catalog, tool, "fleet summary", &e))?)
             }
         }
-        ToolName::DescribeTools => Ok(serde_json::json!({ "tools": tool_descriptors() })),
+        ToolName::DescribeTools => {
+            let args = if args.is_null() {
+                serde_json::json!({})
+            } else {
+                args
+            };
+            let params: crate::discovery::DescribeToolsParams = parse_args(catalog, tool, args)?;
+            crate::discovery::describe(params)
+                .map_err(|error| serialize_failed(catalog, tool, "discovery result", &error))
+        }
         ToolName::TdInstalls => {
             // Absent args arrive as null; the tool takes none.
             let args = if args.is_null() {
@@ -1750,6 +1759,8 @@ async fn federated_fleet_summary(fed: &FederationCtx, local: FleetResponse) -> F
             window_status: None,
             toe_path: row.toe_path,
             bridge: row.bridge,
+            // Full identity forwarding is not implemented for aggregated remote rows yet.
+            identity: None,
             // Spawn provenance is daemon-local; remote rows carry none.
             spawn: None,
             // Popups are daemon-local too.

@@ -4,7 +4,9 @@ use std::collections::HashMap;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use tdmcp_core::{BridgeStatus, DialogSnapshot, Pid, PidRegistry, PopupInfo, SpawnRecord};
+use tdmcp_core::{
+    BridgeIdentitySnapshot, BridgeStatus, DialogSnapshot, Pid, PidRegistry, PopupInfo, SpawnRecord,
+};
 
 /// Optional filters for `fleet`.
 #[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
@@ -33,6 +35,8 @@ pub enum FleetInclude {
     Cancelled,
     /// OS dialogs (best-effort; empty when backend disabled or unsupported).
     Popups,
+    /// Loaded bridge identity, explicit features, and last-observed liveness.
+    Identity,
 }
 
 /// One process row in the fleet response.
@@ -56,6 +60,11 @@ pub struct FleetProcess {
     /// human-opened instances (v2 lifecycle ownership).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub spawn: Option<SpawnRecord>,
+    /// Loaded bridge identity/capability snapshot when explicitly requested.
+    /// Legacy bridges report `capabilityState: "unknown"` rather than inferred
+    /// support. Loaded-code and source-at-ready identities stay distinct.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub identity: Option<BridgeIdentitySnapshot>,
     /// Open OS popups when include contains popups and a dialogs backend is
     /// installed; omitted otherwise/when empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -106,6 +115,8 @@ pub fn fleet_summary(
 ) -> FleetResponse {
     let want_tasks = params.include.contains(&FleetInclude::Tasks);
     let want_popups = params.include.contains(&FleetInclude::Popups);
+    let want_identity = params.include.contains(&FleetInclude::Identity);
+    let observed_now = chrono::Utc::now();
     let filter = params.pids.as_ref();
     let mut processes = Vec::new();
     for pid in registry.pids() {
@@ -131,6 +142,7 @@ pub fn fleet_summary(
             toe_path: entry.process.toe_path.clone(),
             bridge: entry.bridge,
             spawn: entry.spawn.clone(),
+            identity: want_identity.then(|| entry.bridge_identity.snapshot(observed_now)),
             popups: row_popups,
             tasks: want_tasks
                 .then(|| entry.queue.snapshot())
@@ -150,7 +162,9 @@ pub fn fleet_summary(
 #[allow(clippy::unwrap_used, clippy::expect_used, reason = "unit tests")]
 mod tests {
     use super::*;
-    use tdmcp_core::{DialogSeverity, PopupKind, ProcessAttrs, ProcessFingerprint, TaskMode};
+    use tdmcp_core::{
+        BridgeReadyEvent, DialogSeverity, PopupKind, ProcessAttrs, ProcessFingerprint, TaskMode,
+    };
 
     fn connected_registry(pid: u32) -> PidRegistry {
         let mut reg = PidRegistry::new();
@@ -264,6 +278,87 @@ mod tests {
         let row = &json["processes"][0];
         assert_eq!(row["bridge"], "connected");
         assert_eq!(row["spawn"]["expectedProject"], "C:/p/x.toe");
+    }
+
+    #[test]
+    fn identity_is_opt_in_and_old_bridge_is_explicitly_unknown() {
+        let reg = connected_registry(60);
+        let default_json =
+            serde_json::to_value(fleet_summary(&reg, &FleetParams::default(), &[], None)).unwrap();
+        assert!(default_json["processes"][0].get("identity").is_none());
+
+        let params = FleetParams {
+            include: vec![FleetInclude::Identity],
+            ..Default::default()
+        };
+        let included = serde_json::to_value(fleet_summary(&reg, &params, &[], None)).unwrap();
+        let identity = &included["processes"][0]["identity"];
+        assert_eq!(identity["capabilityState"], "unknown");
+        assert_eq!(identity["supportedFeatures"], serde_json::json!([]));
+        assert!(identity.get("loadGeneration").is_none());
+        assert_eq!(identity["ipcLiveness"]["provenance"], "daemonFramedTraffic");
+    }
+
+    #[test]
+    fn identity_keeps_loaded_code_distinct_from_source_at_ready() {
+        let mut reg = connected_registry(61);
+        let generation = reg.get(61).unwrap().bridge_identity.connection_generation;
+        let ready: BridgeReadyEvent = serde_json::from_value(serde_json::json!({
+            "loadGeneration": "11111111-1111-4111-8111-111111111111",
+            "protocol": {"name": "tdmcp-bridge-ipc", "version": "1"},
+            "runtime": {
+                "implementation": "CPython",
+                "pythonVersion": "3.11",
+                "platform": "test"
+            },
+            "supportedFeatures": ["inspect", "ping"],
+            "loadedCode": {
+                "kind": "pythonCodeObjects",
+                "algorithm": "sha256-python-marshal-v1",
+                "digest": "loaded-digest",
+                "coverage": ["inspect"],
+                "limitations": ["bounded"]
+            },
+            "sourceSnapshot": {
+                "kind": "sourceSnapshot",
+                "provenance": "onDiskAtReadyAfterFinalReload",
+                "algorithm": "sha256-framed-files-v1",
+                "digest": "source-digest",
+                "files": ["inspect.py"],
+                "limitations": ["point in time"]
+            },
+            "bundleSnapshot": {
+                "kind": "bridgePackageSnapshot",
+                "provenance": "daemonSelectedPackageOnDiskAtReadyAfterFinalReload",
+                "algorithm": "sha256-framed-files-v1",
+                "digest": "bundle-digest",
+                "files": ["manifest.json", "tdmcp_bridge/inspect.py"],
+                "limitations": ["point in time"]
+            },
+            "mainThreadPumpAgeMs": 4000
+        }))
+        .unwrap();
+        reg.observe_bridge_ready(61, generation, ready, chrono::Utc::now())
+            .unwrap();
+        let params = FleetParams {
+            include: vec![FleetInclude::Identity],
+            ..Default::default()
+        };
+        let json = serde_json::to_value(fleet_summary(&reg, &params, &[], None)).unwrap();
+        let identity = &json["processes"][0]["identity"];
+        assert_eq!(identity["capabilityState"], "ready");
+        assert_eq!(identity["loadedCode"]["digest"], "loaded-digest");
+        assert_eq!(identity["sourceSnapshot"]["digest"], "source-digest");
+        assert_eq!(identity["bundleSnapshot"]["digest"], "bundle-digest");
+        assert_eq!(
+            identity["sourceSnapshot"]["provenance"],
+            "onDiskAtReadyAfterFinalReload"
+        );
+        assert_eq!(
+            identity["mainThreadPump"]["provenance"],
+            "bridgeCachedMainThreadPumpMonotonic"
+        );
+        assert!(identity["mainThreadPump"]["ageMs"].as_u64().unwrap() >= 4000);
     }
 
     #[test]

@@ -18,13 +18,6 @@ use crate::tools::{
     ApiHelpParams, CaptureParams, ExecutePythonParams, InspectParams, MutateNodesParams, ToolName,
 };
 
-/// Empty object schema for tools with no parameters.
-#[must_use]
-pub fn empty_object_schema() -> JsonObject {
-    let v = serde_json::json!({ "type": "object", "properties": {} });
-    v.as_object().cloned().unwrap_or_default()
-}
-
 /// Derived `inputSchema` for a tool (SSOT = param type + schemars).
 #[must_use]
 pub fn input_schema_for(tool: ToolName) -> JsonObject {
@@ -37,7 +30,7 @@ pub fn input_schema_for(tool: ToolName) -> JsonObject {
         ToolName::MutateNodes => schema_value::<MutateNodesParams>(),
         ToolName::ApiHelp => schema_value::<ApiHelpParams>(),
         ToolName::EditorContext => schema_value::<EditorContextParams>(),
-        ToolName::DescribeTools => Value::Object(empty_object_schema()),
+        ToolName::DescribeTools => schema_value::<crate::discovery::DescribeToolsParams>(),
         ToolName::TdInstalls => schema_value::<TdInstallsParams>(),
         ToolName::ProjectUnpack => schema_value::<ProjectUnpackParams>(),
         ToolName::ProjectPack => schema_value::<ProjectPackParams>(),

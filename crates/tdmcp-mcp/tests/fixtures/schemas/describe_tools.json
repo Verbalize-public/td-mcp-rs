@@ -1,4 +1,33 @@
 {
-  "properties": {},
+  "additionalProperties": false,
+  "description": "Explicit discovery projections. Omitted arguments preserve the full legacy catalog.",
+  "properties": {
+    "includeExamples": {
+      "default": false,
+      "description": "Include validated illustrative requests (default false); examples never authorize their execution.",
+      "type": "boolean"
+    },
+    "includeRevisions": {
+      "default": false,
+      "description": "Include SHA256 revisions of the owning backend catalog and embedded resources (default false).",
+      "type": "boolean"
+    },
+    "includeSchema": {
+      "default": true,
+      "description": "Include complete derived input schemas (default true). False is an explicit projection, not compressed schemas.",
+      "type": "boolean"
+    },
+    "names": {
+      "default": null,
+      "description": "Exact case-sensitive names, in requested order. Omitted/null selects all; [] selects none. At most 64 names.",
+      "items": {
+        "type": "string"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    }
+  },
   "type": "object"
 }

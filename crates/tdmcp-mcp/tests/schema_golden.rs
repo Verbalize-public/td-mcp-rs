@@ -53,6 +53,11 @@ fn every_tool_schema_matches_golden() {
 }
 
 #[test]
+fn describe_tools_schema_matches_golden() {
+    assert_schema_matches("describe_tools");
+}
+
+#[test]
 fn deny_unknown_fields_rejects_extra() {
     let err = serde_json::from_value::<tdmcp_mcp::ExecutePythonParams>(serde_json::json!({
         "pid": 1,
