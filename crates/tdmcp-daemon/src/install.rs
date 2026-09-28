@@ -20,6 +20,87 @@ const CATALOG_YAML: &str = include_str!("../../../diagnostics/catalog.yaml");
 /// Retain the project's license even when installing from a standalone binary.
 const PROJECT_LICENSE: &str = include_str!("../../../LICENSE");
 
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+mod third_party_assets {
+    use include_dir::{include_dir, Dir};
+
+    pub const NOTICES: &str = include_str!(
+        "../../../third-party/generated/x86_64-unknown-linux-gnu/THIRD_PARTY_NOTICES.txt"
+    );
+    pub const SOURCE_OFFER: &str =
+        include_str!("../../../third-party/generated/x86_64-unknown-linux-gnu/SOURCE_OFFER.md");
+    pub const INVENTORY: &str =
+        include_str!("../../../third-party/generated/x86_64-unknown-linux-gnu/inventory.json");
+    pub static LICENSES: Dir<'_> = include_dir!(
+        "$CARGO_MANIFEST_DIR/../../third-party/generated/x86_64-unknown-linux-gnu/licenses"
+    );
+    pub static SOURCES: Dir<'_> = include_dir!(
+        "$CARGO_MANIFEST_DIR/../../third-party/generated/x86_64-unknown-linux-gnu/sources"
+    );
+}
+
+#[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+mod third_party_assets {
+    use include_dir::{include_dir, Dir};
+
+    pub const NOTICES: &str = include_str!(
+        "../../../third-party/generated/x86_64-pc-windows-msvc/THIRD_PARTY_NOTICES.txt"
+    );
+    pub const SOURCE_OFFER: &str =
+        include_str!("../../../third-party/generated/x86_64-pc-windows-msvc/SOURCE_OFFER.md");
+    pub const INVENTORY: &str =
+        include_str!("../../../third-party/generated/x86_64-pc-windows-msvc/inventory.json");
+    pub static LICENSES: Dir<'_> = include_dir!(
+        "$CARGO_MANIFEST_DIR/../../third-party/generated/x86_64-pc-windows-msvc/licenses"
+    );
+    pub static SOURCES: Dir<'_> = include_dir!(
+        "$CARGO_MANIFEST_DIR/../../third-party/generated/x86_64-pc-windows-msvc/sources"
+    );
+}
+
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+mod third_party_assets {
+    use include_dir::{include_dir, Dir};
+
+    pub const NOTICES: &str =
+        include_str!("../../../third-party/generated/aarch64-apple-darwin/THIRD_PARTY_NOTICES.txt");
+    pub const SOURCE_OFFER: &str =
+        include_str!("../../../third-party/generated/aarch64-apple-darwin/SOURCE_OFFER.md");
+    pub const INVENTORY: &str =
+        include_str!("../../../third-party/generated/aarch64-apple-darwin/inventory.json");
+    pub static LICENSES: Dir<'_> = include_dir!(
+        "$CARGO_MANIFEST_DIR/../../third-party/generated/aarch64-apple-darwin/licenses"
+    );
+    pub static SOURCES: Dir<'_> = include_dir!(
+        "$CARGO_MANIFEST_DIR/../../third-party/generated/aarch64-apple-darwin/sources"
+    );
+}
+
+#[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+mod third_party_assets {
+    use include_dir::{include_dir, Dir};
+
+    pub const NOTICES: &str =
+        include_str!("../../../third-party/generated/x86_64-apple-darwin/THIRD_PARTY_NOTICES.txt");
+    pub const SOURCE_OFFER: &str =
+        include_str!("../../../third-party/generated/x86_64-apple-darwin/SOURCE_OFFER.md");
+    pub const INVENTORY: &str =
+        include_str!("../../../third-party/generated/x86_64-apple-darwin/inventory.json");
+    pub static LICENSES: Dir<'_> = include_dir!(
+        "$CARGO_MANIFEST_DIR/../../third-party/generated/x86_64-apple-darwin/licenses"
+    );
+    pub static SOURCES: Dir<'_> =
+        include_dir!("$CARGO_MANIFEST_DIR/../../third-party/generated/x86_64-apple-darwin/sources");
+}
+
+#[cfg(not(any(
+    all(target_os = "linux", target_arch = "x86_64"),
+    all(target_os = "windows", target_arch = "x86_64"),
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "macos", target_arch = "x86_64"),
+)))]
+compile_error!("no generated third-party inventory for this unsupported release target");
+
 /// Shipped bootstrap tox (thin dialer — handshake → FS load of `bridge/`).
 const BOOTSTRAP_TOX: &[u8] = include_bytes!("../embedded/bootstrap.tox");
 
@@ -44,7 +125,8 @@ pub enum InstallOutcome {
 }
 
 /// Ensure `{data_dir}` contains bridge/, diagnostics/catalog.yaml, bootstrap.tox,
-/// skills/, LICENSE, and an `install.version` stamp matching this binary.
+/// skills/, project/third-party license records, and an `install.version` stamp
+/// matching this binary.
 ///
 /// When `force` is true, always re-extract even if the stamp and marker files
 /// already match this binary version (same-version bridge/catalog refresh).
@@ -82,6 +164,9 @@ pub fn ensure_installed(data_dir: &Path, force: bool) -> Result<InstallOutcome> 
         "bootstrap.tox",
         "bootstrap.py",
         "LICENSE",
+        "THIRD_PARTY_NOTICES.txt",
+        "SOURCE_OFFER.md",
+        "third-party",
     ];
     // This file is a user-customizable project, not a managed runtime asset.
     if !data_dir.join("template.toe").exists() {
@@ -157,6 +242,14 @@ fn assets_current(data_dir: &Path, stamp_path: &Path, version: &str) -> bool {
         && data_dir.join("bootstrap.tox").is_file()
         && data_dir.join("template.toe").is_file()
         && data_dir.join("LICENSE").is_file()
+        && data_dir.join("THIRD_PARTY_NOTICES.txt").is_file()
+        && data_dir.join("SOURCE_OFFER.md").is_file()
+        && data_dir
+            .join("third-party")
+            .join("inventory.json")
+            .is_file()
+        && data_dir.join("third-party").join("licenses").is_dir()
+        && data_dir.join("third-party").join("sources").is_dir()
         && data_dir
             .join("skills")
             .join("touchdesigner")
@@ -166,6 +259,33 @@ fn assets_current(data_dir: &Path, stamp_path: &Path, version: &str) -> bool {
 
 fn extract_all(data_dir: &Path) -> Result<()> {
     fs::write(data_dir.join("LICENSE"), PROJECT_LICENSE).context("write project license")?;
+    fs::write(
+        data_dir.join("THIRD_PARTY_NOTICES.txt"),
+        third_party_assets::NOTICES,
+    )
+    .context("write third-party notices")?;
+    fs::write(
+        data_dir.join("SOURCE_OFFER.md"),
+        third_party_assets::SOURCE_OFFER,
+    )
+    .context("write third-party source offer")?;
+    let third_party_dir = data_dir.join("third-party");
+    fs::create_dir_all(&third_party_dir)
+        .with_context(|| format!("create {}", third_party_dir.display()))?;
+    fs::write(
+        third_party_dir.join("inventory.json"),
+        third_party_assets::INVENTORY,
+    )
+    .context("write third-party inventory")?;
+    let licenses_dir = third_party_dir.join("licenses");
+    fs::create_dir_all(&licenses_dir)
+        .with_context(|| format!("create {}", licenses_dir.display()))?;
+    extract_dir(&third_party_assets::LICENSES, &licenses_dir)?;
+    let sources_dir = third_party_dir.join("sources");
+    fs::create_dir_all(&sources_dir)
+        .with_context(|| format!("create {}", sources_dir.display()))?;
+    extract_dir(&third_party_assets::SOURCES, &sources_dir)?;
+
     let bridge_dir = data_dir.join("bridge");
     fs::create_dir_all(&bridge_dir)
         .with_context(|| format!("create bridge dir {}", bridge_dir.display()))?;
@@ -433,20 +553,45 @@ mod tests {
     use tempfile::tempdir;
 
     #[test]
-    fn standalone_install_includes_license_and_repairs_older_installation() {
+    fn standalone_install_includes_license_records_and_repairs_older_installation() {
         let data = tempdir().unwrap();
         assert_eq!(
             ensure_installed(data.path(), false).unwrap(),
             InstallOutcome::Extracted
         );
         let license = data.path().join("LICENSE");
+        let notices = data.path().join("THIRD_PARTY_NOTICES.txt");
+        let offer = data.path().join("SOURCE_OFFER.md");
+        let inventory = data.path().join("third-party/inventory.json");
         assert_eq!(fs::read_to_string(&license).unwrap(), PROJECT_LICENSE);
+        assert_eq!(
+            fs::read_to_string(&notices).unwrap(),
+            third_party_assets::NOTICES
+        );
+        assert_eq!(
+            fs::read_to_string(&offer).unwrap(),
+            third_party_assets::SOURCE_OFFER
+        );
+        assert_eq!(
+            fs::read_to_string(&inventory).unwrap(),
+            third_party_assets::INVENTORY
+        );
+        assert!(data.path().join("third-party/licenses").is_dir());
+        assert!(data
+            .path()
+            .join("third-party/sources/option-ext-0.2.0.crate")
+            .is_file());
         fs::remove_file(&license).unwrap();
+        fs::remove_file(&notices).unwrap();
         assert_eq!(
             ensure_installed(data.path(), false).unwrap(),
             InstallOutcome::Extracted
         );
         assert_eq!(fs::read_to_string(&license).unwrap(), PROJECT_LICENSE);
+        assert_eq!(
+            fs::read_to_string(&notices).unwrap(),
+            third_party_assets::NOTICES
+        );
         assert_eq!(
             ensure_installed(data.path(), false).unwrap(),
             InstallOutcome::AlreadyCurrent
@@ -524,6 +669,13 @@ mod tests {
         assert!(data.join("diagnostics/catalog.yaml").is_file());
         assert!(data.join("bootstrap.tox").is_file());
         assert!(data.join("template.toe").is_file());
+        assert!(data.join("THIRD_PARTY_NOTICES.txt").is_file());
+        assert!(data.join("SOURCE_OFFER.md").is_file());
+        assert!(data.join("third-party/inventory.json").is_file());
+        assert!(data.join("third-party/licenses").is_dir());
+        assert!(data
+            .join("third-party/sources/option-ext-0.2.0.crate")
+            .is_file());
         assert!(data.join("skills/touchdesigner/SKILL.md").is_file());
         assert!(data
             .join("skills/touchdesigner/reference/opsketch-notation.md")

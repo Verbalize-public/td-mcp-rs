@@ -41,11 +41,37 @@ python scripts/package_smoke.py target/debug/tdmcp-daemon
 `xtask release patch|minor|major` updates versions/changelog, commits, and
 creates a tag; it does not push. Inspect a dry run first.
 Packaging uses the same xtask command locally and in CI.
-Archives include the executable and project `LICENSE`; Windows setup and the
-macOS app bundle preserve that license. The daemon also extracts it to its
-data directory when installed from a standalone binary. Use `package_smoke.py --distribution`
-on an extracted archive to check it. Third-party notice coverage still needs
-review before publication; see [current limitations](OPEN_WORK.md).
+Archives include the executable, project `LICENSE`, target-specific
+`THIRD_PARTY_NOTICES.txt`, `SOURCE_OFFER.md`, and the referenced license/source
+inventory under `third-party/`. Windows setup and the macOS app bundle preserve
+all of those records. The daemon also embeds and extracts them to its data
+directory when installed from a standalone binary. Use
+`package_smoke.py --distribution` on an extracted archive to verify hashes and
+coverage before publication.
+
+`python scripts/generate_third_party_notices.py` derives each inventory from the
+locked daemon release graph (GUI feature; normal dependencies actually shipped
+in the executable) for all four release targets. Build-only tools remain covered
+by cargo-deny's policy gate but are not represented as redistributed code in the
+notice inventory. `--check` is part of `scripts/check_dependencies.py` and
+fails on lock/version/source or notice-text drift. Published crates that omit an
+inherited workspace license use pinned SPDX License List 3.27.0 texts. The
+inventory also preserves nested component terms that crate-level metadata does
+not expose: the selected FreeType fallback is FTL (the alternative GPLv2 text is
+retained too), and Plasma protocol XML includes LGPL-2.1-or-later/MIT-CMU/BSD/
+CC0 terms. MPL and LGPL-covered dependency source archives are copied exactly
+from Cargo's cache and checksum-matched to Cargo.lock; the source offer states
+truthfully that td-mcp-rs does not modify those dependency files and gives
+rebuild/relink instructions.
+
+Before publishing, the publisher must verify that the source archive for the
+matching release tag is the exact td-mcp-rs revision used for each binary and
+remains available with the release. Local generation or a rehearsal does not
+prove that source-publication requirement. A new dependency, target, nested
+component, or license requires regeneration and policy review.
+
+This notice integration does not change signing: Windows publisher signing and
+macOS Developer ID/notarization still require credentials.
 
 ## Installation behavior
 

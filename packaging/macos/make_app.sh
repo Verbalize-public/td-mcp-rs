@@ -26,10 +26,12 @@ REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 PLIST_TEMPLATE="$REPO_ROOT/packaging/macos/Info.plist.template"
 ENTITLEMENTS="$REPO_ROOT/packaging/macos/entitlements.plist"
 ICON_SRC="$REPO_ROOT/crates/tdmcp-gui/assets/icon-normal.png"
+NOTICE_SRC="$REPO_ROOT/third-party/generated/$TARGET"
 
 [[ -f "$BIN" ]] || { echo "binary not found: $BIN" >&2; exit 1; }
 [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "invalid release version: $VERSION" >&2; exit 1; }
 [[ "$TARGET" == aarch64-apple-darwin || "$TARGET" == x86_64-apple-darwin ]] || { echo "unsupported macOS target: $TARGET" >&2; exit 1; }
+[[ -f "$NOTICE_SRC/THIRD_PARTY_NOTICES.txt" && -f "$NOTICE_SRC/SOURCE_OFFER.md" && -f "$NOTICE_SRC/inventory.json" && -d "$NOTICE_SRC/licenses" && -d "$NOTICE_SRC/sources" ]] || { echo "incomplete third-party notices: $NOTICE_SRC" >&2; exit 1; }
 [[ -n "$OUT" && "$OUT" != / ]] || { echo "choose a non-root output directory" >&2; exit 1; }
 mkdir -p "$OUT"
 OUT="$(cd "$OUT" && pwd)"
@@ -65,6 +67,12 @@ echo "== bundle $APP_NAME =="
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/tdmcp-daemon"
 cp "$REPO_ROOT/LICENSE" "$APP/Contents/Resources/LICENSE"
+cp "$NOTICE_SRC/THIRD_PARTY_NOTICES.txt" "$APP/Contents/Resources/THIRD_PARTY_NOTICES.txt"
+cp "$NOTICE_SRC/SOURCE_OFFER.md" "$APP/Contents/Resources/SOURCE_OFFER.md"
+mkdir -p "$APP/Contents/Resources/third-party"
+cp "$NOTICE_SRC/inventory.json" "$APP/Contents/Resources/third-party/inventory.json"
+cp -R "$NOTICE_SRC/licenses" "$APP/Contents/Resources/third-party/licenses"
+cp -R "$NOTICE_SRC/sources" "$APP/Contents/Resources/third-party/sources"
 chmod 755 "$APP/Contents/MacOS/tdmcp-daemon"
 
 echo "== icns from $(basename "$ICON_SRC") =="

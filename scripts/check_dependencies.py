@@ -47,6 +47,16 @@ def check(run=subprocess.run):
                         print(f'  {label.get("span", "")}: {label["message"]}')
                 for note in fields.get("notes", [])[:2]:
                     print(f"  {note}")
+    print("Dependency notice drift check", flush=True)
+    notice = run(
+        [sys.executable, "scripts/generate_third_party_notices.py", "--check"],
+        cwd=ROOT, capture_output=True, text=True, timeout=300,
+    )
+    if notice.stdout:
+        print(notice.stdout, end="")
+    if notice.stderr:
+        print(notice.stderr, end="")
+    failed |= notice.returncode != 0
     return int(failed)
 
 

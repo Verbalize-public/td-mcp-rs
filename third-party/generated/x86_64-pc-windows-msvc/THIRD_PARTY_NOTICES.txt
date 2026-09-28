@@ -1,0 +1,2921 @@
+td-mcp-rs third-party notices
+================================
+
+Release target: x86_64-pc-windows-msvc
+Cargo.lock SHA-256: 4a1244fdbee36e5471fda36d76faae4e945bbd70e2898699bcb59ce54f1c92a6
+
+This inventory is generated from the locked tdmcp-daemon release graph
+with the gui feature enabled. License and notice texts are stored in
+the adjacent licenses/ directory under content-addressed names.
+
+accesskit 0.24.1
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/accesskit/0.24.1/download
+  Cargo.lock checksum: d3b7f7f85a7e5f68090000ed7622545829afd484d210358702ae4cb97dd0c320
+  Authors: The AccessKit contributors
+  Repository: https://github.com/AccessKit/accesskit
+  Notice: licenses/074e6e32c86a4c0ef8b3ed25b721ca23aca83df277cd88106ef7177c354615ff.txt (upstream SPDX/Apache-2.0.txt; SPDX-3.27.0)
+  Notice: licenses/b05785f9f18e6716bab63424b11454513b9943a222595b70411009202fc592b5.txt (upstream SPDX/MIT.txt; SPDX-3.27.0)
+
+accesskit_consumer 0.35.0
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/accesskit_consumer/0.35.0/download
+  Cargo.lock checksum: 53cf47daed85312e763fbf85ceca136e0d7abc68e0a7e12abe11f48172bc3b10
+  Authors: The AccessKit contributors
+  Repository: https://github.com/AccessKit/accesskit
+  Notice: licenses/074e6e32c86a4c0ef8b3ed25b721ca23aca83df277cd88106ef7177c354615ff.txt (upstream SPDX/Apache-2.0.txt; SPDX-3.27.0)
+  Notice: licenses/b05785f9f18e6716bab63424b11454513b9943a222595b70411009202fc592b5.txt (upstream SPDX/MIT.txt; SPDX-3.27.0)
+
+accesskit_windows 0.32.1
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/accesskit_windows/0.32.1/download
+  Cargo.lock checksum: eff7009f1a532e917d66970a1e80c965140c6cfbbabbdde3d64e5431e6c78e21
+  Authors: The AccessKit contributors
+  Repository: https://github.com/AccessKit/accesskit
+  Notice: licenses/074e6e32c86a4c0ef8b3ed25b721ca23aca83df277cd88106ef7177c354615ff.txt (upstream SPDX/Apache-2.0.txt; SPDX-3.27.0)
+  Notice: licenses/b05785f9f18e6716bab63424b11454513b9943a222595b70411009202fc592b5.txt (upstream SPDX/MIT.txt; SPDX-3.27.0)
+
+accesskit_winit 0.32.2
+  License: Apache-2.0
+  Source: https://crates.io/api/v1/crates/accesskit_winit/0.32.2/download
+  Cargo.lock checksum: 1fe9a94394896352cc4660ca2288bd4ef883d83238853c038b44070c8f134313
+  Authors: The AccessKit contributors
+  Repository: https://github.com/AccessKit/accesskit
+  Notice: licenses/074e6e32c86a4c0ef8b3ed25b721ca23aca83df277cd88106ef7177c354615ff.txt (upstream SPDX/Apache-2.0.txt; SPDX-3.27.0)
+
+adler2 2.0.1
+  License: 0BSD OR MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/adler2/2.0.1/download
+  Cargo.lock checksum: 320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa
+  Authors: Jonas Schievink <jonasschievink@gmail.com>, oyvindln <oyvindln@users.noreply.github.com>
+  Repository: https://github.com/oyvindln/adler2
+  Notice: licenses/861399f8c21c042b110517e76dc6b63a2b334276c8cf17412fc3c8908ca8dc17.txt (upstream LICENSE-0BSD; package)
+  Notice: licenses/8ada45cd9f843acf64e4722ae262c622a2b3b3007c7310ef36ac1061a30f6adb.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt (upstream LICENSE-MIT; package)
+
+ahash 0.8.12
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/ahash/0.8.12/download
+  Cargo.lock checksum: 5a15f179cd60c4584b8a8c596927aadc462e27f2ca70c04e0071964a73ba7a75
+  Authors: Tom Kaitchuck <Tom.Kaitchuck@gmail.com>
+  Repository: https://github.com/tkaitchuck/ahash
+  Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/0444c6991eead6822f7b9102e654448d51624431119546492e8b231db42c48bb.txt (upstream LICENSE-MIT; package)
+
+allocator-api2 0.2.21
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/allocator-api2/0.2.21/download
+  Cargo.lock checksum: 683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923
+  Authors: Zakarum <zaq.dev@icloud.com>
+  Repository: https://github.com/zakarumych/allocator-api2
+  Notice: licenses/20fe7b00e904ed690e3b9fd6073784d3fc428141dbd10b81c01fd143d0797f58.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/36516aefdc84c5d5a1e7485425913a22dbda69eb1930c5e84d6ae4972b5194b9.txt (upstream LICENSE-MIT; package)
+
+anstream 1.0.0
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/anstream/1.0.0/download
+  Cargo.lock checksum: 824a212faf96e9acacdbd09febd34438f8f711fb84e09a8916013cd7815ca28d
+  Repository: https://github.com/rust-cli/anstyle.git
+  Notice: licenses/c6596eb7be8581c18be736c846fb9173b69eccf6ef94c5135893ec56bd92ba08.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/6efb0476a1cc085077ed49357026d8c173bf33017278ef440f222fb9cbcb66e6.txt (upstream LICENSE-MIT; package)
+
+anstyle 1.0.14
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/anstyle/1.0.14/download
+  Cargo.lock checksum: 940b3a0ca603d1eade50a4846a2afffd5ef57a9feac2c0e2ec2e14f9ead76000
+  Repository: https://github.com/rust-cli/anstyle.git
+  Notice: licenses/c6596eb7be8581c18be736c846fb9173b69eccf6ef94c5135893ec56bd92ba08.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/6efb0476a1cc085077ed49357026d8c173bf33017278ef440f222fb9cbcb66e6.txt (upstream LICENSE-MIT; package)
+
+anstyle-parse 1.0.0
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/anstyle-parse/1.0.0/download
+  Cargo.lock checksum: 52ce7f38b242319f7cabaa6813055467063ecdc9d355bbb4ce0c68908cd8130e
+  Repository: https://github.com/rust-cli/anstyle.git
+  Notice: licenses/c6596eb7be8581c18be736c846fb9173b69eccf6ef94c5135893ec56bd92ba08.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/6efb0476a1cc085077ed49357026d8c173bf33017278ef440f222fb9cbcb66e6.txt (upstream LICENSE-MIT; package)
+
+anstyle-query 1.1.5
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/anstyle-query/1.1.5/download
+  Cargo.lock checksum: 40c48f72fd53cd289104fc64099abca73db4166ad86ea0b4341abe65af83dadc
+  Repository: https://github.com/rust-cli/anstyle.git
+  Notice: licenses/c6596eb7be8581c18be736c846fb9173b69eccf6ef94c5135893ec56bd92ba08.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/6efb0476a1cc085077ed49357026d8c173bf33017278ef440f222fb9cbcb66e6.txt (upstream LICENSE-MIT; package)
+
+anstyle-wincon 3.0.11
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/anstyle-wincon/3.0.11/download
+  Cargo.lock checksum: 291e6a250ff86cd4a820112fb8898808a366d8f9f58ce16d1f538353ad55747d
+  Repository: https://github.com/rust-cli/anstyle.git
+  Notice: licenses/c6596eb7be8581c18be736c846fb9173b69eccf6ef94c5135893ec56bd92ba08.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/6efb0476a1cc085077ed49357026d8c173bf33017278ef440f222fb9cbcb66e6.txt (upstream LICENSE-MIT; package)
+
+anyhow 1.0.104
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/anyhow/1.0.104/download
+  Cargo.lock checksum: 330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470
+  Authors: David Tolnay <dtolnay@gmail.com>
+  Repository: https://github.com/dtolnay/anyhow
+  Notice: licenses/62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt (upstream LICENSE-MIT; package)
+
+arboard 3.6.1
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/arboard/3.6.1/download
+  Cargo.lock checksum: 0348a1c054491f4bfe6ab86a7b6ab1e44e45d899005de92f58b3df180b36ddaf
+  Repository: https://github.com/1Password/arboard
+  Notice: licenses/0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594.txt (upstream LICENSE-APACHE.txt; package)
+  Notice: licenses/f35468024534e0f4f16bb94cd0e88c87fbd1314f919c2645a07d350fb77b40c0.txt (upstream LICENSE-MIT.txt; package)
+
+arrayvec 0.7.8
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/arrayvec/0.7.8/download
+  Cargo.lock checksum: d3fb67a6e08acf24fdeccbac2cb6ac4305825bd1f117462e0e6f2f193345ad56
+  Authors: bluss
+  Repository: https://github.com/bluss/arrayvec
+  Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/4da95ec4ecb65b738d470b7d762894ad9c97da93e6cbfb18b570fc2c96f4b871.txt (upstream LICENSE-MIT; package)
+
+ash 0.38.0+1.3.281
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/ash/0.38.0+1.3.281/download
+  Cargo.lock checksum: 0bb44936d800fea8f016d7f2311c6a4f97aebd5dc86f09906139ec848cf3a46f
+  Authors: Maik Klein <maikklein@googlemail.com>, Benjamin Saunders <ben.e.saunders@gmail.com>, Marijn Suijten <marijn@traverseresearch.nl>
+  Repository: https://github.com/ash-rs/ash
+  Notice: licenses/0e8a410375e1ee5c75c6198b08b534fec6e5edef766cf971bab4a404542636ab.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/c733ccf8ab25df175a63d9d844677b98e3a5ab8f8de1c1616087e6868a7f948e.txt (upstream LICENSE-MIT; package)
+
+async-trait 0.1.91
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/async-trait/0.1.91/download
+  Cargo.lock checksum: ae36dc4177970ef04fde5178d3e2429882def40e57a451f919c098f72baa6cec
+  Authors: David Tolnay <dtolnay@gmail.com>
+  Repository: https://github.com/dtolnay/async-trait
+  Notice: licenses/62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt (upstream LICENSE-MIT; package)
+
+atomic-waker 1.1.2
+  License: Apache-2.0 OR MIT
+  Source: https://crates.io/api/v1/crates/atomic-waker/1.1.2/download
+  Cargo.lock checksum: 1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0
+  Authors: Stjepan Glavina <stjepang@gmail.com>, Contributors to futures-rs
+  Repository: https://github.com/smol-rs/atomic-waker
+  Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt (upstream LICENSE-MIT; package)
+  Notice: licenses/6226d0632e2e1a80c23597e964da9812ae193c535fe058154afb034e94167aa5.txt (upstream LICENSE-THIRD-PARTY; package)
+
+auto-launch 0.6.0
+  License: MIT
+  Source: https://crates.io/api/v1/crates/auto-launch/0.6.0/download
+  Cargo.lock checksum: 17918dba7ecf78b9a14507ec9f984e7977d13fad87dc86d61038980a45d128cf
+  Authors: zzzgydi
+  Repository: https://github.com/zzzgydi/auto-launch.git
+  Notice: licenses/e3dee6d5b240791312cd89333a5cc62e6f65be66bff8ab6903dc9a67bbe84263.txt (upstream LICENSE; package)
+
+aws-lc-rs 1.18.0
+  License: ISC AND (Apache-2.0 OR ISC)
+  Source: https://crates.io/api/v1/crates/aws-lc-rs/1.18.0/download
+  Cargo.lock checksum: ce2b2dcc879c3bae0d371e77c99f2238400ef24ec001394befa67b6e543add9e
+  Authors: AWS-LibCrypto
+  Repository: https://github.com/aws/aws-lc-rs
+  Notice: licenses/b50b376e7d24a0598488b730c3034ffcd0b58dd36c0913a24b9903a3cfd04bf7.txt (upstream LICENSE; package)
+
+aws-lc-sys 0.44.0
+  License: ISC AND (Apache-2.0 OR ISC) AND Apache-2.0 AND MIT AND BSD-3-Clause AND (Apache-2.0 OR ISC OR MIT) AND (Apache-2.0 OR ISC OR MIT-0)
+  Source: https://crates.io/api/v1/crates/aws-lc-sys/0.44.0/download
+  Cargo.lock checksum: f09fae7be8bb3174e05c6afdb34199e6dc0c7c04ba9fa237b1967adfbde27483
+  Authors: AWS-LC
+  Repository: https://github.com/aws/aws-lc-rs
+  Notice: licenses/728536b4160e051f86d7c9c388f704866b3d512cd7df97ac3516c65279523c4e.txt (upstream LICENSE; package)
+  Notice: licenses/977c541bd25ffe36975dde25c028c0cd15ddf3d08243983b58e8a6a3d9447523.txt (upstream aws-lc/LICENSE; package)
+  Notice: licenses/43e358d7b6eb109d0f51f7b3a090fd82607965767c25fadee39e922475de2061.txt (upstream aws-lc/third_party/fiat/LICENSE; package)
+
+axum 0.8.9
+  License: MIT
+  Source: https://crates.io/api/v1/crates/axum/0.8.9/download
+  Cargo.lock checksum: 31b698c5f9a010f6573133b09e0de5408834d0c82f8d7475a89fc1867a71cd90
+  Repository: https://github.com/tokio-rs/axum
+  Notice: licenses/6a13bc24a100a6812f053879ec51b126b103af7cda6dbf48c4188722da44da9f.txt (upstream LICENSE; package)
+
+axum-core 0.5.6
+  License: MIT
+  Source: https://crates.io/api/v1/crates/axum-core/0.5.6/download
+  Cargo.lock checksum: 08c78f31d7b1291f7ee735c1c6780ccde7785daae9a9206026862dab7d8792d1
+  Repository: https://github.com/tokio-rs/axum
+  Notice: licenses/008c87afcd2e626eaf564093250bed06dd7efb5732113264bba3dda8f1c556a1.txt (upstream LICENSE; package)
+
+base64 0.22.1
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/base64/0.22.1/download
+  Cargo.lock checksum: 72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6
+  Authors: Marshall Pierce <marshall@mpierce.org>
+  Repository: https://github.com/marshallpierce/rust-base64
+  Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/0dd882e53de11566d50f8e8e2d5a651bcf3fabee4987d70f306233cf39094ba7.txt (upstream LICENSE-MIT; package)
+
+base64 0.23.0
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/base64/0.23.0/download
+  Cargo.lock checksum: b25655df2c3cdd83c5e5b293b88acd880332b2ddadd7c30ac43144fdc0033da9
+  Authors: Marshall Pierce <marshall@mpierce.org>
+  Repository: https://github.com/marshallpierce/rust-base64
+  Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/ab499c75a0f0da8e0fe83bf9ba3a27e5c39705310f07107c6c66b69958d2401c.txt (upstream LICENSE-MIT; package)
+
+bit-set 0.9.1
+  License: Apache-2.0 OR MIT
+  Source: https://crates.io/api/v1/crates/bit-set/0.9.1/download
+  Cargo.lock checksum: 34ddef2995421ab6a5c779542c81ee77c115206f4ad9d5a8e05f4ff49716a3dd
+  Authors: Alexis Beingessner <a.beingessner@gmail.com>
+  Repository: https://github.com/contain-rs/bit-set
+  Notice: licenses/8173d5c29b4f956d532781d2b86e4e30f83e6b7878dce18c919451d6ba707c90.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/6b56ddc7cd80419e5e22e075f2252d720f6cbe17e3e2c17383095ee2712bcffa.txt (upstream LICENSE-MIT; package)
+
+bit-vec 0.9.1
+  License: Apache-2.0 OR MIT
+  Source: https://crates.io/api/v1/crates/bit-vec/0.9.1/download
+  Cargo.lock checksum: b71798fca2c1fe1086445a7258a4bc81e6e49dcd24c8d0dd9a1e57395b603f51
+  Authors: Alexis Beingessner <a.beingessner@gmail.com>
+  Repository: https://github.com/contain-rs/bit-vec
+  Notice: licenses/8173d5c29b4f956d532781d2b86e4e30f83e6b7878dce18c919451d6ba707c90.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/f51ac2c59a222f7476ce507ca879960e2b64ea64bb2786eefdbeb7b0b538d1b7.txt (upstream LICENSE-MIT; package)
+
+bitflags 2.13.1
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/bitflags/2.13.1/download
+  Cargo.lock checksum: b588b76d00fde79687d7646a9b5bdf3cc0f655e0bbd080335a95d7e96f3587da
+  Authors: The Rust Project Developers
+  Repository: https://github.com/bitflags/bitflags
+  Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/6485b8ed310d3f0340bf1ad1f47645069ce4069dcc6bb46c7d5c6faf41de1fdb.txt (upstream LICENSE-MIT; package)
+
+block-buffer 0.10.4
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/block-buffer/0.10.4/download
+  Cargo.lock checksum: 3078c7629b62d3f0439517fa394996acacc5cbc91c5a20d8c658e77abd503a71
+  Authors: RustCrypto Developers
+  Repository: https://github.com/RustCrypto/utils
+  Notice: licenses/a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/d5c22aa3118d240e877ad41c5d9fa232f9c77d757d4aac0c2f943afc0a95e0ef.txt (upstream LICENSE-MIT; package)
+
+bytemuck 1.25.2
+  License: Zlib OR Apache-2.0 OR MIT
+  Source: https://crates.io/api/v1/crates/bytemuck/1.25.2/download
+  Cargo.lock checksum: 95832e849adfb21180ccb6826a99da14e5d266ae5c2e668e1602cf234f153797
+  Authors: Lokathor <zefria@gmail.com>
+  Repository: https://github.com/Lokathor/bytemuck
+  Notice: licenses/e3ba223bb1423f0aad8c3dfce0fe3148db48926d41e6fbc3afbbf5ff9e1c89cb.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/9df9ba60a11af705f2e451b53762686e615d86f76b169cf075c3237730dbd7e2.txt (upstream LICENSE-MIT; package)
+  Notice: licenses/84b34dd7608f7fb9b17bd588a6bf392bf7de504e2716f024a77d89f1b145a151.txt (upstream LICENSE-ZLIB; package)
+
+bytemuck_derive 1.11.0
+  License: Zlib OR Apache-2.0 OR MIT
+  Source: https://crates.io/api/v1/crates/bytemuck_derive/1.11.0/download
+  Cargo.lock checksum: f65693059b6b9c588b9f62fed1cedbf0a8b805631457ea162d68f0de186f3de5
+  Authors: Lokathor <zefria@gmail.com>
+  Repository: https://github.com/Lokathor/bytemuck
+  Notice: licenses/e3ba223bb1423f0aad8c3dfce0fe3148db48926d41e6fbc3afbbf5ff9e1c89cb.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/9df9ba60a11af705f2e451b53762686e615d86f76b169cf075c3237730dbd7e2.txt (upstream LICENSE-MIT; package)
+  Notice: licenses/84b34dd7608f7fb9b17bd588a6bf392bf7de504e2716f024a77d89f1b145a151.txt (upstream LICENSE-ZLIB; package)
+
+byteorder-lite 0.1.0
+  License: Unlicense OR MIT
+  Source: https://crates.io/api/v1/crates/byteorder-lite/0.1.0/download
+  Cargo.lock checksum: 8f1fe948ff07f4bd06c30984e69f5b4899c516a3ef74f34df92a2df2ab535495
+  Repository: https://github.com/image-rs/byteorder-lite
+  Notice: licenses/0f96a83840e146e43c0ec96a22ec1f392e0680e6c1226e6f3ba87e0740af850f.txt (upstream LICENSE-MIT; package)
+  Notice: licenses/7e12e5df4bae12cb21581ba157ced20e1986a0508dd10d0e8a4ab9a4cf94e85c.txt (upstream UNLICENSE; package)
+
+bytes 1.12.1
+  License: MIT
+  Source: https://crates.io/api/v1/crates/bytes/1.12.1/download
+  Cargo.lock checksum: fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04
+  Authors: Carl Lerche <me@carllerche.com>, Sean McArthur <sean@seanmonstar.com>
+  Repository: https://github.com/tokio-rs/bytes
+  Notice: licenses/45f522cacecb1023856e46df79ca625dfc550c94910078bd8aec6e02880b3d42.txt (upstream LICENSE; package)
+
+cfg-if 1.0.4
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/cfg-if/1.0.4/download
+  Cargo.lock checksum: 9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801
+  Authors: Alex Crichton <alex@alexcrichton.com>
+  Repository: https://github.com/rust-lang/cfg-if
+  Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/378f5840b258e2779c39418f3f2d7b2ba96f1c7917dd6be0713f88305dbda397.txt (upstream LICENSE-MIT; package)
+
+chacha20 0.10.2
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/chacha20/0.10.2/download
+  Cargo.lock checksum: 65c35e4b699c7e15ccbe7ee35c005e4fc0a278d22238a2857e6ce2dadeda1b06
+  Authors: RustCrypto Developers
+  Repository: https://github.com/RustCrypto/stream-ciphers
+  Notice: licenses/a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/b8c6939380a400f53e11923d50fcc4dd2fa1ba8339fd9d04cda38a0251b6c9b0.txt (upstream LICENSE-MIT; package)
+
+chrono 0.4.45
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/chrono/0.4.45/download
+  Cargo.lock checksum: 1aa79e62e7697b8e29b513a68abacf485adcd1fe8284a4316c5ae868e6633327
+  Repository: https://github.com/chronotope/chrono
+  Notice: licenses/946c9835d8034d24404f8cfec5f4654cee5dad17e944afc3d06d742cf2882831.txt (upstream LICENSE.txt; package)
+
+clap 4.6.4
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/clap/4.6.4/download
+  Cargo.lock checksum: d91e0c145792ef73a6ad36d27c75ac09f1832222a3c209689d90f534685ee5b7
+  Repository: https://github.com/clap-rs/clap
+  Notice: licenses/c6596eb7be8581c18be736c846fb9173b69eccf6ef94c5135893ec56bd92ba08.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/6efb0476a1cc085077ed49357026d8c173bf33017278ef440f222fb9cbcb66e6.txt (upstream LICENSE-MIT; package)
+
+clap_builder 4.6.2
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/clap_builder/4.6.2/download
+  Cargo.lock checksum: f09628afdcc538b57f3c6341e9c8e9970f18e4a481690a64974d7023bd33548b
+  Repository: https://github.com/clap-rs/clap
+  Notice: licenses/c6596eb7be8581c18be736c846fb9173b69eccf6ef94c5135893ec56bd92ba08.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/6efb0476a1cc085077ed49357026d8c173bf33017278ef440f222fb9cbcb66e6.txt (upstream LICENSE-MIT; package)
+
+clap_derive 4.6.4
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/clap_derive/4.6.4/download
+  Cargo.lock checksum: d012d2b9d65aca7f18f4d9878a045bc17899bba951561ba5ec3c2ba1eed9a061
+  Repository: https://github.com/clap-rs/clap
+  Notice: licenses/c6596eb7be8581c18be736c846fb9173b69eccf6ef94c5135893ec56bd92ba08.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/6efb0476a1cc085077ed49357026d8c173bf33017278ef440f222fb9cbcb66e6.txt (upstream LICENSE-MIT; package)
+
+clap_lex 1.1.0
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/clap_lex/1.1.0/download
+  Cargo.lock checksum: c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9
+  Repository: https://github.com/clap-rs/clap
+  Notice: licenses/c6596eb7be8581c18be736c846fb9173b69eccf6ef94c5135893ec56bd92ba08.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/6efb0476a1cc085077ed49357026d8c173bf33017278ef440f222fb9cbcb66e6.txt (upstream LICENSE-MIT; package)
+
+clipboard-win 5.4.1
+  License: BSL-1.0
+  Source: https://crates.io/api/v1/crates/clipboard-win/5.4.1/download
+  Cargo.lock checksum: bde03770d3df201d4fb868f2c9c59e66a3e4e2bd06692a0fe701e7103c7e84d4
+  Authors: Douman <douman@gmx.se>
+  Repository: https://github.com/DoumanAsh/clipboard-win
+  Notice: licenses/84c6ef3ea9e3254a54d0acf5d3e0c61ae011b8fef7dd6940591cf060e6380a8f.txt (upstream SPDX/BSL-1.0.txt; SPDX-3.27.0)
+
+codespan-reporting 0.13.1
+  License: Apache-2.0
+  Source: https://crates.io/api/v1/crates/codespan-reporting/0.13.1/download
+  Cargo.lock checksum: af491d569909a7e4dee0ad7db7f5341fef5c614d5b8ec8cf765732aba3cff681
+  Authors: Brendan Zabarauskas <bjzaba@yahoo.com.au>
+  Repository: https://github.com/brendanzab/codespan
+  Notice: licenses/c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4.txt (upstream LICENSE; package)
+
+color 0.3.3
+  License: Apache-2.0 OR MIT
+  Source: https://crates.io/api/v1/crates/color/0.3.3/download
+  Cargo.lock checksum: 2ec7c5eb7a16992b1904d76c517d170ab353b0e0b3d5a0c81a8a0cd1037893cf
+  Repository: https://github.com/linebender/color
+  Notice: licenses/a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/508a77d2e7b51d98adeed32648ad124b7b30241a8e70b2e72c99f92d8e5874d1.txt (upstream LICENSE-MIT; package)
+
+colorchoice 1.0.5
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/colorchoice/1.0.5/download
+  Cargo.lock checksum: 1d07550c9036bf2ae0c684c4297d503f838287c83c53686d05370d0e139ae570
+  Repository: https://github.com/rust-cli/anstyle.git
+  Notice: licenses/c6596eb7be8581c18be736c846fb9173b69eccf6ef94c5135893ec56bd92ba08.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/6efb0476a1cc085077ed49357026d8c173bf33017278ef440f222fb9cbcb66e6.txt (upstream LICENSE-MIT; package)
+
+cpufeatures 0.2.17
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/cpufeatures/0.2.17/download
+  Cargo.lock checksum: 59ed5838eebb26a2bb2e58f6d5b5316989ae9d08bab10e0e6d103e656d1b0280
+  Authors: RustCrypto Developers
+  Repository: https://github.com/RustCrypto/utils
+  Notice: licenses/a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/ae9baa7beea910273c2f384c2a6b721fb7bd02bda3436074a1072e4ee689f985.txt (upstream LICENSE-MIT; package)
+
+cpufeatures 0.3.0
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/cpufeatures/0.3.0/download
+  Cargo.lock checksum: 8b2a41393f66f16b0823bb79094d54ac5fbd34ab292ddafb9a0456ac9f87d201
+  Authors: RustCrypto Developers
+  Repository: https://github.com/RustCrypto/utils
+  Notice: licenses/a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/ae9baa7beea910273c2f384c2a6b721fb7bd02bda3436074a1072e4ee689f985.txt (upstream LICENSE-MIT; package)
+
+crc32fast 1.5.0
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/crc32fast/1.5.0/download
+  Cargo.lock checksum: 9481c1c90cbf2ac953f07c8d4a58aa3945c425b7185c9154d67a65e4230da511
+  Authors: Sam Rijs <srijs@airpost.net>, Alex Crichton <alex@alexcrichton.com>
+  Repository: https://github.com/srijs/rust-crc32fast
+  Notice: licenses/c6596eb7be8581c18be736c846fb9173b69eccf6ef94c5135893ec56bd92ba08.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/61d383b05b87d78f94d2937e2580cce47226d17823c0430fbcad09596537efcf.txt (upstream LICENSE-MIT; package)
+
+crossbeam-channel 0.5.16
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/crossbeam-channel/0.5.16/download
+  Cargo.lock checksum: d85363c37faeca707aef026efa9f3b34d077bce547e48f770770625c6013679e
+  Repository: https://github.com/crossbeam-rs/crossbeam
+  Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/5734ed989dfca1f625b40281ee9f4530f91b2411ec01cb748223e7eb87e201ab.txt (upstream LICENSE-MIT; package)
+  Notice: licenses/b16db96b93b1d7cf7bea533f572091ec6bca3234fbe0a83038be772ff391a44c.txt (upstream LICENSE-THIRD-PARTY; package)
+
+crossbeam-utils 0.8.22
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/crossbeam-utils/0.8.22/download
+  Cargo.lock checksum: 61803da095bee82a81bb1a452ecc25d3b2f1416d1897eb86430c6159ef717c17
+  Repository: https://github.com/crossbeam-rs/crossbeam
+  Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/5734ed989dfca1f625b40281ee9f4530f91b2411ec01cb748223e7eb87e201ab.txt (upstream LICENSE-MIT; package)
+
+crypto-common 0.1.7
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/crypto-common/0.1.7/download
+  Cargo.lock checksum: 78c8292055d1c1df0cce5d180393dc8cce0abec0a7102adb6c7b1eef6016d60a
+  Authors: RustCrypto Developers
+  Repository: https://github.com/RustCrypto/traits
+  Notice: licenses/a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/3521672491a3479422d5fe1aca6645dd2984090f85da6e5205abfb18fb7a6897.txt (upstream LICENSE-MIT; package)
+
+cursor-icon 1.2.0
+  License: MIT OR Apache-2.0 OR Zlib
+  Source: https://crates.io/api/v1/crates/cursor-icon/1.2.0/download
+  Cargo.lock checksum: f27ae1dd37df86211c42e150270f82743308803d90a6f6e6651cd730d5e1732f
+  Authors: Kirill Chibisov <contact@kchibisov.com>
+  Repository: https://github.com/rust-windowing/cursor-icon
+  Notice: licenses/b59affd015e517ed998dd735757f9a3693643cd389609947ed54074234a10784.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/c138726a726ac37bae09d0f8a48e74e8e3aa8a8952fcd10fae0fb224cc1c05f1.txt (upstream LICENSE-MIT; package)
+  Notice: licenses/01e533bd94e8f1c32b2c2531e2c398de7d35d7804add3d574b4e1fe581d53537.txt (upstream LICENSE-ZLIB; package)
+
+deranged 0.5.8
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/deranged/0.5.8/download
+  Cargo.lock checksum: 7cd812cc2bc1d69d4764bd80df88b4317eaef9e773c75226407d9bc0876b211c
+  Authors: Jacob Pratt <jacob@jhpratt.dev>
+  Repository: https://github.com/jhpratt/deranged
+  Notice: licenses/edd65bdd88957a205c47d53fa499eed8865a70320f0f03f6391668cb304ea376.txt (upstream LICENSE-Apache; package)
+  Notice: licenses/231c837c45eb53f108fb48929e488965bc4fcc14e9ea21d35f50e6b99d98685b.txt (upstream LICENSE-MIT; package)
+
+digest 0.10.7
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/digest/0.10.7/download
+  Cargo.lock checksum: 9ed9a281f7bc9b7576e61468ba615a66a5c8cfdff42420a70aa82701a3b1e292
+  Authors: RustCrypto Developers
+  Repository: https://github.com/RustCrypto/traits
+  Notice: licenses/a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/9e0dfd2dd4173a530e238cb6adb37aa78c34c6bc7444e0e10c1ab5d8881f63ba.txt (upstream LICENSE-MIT; package)
+
+dirs 6.0.0
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/dirs/6.0.0/download
+  Cargo.lock checksum: c3e8aa94d75141228480295a7d0e7feb620b1a5ad9f12bc40be62411e38cce4e
+  Authors: Simon Ochsenreither <simon@ochsenreither.de>
+  Repository: https://github.com/soc/dirs-rs
+  Notice: licenses/d3174ad63e721d4c9dccb8ad4320848992d314369bc46319720b5802c9153fe9.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/6a2e0ade09a7d5f816f11566fee2b151b32235a7fad52b41d49cce96f833c1a9.txt (upstream LICENSE-MIT; package)
+
+dirs-sys 0.5.0
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/dirs-sys/0.5.0/download
+  Cargo.lock checksum: e01a3366d27ee9890022452ee61b2b63a67e6f13f58900b651ff5665f0bb1fab
+  Authors: Simon Ochsenreither <simon@ochsenreither.de>
+  Repository: https://github.com/dirs-dev/dirs-sys-rs
+  Notice: licenses/d3174ad63e721d4c9dccb8ad4320848992d314369bc46319720b5802c9153fe9.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/6a2e0ade09a7d5f816f11566fee2b151b32235a7fad52b41d49cce96f833c1a9.txt (upstream LICENSE-MIT; package)
+
+displaydoc 0.2.7
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/displaydoc/0.2.7/download
+  Cargo.lock checksum: c6232dd377dcc64799954cbd3a9bb882e9cdc1308ccd87b1c098f1fb2eaf82a8
+  Authors: Jane Lusby <jlusby@yaah.dev>
+  Repository: https://github.com/yaahc/displaydoc
+  Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt (upstream LICENSE-MIT; package)
+
+document-features 0.2.12
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/document-features/0.2.12/download
+  Cargo.lock checksum: d4b8a88685455ed29a21542a33abd9cb6510b6b129abadabdcef0f4c55bc8f61
+  Authors: Slint Developers <info@slint.dev>
+  Repository: https://github.com/slint-ui/document-features
+  Notice: licenses/074e6e32c86a4c0ef8b3ed25b721ca23aca83df277cd88106ef7177c354615ff.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/aa893340d14b9844625be6a50ac644169a01b52f0211cbf81b09e1874c8cd81d.txt (upstream LICENSE-MIT; package)
+
+dpi 0.1.2
+  License: Apache-2.0 AND MIT
+  Source: https://crates.io/api/v1/crates/dpi/0.1.2/download
+  Cargo.lock checksum: d8b14ccef22fc6f5a8f4d7d768562a182c04ce9a3b3157b91390b52ddfdf1a76
+  Repository: https://github.com/rust-windowing/winit
+  Notice: licenses/6dc0e068dcf3a5bc8e054205b85b7720e1d49265bbc64bf515d2cf79197df69a.txt (upstream LICENSE; package)
+  Notice: licenses/9eff396a99bafd208e7126602420d6864f6066c08b84485a5b032320a9c01997.txt (upstream LICENSE-LIBM-MIT; package)
+
+dyn-clone 1.0.20
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/dyn-clone/1.0.20/download
+  Cargo.lock checksum: d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555
+  Authors: David Tolnay <dtolnay@gmail.com>
+  Repository: https://github.com/dtolnay/dyn-clone
+  Notice: licenses/62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt (upstream LICENSE-MIT; package)
+
+ecolor 0.35.0
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/ecolor/0.35.0/download
+  Cargo.lock checksum: 6758be723a3f298bbfda4db75748bc2ba0abafe096b6383c7c32da264764fbc3
+  Authors: Emil Ernerfeldt <emil.ernerfeldt@gmail.com>, Andreas Reich <reichandreas@gmx.de>
+  Repository: https://github.com/emilk/egui
+  Notice: licenses/074e6e32c86a4c0ef8b3ed25b721ca23aca83df277cd88106ef7177c354615ff.txt (upstream SPDX/Apache-2.0.txt; SPDX-3.27.0)
+  Notice: licenses/b05785f9f18e6716bab63424b11454513b9943a222595b70411009202fc592b5.txt (upstream SPDX/MIT.txt; SPDX-3.27.0)
+
+eframe 0.35.0
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/eframe/0.35.0/download
+  Cargo.lock checksum: 8dc8234e2f681b2afd2b2e8c332fa614de2fddbdcb28d0acf5c420449682ea90
+  Authors: Emil Ernerfeldt <emil.ernerfeldt@gmail.com>
+  Repository: https://github.com/emilk/egui/tree/main/crates/eframe
+  Notice: licenses/074e6e32c86a4c0ef8b3ed25b721ca23aca83df277cd88106ef7177c354615ff.txt (upstream SPDX/Apache-2.0.txt; SPDX-3.27.0)
+  Notice: licenses/b05785f9f18e6716bab63424b11454513b9943a222595b70411009202fc592b5.txt (upstream SPDX/MIT.txt; SPDX-3.27.0)
+
+egui 0.35.0
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/egui/0.35.0/download
+  Cargo.lock checksum: 2796c98d50b79631281d516343a6f6e93c0666462ca36e2c93b39f25d7793325
+  Authors: Emil Ernerfeldt <emil.ernerfeldt@gmail.com>
+  Repository: https://github.com/emilk/egui
+  Notice: licenses/074e6e32c86a4c0ef8b3ed25b721ca23aca83df277cd88106ef7177c354615ff.txt (upstream SPDX/Apache-2.0.txt; SPDX-3.27.0)
+  Notice: licenses/b05785f9f18e6716bab63424b11454513b9943a222595b70411009202fc592b5.txt (upstream SPDX/MIT.txt; SPDX-3.27.0)
+
+egui-wgpu 0.35.0
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/egui-wgpu/0.35.0/download
+  Cargo.lock checksum: d2e6cfac0725563555fa4f91e9f799b9d7c6c5dd831fca6abc8234afc64b7a34
+  Authors: Nils Hasenbanck <nils@hasenbanck.de>, embotech <opensource@embotech.com>, Emil Ernerfeldt <emil.ernerfeldt@gmail.com>
+  Repository: https://github.com/emilk/egui/tree/main/crates/egui-wgpu
+  Notice: licenses/074e6e32c86a4c0ef8b3ed25b721ca23aca83df277cd88106ef7177c354615ff.txt (upstream SPDX/Apache-2.0.txt; SPDX-3.27.0)
+  Notice: licenses/b05785f9f18e6716bab63424b11454513b9943a222595b70411009202fc592b5.txt (upstream SPDX/MIT.txt; SPDX-3.27.0)
+
+egui-winit 0.35.0
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/egui-winit/0.35.0/download
+  Cargo.lock checksum: 9ea6bf3608db949588b95b8b341ee358d0c3f95cf4dc3f53d8d76717edee87db
+  Authors: Emil Ernerfeldt <emil.ernerfeldt@gmail.com>
+  Repository: https://github.com/emilk/egui/tree/main/crates/egui-winit
+  Notice: licenses/074e6e32c86a4c0ef8b3ed25b721ca23aca83df277cd88106ef7177c354615ff.txt (upstream SPDX/Apache-2.0.txt; SPDX-3.27.0)
+  Notice: licenses/b05785f9f18e6716bab63424b11454513b9943a222595b70411009202fc592b5.txt (upstream SPDX/MIT.txt; SPDX-3.27.0)
+
+either 1.17.0
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/either/1.17.0/download
+  Cargo.lock checksum: 9e5e8f6c15a24b9a3ee5efec809ccd006d3b30e8b3bb63c39af737c7f87daa1d
+  Repository: https://github.com/rayon-rs/either
+  Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/7576269ea71f767b99297934c0b2367532690f8c4badc695edf8e04ab6a1e545.txt (upstream LICENSE-MIT; package)
+
+emath 0.35.0
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/emath/0.35.0/download
+  Cargo.lock checksum: cd4ec073c9898516584d8c6cfdcee95b530b3d941cd5031ef4050aa36812308b
+  Authors: Emil Ernerfeldt <emil.ernerfeldt@gmail.com>
+  Repository: https://github.com/emilk/egui/tree/main/crates/emath
+  Notice: licenses/074e6e32c86a4c0ef8b3ed25b721ca23aca83df277cd88106ef7177c354615ff.txt (upstream SPDX/Apache-2.0.txt; SPDX-3.27.0)
+  Notice: licenses/b05785f9f18e6716bab63424b11454513b9943a222595b70411009202fc592b5.txt (upstream SPDX/MIT.txt; SPDX-3.27.0)
+
+epaint 0.35.0
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/epaint/0.35.0/download
+  Cargo.lock checksum: 4e60a8888b51da911df23918fd7301359b1d43a406a0ff3b8863af093dd7fc6c
+  Authors: Emil Ernerfeldt <emil.ernerfeldt@gmail.com>
+  Repository: https://github.com/emilk/egui/tree/main/crates/epaint
+  Notice: licenses/074e6e32c86a4c0ef8b3ed25b721ca23aca83df277cd88106ef7177c354615ff.txt (upstream SPDX/Apache-2.0.txt; SPDX-3.27.0)
+  Notice: licenses/b05785f9f18e6716bab63424b11454513b9943a222595b70411009202fc592b5.txt (upstream SPDX/MIT.txt; SPDX-3.27.0)
+
+epaint_default_fonts 0.35.0
+  License: (MIT OR Apache-2.0) AND OFL-1.1 AND Ubuntu-font-1.0
+  Source: https://crates.io/api/v1/crates/epaint_default_fonts/0.35.0/download
+  Cargo.lock checksum: 13ee4e1f553a3584c301f3a56ff1a775f1384781396cea301c8d952e9b93f560
+  Authors: Emil Ernerfeldt <emil.ernerfeldt@gmail.com>
+  Repository: https://github.com/emilk/egui/tree/main/crates/epaint_default_fonts
+  Notice: licenses/47c0cccbeec7e8614548cc485588b28149e7874188df5f41b36efebcee285c87.txt (upstream fonts/Hack-Regular.txt; package)
+  Notice: licenses/6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2.txt (upstream fonts/OFL.txt; package)
+  Notice: licenses/2f0015108d68627bd788d313f529c21ff4da2c2c42a5e1f3883acc83480f9002.txt (upstream fonts/UFL.txt; package)
+  Notice: licenses/b9d2c1d909aa149996fd4c91dcb92b2362a04431640c1d200959da94caf8cde1.txt (upstream fonts/emoji-icon-font-mit-license.txt; package)
+  Notice: licenses/074e6e32c86a4c0ef8b3ed25b721ca23aca83df277cd88106ef7177c354615ff.txt (upstream SPDX/Apache-2.0.txt; SPDX-3.27.0)
+  Notice: licenses/b05785f9f18e6716bab63424b11454513b9943a222595b70411009202fc592b5.txt (upstream SPDX/MIT.txt; SPDX-3.27.0)
+
+equivalent 1.0.2
+  License: Apache-2.0 OR MIT
+  Source: https://crates.io/api/v1/crates/equivalent/1.0.2/download
+  Cargo.lock checksum: 877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f
+  Repository: https://github.com/indexmap-rs/equivalent
+  Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/7365cc8878a1d7ce155a58c4ca09c3d7a6be413efa5334a80ea842912b669349.txt (upstream LICENSE-MIT; package)
+
+error-code 3.3.2
+  License: BSL-1.0
+  Source: https://crates.io/api/v1/crates/error-code/3.3.2/download
+  Cargo.lock checksum: dea2df4cf52843e0452895c455a1a2cfbb842a1e7329671acf418fdc53ed4c59
+  Authors: Douman <douman@gmx.se>
+  Repository: https://github.com/DoumanAsh/error-code
+  Notice: licenses/c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566.txt (upstream LICENSE; package)
+
+euclid 0.22.14
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/euclid/0.22.14/download
+  Cargo.lock checksum: f1a05365e3b1c6d1650318537c7460c6923f1abdd272ad6842baa2b509957a06
+  Authors: The Servo Project Developers
+  Repository: https://github.com/servo/euclid
+  Notice: licenses/ec82b96487e9e778ee610c7ab245162464782cfa1f555c2299333f8dbe5c036a.txt (upstream COPYRIGHT; package)
+  Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/62065228e42caebca7e7d7db1204cbb867033de5982ca4009928915e4095f3a3.txt (upstream LICENSE-MIT; package)
+
+fallible-iterator 0.3.0
+  License: MIT/Apache-2.0
+  Source: https://crates.io/api/v1/crates/fallible-iterator/0.3.0/download
+  Cargo.lock checksum: 2acce4a10f12dc2fb14a218589d4f1f62ef011b2d0cc4b3cb1bba8e94da14649
+  Authors: Steven Fackler <sfackler@gmail.com>
+  Repository: https://github.com/sfackler/rust-fallible-iterator
+  Notice: licenses/c6596eb7be8581c18be736c846fb9173b69eccf6ef94c5135893ec56bd92ba08.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/0816e154b159ba255c563f7c8c7df5bbb8cc5fc96f5ab8cf9f4743b4f41fe7eb.txt (upstream LICENSE-MIT; package)
+
+fallible-streaming-iterator 0.1.9
+  License: MIT/Apache-2.0
+  Source: https://crates.io/api/v1/crates/fallible-streaming-iterator/0.1.9/download
+  Cargo.lock checksum: 7360491ce676a36bf9bb3c56c1aa791658183a54d2744120f27285738d90465a
+  Authors: Steven Fackler <sfackler@gmail.com>
+  Repository: https://github.com/sfackler/fallible-streaming-iterator
+  Notice: licenses/c6596eb7be8581c18be736c846fb9173b69eccf6ef94c5135893ec56bd92ba08.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/8dcec5569a9be5b0e086c80faed6f1aefa670af0ec29cecc2f714303096887e0.txt (upstream LICENSE-MIT; package)
+
+fastrand 2.5.0
+  License: Apache-2.0 OR MIT
+  Source: https://crates.io/api/v1/crates/fastrand/2.5.0/download
+  Cargo.lock checksum: da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223
+  Authors: Stjepan Glavina <stjepang@gmail.com>
+  Repository: https://github.com/smol-rs/fastrand
+  Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt (upstream LICENSE-MIT; package)
+
+fdeflate 0.3.7
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/fdeflate/0.3.7/download
+  Cargo.lock checksum: 1e6853b52649d4ac5c0bd02320cddc5ba956bdb407c4b75a2c6b75bf51500f8c
+  Authors: The image-rs Developers
+  Repository: https://github.com/image-rs/fdeflate
+  Notice: licenses/0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/c77a4cf9da729987d0fe7ccd811e3bd27393914ddf3d23467c18cc22954513b3.txt (upstream LICENSE-MIT; package)
+
+fearless_simd 0.4.1
+  License: Apache-2.0 OR MIT
+  Source: https://crates.io/api/v1/crates/fearless_simd/0.4.1/download
+  Cargo.lock checksum: b97b65636e5b9ef369943878ac74335ba1c55c1cb6adbf1e2c293c624248d693
+  Authors: Raph Levien <raph.levien@gmail.com>
+  Repository: https://github.com/linebender/fearless_simd
+  Notice: licenses/a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/23c23145f6eac25c28cdcc03d38506a5712a9a8cffb5bd5301457f6173ea696e.txt (upstream LICENSE-MIT; package)
+
+flate2 1.1.9
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/flate2/1.1.9/download
+  Cargo.lock checksum: 843fba2746e448b37e26a819579957415c8cef339bf08564fe8b7ddbd959573c
+  Authors: Alex Crichton <alex@alexcrichton.com>, Josh Triplett <josh@joshtriplett.org>
+  Repository: https://github.com/rust-lang/flate2-rs
+  Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/025436edff4cfcdde17a5811fdea78892d8482efd1abdec5a17872d07a4f2112.txt (upstream LICENSE-MIT; package)
+
+foldhash 0.1.5
+  License: Zlib
+  Source: https://crates.io/api/v1/crates/foldhash/0.1.5/download
+  Cargo.lock checksum: d9c4f5dac5e15c24eb999c26181a6ca40b39fe946cbe4c263c7209467bc83af2
+  Authors: Orson Peters <orsonpeters@gmail.com>
+  Repository: https://github.com/orlp/foldhash
+  Notice: licenses/b1181a40b2a7b25cf66fd01481713bc1005df082c53ef73e851e55071b102744.txt (upstream LICENSE; package)
+
+foldhash 0.2.0
+  License: Zlib
+  Source: https://crates.io/api/v1/crates/foldhash/0.2.0/download
+  Cargo.lock checksum: 77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb
+  Authors: Orson Peters <orsonpeters@gmail.com>
+  Repository: https://github.com/orlp/foldhash
+  Notice: licenses/b1181a40b2a7b25cf66fd01481713bc1005df082c53ef73e851e55071b102744.txt (upstream LICENSE; package)
+
+font-types 0.11.3
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/font-types/0.11.3/download
+  Cargo.lock checksum: 5b38ad915f6dadd993ced50848a8291a543bd41ca62bc10740d5e64e2ab4cfd7
+  Repository: https://github.com/googlefonts/fontations
+  Notice: licenses/a14f7d685a79c0f4fb64aee305527a6d5fa55f2401f4e6d688d7b1301868e6c0.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/8a62fa27ffdccc3df19dce90f8bb3d572e27aecffc1a383d0c2601834dcec434.txt (upstream LICENSE-MIT; package)
+
+form_urlencoded 1.2.2
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/form_urlencoded/1.2.2/download
+  Cargo.lock checksum: cb4cb245038516f5f85277875cdaa4f7d2c9a0fa0468de06ed190163b1581fcf
+  Authors: The rust-url developers
+  Repository: https://github.com/servo/rust-url
+  Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/20c7855c364d57ea4c97889a5e8d98470a9952dade37bd9248b9a54431670e5e.txt (upstream LICENSE-MIT; package)
+
+futures 0.3.33
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/futures/0.3.33/download
+  Cargo.lock checksum: a88cf1f829d945f548cf8fec32c61b1f202b6d93b45848602fc02af4b12ad218
+  Repository: https://github.com/rust-lang/futures-rs
+  Notice: licenses/275c491d6d1160553c32fd6127061d7f9606c3ea25abfad6ca3f6ed088785427.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/6652c868f35dfe5e8ef636810a4e576b9d663f3a17fb0f5613ad73583e1b88fd.txt (upstream LICENSE-MIT; package)
+
+futures-channel 0.3.33
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/futures-channel/0.3.33/download
+  Cargo.lock checksum: 262590f4fe6afeb0bc83be1daa64e52657fe185690a958af7f3ad0e92085c5ae
+  Repository: https://github.com/rust-lang/futures-rs
+  Notice: licenses/275c491d6d1160553c32fd6127061d7f9606c3ea25abfad6ca3f6ed088785427.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/6652c868f35dfe5e8ef636810a4e576b9d663f3a17fb0f5613ad73583e1b88fd.txt (upstream LICENSE-MIT; package)
+
+futures-core 0.3.33
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/futures-core/0.3.33/download
+  Cargo.lock checksum: 2cd50c473c80f6d7c3670a752354b8e569b1a7cbfdc0419ec88e5edad85e0dc7
+  Repository: https://github.com/rust-lang/futures-rs
+  Notice: licenses/275c491d6d1160553c32fd6127061d7f9606c3ea25abfad6ca3f6ed088785427.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/6652c868f35dfe5e8ef636810a4e576b9d663f3a17fb0f5613ad73583e1b88fd.txt (upstream LICENSE-MIT; package)
+
+futures-executor 0.3.33
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/futures-executor/0.3.33/download
+  Cargo.lock checksum: 6754879cc9f2c66f88c6e5c35344bb0bdb0708b0352b1201815667c7eabc7458
+  Repository: https://github.com/rust-lang/futures-rs
+  Notice: licenses/275c491d6d1160553c32fd6127061d7f9606c3ea25abfad6ca3f6ed088785427.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/6652c868f35dfe5e8ef636810a4e576b9d663f3a17fb0f5613ad73583e1b88fd.txt (upstream LICENSE-MIT; package)
+
+futures-io 0.3.33
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/futures-io/0.3.33/download
+  Cargo.lock checksum: 4577ecaa3c4f96589d473f679a71b596316f6641bc350038b962a5daf0085d7a
+  Repository: https://github.com/rust-lang/futures-rs
+  Notice: licenses/275c491d6d1160553c32fd6127061d7f9606c3ea25abfad6ca3f6ed088785427.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/6652c868f35dfe5e8ef636810a4e576b9d663f3a17fb0f5613ad73583e1b88fd.txt (upstream LICENSE-MIT; package)
+
+futures-macro 0.3.33
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/futures-macro/0.3.33/download
+  Cargo.lock checksum: 2d6d3cde68c518367be28956066ddfef33813991b77a55005a69dae04bf3b10b
+  Repository: https://github.com/rust-lang/futures-rs
+  Notice: licenses/275c491d6d1160553c32fd6127061d7f9606c3ea25abfad6ca3f6ed088785427.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/6652c868f35dfe5e8ef636810a4e576b9d663f3a17fb0f5613ad73583e1b88fd.txt (upstream LICENSE-MIT; package)
+
+futures-sink 0.3.33
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/futures-sink/0.3.33/download
+  Cargo.lock checksum: e34418ac499d6305c2fb5ad0ed2f6ac998c5f8ca209b4510f7f94242c647e307
+  Repository: https://github.com/rust-lang/futures-rs
+  Notice: licenses/275c491d6d1160553c32fd6127061d7f9606c3ea25abfad6ca3f6ed088785427.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/6652c868f35dfe5e8ef636810a4e576b9d663f3a17fb0f5613ad73583e1b88fd.txt (upstream LICENSE-MIT; package)
+
+futures-task 0.3.33
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/futures-task/0.3.33/download
+  Cargo.lock checksum: b231ed28831efb4a61a08580c4bc233ec56bc009f4cd8f52da2c3cb97df0c109
+  Repository: https://github.com/rust-lang/futures-rs
+  Notice: licenses/275c491d6d1160553c32fd6127061d7f9606c3ea25abfad6ca3f6ed088785427.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/6652c868f35dfe5e8ef636810a4e576b9d663f3a17fb0f5613ad73583e1b88fd.txt (upstream LICENSE-MIT; package)
+
+futures-util 0.3.33
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/futures-util/0.3.33/download
+  Cargo.lock checksum: a77a90a256fce34da66415271e30f94ee91c57b04b8a2c042d9cf3220179deaa
+  Repository: https://github.com/rust-lang/futures-rs
+  Notice: licenses/275c491d6d1160553c32fd6127061d7f9606c3ea25abfad6ca3f6ed088785427.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/6652c868f35dfe5e8ef636810a4e576b9d663f3a17fb0f5613ad73583e1b88fd.txt (upstream LICENSE-MIT; package)
+
+generic-array 0.14.7
+  License: MIT
+  Source: https://crates.io/api/v1/crates/generic-array/0.14.7/download
+  Cargo.lock checksum: 85649ca51fd72272d7821adaf274ad91c288277713d9c18820d8499a7ff69e9a
+  Authors: Bartłomiej Kamiński <fizyk20@gmail.com>, Aaron Trent <novacrazy@gmail.com>
+  Repository: https://github.com/fizyk20/generic-array.git
+  Notice: licenses/c09aae9d3c77b531f56351a9947bc7446511d6b025b3255312d3e3442a9a7583.txt (upstream LICENSE; package)
+
+getrandom 0.4.3
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/getrandom/0.4.3/download
+  Cargo.lock checksum: 300e883d756b2e4ec94e02791f39b04b522276138852cfc41d9fb7e904106099
+  Authors: The Rand Project Developers
+  Repository: https://github.com/rust-random/getrandom
+  Notice: licenses/aaff376532ea30a0cd5330b9502ad4a4c8bf769c539c87ffe78819d188a18ebf.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/523a42c25d245dde9c015f882cec7f4555aad883382a6cf19b4b7d9b2cd5419b.txt (upstream LICENSE-MIT; package)
+
+glow 0.17.0
+  License: MIT OR Apache-2.0 OR Zlib
+  Source: https://crates.io/api/v1/crates/glow/0.17.0/download
+  Cargo.lock checksum: 29038e1c483364cc6bb3cf78feee1816002e127c331a1eec55a4d202b9e1adb5
+  Authors: Joshua Groves <josh@joshgroves.com>, Dzmitry Malyshau <kvarkus@gmail.com>
+  Repository: https://github.com/grovesNL/glow
+  Notice: licenses/b8601fc79bdf8d8088f0938bea861ffc63ed0eebbedf25f44ab2cf2e85bd7edc.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/cdbd06e25b8c9c5d6019949d2de8123f56d29cee4166396423d2ba8c81700845.txt (upstream LICENSE-MIT; package)
+  Notice: licenses/636f644f1e149eb62961657c0e34953681eff64435653912e7bd19992666faa5.txt (upstream LICENSE-ZLIB; package)
+
+glutin_wgl_sys 0.6.1
+  License: Apache-2.0
+  Source: https://crates.io/api/v1/crates/glutin_wgl_sys/0.6.1/download
+  Cargo.lock checksum: 2c4ee00b289aba7a9e5306d57c2d05499b2e5dc427f84ac708bd2c090212cf3e
+  Authors: Kirill Chibisov <contact@kchibisov.com>
+  Repository: https://github.com/rust-windowing/glutin
+  Notice: licenses/a4445427440043e8ce6fadf7a43fb906cb0d7f6c573a560a9f142cf9f9bf8ff4.txt (upstream LICENSE; package)
+
+gpu-allocator 0.28.0
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/gpu-allocator/0.28.0/download
+  Cargo.lock checksum: 51255ea7cfaadb6c5f1528d43e92a82acb2b96c43365989a28b2d44ee38f8795
+  Authors: Traverse Research <opensource@traverseresearch.nl>
+  Repository: https://github.com/Traverse-Research/gpu-allocator
+  Notice: licenses/0178e21322b0e88aa3aeb3146f6a9611bc1f8df6d98bdfb34be28b9dd56a8107.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/ad41be6cc6538b29b9346648f41432b5e460bad6be073b5eeaa41320ea2921dc.txt (upstream LICENSE-MIT; package)
+
+gpu-descriptor 0.3.2
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/gpu-descriptor/0.3.2/download
+  Cargo.lock checksum: b89c83349105e3732062a895becfc71a8f921bb71ecbbdd8ff99263e3b53a0ca
+  Authors: Zakarum <zakarumych@ya.ru>
+  Repository: https://github.com/zakarumych/gpu-descriptor
+  Notice: licenses/074e6e32c86a4c0ef8b3ed25b721ca23aca83df277cd88106ef7177c354615ff.txt (upstream SPDX/Apache-2.0.txt; SPDX-3.27.0)
+  Notice: licenses/b05785f9f18e6716bab63424b11454513b9943a222595b70411009202fc592b5.txt (upstream SPDX/MIT.txt; SPDX-3.27.0)
+
+gpu-descriptor-types 0.2.0
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/gpu-descriptor-types/0.2.0/download
+  Cargo.lock checksum: fdf242682df893b86f33a73828fb09ca4b2d3bb6cc95249707fc684d27484b91
+  Authors: Zakarum <zakarumych@ya.ru>
+  Repository: https://github.com/zakarumych/gpu-descriptor
+  Notice: licenses/074e6e32c86a4c0ef8b3ed25b721ca23aca83df277cd88106ef7177c354615ff.txt (upstream SPDX/Apache-2.0.txt; SPDX-3.27.0)
+  Notice: licenses/b05785f9f18e6716bab63424b11454513b9943a222595b70411009202fc592b5.txt (upstream SPDX/MIT.txt; SPDX-3.27.0)
+
+guillotiere 0.7.0
+  License: MIT/Apache-2.0
+  Source: https://crates.io/api/v1/crates/guillotiere/0.7.0/download
+  Cargo.lock checksum: 6b17e70c989c36bad147b27a58d148c0741c51448aa5653436547323e524d0ab
+  Authors: Nicolas Silva <nical@fastmail.com>
+  Repository: https://github.com/nical/guillotiere
+  Notice: licenses/644d05561bc2dc5993f19d6602894315d925744d854a0413876e203f86c35830.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/cab31b979edfb1d6ff72a9a84e1092a9b68954022fc3f253338e64879961b8d2.txt (upstream LICENSE-MIT; package)
+
+half 2.7.1
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/half/2.7.1/download
+  Cargo.lock checksum: 6ea2d84b969582b4b1864a92dc5d27cd2b77b622a8d79306834f1be5ba20d84b
+  Authors: Kathryn Long <squeeself@gmail.com>
+  Repository: https://github.com/VoidStarKat/half-rs
+  Notice: licenses/a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/508a77d2e7b51d98adeed32648ad124b7b30241a8e70b2e72c99f92d8e5874d1.txt (upstream LICENSE-MIT; package)
+
+harfrust 0.7.0
+  License: MIT
+  Source: https://crates.io/api/v1/crates/harfrust/0.7.0/download
+  Cargo.lock checksum: 0431e8e389aa0f1e72bb9d1c2db8957a1a7a3580e8ed97db819c14837aac9b3e
+  Repository: https://github.com/harfbuzz/harfrust
+  Notice: licenses/1e881ecf2862d01e6e5bc2b861e46886d2a6fb01499c0c508a209a7271b13cf2.txt (upstream LICENSE; package)
+
+hashbrown 0.15.5
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/hashbrown/0.15.5/download
+  Cargo.lock checksum: 9229cfe53dfd69f0609a49f65461bd93001ea1ef889cd5529dd176593f5338a1
+  Authors: Amanieu d'Antras <amanieu@gmail.com>
+  Repository: https://github.com/rust-lang/hashbrown
+  Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/ff8f68cb076caf8cefe7a6430d4ac086ce6af2ca8ce2c4e5a2004d4552ef52a2.txt (upstream LICENSE-MIT; package)
+
+hashbrown 0.16.1
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/hashbrown/0.16.1/download
+  Cargo.lock checksum: 841d1cc9bed7f9236f321df977030373f4a4163ae1a7dbfe1a51a2c1a51d9100
+  Authors: Amanieu d'Antras <amanieu@gmail.com>
+  Repository: https://github.com/rust-lang/hashbrown
+  Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/ff8f68cb076caf8cefe7a6430d4ac086ce6af2ca8ce2c4e5a2004d4552ef52a2.txt (upstream LICENSE-MIT; package)
+
+hashbrown 0.17.1
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/hashbrown/0.17.1/download
+  Cargo.lock checksum: ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a
+  Repository: https://github.com/rust-lang/hashbrown
+  Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/ff8f68cb076caf8cefe7a6430d4ac086ce6af2ca8ce2c4e5a2004d4552ef52a2.txt (upstream LICENSE-MIT; package)
+
+heck 0.5.0
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/heck/0.5.0/download
+  Cargo.lock checksum: 2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea
+  Repository: https://github.com/withoutboats/heck
+  Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/7b63ecd5f1902af1b63729947373683c32745c16a10e8e6292e2e2dcd7e90ae0.txt (upstream LICENSE-MIT; package)
+
+hexf-parse 0.2.1
+  License: CC0-1.0
+  Source: https://crates.io/api/v1/crates/hexf-parse/0.2.1/download
+  Cargo.lock checksum: dfa686283ad6dd069f105e5ab091b04c62850d3e4cf5d67debad1933f55023df
+  Authors: Kang Seonghoon <public+rust@mearie.org>
+  Repository: https://github.com/lifthrasiir/hexf
+  Notice: licenses/a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499.txt (upstream SPDX/CC0-1.0.txt; SPDX-3.27.0)
+
+http 1.5.0
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/http/1.5.0/download
+  Cargo.lock checksum: 918d3568bebf352712bc2ef3d46a8bcf1a75b373be6539de198e9105cbbf9ce0
+  Authors: Alex Crichton <alex@alexcrichton.com>, Carl Lerche <me@carllerche.com>, Sean McArthur <sean@seanmonstar.com>
+  Repository: https://github.com/hyperium/http
+  Notice: licenses/8bb1b50b0e5c9399ae33bd35fab2769010fa6c14e8860c729a52295d84896b7a.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/dc91f8200e4b2a1f9261035d4c18c33c246911a6c0f7b543d75347e61b249cff.txt (upstream LICENSE-MIT; package)
+
+http-body 1.1.0
+  License: MIT
+  Source: https://crates.io/api/v1/crates/http-body/1.1.0/download
+  Cargo.lock checksum: ca2a8f2913ee65f60facd6a5905613afaa448497a0230cc41ce022d93290bc2c
+  Authors: Carl Lerche <me@carllerche.com>, Lucio Franco <luciofranco14@gmail.com>, Sean McArthur <sean@seanmonstar.com>
+  Repository: https://github.com/hyperium/http-body
+  Notice: licenses/248378d0a3383c173fb925f17141b88e71580b3ba17ddc6ac3d2a344683232ab.txt (upstream LICENSE; package)
+
+http-body-util 0.1.4
+  License: MIT
+  Source: https://crates.io/api/v1/crates/http-body-util/0.1.4/download
+  Cargo.lock checksum: e9f41fd6a08e4d4ec69df65976da761afd5ad5e58a9d4acb46bd1c953a9e3ff2
+  Authors: Carl Lerche <me@carllerche.com>, Lucio Franco <luciofranco14@gmail.com>, Sean McArthur <sean@seanmonstar.com>
+  Repository: https://github.com/hyperium/http-body
+  Notice: licenses/248378d0a3383c173fb925f17141b88e71580b3ba17ddc6ac3d2a344683232ab.txt (upstream LICENSE; package)
+
+httparse 1.10.1
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/httparse/1.10.1/download
+  Cargo.lock checksum: 6dbf3de79e51f3d586ab4cb9d5c3e2c14aa28ed23d180cf89b4df0454a69cc87
+  Authors: Sean McArthur <sean@seanmonstar.com>
+  Repository: https://github.com/seanmonstar/httparse
+  Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/391a5396cec6230bfabd4ef4eb2350eb895bc5efce377a2218f5702ed020d3e3.txt (upstream LICENSE-MIT; package)
+
+httpdate 1.0.3
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/httpdate/1.0.3/download
+  Cargo.lock checksum: df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9
+  Authors: Pyfisch <pyfisch@posteo.org>
+  Repository: https://github.com/pyfisch/httpdate
+  Notice: licenses/4d10fe5f3aa176b05b229a248866bad70b834c173f1252a814ff4748d8a13837.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/934887691e05d69d7c86ad3f2c360980fa30c15b035e351f3c9865e99da4debc.txt (upstream LICENSE-MIT; package)
+
+hyper 1.11.0
+  License: MIT
+  Source: https://crates.io/api/v1/crates/hyper/1.11.0/download
+  Cargo.lock checksum: d22053281f852e11534f5198498373cbb59295120a20771d90f7ed1897490a72
+  Authors: Sean McArthur <sean@seanmonstar.com>
+  Repository: https://github.com/hyperium/hyper
+  Notice: licenses/2d01890414494742ba4a509fcec8efa40f6d8be22cbd72be7cff08d6fda4ec89.txt (upstream LICENSE; package)
+
+hyper-rustls 0.27.9
+  License: Apache-2.0 OR ISC OR MIT
+  Source: https://crates.io/api/v1/crates/hyper-rustls/0.27.9/download
+  Cargo.lock checksum: 33ca68d021ef39cf6463ab54c1d0f5daf03377b70561305bb89a8f83aab66e0f
+  Repository: https://github.com/rustls/hyper-rustls
+  Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/7cfafc877eccc46c0e346ccbaa5c51bb6b894d2b818e617d970211e232785ad4.txt (upstream LICENSE-ISC; package)
+  Notice: licenses/709e3175b4212f7b13aa93971c9f62ff8c69ec45ad8c6532a7e0c41d7a7d6f8c.txt (upstream LICENSE-MIT; package)
+
+hyper-util 0.1.20
+  License: MIT
+  Source: https://crates.io/api/v1/crates/hyper-util/0.1.20/download
+  Cargo.lock checksum: 96547c2556ec9d12fb1578c4eaf448b04993e7fb79cbaad930a656880a6bdfa0
+  Authors: Sean McArthur <sean@seanmonstar.com>
+  Repository: https://github.com/hyperium/hyper-util
+  Notice: licenses/9e0a97848ea543aef745c98e84fde696a9a3e0735538f6daefdd3cb1942effc1.txt (upstream LICENSE; package)
+
+icu_collections 2.2.0
+  License: Unicode-3.0
+  Source: https://crates.io/api/v1/crates/icu_collections/2.2.0/download
+  Cargo.lock checksum: 2984d1cd16c883d7935b9e07e44071dca8d917fd52ecc02c04d5fa0b5a3f191c
+  Authors: The ICU4X Project Developers
+  Repository: https://github.com/unicode-org/icu4x
+  Notice: licenses/f367c1b8e1aa262435251e442901da4607b4650e0e63a026f5044473ecfb90f2.txt (upstream LICENSE; package)
+
+icu_locale_core 2.2.0
+  License: Unicode-3.0
+  Source: https://crates.io/api/v1/crates/icu_locale_core/2.2.0/download
+  Cargo.lock checksum: 92219b62b3e2b4d88ac5119f8904c10f8f61bf7e95b640d25ba3075e6cac2c29
+  Authors: The ICU4X Project Developers
+  Repository: https://github.com/unicode-org/icu4x
+  Notice: licenses/f367c1b8e1aa262435251e442901da4607b4650e0e63a026f5044473ecfb90f2.txt (upstream LICENSE; package)
+
+icu_normalizer 2.2.0
+  License: Unicode-3.0
+  Source: https://crates.io/api/v1/crates/icu_normalizer/2.2.0/download
+  Cargo.lock checksum: c56e5ee99d6e3d33bd91c5d85458b6005a22140021cc324cea84dd0e72cff3b4
+  Authors: The ICU4X Project Developers
+  Repository: https://github.com/unicode-org/icu4x
+  Notice: licenses/f367c1b8e1aa262435251e442901da4607b4650e0e63a026f5044473ecfb90f2.txt (upstream LICENSE; package)
+
+icu_normalizer_data 2.2.0
+  License: Unicode-3.0
+  Source: https://crates.io/api/v1/crates/icu_normalizer_data/2.2.0/download
+  Cargo.lock checksum: da3be0ae77ea334f4da67c12f149704f19f81d1adf7c51cf482943e84a2bad38
+  Authors: The ICU4X Project Developers
+  Repository: https://github.com/unicode-org/icu4x
+  Notice: licenses/f367c1b8e1aa262435251e442901da4607b4650e0e63a026f5044473ecfb90f2.txt (upstream LICENSE; package)
+
+icu_properties 2.2.0
+  License: Unicode-3.0
+  Source: https://crates.io/api/v1/crates/icu_properties/2.2.0/download
+  Cargo.lock checksum: bee3b67d0ea5c2cca5003417989af8996f8604e34fb9ddf96208a033901e70de
+  Authors: The ICU4X Project Developers
+  Repository: https://github.com/unicode-org/icu4x
+  Notice: licenses/f367c1b8e1aa262435251e442901da4607b4650e0e63a026f5044473ecfb90f2.txt (upstream LICENSE; package)
+
+icu_properties_data 2.2.0
+  License: Unicode-3.0
+  Source: https://crates.io/api/v1/crates/icu_properties_data/2.2.0/download
+  Cargo.lock checksum: 8e2bbb201e0c04f7b4b3e14382af113e17ba4f63e2c9d2ee626b720cbce54a14
+  Authors: The ICU4X Project Developers
+  Repository: https://github.com/unicode-org/icu4x
+  Notice: licenses/f367c1b8e1aa262435251e442901da4607b4650e0e63a026f5044473ecfb90f2.txt (upstream LICENSE; package)
+
+icu_provider 2.2.0
+  License: Unicode-3.0
+  Source: https://crates.io/api/v1/crates/icu_provider/2.2.0/download
+  Cargo.lock checksum: 139c4cf31c8b5f33d7e199446eff9c1e02decfc2f0eec2c8d71f65befa45b421
+  Authors: The ICU4X Project Developers
+  Repository: https://github.com/unicode-org/icu4x
+  Notice: licenses/f367c1b8e1aa262435251e442901da4607b4650e0e63a026f5044473ecfb90f2.txt (upstream LICENSE; package)
+
+idna 1.1.0
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/idna/1.1.0/download
+  Cargo.lock checksum: 3b0875f23caa03898994f6ddc501886a45c7d3d62d04d2d90788d47be1b1e4de
+  Authors: The rust-url developers
+  Repository: https://github.com/servo/rust-url/
+  Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/b38f11f6096706e6de553dabe2a7ed142d59b6fa8c97e290c67496154745cdd5.txt (upstream LICENSE-MIT; package)
+
+idna_adapter 1.2.2
+  License: Apache-2.0 OR MIT
+  Source: https://crates.io/api/v1/crates/idna_adapter/1.2.2/download
+  Cargo.lock checksum: cb68373c0d6620ef8105e855e7745e18b0d00d3bdb07fb532e434244cdb9a714
+  Authors: The rust-url developers
+  Repository: https://github.com/hsivonen/idna_adapter
+  Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/8b43ce8accd61e9d370b5ca9e9c4f953279b5c239926c62315b40e24df51b726.txt (upstream LICENSE-MIT; package)
+
+image 0.25.10
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/image/0.25.10/download
+  Cargo.lock checksum: 85ab80394333c02fe689eaf900ab500fbd0c2213da414687ebf995a65d5a6104
+  Authors: The image-rs Developers
+  Repository: https://github.com/image-rs/image
+  Notice: licenses/0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/c77a4cf9da729987d0fe7ccd811e3bd27393914ddf3d23467c18cc22954513b3.txt (upstream LICENSE-MIT; package)
+
+include_dir 0.7.4
+  License: MIT
+  Source: https://crates.io/api/v1/crates/include_dir/0.7.4/download
+  Cargo.lock checksum: 923d117408f1e49d914f1a379a309cffe4f18c05cf4e3d12e613a15fc81bd0dd
+  Authors: Michael Bryan <michaelfbryan@gmail.com>
+  Repository: https://github.com/Michael-F-Bryan/include_dir
+  Notice: licenses/b05785f9f18e6716bab63424b11454513b9943a222595b70411009202fc592b5.txt (upstream SPDX/MIT.txt; SPDX-3.27.0)
+
+include_dir_macros 0.7.4
+  License: MIT
+  Source: https://crates.io/api/v1/crates/include_dir_macros/0.7.4/download
+  Cargo.lock checksum: 7cab85a7ed0bd5f0e76d93846e0147172bed2e2d3f859bcc33a8d9699cad1a75
+  Authors: Michael Bryan <michaelfbryan@gmail.com>
+  Repository: https://github.com/Michael-F-Bryan/include_dir
+  Notice: licenses/b05785f9f18e6716bab63424b11454513b9943a222595b70411009202fc592b5.txt (upstream SPDX/MIT.txt; SPDX-3.27.0)
+
+indexmap 2.14.0
+  License: Apache-2.0 OR MIT
+  Source: https://crates.io/api/v1/crates/indexmap/2.14.0/download
+  Cargo.lock checksum: d466e9454f08e4a911e14806c24e16fba1b4c121d1ea474396f396069cf949d9
+  Repository: https://github.com/indexmap-rs/indexmap
+  Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/ecc269ef87fd38a1d98e30bfac9ba964a9dbd9315c3770fed98d4d7cb5882055.txt (upstream LICENSE-MIT; package)
+
+ipnet 2.12.0
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/ipnet/2.12.0/download
+  Cargo.lock checksum: d98f6fed1fde3f8c21bc40a1abb88dd75e67924f9cffc3ef95607bad8017f8e2
+  Authors: Kris Price <kris@krisprice.nz>
+  Repository: https://github.com/krisprice/ipnet
+  Notice: licenses/87d9feb9238c6bd8e0024fc4733b06cff036f89f36d93b7df1c8a0549bbb7a5b.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/47dc9ff29128ddfb4d6a0435383c9f89120bc374dbcc1dd00b933a0b28aa7865.txt (upstream LICENSE-MIT; package)
+
+is_terminal_polyfill 1.70.2
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/is_terminal_polyfill/1.70.2/download
+  Cargo.lock checksum: a6cb138bb79a146c1bd460005623e142ef0181e3d0219cb493e02f7d08a35695
+  Repository: https://github.com/polyfill-rs/is_terminal_polyfill
+  Notice: licenses/c6596eb7be8581c18be736c846fb9173b69eccf6ef94c5135893ec56bd92ba08.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/6efb0476a1cc085077ed49357026d8c173bf33017278ef440f222fb9cbcb66e6.txt (upstream LICENSE-MIT; package)
+
+itertools 0.14.0
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/itertools/0.14.0/download
+  Cargo.lock checksum: 2b192c782037fadd9cfa75548310488aabdbf3d2da73885b31bd0abd03351285
+  Authors: bluss
+  Repository: https://github.com/rust-itertools/itertools
+  Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/7576269ea71f767b99297934c0b2367532690f8c4badc695edf8e04ab6a1e545.txt (upstream LICENSE-MIT; package)
+
+itoa 1.0.18
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/itoa/1.0.18/download
+  Cargo.lock checksum: 8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682
+  Authors: David Tolnay <dtolnay@gmail.com>
+  Repository: https://github.com/dtolnay/itoa
+  Notice: licenses/62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt (upstream LICENSE-MIT; package)
+
+keyboard-types 0.7.0
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/keyboard-types/0.7.0/download
+  Cargo.lock checksum: b750dcadc39a09dbadd74e118f6dd6598df77fa01df0cfcdc52c28dece74528a
+  Authors: Pyfisch <pyfisch@posteo.org>
+  Repository: https://github.com/pyfisch/keyboard-types
+  Notice: licenses/769f80b5bcb42ed0af4e4d2fd74e1ac9bf843cb80c5a29219d1ef3544428a6bb.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/31dbbab009f1b2e59a1622d5955dfafc38ebe834000215b49d954c6f85fe927c.txt (upstream LICENSE-MIT; package)
+
+khronos-egl 6.0.0
+  License: MIT/Apache-2.0
+  Source: https://crates.io/api/v1/crates/khronos-egl/6.0.0/download
+  Cargo.lock checksum: 6aae1df220ece3c0ada96b8153459b67eebe9ae9212258bb0134ae60416fdf76
+  Authors: Timothée Haudebourg <author@haudebourg.net>, Sean Kerr <sean@metatomic.io>
+  Repository: https://github.com/timothee-haudebourg/khronos-egl
+  Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt (upstream LICENSE-MIT; package)
+
+kurbo 0.13.1
+  License: Apache-2.0 OR MIT
+  Source: https://crates.io/api/v1/crates/kurbo/0.13.1/download
+  Cargo.lock checksum: 4b60dfc32f652b926df6192e55525b16d186c69d47876c3ead4da5cc9f8450e2
+  Repository: https://github.com/linebender/kurbo
+  Notice: licenses/cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/23c23145f6eac25c28cdcc03d38506a5712a9a8cffb5bd5301457f6173ea696e.txt (upstream LICENSE-MIT; package)
+
+lazy_static 1.5.0
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/lazy_static/1.5.0/download
+  Cargo.lock checksum: bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe
+  Authors: Marvin Löbel <loebel.marvin@gmail.com>
+  Repository: https://github.com/rust-lang-nursery/lazy-static.rs
+  Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/0621878e61f0d0fda054bcbe02df75192c28bde1ecc8289cbd86aeba2dd72720.txt (upstream LICENSE-MIT; package)
+
+libc 0.2.189
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/libc/0.2.189/download
+  Cargo.lock checksum: 3eaf3ede3fee6db1a4c2ee091bf8a8b4dccdc6d17f656fb07896ee72867612f2
+  Repository: https://github.com/rust-lang/libc
+  Notice: licenses/62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/123a331b5dbf04c30097fa43b8f858bc85df671fe776de498d01f3d6b7c1f69e.txt (upstream LICENSE-MIT; package)
+
+libloading 0.8.9
+  License: ISC
+  Source: https://crates.io/api/v1/crates/libloading/0.8.9/download
+  Cargo.lock checksum: d7c4b02199fee7c5d21a5ae7d8cfa79a6ef5bb2fc834d6e9058e89c825efdc55
+  Authors: Simonas Kazlauskas <libloading@kazlauskas.me>
+  Repository: https://github.com/nagisa/rust_libloading/
+  Notice: licenses/b29f8b01452350c20dd1af16ef83b598fea3053578ccc1c7a0ef40e57be2620f.txt (upstream LICENSE; package)
+
+libm 0.2.16
+  License: MIT
+  Source: https://crates.io/api/v1/crates/libm/0.2.16/download
+  Cargo.lock checksum: b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981
+  Authors: Alex Crichton <alex@alexcrichton.com>, Amanieu d'Antras <amanieu@gmail.com>, Jorge Aparicio <japaricious@gmail.com>, Trevor Gross <tg@trevorgross.com>
+  Repository: https://github.com/rust-lang/compiler-builtins
+  Notice: licenses/3823dda7cf046602f4b4e77ec8e227863dc4736037cc85bb33d9f19febe16bb7.txt (upstream LICENSE.txt; package)
+
+libsqlite3-sys 0.38.2
+  License: MIT
+  Source: https://crates.io/api/v1/crates/libsqlite3-sys/0.38.2/download
+  Cargo.lock checksum: f1d20bef17f513b9b3004532233187769cd072d790971f4e4da0e346eb6401e8
+  Authors: The rusqlite developers
+  Repository: https://github.com/rusqlite/rusqlite
+  Notice: licenses/c10c1f27337546471e5f7e4e97fdd398b35b9d4e126115dcd22de8d8e65abf6f.txt (upstream LICENSE; package)
+  Notice: licenses/ea4fcb309f14a22065e1ea45362d494d320012249ed865fe9c7c0946db754131.txt (upstream sqlcipher/LICENSE; package)
+
+linebender_resource_handle 0.1.1
+  License: Apache-2.0 OR MIT
+  Source: https://crates.io/api/v1/crates/linebender_resource_handle/0.1.1/download
+  Cargo.lock checksum: d4a5ff6bcca6c4867b1c4fd4ef63e4db7436ef363e0ad7531d1558856bae64f4
+  Repository: https://github.com/linebender/raw_resource_handle
+  Notice: licenses/91029dd59a52bfbb49595d445d3a6cd855c080bbcbb2cd55ddfa5da8ae87530a.txt (upstream AUTHORS; package)
+  Notice: licenses/a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/508a77d2e7b51d98adeed32648ad124b7b30241a8e70b2e72c99f92d8e5874d1.txt (upstream LICENSE-MIT; package)
+
+litemap 0.8.2
+  License: Unicode-3.0
+  Source: https://crates.io/api/v1/crates/litemap/0.8.2/download
+  Cargo.lock checksum: 92daf443525c4cce67b150400bc2316076100ce0b3686209eb8cf3c31612e6f0
+  Authors: The ICU4X Project Developers
+  Repository: https://github.com/unicode-org/icu4x
+  Notice: licenses/f367c1b8e1aa262435251e442901da4607b4650e0e63a026f5044473ecfb90f2.txt (upstream LICENSE; package)
+
+litrs 1.0.0
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/litrs/1.0.0/download
+  Cargo.lock checksum: 11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092
+  Authors: Lukas Kalbertodt <lukas.kalbertodt@gmail.com>
+  Repository: https://github.com/LukasKalbertodt/litrs
+  Notice: licenses/62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/7dc1552e88f49132cb358b1b962fc5e79fa42d70bcbb88c526d33e45b8e98036.txt (upstream LICENSE-MIT; package)
+
+lock_api 0.4.14
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/lock_api/0.4.14/download
+  Cargo.lock checksum: 224399e74b87b5f3557511d98dff8b14089b3dadafcab6bb93eab67d3aace965
+  Authors: Amanieu d'Antras <amanieu@gmail.com>
+  Repository: https://github.com/Amanieu/parking_lot
+  Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/c9a75f18b9ab2927829a208fc6aa2cf4e63b8420887ba29cdb265d6619ae82d5.txt (upstream LICENSE-MIT; package)
+
+log 0.4.33
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/log/0.4.33/download
+  Cargo.lock checksum: 0ceec5bc11778974d1bcb055b18002eba7f4b3518b6a0081b3af5f21666da9ad
+  Authors: The Rust Project Developers
+  Repository: https://github.com/rust-lang/log
+  Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/6485b8ed310d3f0340bf1ad1f47645069ce4069dcc6bb46c7d5c6faf41de1fdb.txt (upstream LICENSE-MIT; package)
+
+matchers 0.2.0
+  License: MIT
+  Source: https://crates.io/api/v1/crates/matchers/0.2.0/download
+  Cargo.lock checksum: d1525a2a28c7f4fa0fc98bb91ae755d1e2d1505079e05539e35bc876b5d65ae9
+  Authors: Eliza Weisman <eliza@buoyant.io>
+  Repository: https://github.com/hawkw/matchers
+  Notice: licenses/a47129d738752a6ae52247fea645b42cb320d19e9327f1eb2d1a7f99d9455ad3.txt (upstream LICENSE; package)
+
+matchit 0.8.4
+  License: MIT AND BSD-3-Clause
+  Source: https://crates.io/api/v1/crates/matchit/0.8.4/download
+  Cargo.lock checksum: 47e1ffaa40ddd1f3ed91f717a33c8c0ee23fff369e3aa8772b9605cc1d22f4c3
+  Authors: Ibraheem Ahmed <ibraheem@ibraheem.ca>
+  Repository: https://github.com/ibraheemdev/matchit
+  Notice: licenses/de701d0618d694feb1af90f02181a1763d9b0bdeb70a3a592781e529077dba65.txt (upstream LICENSE; package)
+  Notice: licenses/162ce11ad71338d0a0c6ebaf5c48af72c6ae237b468859d3656fe2d9ed3f3a85.txt (upstream LICENSE.httprouter; package)
+
+memchr 2.8.3
+  License: Unlicense OR MIT
+  Source: https://crates.io/api/v1/crates/memchr/2.8.3/download
+  Cargo.lock checksum: cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98
+  Authors: Andrew Gallant <jamslam@gmail.com>, bluss
+  Repository: https://github.com/BurntSushi/memchr
+  Notice: licenses/01c266bced4a434da0051174d6bee16a4c82cf634e2679b6155d40d75012390f.txt (upstream COPYING; package)
+  Notice: licenses/0f96a83840e146e43c0ec96a22ec1f392e0680e6c1226e6f3ba87e0740af850f.txt (upstream LICENSE-MIT; package)
+  Notice: licenses/7e12e5df4bae12cb21581ba157ced20e1986a0508dd10d0e8a4ab9a4cf94e85c.txt (upstream UNLICENSE; package)
+
+memo-map 0.3.3
+  License: Apache-2.0
+  Source: https://crates.io/api/v1/crates/memo-map/0.3.3/download
+  Cargo.lock checksum: 38d1115007560874e373613744c6fba374c17688327a71c1476d1a5954cc857b
+  Authors: Armin Ronacher <armin.ronacher@active-4.com>
+  Repository: https://github.com/mitsuhiko/memo-map
+  Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE; package)
+
+mime 0.3.17
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/mime/0.3.17/download
+  Cargo.lock checksum: 6877bb514081ee2a7ff5ef9de3281f14a4dd4bceac4c09388074a6b5df8a139a
+  Authors: Sean McArthur <sean@seanmonstar.com>
+  Repository: https://github.com/hyperium/mime
+  Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/df9cfd06d8a44d9a671eadd39ffd97f166481da015a30f45dfd27886209c5922.txt (upstream LICENSE-MIT; package)
+
+minijinja 2.24.0
+  License: Apache-2.0
+  Source: https://crates.io/api/v1/crates/minijinja/2.24.0/download
+  Cargo.lock checksum: 86886cf6dbf4e614b19c9a1eec9775f021869d7eadde0fc73921a81b90c9b4c9
+  Authors: Armin Ronacher <armin.ronacher@active-4.com>
+  Repository: https://github.com/mitsuhiko/minijinja
+  Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE; package)
+  Notice: licenses/c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4.txt (upstream src/vendor/self_cell/LICENSE; package)
+
+miniz_oxide 0.8.9
+  License: MIT OR Zlib OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/miniz_oxide/0.8.9/download
+  Cargo.lock checksum: 1fa76a2c86f704bdb222d66965fb3d63269ce38518b83cb0575fca855ebb6316
+  Authors: Frommi <daniil.liferenko@gmail.com>, oyvindln <oyvindln@users.noreply.github.com>, Rich Geldreich richgel99@gmail.com
+  Repository: https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide
+  Notice: licenses/4108245a1f2df9d4e94df8abed5b4ba0759bb2f9b40a6b939f1be141077ae50b.txt (upstream LICENSE; package)
+  Notice: licenses/0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594.txt (upstream LICENSE-APACHE.md; package)
+  Notice: licenses/799e9ca9d179295ef372f25d3769cdda7d25bb2668add6a6a1e22d1e4c678b8d.txt (upstream LICENSE-MIT.md; package)
+  Notice: licenses/0a54e647fe54104658b5e563c04c6f9edf251710e47bce692e0bd990a4ddaa39.txt (upstream LICENSE-ZLIB.md; package)
+
+mio 1.2.2
+  License: MIT
+  Source: https://crates.io/api/v1/crates/mio/1.2.2/download
+  Cargo.lock checksum: 30d65c71f1ce40ab09135ce117d742b9f8a19ff91a41a8b57ed50bc2de59c427
+  Authors: Carl Lerche <me@carllerche.com>, Thomas de Zeeuw <thomasdezeeuw@gmail.com>, Tokio Contributors <team@tokio.rs>
+  Repository: https://github.com/tokio-rs/mio
+  Notice: licenses/07919255c7e04793d8ea760d6c2ce32d19f9ff02bdbdde3ce90b1e1880929a9b.txt (upstream LICENSE; package)
+
+moxcms 0.8.1
+  License: BSD-3-Clause OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/moxcms/0.8.1/download
+  Cargo.lock checksum: bb85c154ba489f01b25c0d36ae69a87e4a1c73a72631fc6c0eb6dde34a73e44b
+  Authors: Radzivon Bartoshyk
+  Repository: https://github.com/awxkee/moxcms.git
+  Notice: licenses/90bf2d659c43045111b65c733ab2a6d4cbcb422a098368c8c58a9ba3db4ed0c5.txt (upstream LICENSE-APACHE.md; package)
+  Notice: licenses/2aa92cada6431e75615e3fe6cb1a9082c98f777d48ae1c087c0da0e37f7b8bff.txt (upstream LICENSE.md; package)
+
+muda 0.19.3
+  License: Apache-2.0 OR MIT
+  Source: https://crates.io/api/v1/crates/muda/0.19.3/download
+  Cargo.lock checksum: 1dd04e60bc0b07438a6771710ee1698f98f6ebbc7f89b61264af1563b8aeb878
+  Repository: https://github.com/tauri-apps/muda
+  Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/2ab5537b8c0cb1d475e2145b6a7994b04e7c71e6e5bd836f7f9c47c221a5ad9a.txt (upstream LICENSE-MIT; package)
+  Notice: licenses/b99f9d43803f2ac979c50949df630bd8eeaf2fcd1b9fdb9093710d70f5dfb63d.txt (upstream LICENSE.spdx; package)
+
+naga 29.0.4
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/naga/29.0.4/download
+  Cargo.lock checksum: b2bf919621e7975acb27d881bae2fb993e0d45c8e0446e85e6272971e00dc8df
+  Authors: gfx-rs developers
+  Repository: https://github.com/gfx-rs/wgpu
+  Notice: licenses/a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9.txt (upstream LICENSE.APACHE; package)
+  Notice: licenses/dc0d97139e8205818c703741c7be7cb3b96888bd5917b8d6fc6133731e403c21.txt (upstream LICENSE.MIT; package)
+
+nohash-hasher 0.2.0
+  License: Apache-2.0 OR MIT
+  Source: https://crates.io/api/v1/crates/nohash-hasher/0.2.0/download
+  Cargo.lock checksum: 2bf50223579dc7cdcfb3bfcacf7069ff68243f8c363f62ffa99cf000a6b9c451
+  Authors: Parity Technologies <admin@parity.io>
+  Repository: https://github.com/paritytech/nohash-hasher
+  Notice: licenses/cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/ec353d4fecf7963b4c054384557e5dbc3c7a717997eb4a3815b315721a6aa75a.txt (upstream LICENSE-MIT; package)
+
+notify-rust 4.18.0
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/notify-rust/4.18.0/download
+  Cargo.lock checksum: c5b4c1b4f2aa9f25f63a7a49d3dd0ed567b3670da15330a66b29434be899b891
+  Authors: Hendrik Sollich <hendrik@hoodie.de>
+  Repository: https://github.com/hoodie/notify-rust
+  Notice: licenses/b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1.txt (upstream LICENSE-Apache; package)
+  Notice: licenses/d848c165548bd3f33419b71c3c3bb7cacec620d93383483393410688cba68431.txt (upstream LICENSE-MIT; package)
+
+nu-ansi-term 0.50.3
+  License: MIT
+  Source: https://crates.io/api/v1/crates/nu-ansi-term/0.50.3/download
+  Cargo.lock checksum: 7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5
+  Authors: ogham@bsago.me, Ryan Scheel (Havvy) <ryan.havvy@gmail.com>, Josh Triplett <josh@joshtriplett.org>, The Nushell Project Developers
+  Repository: https://github.com/nushell/nu-ansi-term
+  Notice: licenses/284465860407420254e39be4e1bdcaaf2e7f2d18e06f9bab75bc75341a5d8501.txt (upstream LICENSE; package)
+
+num-conv 0.2.2
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/num-conv/0.2.2/download
+  Cargo.lock checksum: 521739c6d2bac4aa25192232afe6841231376b2b26d4d9fae5ecf8ca5772e441
+  Authors: Jacob Pratt <jacob@jhpratt.dev>
+  Repository: https://github.com/jhpratt/num-conv
+  Notice: licenses/0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594.txt (upstream LICENSE-Apache; package)
+  Notice: licenses/e2e245f2b566d0bfafb0f6a04c16b82d710c4e6e7d799e39bb4ef6e541b85b98.txt (upstream LICENSE-MIT; package)
+
+num-traits 0.2.19
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/num-traits/0.2.19/download
+  Cargo.lock checksum: 071dfc062690e90b734c0b2273ce72ad0ffa95f0c74596bc250dcfd960262841
+  Authors: The Rust Project Developers
+  Repository: https://github.com/rust-num/num-traits
+  Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/6485b8ed310d3f0340bf1ad1f47645069ce4069dcc6bb46c7d5c6faf41de1fdb.txt (upstream LICENSE-MIT; package)
+
+once_cell 1.21.4
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/once_cell/1.21.4/download
+  Cargo.lock checksum: 9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50
+  Authors: Aleksey Kladov <aleksey.kladov@gmail.com>
+  Repository: https://github.com/matklad/once_cell
+  Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt (upstream LICENSE-MIT; package)
+
+once_cell_polyfill 1.70.2
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/once_cell_polyfill/1.70.2/download
+  Cargo.lock checksum: 384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe
+  Repository: https://github.com/polyfill-rs/once_cell_polyfill
+  Notice: licenses/c6596eb7be8581c18be736c846fb9173b69eccf6ef94c5135893ec56bd92ba08.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/6efb0476a1cc085077ed49357026d8c173bf33017278ef440f222fb9cbcb66e6.txt (upstream LICENSE-MIT; package)
+
+option-ext 0.2.0
+  License: MPL-2.0
+  Source: https://crates.io/api/v1/crates/option-ext/0.2.0/download
+  Cargo.lock checksum: 04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d
+  Authors: Simon Ochsenreither <simon@ochsenreither.de>
+  Repository: https://github.com/soc/option-ext.git
+  Notice: licenses/66a3107d5ad6a058aab753eaac2047ccb2ed0e39465dd0fe5844da3e300d5172.txt (upstream LICENSE.txt; package)
+  Complete source: sources/option-ext-0.2.0.crate
+
+ordered-float 5.3.0
+  License: MIT
+  Source: https://crates.io/api/v1/crates/ordered-float/5.3.0/download
+  Cargo.lock checksum: b7d950ca161dc355eaf28f82b11345ed76c6e1f6eb1f4f4479e0323b9e2fbd0e
+  Authors: Jonathan Reem <jonathan.reem@gmail.com>, Matt Brubeck <mbrubeck@limpet.net>
+  Repository: https://github.com/reem/rust-ordered-float
+  Notice: licenses/f7715d38a3fa1b4ac97c5729740752505a39cb92ee83ab5b102aeb5eaa7cdea4.txt (upstream LICENSE-MIT; package)
+
+os_info 3.15.0
+  License: MIT
+  Source: https://crates.io/api/v1/crates/os_info/3.15.0/download
+  Cargo.lock checksum: 9cf20a545b305cf1da722b236b5155c9bb35f1d5ceb28c048bd96ca842f41b5b
+  Authors: Jan Schulte <hello@unexpected-co.de>, Stanislav Tkach <stanislav.tkach@gmail.com>
+  Repository: https://github.com/stanislav-tkach/os_info
+  Notice: licenses/44b62aa8f8a212f36d120a4f719438765020731207fd78bf28768032291df836.txt (upstream LICENSE; package)
+
+parking_lot 0.12.5
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/parking_lot/0.12.5/download
+  Cargo.lock checksum: 93857453250e3077bd71ff98b6a65ea6621a19bb0f559a85248955ac12c45a1a
+  Authors: Amanieu d'Antras <amanieu@gmail.com>
+  Repository: https://github.com/Amanieu/parking_lot
+  Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/c9a75f18b9ab2927829a208fc6aa2cf4e63b8420887ba29cdb265d6619ae82d5.txt (upstream LICENSE-MIT; package)
+
+parking_lot_core 0.9.12
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/parking_lot_core/0.9.12/download
+  Cargo.lock checksum: 2621685985a2ebf1c516881c026032ac7deafcda1a2c9b7850dc81e3dfcb64c1
+  Authors: Amanieu d'Antras <amanieu@gmail.com>
+  Repository: https://github.com/Amanieu/parking_lot
+  Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/c9a75f18b9ab2927829a208fc6aa2cf4e63b8420887ba29cdb265d6619ae82d5.txt (upstream LICENSE-MIT; package)
+
+pastey 0.2.3
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/pastey/0.2.3/download
+  Cargo.lock checksum: 2ee67f1008b1ba2321834326597b8e186293b049a023cdef258527550b9935b4
+  Authors: Aditya Kumar <git@adityais.dev>, David Tolnay <dtolnay@gmail.com>
+  Repository: https://github.com/as1100k/pastey
+  Notice: licenses/62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt (upstream LICENSE-MIT; package)
+
+peniko 0.6.1
+  License: Apache-2.0 OR MIT
+  Source: https://crates.io/api/v1/crates/peniko/0.6.1/download
+  Cargo.lock checksum: 839c8299360d2e998bdb106dc0a6cd71dcc5f4df51df1b620361bf50e283cca6
+  Repository: https://github.com/linebender/peniko
+  Notice: licenses/f9946796a8a5bd5981565142fa42e3b0cc36aef6f80e86beaf5905b3c0fef1b5.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/23c23145f6eac25c28cdcc03d38506a5712a9a8cffb5bd5301457f6173ea696e.txt (upstream LICENSE-MIT; package)
+
+percent-encoding 2.3.2
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/percent-encoding/2.3.2/download
+  Cargo.lock checksum: 9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220
+  Authors: The rust-url developers
+  Repository: https://github.com/servo/rust-url/
+  Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/b38f11f6096706e6de553dabe2a7ed142d59b6fa8c97e290c67496154745cdd5.txt (upstream LICENSE-MIT; package)
+
+pin-project-lite 0.2.17
+  License: Apache-2.0 OR MIT
+  Source: https://crates.io/api/v1/crates/pin-project-lite/0.2.17/download
+  Cargo.lock checksum: a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd
+  Repository: https://github.com/taiki-e/pin-project-lite
+  Notice: licenses/0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt (upstream LICENSE-MIT; package)
+
+png 0.18.1
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/png/0.18.1/download
+  Cargo.lock checksum: 60769b8b31b2a9f263dae2776c37b1b28ae246943cf719eb6946a1db05128a61
+  Authors: The image-rs Developers
+  Repository: https://github.com/image-rs/image-png
+  Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/eaf40297c75da471f7cda1f3458e8d91b4b2ec866e609527a13acfa93b638652.txt (upstream LICENSE-MIT; package)
+
+pollster 0.4.0
+  License: Apache-2.0/MIT
+  Source: https://crates.io/api/v1/crates/pollster/0.4.0/download
+  Cargo.lock checksum: 2f3a9f18d041e6d0e102a0a46750538147e5e8992d3b4873aaafee2520b00ce3
+  Authors: Joshua Barretto <joshua.s.barretto@gmail.com>
+  Repository: https://github.com/zesterer/pollster
+  Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/cc02a53316678ca2575cc69d12daa7b1833935d4b7742c31fbab7bd74a481077.txt (upstream LICENSE-MIT; package)
+
+polycool 0.4.0
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/polycool/0.4.0/download
+  Cargo.lock checksum: 50596ddc09eb5ad5f75cacd40209568e66df71baf86e1499a0e99c4cff12a5a6
+  Repository: https://github.com/linebender/kurbo
+  Notice: licenses/cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/23c23145f6eac25c28cdcc03d38506a5712a9a8cffb5bd5301457f6173ea696e.txt (upstream LICENSE-MIT; package)
+
+potential_utf 0.1.5
+  License: Unicode-3.0
+  Source: https://crates.io/api/v1/crates/potential_utf/0.1.5/download
+  Cargo.lock checksum: 0103b1cef7ec0cf76490e969665504990193874ea05c85ff9bab8b911d0a0564
+  Authors: The ICU4X Project Developers
+  Repository: https://github.com/unicode-org/icu4x
+  Notice: licenses/f367c1b8e1aa262435251e442901da4607b4650e0e63a026f5044473ecfb90f2.txt (upstream LICENSE; package)
+
+powerfmt 0.2.0
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/powerfmt/0.2.0/download
+  Cargo.lock checksum: 439ee305def115ba05938db6eb1644ff94165c5ab5e9420d1c1bcedbba909391
+  Authors: Jacob Pratt <jacob@jhpratt.dev>
+  Repository: https://github.com/jhpratt/powerfmt
+  Notice: licenses/155420c6403d4e0fca34105e3c03fdd6939b64c393c7ec6f95f5b72c5474eab0.txt (upstream LICENSE-Apache; package)
+  Notice: licenses/070dbc7dda03a29296f2d58bdb9b7331af90f2abc9f31df22875d1eabaf29852.txt (upstream LICENSE-MIT; package)
+
+presser 0.3.1
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/presser/0.3.1/download
+  Cargo.lock checksum: e8cf8e6a8aa66ce33f63993ffc4ea4271eb5b0530a9002db8455ea6050c77bfa
+  Authors: Embark <opensource@embark-studios.com>, Gray Olson <gray@grayolson.com
+  Repository: https://github.com/EmbarkStudios/presser
+  Notice: licenses/8173d5c29b4f956d532781d2b86e4e30f83e6b7878dce18c919451d6ba707c90.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/090a294a492ab2f41388252312a65cf2f0e423330b721a68c6665ac64766753b.txt (upstream LICENSE-MIT; package)
+
+proc-macro2 1.0.107
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/proc-macro2/1.0.107/download
+  Cargo.lock checksum: 985e7ec9bb745e6ce6535b544d84d6cd6f7ad8bd711c398938ae983b91a766d9
+  Authors: David Tolnay <dtolnay@gmail.com>, Alex Crichton <alex@alexcrichton.com>
+  Repository: https://github.com/dtolnay/proc-macro2
+  Notice: licenses/62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt (upstream LICENSE-MIT; package)
+
+profiling 1.0.18
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/profiling/1.0.18/download
+  Cargo.lock checksum: 3d595e54a326bc53c1c197b32d295e14b169e3cfeaa8dc82b529f947fba6bcf5
+  Authors: Philip Degarmo <aclysma@gmail.com>
+  Repository: https://github.com/aclysma/profiling
+  Notice: licenses/074e6e32c86a4c0ef8b3ed25b721ca23aca83df277cd88106ef7177c354615ff.txt (upstream SPDX/Apache-2.0.txt; SPDX-3.27.0)
+  Notice: licenses/b05785f9f18e6716bab63424b11454513b9943a222595b70411009202fc592b5.txt (upstream SPDX/MIT.txt; SPDX-3.27.0)
+
+pxfm 0.1.30
+  License: BSD-3-Clause OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/pxfm/0.1.30/download
+  Cargo.lock checksum: d55d956fa96f5ec02be2e13af0e20391a5aa83d6a074e3ad368959d0fab299ea
+  Authors: Radzivon Bartoshyk
+  Repository: https://github.com/awxkee/pxfm
+  Notice: licenses/90bf2d659c43045111b65c733ab2a6d4cbcb422a098368c8c58a9ba3db4ed0c5.txt (upstream LICENSE-APACHE.md; package)
+  Notice: licenses/2aa92cada6431e75615e3fe6cb1a9082c98f777d48ae1c087c0da0e37f7b8bff.txt (upstream LICENSE.md; package)
+
+quote 1.0.47
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/quote/1.0.47/download
+  Cargo.lock checksum: 1fbf4db142a473a8d80c26bbf18454ed458bf8d26c8219c331daecfdbd079001
+  Authors: David Tolnay <dtolnay@gmail.com>
+  Repository: https://github.com/dtolnay/quote
+  Notice: licenses/62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt (upstream LICENSE-MIT; package)
+
+rand 0.10.2
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/rand/0.10.2/download
+  Cargo.lock checksum: c7f5fa3a058cd35567ef9bfa5e75732bee0f9e4c55fa90477bef2dfcdbc4be80
+  Authors: The Rand Project Developers, The Rust Project Developers
+  Repository: https://github.com/rust-random/rand
+  Notice: licenses/90eb64f0279b0d9432accfa6023ff803bc4965212383697eee27a0f426d5f8d5.txt (upstream COPYRIGHT; package)
+  Notice: licenses/35242e7a83f69875e6edeff02291e688c97caafe2f8902e4e19b49d3e78b4cab.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/209fbbe0ad52d9235e37badf9cadfe4dbdc87203179c0899e738b39ade42177b.txt (upstream LICENSE-MIT; package)
+
+rand_core 0.10.1
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/rand_core/0.10.1/download
+  Cargo.lock checksum: 63b8176103e19a2643978565ca18b50549f6101881c443590420e4dc998a3c69
+  Authors: The Rand Project Developers
+  Repository: https://github.com/rust-random/rand_core
+  Notice: licenses/92b81db30f7ab6d693e0af5661a40d273ca1947e891123ed823924192c10cbc7.txt (upstream COPYRIGHT; package)
+  Notice: licenses/6df43f6f4b5d4587f3d8d71e45532c688fd168afa5fe89d571cb32fa09c4ef51.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/8b6e9feec03e7c9a5facb26855cecd31662bf989b636bcfe79521bdf8ac863f0.txt (upstream LICENSE-MIT; package)
+
+range-alloc 0.1.5
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/range-alloc/0.1.5/download
+  Cargo.lock checksum: ca45419789ae5a7899559e9512e58ca889e41f04f1f2445e9f4b290ceccd1d08
+  Authors: the gfx-rs Developers
+  Repository: https://github.com/gfx-rs/range-alloc
+  Notice: licenses/a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9.txt (upstream LICENSE.APACHE; package)
+  Notice: licenses/ba00052102ed87948bb8822d6e1c496260c83042887b22bb5caad922ec025a60.txt (upstream LICENSE.MIT; package)
+
+raw-window-handle 0.6.2
+  License: MIT OR Apache-2.0 OR Zlib
+  Source: https://crates.io/api/v1/crates/raw-window-handle/0.6.2/download
+  Cargo.lock checksum: 20675572f6f24e9e76ef639bc5552774ed45f1c30e2951e1e99c59888861c539
+  Authors: Osspial <osspial@gmail.com>
+  Repository: https://github.com/rust-windowing/raw-window-handle
+  Notice: licenses/0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594.txt (upstream LICENSE-APACHE.md; package)
+  Notice: licenses/9c5a80639a57c1c945570e7ebbca0706305849ce3c098021325cca9db2f7acc4.txt (upstream LICENSE-MIT.md; package)
+  Notice: licenses/ae895c8576e682f310fb70d93d9f99b1dd82872094c54a8f6cdfe2ca5c2d6ecb.txt (upstream LICENSE-ZLIB.md; package)
+
+read-fonts 0.39.2
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/read-fonts/0.39.2/download
+  Cargo.lock checksum: c4ed38b89c2c77ff968c524145ad65fb010f38af5c7a224b53b81d47ac2daa81
+  Repository: https://github.com/googlefonts/fontations
+  Notice: licenses/a14f7d685a79c0f4fb64aee305527a6d5fa55f2401f4e6d688d7b1301868e6c0.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/8a62fa27ffdccc3df19dce90f8bb3d572e27aecffc1a383d0c2601834dcec434.txt (upstream LICENSE-MIT; package)
+
+ref-cast 1.0.26
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/ref-cast/1.0.26/download
+  Cargo.lock checksum: 216e8f773d7923bcba9ceb86a86c93cabb3903a11872fc3f138c49630e50b96d
+  Authors: David Tolnay <dtolnay@gmail.com>
+  Repository: https://github.com/dtolnay/ref-cast
+  Notice: licenses/62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt (upstream LICENSE-MIT; package)
+
+ref-cast-impl 1.0.26
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/ref-cast-impl/1.0.26/download
+  Cargo.lock checksum: 2c9283685feec7d69af75fb0e858d5e7378f33fe4fc699383b2916ab9273e03c
+  Authors: David Tolnay <dtolnay@gmail.com>
+  Repository: https://github.com/dtolnay/ref-cast
+  Notice: licenses/62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt (upstream LICENSE-MIT; package)
+
+regex-automata 0.4.16
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/regex-automata/0.4.16/download
+  Cargo.lock checksum: 8fcfdb36bda0c880c5931cdc7a2bcdc8ba4556847b9d912bca70bc94708711ad
+  Authors: The Rust Project Developers, Andrew Gallant <jamslam@gmail.com>
+  Repository: https://github.com/rust-lang/regex
+  Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/6485b8ed310d3f0340bf1ad1f47645069ce4069dcc6bb46c7d5c6faf41de1fdb.txt (upstream LICENSE-MIT; package)
+
+regex-syntax 0.8.11
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/regex-syntax/0.8.11/download
+  Cargo.lock checksum: d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4
+  Authors: The Rust Project Developers, Andrew Gallant <jamslam@gmail.com>
+  Repository: https://github.com/rust-lang/regex
+  Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/6485b8ed310d3f0340bf1ad1f47645069ce4069dcc6bb46c7d5c6faf41de1fdb.txt (upstream LICENSE-MIT; package)
+  Notice: licenses/74db5baf44a41b1000312c673544b3374e4198af5605c7f9080a402cec42cfa3.txt (upstream src/unicode_tables/LICENSE-UNICODE; package)
+
+renamore 0.3.2
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/renamore/0.3.2/download
+  Cargo.lock checksum: 0f5bced8a18df26d088a61a8f314d853ad18705b0aee59b43ccc088ca4bc3670
+  Authors: Indiana Kernick <indiana.kernick@gmail.com>
+  Repository: https://github.com/indianakernick/renamore
+  Notice: licenses/cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/4db8d464c5b0810ab9674735e1133d2713561bfe92986152abc4d35bc3195d64.txt (upstream LICENSE-MIT; package)
+
+renderdoc-sys 1.1.0
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/renderdoc-sys/1.1.0/download
+  Cargo.lock checksum: 19b30a45b0cd0bcca8037f3d0dc3421eaf95327a17cad11964fb8179b4fc4832
+  Authors: Eyal Kalderon <ebkalderon@gmail.com>
+  Repository: https://github.com/ebkalderon/renderdoc-rs
+  Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/24b2f2eff5a7622e87162823e260f00c6dfbce0e26d585d3d28c785f1edc80ed.txt (upstream LICENSE-MIT; package)
+
+reqwest 0.13.4
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/reqwest/0.13.4/download
+  Cargo.lock checksum: 219c5811de6525e5416c7d5d53bb656d3afdbc6c5af816e0802bcfa42dbdc1c3
+  Authors: Sean McArthur <sean@seanmonstar.com>
+  Repository: https://github.com/seanmonstar/reqwest
+  Notice: licenses/751963a8b88c0e3a9f27e98933079fbcf09b9998b2c13ac49c2e4d58444520d6.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/dd87e27dfbaa888cb77ea34592648a7743636b8dce07e49543bddda0fcfc73bc.txt (upstream LICENSE-MIT; package)
+
+rfd 0.14.1
+  License: MIT
+  Source: https://crates.io/api/v1/crates/rfd/0.14.1/download
+  Cargo.lock checksum: 25a73a7337fc24366edfca76ec521f51877b114e42dab584008209cca6719251
+  Authors: Poly <marynczak.bartlomiej@gmail.com>
+  Repository: https://github.com/PolyMeilex/rfd
+  Notice: licenses/65fc947f4bac882a2cd104ef73c246b1b037059df9f2b3a58b7f77f0b9e56071.txt (upstream LICENSE; package)
+
+rmcp 3.0.1
+  License: Apache-2.0
+  Source: https://crates.io/api/v1/crates/rmcp/3.0.1/download
+  Cargo.lock checksum: 3797d226787327b35b0b6f9e878fe55f3af2bb4daf916c0411079885454042f0
+  Repository: https://github.com/modelcontextprotocol/rust-sdk/
+  Notice: licenses/074e6e32c86a4c0ef8b3ed25b721ca23aca83df277cd88106ef7177c354615ff.txt (upstream SPDX/Apache-2.0.txt; SPDX-3.27.0)
+
+rusqlite 0.40.2
+  License: MIT
+  Source: https://crates.io/api/v1/crates/rusqlite/0.40.2/download
+  Cargo.lock checksum: 23f2a97da3e3873c73cb2a2e71b35c40ff95e0b1eefa8d72d8499a6928c3b5b3
+  Authors: The rusqlite developers
+  Repository: https://github.com/rusqlite/rusqlite
+  Notice: licenses/c10c1f27337546471e5f7e4e97fdd398b35b9d4e126115dcd22de8d8e65abf6f.txt (upstream LICENSE; package)
+
+rustc-hash 1.1.0
+  License: Apache-2.0/MIT
+  Source: https://crates.io/api/v1/crates/rustc-hash/1.1.0/download
+  Cargo.lock checksum: 08d43f7aa6b08d49f382cde6a7982047c3426db949b1424bc4b7ec9ae12c6ce2
+  Authors: The Rust Project Developers
+  Repository: https://github.com/rust-lang-nursery/rustc-hash
+  Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt (upstream LICENSE-MIT; package)
+
+rustc-hash 2.1.3
+  License: Apache-2.0 OR MIT
+  Source: https://crates.io/api/v1/crates/rustc-hash/2.1.3/download
+  Cargo.lock checksum: 6b1e7f9a428571be2dc5bc0505c13fb6bf936822b894ec87abf8a08a4e51742d
+  Authors: The Rust Project Developers
+  Repository: https://github.com/rust-lang/rustc-hash
+  Notice: licenses/95bd3988beee069fa2848f648dab43cc6e0b2add2ad6bcb17360caf749802bcc.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/30fefc3a7d6a0041541858293bcbea2dde4caa4c0a5802f996a7f7e8c0085652.txt (upstream LICENSE-MIT; package)
+
+rustls 0.23.45
+  License: Apache-2.0 OR ISC OR MIT
+  Source: https://crates.io/api/v1/crates/rustls/0.23.45/download
+  Cargo.lock checksum: 0d41d731c7d2f962d1ccc364cec258de3c0e93b38c2fb3ba97ac74513048d634
+  Repository: https://github.com/rustls/rustls
+  Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/7cfafc877eccc46c0e346ccbaa5c51bb6b894d2b818e617d970211e232785ad4.txt (upstream LICENSE-ISC; package)
+  Notice: licenses/709e3175b4212f7b13aa93971c9f62ff8c69ec45ad8c6532a7e0c41d7a7d6f8c.txt (upstream LICENSE-MIT; package)
+
+rustls-pki-types 1.15.1
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/rustls-pki-types/1.15.1/download
+  Cargo.lock checksum: 2f4925028c7eb5d1fcdaf196971378ed9d2c1c4efc7dc5d011256f76c99c0a96
+  Repository: https://github.com/rustls/pki-types
+  Notice: licenses/45fd05c4865e7c350b98ad7ac50e1b15462d49af4a91e9b0c9dd933dc9a69742.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/9117d922e667125508dde62b02c1f57ed22f5ad21eb536aa2e2d99e1c796e639.txt (upstream LICENSE-MIT; package)
+
+rustls-platform-verifier 0.7.0
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/rustls-platform-verifier/0.7.0/download
+  Cargo.lock checksum: 26d1e2536ce4f35f4846aa13bff16bd0ff40157cdb14cc056c7b14ba41233ba0
+  Repository: https://github.com/rustls/rustls-platform-verifier
+  Notice: licenses/c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/1c7cf76689c837a68ed8d704994e52a0f2940c087958f860d17f3186afbdcc0c.txt (upstream LICENSE-MIT; package)
+
+rustls-webpki 0.103.15
+  License: ISC
+  Source: https://crates.io/api/v1/crates/rustls-webpki/0.103.15/download
+  Cargo.lock checksum: f3c3cf1d8b1e7d4927e2d154c3fcb02979afb9939629c62cd9048d4f07b60ac2
+  Repository: https://github.com/rustls/webpki
+  Notice: licenses/5b698ca13897be3afdb7174256fa1574f8c6892b8bea1a66dd6469d3fe27885a.txt (upstream LICENSE; package)
+
+ryu 1.0.23
+  License: Apache-2.0 OR BSL-1.0
+  Source: https://crates.io/api/v1/crates/ryu/1.0.23/download
+  Cargo.lock checksum: 9774ba4a74de5f7b1c1451ed6cd5285a32eddb5cccb8cc655a4e50009e06477f
+  Authors: David Tolnay <dtolnay@gmail.com>
+  Repository: https://github.com/dtolnay/ryu
+  Notice: licenses/62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566.txt (upstream LICENSE-BOOST; package)
+
+schemars 1.2.2
+  License: MIT
+  Source: https://crates.io/api/v1/crates/schemars/1.2.2/download
+  Cargo.lock checksum: 687274d293b6cdc6e73e0fee520bf2049650090d7164f87672d212a3c530cf4a
+  Authors: Graham Esau <gesau@hotmail.co.uk>
+  Repository: https://github.com/GREsau/schemars
+  Notice: licenses/1954992a2b32e8a2af24a4c11b726902e344c1934b947a77f04d404908f8db30.txt (upstream LICENSE; package)
+
+schemars_derive 1.2.2
+  License: MIT
+  Source: https://crates.io/api/v1/crates/schemars_derive/1.2.2/download
+  Cargo.lock checksum: d98c67716b46af2f0b8cf752abc930f6f9aecfbf671ecfb531db8a31dbe4e2ba
+  Authors: Graham Esau <gesau@hotmail.co.uk>
+  Repository: https://github.com/GREsau/schemars
+  Notice: licenses/1954992a2b32e8a2af24a4c11b726902e344c1934b947a77f04d404908f8db30.txt (upstream LICENSE; package)
+
+scopeguard 1.2.0
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/scopeguard/1.2.0/download
+  Cargo.lock checksum: 94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49
+  Authors: bluss
+  Repository: https://github.com/bluss/scopeguard
+  Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/fb77f0a9c53e473abe5103c8632ef9f0f2874d4fb3f17cb2d8c661aab9cee9d7.txt (upstream LICENSE-MIT; package)
+
+self_cell 1.3.0
+  License: Apache-2.0 OR GPL-2.0-only
+  Source: https://crates.io/api/v1/crates/self_cell/1.3.0/download
+  Cargo.lock checksum: 2ab42ca02749e120097e328d91d415325bdf43b1c72c4c8badf37375fe40a813
+  Authors: Lukas Bergdoll <lukas.bergdoll@gmail.com>
+  Repository: https://github.com/Voultapher/self_cell
+  Notice: licenses/c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/f9c375a1be4a41f7b70301dd83c91cb89e41567478859b77eef375a52d782505.txt (upstream LICENSE-GPLv2; package)
+
+serde 1.0.229
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/serde/1.0.229/download
+  Cargo.lock checksum: 4148590afebada386688f18773da617792bf2ef03ffc1e4cbd2b1d45b023e0ba
+  Authors: Erick Tryzelaar <erick.tryzelaar@gmail.com>, David Tolnay <dtolnay@gmail.com>
+  Repository: https://github.com/serde-rs/serde
+  Notice: licenses/62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt (upstream LICENSE-MIT; package)
+
+serde_core 1.0.229
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/serde_core/1.0.229/download
+  Cargo.lock checksum: 67dca2c9c51e58a4791a4b1ed58308b39c64224d349a935ab5039aa360942a48
+  Authors: Erick Tryzelaar <erick.tryzelaar@gmail.com>, David Tolnay <dtolnay@gmail.com>
+  Repository: https://github.com/serde-rs/serde
+  Notice: licenses/62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt (upstream LICENSE-MIT; package)
+
+serde_derive 1.0.229
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/serde_derive/1.0.229/download
+  Cargo.lock checksum: e7a5d71263a5a7d47b41f6b3f06ba276f10cc18b0931f1799f710578e2309348
+  Authors: Erick Tryzelaar <erick.tryzelaar@gmail.com>, David Tolnay <dtolnay@gmail.com>
+  Repository: https://github.com/serde-rs/serde
+  Notice: licenses/62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt (upstream LICENSE-MIT; package)
+
+serde_derive_internals 0.30.0
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/serde_derive_internals/0.30.0/download
+  Cargo.lock checksum: f852137cce035d6a4df67ccce505ff6b3e9fd3a10e3e52b24dc71e650bb1a9bd
+  Authors: Erick Tryzelaar <erick.tryzelaar@gmail.com>, David Tolnay <dtolnay@gmail.com>
+  Repository: https://github.com/serde-rs/serde
+  Notice: licenses/62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt (upstream LICENSE-MIT; package)
+
+serde_json 1.0.151
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/serde_json/1.0.151/download
+  Cargo.lock checksum: c841b55ecdae098c80dcae9cf767f6f8a0c2cdb3416bbef72181df4d0fe73f14
+  Authors: Erick Tryzelaar <erick.tryzelaar@gmail.com>, David Tolnay <dtolnay@gmail.com>
+  Repository: https://github.com/serde-rs/json
+  Notice: licenses/62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt (upstream LICENSE-MIT; package)
+
+serde_path_to_error 0.1.20
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/serde_path_to_error/0.1.20/download
+  Cargo.lock checksum: 10a9ff822e371bb5403e391ecd83e182e0e77ba7f6fe0160b795797109d1b457
+  Authors: David Tolnay <dtolnay@gmail.com>
+  Repository: https://github.com/dtolnay/path-to-error
+  Notice: licenses/62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt (upstream LICENSE-MIT; package)
+
+serde_spanned 0.6.9
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/serde_spanned/0.6.9/download
+  Cargo.lock checksum: bf41e0cfaf7226dca15e8197172c295a782857fcb97fad1808a166870dee75a3
+  Repository: https://github.com/toml-rs/toml
+  Notice: licenses/c6596eb7be8581c18be736c846fb9173b69eccf6ef94c5135893ec56bd92ba08.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/6efb0476a1cc085077ed49357026d8c173bf33017278ef440f222fb9cbcb66e6.txt (upstream LICENSE-MIT; package)
+
+serde_urlencoded 0.7.1
+  License: MIT/Apache-2.0
+  Source: https://crates.io/api/v1/crates/serde_urlencoded/0.7.1/download
+  Cargo.lock checksum: d3491c14715ca2294c4d6a88f15e84739788c1d030eed8c110436aafdaa2f3fd
+  Authors: Anthony Ramine <n.oxyde@gmail.com>
+  Repository: https://github.com/nox/serde_urlencoded
+  Notice: licenses/62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/b9eb266294324f672cbe945fe8f2e32f85024f0d61a1a7d14382cdde0ac44769.txt (upstream LICENSE-MIT; package)
+
+serde_yaml 0.9.34+deprecated
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/serde_yaml/0.9.34+deprecated/download
+  Cargo.lock checksum: 6a8b1a1a2ebf674015cc02edccce75287f1a0130d394307b36743c2f5d504b47
+  Authors: David Tolnay <dtolnay@gmail.com>
+  Repository: https://github.com/dtolnay/serde-yaml
+  Notice: licenses/62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt (upstream LICENSE-MIT; package)
+
+sha2 0.10.9
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/sha2/0.10.9/download
+  Cargo.lock checksum: a7507d819769d01a365ab707794a4084392c824f54a7a6a7862f8c3d0892b283
+  Authors: RustCrypto Developers
+  Repository: https://github.com/RustCrypto/hashes
+  Notice: licenses/a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/b4eb00df6e2a4d22518fcaa6a2b4646f249b3a3c9814509b22bd2091f1392ff1.txt (upstream LICENSE-MIT; package)
+
+sharded-slab 0.1.7
+  License: MIT
+  Source: https://crates.io/api/v1/crates/sharded-slab/0.1.7/download
+  Cargo.lock checksum: f40ca3c46823713e0d4209592e8d6e826aa57e928f09752619fc696c499637f6
+  Authors: Eliza Weisman <eliza@buoyant.io>
+  Repository: https://github.com/hawkw/sharded-slab
+  Notice: licenses/eafbfa606bc005ed7fd2f623d65af17ffe4ef7c017221ac14405bf4140771ea9.txt (upstream LICENSE; package)
+
+simd-adler32 0.3.10
+  License: MIT
+  Source: https://crates.io/api/v1/crates/simd-adler32/0.3.10/download
+  Cargo.lock checksum: 3a219298ac11a56ea9a6d2120044824d6f01aeb034955e7af7bc16858527deea
+  Authors: Marvin Countryman <me@maar.vin>
+  Repository: https://github.com/mcountryman/simd-adler32
+  Notice: licenses/42a35170233e83e18856792e748de4c1ce4a63b2afce9a370c89ef3fe23f9f2d.txt (upstream LICENSE.md; package)
+
+skrifa 0.42.1
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/skrifa/0.42.1/download
+  Cargo.lock checksum: 0c34617370ae968efb7161bb2beb517d9084659aae19e24b89e3db25b46e4564
+  Repository: https://github.com/googlefonts/fontations
+  Notice: licenses/a14f7d685a79c0f4fb64aee305527a6d5fa55f2401f4e6d688d7b1301868e6c0.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/8a62fa27ffdccc3df19dce90f8bb3d572e27aecffc1a383d0c2601834dcec434.txt (upstream LICENSE-MIT; package)
+
+slab 0.4.12
+  License: MIT
+  Source: https://crates.io/api/v1/crates/slab/0.4.12/download
+  Cargo.lock checksum: 0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5
+  Authors: Carl Lerche <me@carllerche.com>
+  Repository: https://github.com/tokio-rs/slab
+  Notice: licenses/8ce0830173fdac609dfb4ea603fdc002c2f4af0dc9b1a005653f5da9cf534b18.txt (upstream LICENSE; package)
+
+smallvec 1.15.2
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/smallvec/1.15.2/download
+  Cargo.lock checksum: 8ed6a63f02c8539c91a8685a86f4099661ba3da017932f6ebbea6de3f0fa7c90
+  Authors: The Servo Project Developers
+  Repository: https://github.com/servo/rust-smallvec
+  Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/0b28172679e0009b655da42797c03fd163a3379d5cfa67ba1f1655e974a2a1a9.txt (upstream LICENSE-MIT; package)
+
+smol_str 0.2.2
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/smol_str/0.2.2/download
+  Cargo.lock checksum: dd538fb6910ac1099850255cf94a94df6551fbdd602454387d0adb2d1ca6dead
+  Authors: Aleksey Kladov <aleksey.kladov@gmail.com>
+  Repository: https://github.com/rust-analyzer/smol_str
+  Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt (upstream LICENSE-MIT; package)
+
+socket2 0.6.5
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/socket2/0.6.5/download
+  Cargo.lock checksum: c3d1e2c7f27f8d4cb10542a02c49005dbd6e93095799d6f3be745fae9f8fedd4
+  Authors: Alex Crichton <alex@alexcrichton.com>, Thomas de Zeeuw <thomasdezeeuw@gmail.com>
+  Repository: https://github.com/rust-lang/socket2
+  Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/378f5840b258e2779c39418f3f2d7b2ba96f1c7917dd6be0713f88305dbda397.txt (upstream LICENSE-MIT; package)
+
+spirv 0.4.0+sdk-1.4.341.0
+  License: Apache-2.0
+  Source: https://crates.io/api/v1/crates/spirv/0.4.0+sdk-1.4.341.0/download
+  Cargo.lock checksum: d9571ea910ebd84c86af4b3ed27f9dbdc6ad06f17c5f96146b2b671e2976744f
+  Authors: Lei Zhang <antiagainst@gmail.com>
+  Repository: https://github.com/gfx-rs/rspirv
+  Notice: licenses/074e6e32c86a4c0ef8b3ed25b721ca23aca83df277cd88106ef7177c354615ff.txt (upstream SPDX/Apache-2.0.txt; SPDX-3.27.0)
+
+sse-stream 0.2.5
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/sse-stream/0.2.5/download
+  Cargo.lock checksum: c123f296ade4ec4b8b0f6162116e6629f5146922ca5ab40ca9d3c2e73ab4761e
+  Authors: 4t145 <u4t145@163.com>
+  Repository: https://github.com/4t145/sse-stream/
+  Notice: licenses/cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/049d23c7810a0723f186a193f841378dbc307f62be89bdba21c73126b0df2c52.txt (upstream LICENSE-MIT; package)
+
+stable_deref_trait 1.2.1
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/stable_deref_trait/1.2.1/download
+  Cargo.lock checksum: 6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596
+  Authors: Robert Grosse <n210241048576@gmail.com>
+  Repository: https://github.com/storyyeller/stable_deref_trait
+  Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/5e05b024f653a5ce199e77cbbbd42fb5553562ec714b819421ed0c3e552a75d7.txt (upstream LICENSE-MIT; package)
+
+static_assertions 1.1.0
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/static_assertions/1.1.0/download
+  Cargo.lock checksum: a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f
+  Authors: Nikolai Vazquez
+  Repository: https://github.com/nvzqz/static-assertions-rs
+  Notice: licenses/cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/ea084a2373ebc1f0902c09266e7bf25a05ab3814c1805bb017ffa7308f90c061.txt (upstream LICENSE-MIT; package)
+
+strsim 0.11.1
+  License: MIT
+  Source: https://crates.io/api/v1/crates/strsim/0.11.1/download
+  Cargo.lock checksum: 7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f
+  Authors: Danny Guo <danny@dannyguo.com>, maxbachmann <oss@maxbachmann.de>
+  Repository: https://github.com/rapidfuzz/strsim-rs
+  Notice: licenses/1e697ce8d21401fbf1bddd9b5c3fd4c4c79ae1e3bdf51f81761c85e11d5a89cd.txt (upstream LICENSE; package)
+
+subtle 2.6.1
+  License: BSD-3-Clause
+  Source: https://crates.io/api/v1/crates/subtle/2.6.1/download
+  Cargo.lock checksum: 13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292
+  Authors: Isis Lovecruft <isis@patternsinthevoid.net>, Henry de Valence <hdevalence@hdevalence.ca>
+  Repository: https://github.com/dalek-cryptography/subtle
+  Notice: licenses/d1fc1bc0d155df60b2e7705b6b2ae02a05c96f948e1cec6e2fb86360b09f346b.txt (upstream LICENSE; package)
+
+symlink 0.1.0
+  License: MIT/Apache-2.0
+  Source: https://crates.io/api/v1/crates/symlink/0.1.0/download
+  Cargo.lock checksum: a7973cce6668464ea31f176d85b13c7ab3bba2cb3b77a2ed26abd7801688010a
+  Authors: Chris Morgan <me@chrismorgan.info>
+  Repository: https://gitlab.com/chris-morgan/symlink
+  Notice: licenses/edb9885b41e4851740dcdcde4d2419c60104e1f3473f7bea6293a82729a32068.txt (upstream COPYRIGHT; package)
+  Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/b85cb7b51c3f8d600bbac3fb8dbbfe64cde697e460a55fc80978eb0804ca1427.txt (upstream LICENSE-MIT; package)
+
+syn 2.0.119
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/syn/2.0.119/download
+  Cargo.lock checksum: 872831b642d1a07999a962a351ed35b955ea2cfc8f3862091e2a240a84f17297
+  Authors: David Tolnay <dtolnay@gmail.com>
+  Repository: https://github.com/dtolnay/syn
+  Notice: licenses/62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt (upstream LICENSE-MIT; package)
+
+syn 3.0.3
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/syn/3.0.3/download
+  Cargo.lock checksum: 53e9bae58849f64dfa4f5d5ae372c8341f7305f82a3868709269343628b659a3
+  Authors: David Tolnay <dtolnay@gmail.com>
+  Repository: https://github.com/dtolnay/syn
+  Notice: licenses/62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt (upstream LICENSE-MIT; package)
+
+sync_wrapper 1.0.2
+  License: Apache-2.0
+  Source: https://crates.io/api/v1/crates/sync_wrapper/1.0.2/download
+  Cargo.lock checksum: 0bf256ce5efdfa370213c1dabab5935a12e49f2c58d15e9eac2870d3b4f27263
+  Authors: Actyx AG <developer@actyx.io>
+  Repository: https://github.com/Actyx/sync_wrapper
+  Notice: licenses/0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594.txt (upstream LICENSE; package)
+
+synstructure 0.13.2
+  License: MIT
+  Source: https://crates.io/api/v1/crates/synstructure/0.13.2/download
+  Cargo.lock checksum: 728a70f3dbaf5bab7f0c4b1ac8d7ae5ea60a4b5549c8a5914361c99147a709d2
+  Authors: Nika Layzell <nika@thelayzells.com>
+  Repository: https://github.com/mystor/synstructure
+  Notice: licenses/219920e865eee70b7dcfc948a86b099e7f4fe2de01bcca2ca9a20c0a033f2b59.txt (upstream LICENSE; package)
+
+tauri-winrt-notification 0.7.3
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/tauri-winrt-notification/0.7.3/download
+  Cargo.lock checksum: 9ed071c670382e85fc2f48ae706492d8c338f4f89bf72520d32f8abfe880aade
+  Authors: allenbenz, Tauri Programme within The Commons Conservancy
+  Repository: https://github.com/tauri-apps/winrt-notification
+  Notice: licenses/a212bb763e1d415210f9d345a4c0bb896571b997f3599a92de16281acafc989b.txt (upstream LICENSE.spdx; package)
+  Notice: licenses/0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594.txt (upstream LICENSE_APACHE-2.0; package)
+  Notice: licenses/9dd42ea92cff2ede5cd477cbfcce051b2d0115c0ac7f368ee88cb545055dff1d.txt (upstream LICENSE_MIT; package)
+
+tempfile 3.27.0
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/tempfile/3.27.0/download
+  Cargo.lock checksum: 32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd
+  Authors: Steven Allen <steven@stebalien.com>, The Rust Project Developers, Ashley Mannix <ashleymannix@live.com.au>, Jason White <me@jasonwhite.io>
+  Repository: https://github.com/Stebalien/tempfile
+  Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/8b427f5bc501764575e52ba4f9d95673cf8f6d80a86d0d06599852e1a9a20a36.txt (upstream LICENSE-MIT; package)
+
+thiserror 2.0.19
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/thiserror/2.0.19/download
+  Cargo.lock checksum: 09a43598840e33d5b0331f38c5e30d13bb11c11210a4b58f0d9b18a5a5eefcd9
+  Authors: David Tolnay <dtolnay@gmail.com>
+  Repository: https://github.com/dtolnay/thiserror
+  Notice: licenses/62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt (upstream LICENSE-MIT; package)
+
+thiserror-impl 2.0.19
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/thiserror-impl/2.0.19/download
+  Cargo.lock checksum: 43cbfe0cf76104d42a574802844187e84a305e531ed54455f11fbde0f10541cd
+  Authors: David Tolnay <dtolnay@gmail.com>
+  Repository: https://github.com/dtolnay/thiserror
+  Notice: licenses/62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt (upstream LICENSE-MIT; package)
+
+thread_local 1.1.10
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/thread_local/1.1.10/download
+  Cargo.lock checksum: 1ad99c4c6d32803332c548b1af0540b357b3f5fc0be8f6c6bfe8b2e6ae784070
+  Authors: Amanieu d'Antras <amanieu@gmail.com>
+  Repository: https://github.com/Amanieu/thread_local-rs
+  Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/c9a75f18b9ab2927829a208fc6aa2cf4e63b8420887ba29cdb265d6619ae82d5.txt (upstream LICENSE-MIT; package)
+
+time 0.3.54
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/time/0.3.54/download
+  Cargo.lock checksum: 3e1d5e639ff6bab73cb6885cc7e7b1de96c3f32c68ec55f3952614bec1092244
+  Authors: Jacob Pratt <open-source@jhpratt.dev>, Time contributors
+  Repository: https://github.com/time-rs/time
+  Notice: licenses/0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594.txt (upstream LICENSE-Apache; package)
+  Notice: licenses/2537228d9a1b44a5dc595241349cae7090b326c8de165aaf89bfddef4a00d0fc.txt (upstream LICENSE-MIT; package)
+
+time-core 0.1.9
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/time-core/0.1.9/download
+  Cargo.lock checksum: 9e1c906769ad99c88eaa54e728060edef082f8e358ff32030cb7c7d315e81109
+  Authors: Jacob Pratt <open-source@jhpratt.dev>, Time contributors
+  Repository: https://github.com/time-rs/time
+  Notice: licenses/0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594.txt (upstream LICENSE-Apache; package)
+  Notice: licenses/2537228d9a1b44a5dc595241349cae7090b326c8de165aaf89bfddef4a00d0fc.txt (upstream LICENSE-MIT; package)
+
+tinystr 0.8.3
+  License: Unicode-3.0
+  Source: https://crates.io/api/v1/crates/tinystr/0.8.3/download
+  Cargo.lock checksum: c8323304221c2a851516f22236c5722a72eaa19749016521d6dff0824447d96d
+  Authors: The ICU4X Project Developers
+  Repository: https://github.com/unicode-org/icu4x
+  Notice: licenses/f367c1b8e1aa262435251e442901da4607b4650e0e63a026f5044473ecfb90f2.txt (upstream LICENSE; package)
+
+tokio 1.53.1
+  License: MIT
+  Source: https://crates.io/api/v1/crates/tokio/1.53.1/download
+  Cargo.lock checksum: 202caea871b69668250d242070849eb495be178ed697a3e98aebce5bc81a0bed
+  Authors: Tokio Contributors <team@tokio.rs>
+  Repository: https://github.com/tokio-rs/tokio
+  Notice: licenses/253cd04c6714889df2d32f3f64d669179a1c95c76ac43c40882c52eb06bc3552.txt (upstream LICENSE; package)
+
+tokio-macros 2.7.2
+  License: MIT
+  Source: https://crates.io/api/v1/crates/tokio-macros/2.7.2/download
+  Cargo.lock checksum: 78773a2a397f451582ce068015985c33193cf6dea8b74d2a639fe457b2f07b0e
+  Authors: Tokio Contributors <team@tokio.rs>
+  Repository: https://github.com/tokio-rs/tokio
+  Notice: licenses/0b83dc40cba89b9922bb84b0a9c7d2768ce37c1d7e138b7424fd4549915778c9.txt (upstream LICENSE; package)
+
+tokio-rustls 0.26.4
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/tokio-rustls/0.26.4/download
+  Cargo.lock checksum: 1729aa945f29d91ba541258c8df89027d5792d85a8841fb65e8bf0f4ede4ef61
+  Repository: https://github.com/rustls/tokio-rustls
+  Notice: licenses/cc117d90b498b32b11a886f279b359da16a73c3b01efbb2f5cc004b20262334e.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/e20fa2b8e0a2565f24a792b94b4bf4b6c2b9d36f781d8a9516e218a036e6677a.txt (upstream LICENSE-MIT; package)
+
+tokio-stream 0.1.19
+  License: MIT
+  Source: https://crates.io/api/v1/crates/tokio-stream/0.1.19/download
+  Cargo.lock checksum: a3d06f0b082ba57c26b79407372e57cf2a1e28124f78e9479fe80322cf53420b
+  Authors: Tokio Contributors <team@tokio.rs>
+  Repository: https://github.com/tokio-rs/tokio
+  Notice: licenses/253cd04c6714889df2d32f3f64d669179a1c95c76ac43c40882c52eb06bc3552.txt (upstream LICENSE; package)
+
+tokio-util 0.7.19
+  License: MIT
+  Source: https://crates.io/api/v1/crates/tokio-util/0.7.19/download
+  Cargo.lock checksum: 494815d09bf52b5548659851081238f0ca39ff638363907596da739561c62c52
+  Authors: Tokio Contributors <team@tokio.rs>
+  Repository: https://github.com/tokio-rs/tokio
+  Notice: licenses/253cd04c6714889df2d32f3f64d669179a1c95c76ac43c40882c52eb06bc3552.txt (upstream LICENSE; package)
+
+toml_datetime 0.6.11
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/toml_datetime/0.6.11/download
+  Cargo.lock checksum: 22cddaf88f4fbc13c51aebbf5f8eceb5c7c5a9da2ac40a13519eb5b0a0e8f11c
+  Repository: https://github.com/toml-rs/toml
+  Notice: licenses/c6596eb7be8581c18be736c846fb9173b69eccf6ef94c5135893ec56bd92ba08.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/6efb0476a1cc085077ed49357026d8c173bf33017278ef440f222fb9cbcb66e6.txt (upstream LICENSE-MIT; package)
+
+toml_edit 0.22.27
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/toml_edit/0.22.27/download
+  Cargo.lock checksum: 41fe8c660ae4257887cf66394862d21dbca4a6ddd26f04a3560410406a2f819a
+  Repository: https://github.com/toml-rs/toml
+  Notice: licenses/c6596eb7be8581c18be736c846fb9173b69eccf6ef94c5135893ec56bd92ba08.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/6efb0476a1cc085077ed49357026d8c173bf33017278ef440f222fb9cbcb66e6.txt (upstream LICENSE-MIT; package)
+
+toml_write 0.1.2
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/toml_write/0.1.2/download
+  Cargo.lock checksum: 5d99f8c9a7727884afe522e9bd5edbfc91a3312b36a77b5fb8926e4c31a41801
+  Repository: https://github.com/toml-rs/toml
+  Notice: licenses/c6596eb7be8581c18be736c846fb9173b69eccf6ef94c5135893ec56bd92ba08.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/6efb0476a1cc085077ed49357026d8c173bf33017278ef440f222fb9cbcb66e6.txt (upstream LICENSE-MIT; package)
+
+tower 0.5.3
+  License: MIT
+  Source: https://crates.io/api/v1/crates/tower/0.5.3/download
+  Cargo.lock checksum: ebe5ef63511595f1344e2d5cfa636d973292adc0eec1f0ad45fae9f0851ab1d4
+  Authors: Tower Maintainers <team@tower-rs.com>
+  Repository: https://github.com/tower-rs/tower
+  Notice: licenses/4249c8e6c5ebb85f97c77e6457c6fafc1066406eb8f1ef61e796fbdc5ff18482.txt (upstream LICENSE; package)
+
+tower-http 0.6.11
+  License: MIT
+  Source: https://crates.io/api/v1/crates/tower-http/0.6.11/download
+  Cargo.lock checksum: 4cfcf7e2740e6fc6d4d688b4ef00650406bb94adf4731e43c096c3a19fe40840
+  Authors: Tower Maintainers <team@tower-rs.com>
+  Repository: https://github.com/tower-rs/tower-http
+  Notice: licenses/5049cf464977eff4b4fcfa7988d84e74116956a3eb9d5f1d451b3f828f945233.txt (upstream LICENSE; package)
+
+tower-layer 0.3.3
+  License: MIT
+  Source: https://crates.io/api/v1/crates/tower-layer/0.3.3/download
+  Cargo.lock checksum: 121c2a6cda46980bb0fcd1647ffaf6cd3fc79a013de288782836f6df9c48780e
+  Authors: Tower Maintainers <team@tower-rs.com>
+  Repository: https://github.com/tower-rs/tower
+  Notice: licenses/4249c8e6c5ebb85f97c77e6457c6fafc1066406eb8f1ef61e796fbdc5ff18482.txt (upstream LICENSE; package)
+
+tower-service 0.3.3
+  License: MIT
+  Source: https://crates.io/api/v1/crates/tower-service/0.3.3/download
+  Cargo.lock checksum: 8df9b6e13f2d32c91b9bd719c00d1958837bc7dec474d94952798cc8e69eeec3
+  Authors: Tower Maintainers <team@tower-rs.com>
+  Repository: https://github.com/tower-rs/tower
+  Notice: licenses/4249c8e6c5ebb85f97c77e6457c6fafc1066406eb8f1ef61e796fbdc5ff18482.txt (upstream LICENSE; package)
+
+tracing 0.1.44
+  License: MIT
+  Source: https://crates.io/api/v1/crates/tracing/0.1.44/download
+  Cargo.lock checksum: 63e71662fa4b2a2c3a26f570f037eb95bb1f85397f3cd8076caed2f026a6d100
+  Authors: Eliza Weisman <eliza@buoyant.io>, Tokio Contributors <team@tokio.rs>
+  Repository: https://github.com/tokio-rs/tracing
+  Notice: licenses/898b1ae9821e98daf8964c8d6c7f61641f5f5aa78ad500020771c0939ee0dea1.txt (upstream LICENSE; package)
+
+tracing-appender 0.2.5
+  License: MIT
+  Source: https://crates.io/api/v1/crates/tracing-appender/0.2.5/download
+  Cargo.lock checksum: 050686193eb999b4bb3bc2acfa891a13da00f79734704c4b8b4ef1a10b368a3c
+  Authors: Zeki Sherif <zekshi@amazon.com>, Tokio Contributors <team@tokio.rs>
+  Repository: https://github.com/tokio-rs/tracing
+  Notice: licenses/898b1ae9821e98daf8964c8d6c7f61641f5f5aa78ad500020771c0939ee0dea1.txt (upstream LICENSE; package)
+
+tracing-attributes 0.1.31
+  License: MIT
+  Source: https://crates.io/api/v1/crates/tracing-attributes/0.1.31/download
+  Cargo.lock checksum: 7490cfa5ec963746568740651ac6781f701c9c5ea257c58e057f3ba8cf69e8da
+  Authors: Tokio Contributors <team@tokio.rs>, Eliza Weisman <eliza@buoyant.io>, David Barsky <dbarsky@amazon.com>
+  Repository: https://github.com/tokio-rs/tracing
+  Notice: licenses/898b1ae9821e98daf8964c8d6c7f61641f5f5aa78ad500020771c0939ee0dea1.txt (upstream LICENSE; package)
+
+tracing-core 0.1.36
+  License: MIT
+  Source: https://crates.io/api/v1/crates/tracing-core/0.1.36/download
+  Cargo.lock checksum: db97caf9d906fbde555dd62fa95ddba9eecfd14cb388e4f491a66d74cd5fb79a
+  Authors: Tokio Contributors <team@tokio.rs>
+  Repository: https://github.com/tokio-rs/tracing
+  Notice: licenses/898b1ae9821e98daf8964c8d6c7f61641f5f5aa78ad500020771c0939ee0dea1.txt (upstream LICENSE; package)
+  Notice: licenses/58545fed1565e42d687aecec6897d35c6d37ccb71479a137c0deb2203e125c79.txt (upstream src/spin/LICENSE; package)
+
+tracing-log 0.2.0
+  License: MIT
+  Source: https://crates.io/api/v1/crates/tracing-log/0.2.0/download
+  Cargo.lock checksum: ee855f1f400bd0e5c02d150ae5de3840039a3f54b025156404e34c23c03f47c3
+  Authors: Tokio Contributors <team@tokio.rs>
+  Repository: https://github.com/tokio-rs/tracing
+  Notice: licenses/898b1ae9821e98daf8964c8d6c7f61641f5f5aa78ad500020771c0939ee0dea1.txt (upstream LICENSE; package)
+
+tracing-subscriber 0.3.23
+  License: MIT
+  Source: https://crates.io/api/v1/crates/tracing-subscriber/0.3.23/download
+  Cargo.lock checksum: cb7f578e5945fb242538965c2d0b04418d38ec25c79d160cd279bf0731c8d319
+  Authors: Eliza Weisman <eliza@buoyant.io>, David Barsky <me@davidbarsky.com>, Tokio Contributors <team@tokio.rs>
+  Repository: https://github.com/tokio-rs/tracing
+  Notice: licenses/898b1ae9821e98daf8964c8d6c7f61641f5f5aa78ad500020771c0939ee0dea1.txt (upstream LICENSE; package)
+
+tray-icon 0.24.2
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/tray-icon/0.24.2/download
+  Cargo.lock checksum: 045979e3f037cd18ad1cb2a419dfda133c5c29c9f3453370079f2255d46c257e
+  Repository: https://github.com/tauri-apps/tray-icon
+  Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/2ab5537b8c0cb1d475e2145b6a7994b04e7c71e6e5bd836f7f9c47c221a5ad9a.txt (upstream LICENSE-MIT; package)
+  Notice: licenses/6c1e5d0ccf5e8951401cb964036ae664d52fc8d1148173b53bc54fc534f5d404.txt (upstream LICENSE.spdx; package)
+
+try-lock 0.2.5
+  License: MIT
+  Source: https://crates.io/api/v1/crates/try-lock/0.2.5/download
+  Cargo.lock checksum: e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b
+  Authors: Sean McArthur <sean@seanmonstar.com>
+  Repository: https://github.com/seanmonstar/try-lock
+  Notice: licenses/c816a0749cdc6bf062a5111c159723de51b2bfac66a1dac2655abd9e6b1583eb.txt (upstream LICENSE; package)
+
+type-map 0.5.1
+  License: MIT/Apache-2.0
+  Source: https://crates.io/api/v1/crates/type-map/0.5.1/download
+  Cargo.lock checksum: cb30dbbd9036155e74adad6812e9898d03ec374946234fbcebd5dfc7b9187b90
+  Authors: Jacob Brown <kardeiz@gmail.com>
+  Repository: https://github.com/kardeiz/type-map
+  Notice: licenses/f70ebc7cddd5befd46ce2aa9a8782deb7b59ac9fd55e8c0e10647d1ac66cecd1.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/b47fb719a40d9ef9c8e3be525c41ce129c46d613cfc96a91bddd7c19dcebf7a1.txt (upstream LICENSE-MIT; package)
+
+typenum 1.20.1
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/typenum/1.20.1/download
+  Cargo.lock checksum: b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20
+  Repository: https://github.com/paholg/typenum
+  Notice: licenses/db11fec9946737df39ca3898d9cd8c10ec6f6c3a884a6802b0ad0b81b4e8f23a.txt (upstream LICENSE; package)
+  Notice: licenses/516b24e051bf5630880ebbd55c40a25ce9552ebaf8970a53e8976eb70e522406.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/a825bd853ab71619a4923d7b4311221427848070ff44d990da39b0b274c1683f.txt (upstream LICENSE-MIT; package)
+
+unicode-general-category 1.1.0
+  License: Apache-2.0
+  Source: https://crates.io/api/v1/crates/unicode-general-category/1.1.0/download
+  Cargo.lock checksum: 0b993bddc193ae5bd0d623b49ec06ac3e9312875fdae725a975c51db1cc1677f
+  Authors: YesLogic Pty. Ltd. <info@yeslogic.com>
+  Repository: https://github.com/yeslogic/unicode-general-category
+  Notice: licenses/b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1.txt (upstream LICENSE; package)
+
+unicode-ident 1.0.24
+  License: (MIT OR Apache-2.0) AND Unicode-3.0
+  Source: https://crates.io/api/v1/crates/unicode-ident/1.0.24/download
+  Cargo.lock checksum: e6e4313cd5fcd3dad5cafa179702e2b244f760991f45397d14d4ebf38247da75
+  Authors: David Tolnay <dtolnay@gmail.com>
+  Repository: https://github.com/dtolnay/unicode-ident
+  Notice: licenses/62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt (upstream LICENSE-MIT; package)
+  Notice: licenses/f7db81051789b729fea528a63ec4c938fdcb93d9d61d97dc8cc2e9df6d47f2a1.txt (upstream LICENSE-UNICODE; package)
+
+unicode-segmentation 1.13.3
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/unicode-segmentation/1.13.3/download
+  Cargo.lock checksum: c6f5d3c3b1bf09027a88a6bc961fc00497d651009560b5463668dc81b0fa87a8
+  Authors: kwantam <kwantam@gmail.com>, Manish Goregaokar <manishsmail@gmail.com>
+  Repository: https://github.com/unicode-rs/unicode-segmentation
+  Notice: licenses/23860c2a7b5d96b21569afedf033469bab9fe14a1b24a35068b8641c578ce24d.txt (upstream COPYRIGHT; package)
+  Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/7b63ecd5f1902af1b63729947373683c32745c16a10e8e6292e2e2dcd7e90ae0.txt (upstream LICENSE-MIT; package)
+
+unicode-width 0.2.2
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/unicode-width/0.2.2/download
+  Cargo.lock checksum: b4ac048d71ede7ee76d585517add45da530660ef4390e49b098733c6e897f254
+  Authors: kwantam <kwantam@gmail.com>, Manish Goregaokar <manishsmail@gmail.com>
+  Repository: https://github.com/unicode-rs/unicode-width
+  Notice: licenses/23860c2a7b5d96b21569afedf033469bab9fe14a1b24a35068b8641c578ce24d.txt (upstream COPYRIGHT; package)
+  Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/7b63ecd5f1902af1b63729947373683c32745c16a10e8e6292e2e2dcd7e90ae0.txt (upstream LICENSE-MIT; package)
+
+unsafe-libyaml 0.2.11
+  License: MIT
+  Source: https://crates.io/api/v1/crates/unsafe-libyaml/0.2.11/download
+  Cargo.lock checksum: 673aac59facbab8a9007c7f6108d11f63b603f7cabff99fabf650fea5c32b861
+  Authors: David Tolnay <dtolnay@gmail.com>
+  Repository: https://github.com/dtolnay/unsafe-libyaml
+  Notice: licenses/23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt (upstream LICENSE-MIT; package)
+
+untrusted 0.9.0
+  License: ISC
+  Source: https://crates.io/api/v1/crates/untrusted/0.9.0/download
+  Cargo.lock checksum: 8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1
+  Authors: Brian Smith <brian@briansmith.org>
+  Repository: https://github.com/briansmith/untrusted
+  Notice: licenses/7abd9b6960dcf7d4d0a48606a5b71bfe37d472db68d70637f3a58a56785f1621.txt (upstream LICENSE.txt; package)
+
+url 2.5.8
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/url/2.5.8/download
+  Cargo.lock checksum: ff67a8a4397373c3ef660812acab3268222035010ab8680ec4215f38ba3d0eed
+  Authors: The rust-url developers
+  Repository: https://github.com/servo/rust-url
+  Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/b38f11f6096706e6de553dabe2a7ed142d59b6fa8c97e290c67496154745cdd5.txt (upstream LICENSE-MIT; package)
+
+utf8_iter 1.0.4
+  License: Apache-2.0 OR MIT
+  Source: https://crates.io/api/v1/crates/utf8_iter/1.0.4/download
+  Cargo.lock checksum: b6c140620e7ffbb22c2dee59cafe6084a59b5ffc27a8859a5f0d494b5d52b6be
+  Authors: Henri Sivonen <hsivonen@hsivonen.fi>
+  Repository: https://github.com/hsivonen/utf8_iter
+  Notice: licenses/c30152c94a6d75e021adbc52b3a52470366a46edb917e17deae3259251af244c.txt (upstream COPYRIGHT; package)
+  Notice: licenses/cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/3fa4ca83dcc9237839b1bdeb2e6d16bdfb5ec0c5ce42b24694d8bbf0dcbef72c.txt (upstream LICENSE-MIT; package)
+
+utf8parse 0.2.2
+  License: Apache-2.0 OR MIT
+  Source: https://crates.io/api/v1/crates/utf8parse/0.2.2/download
+  Cargo.lock checksum: 06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821
+  Authors: Joe Wilm <joe@jwilm.com>, Christian Duerr <contact@christianduerr.com>
+  Repository: https://github.com/alacritty/vte
+  Notice: licenses/62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/e4c9b06fa850cb9b540a5e400e9f6394cf15efcf4098144de477d1d3dae10150.txt (upstream LICENSE-MIT; package)
+
+uuid 1.24.0
+  License: Apache-2.0 OR MIT
+  Source: https://crates.io/api/v1/crates/uuid/1.24.0/download
+  Cargo.lock checksum: bf3923a6f5c4c6382e0b653c4117f48d631ea17f38ed86e2a828e6f7412f5239
+  Authors: Ashley Mannix<ashleymannix@live.com.au>, Dylan DPC<dylan.dpc@gmail.com>, Hunar Roop Kahlon<hunar.roop@gmail.com>
+  Repository: https://github.com/uuid-rs/uuid
+  Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/436bc5a105d8e57dcd8778730f3754f7bf39c14d2f530e4cde4bd2d17a83ec3d.txt (upstream LICENSE-MIT; package)
+
+vello_common 0.0.9
+  License: Apache-2.0 OR MIT
+  Source: https://crates.io/api/v1/crates/vello_common/0.0.9/download
+  Cargo.lock checksum: 19d672facaa2d697285a786cd9d44d614cd2ce54cdc022504bf339f8fff3b750
+  Repository: https://github.com/linebender/vello
+  Notice: licenses/a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/adf157330f722fe7cfd5964a2a6974eff851b718228c6735724a11706e6f4dec.txt (upstream LICENSE-MIT; package)
+
+vello_cpu 0.0.9
+  License: Apache-2.0 OR MIT
+  Source: https://crates.io/api/v1/crates/vello_cpu/0.0.9/download
+  Cargo.lock checksum: 588691169aed86b5c8fb487266afee01323234e6fd0a3f2aaec0eaa8e4007f23
+  Repository: https://github.com/linebender/vello
+  Notice: licenses/a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/adf157330f722fe7cfd5964a2a6974eff851b718228c6735724a11706e6f4dec.txt (upstream LICENSE-MIT; package)
+
+want 0.3.1
+  License: MIT
+  Source: https://crates.io/api/v1/crates/want/0.3.1/download
+  Cargo.lock checksum: bfa7760aed19e106de2c7c0b581b509f2f25d3dacaf737cb82ac61bc6d760b0e
+  Authors: Sean McArthur <sean@seanmonstar.com>
+  Repository: https://github.com/seanmonstar/want
+  Notice: licenses/a65f5d0a945d267751344c95665945b90c030ea107faf5c85d518929886187da.txt (upstream LICENSE; package)
+
+web-time 1.1.0
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/web-time/1.1.0/download
+  Cargo.lock checksum: 5a6580f308b1fad9207618087a65c04e7a10bc77e02c8e84e9b00dd4b12fa0bb
+  Repository: https://github.com/daxpedda/web-time
+  Notice: licenses/54a744942eb3fa63a74d8d359989ed6962c04f3f10ff20cfa08ff8aa7efbe4e6.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/f428305bbf2e70fbd807af0f3c7ac1b7acfb95311640f451e9d2e48db6d7e96b.txt (upstream LICENSE-MIT; package)
+
+webbrowser 1.2.2
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/webbrowser/1.2.2/download
+  Cargo.lock checksum: ef62a3d5f7b2411119a11b6f62570dbff91d7105e011a20fb83fbf8f5761c40f
+  Authors: Amod Malviya @amodm
+  Repository: https://github.com/amodm/webbrowser-rs
+  Notice: licenses/b0f7d40eaa9577d99132579866bf1eaf448577dc737582b8a34f1b3e7fab8994.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/7f0f4f8802c102d35110806d1755b7681127575b644f64750810cc47fa78df5b.txt (upstream LICENSE-MIT; package)
+
+wgpu 29.0.4
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/wgpu/29.0.4/download
+  Cargo.lock checksum: 76e8840e1ba2881d4cbb18d2147627a56af426ff064c0401eb0c8410c6325d07
+  Authors: gfx-rs developers
+  Repository: https://github.com/gfx-rs/wgpu
+  Notice: licenses/a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9.txt (upstream LICENSE.APACHE; package)
+  Notice: licenses/dc0d97139e8205818c703741c7be7cb3b96888bd5917b8d6fc6133731e403c21.txt (upstream LICENSE.MIT; package)
+
+wgpu-core 29.0.4
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/wgpu-core/29.0.4/download
+  Cargo.lock checksum: 2f519832254e56965a9940c4af57dcb75f702b6f6fa4a0b172f685395843a4d7
+  Authors: gfx-rs developers
+  Repository: https://github.com/gfx-rs/wgpu
+  Notice: licenses/a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9.txt (upstream LICENSE.APACHE; package)
+  Notice: licenses/dc0d97139e8205818c703741c7be7cb3b96888bd5917b8d6fc6133731e403c21.txt (upstream LICENSE.MIT; package)
+
+wgpu-core-deps-windows-linux-android 29.0.4
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/wgpu-core-deps-windows-linux-android/29.0.4/download
+  Cargo.lock checksum: 4e592c1bbef6ad047647ae6e666ebd8cee7a32bb4544d9700ec96cbf73230257
+  Authors: gfx-rs developers
+  Repository: https://github.com/gfx-rs/wgpu
+  Notice: licenses/a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9.txt (upstream LICENSE.APACHE; package)
+  Notice: licenses/dc0d97139e8205818c703741c7be7cb3b96888bd5917b8d6fc6133731e403c21.txt (upstream LICENSE.MIT; package)
+
+wgpu-hal 29.0.4
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/wgpu-hal/29.0.4/download
+  Cargo.lock checksum: 97ace1c17727311c22a46e4e3faf56ea6de81af99dcc839bdfb54857b94d448d
+  Authors: gfx-rs developers
+  Repository: https://github.com/gfx-rs/wgpu
+  Notice: licenses/a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9.txt (upstream LICENSE.APACHE; package)
+  Notice: licenses/dc0d97139e8205818c703741c7be7cb3b96888bd5917b8d6fc6133731e403c21.txt (upstream LICENSE.MIT; package)
+
+wgpu-naga-bridge 29.0.4
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/wgpu-naga-bridge/29.0.4/download
+  Cargo.lock checksum: 95226013f547544b223281cd16a4fb549aa9dcb562adbda0faae4c73ffbbc161
+  Authors: gfx-rs developers
+  Repository: https://github.com/gfx-rs/wgpu
+  Notice: licenses/a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9.txt (upstream LICENSE.APACHE; package)
+  Notice: licenses/dc0d97139e8205818c703741c7be7cb3b96888bd5917b8d6fc6133731e403c21.txt (upstream LICENSE.MIT; package)
+
+wgpu-types 29.0.4
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/wgpu-types/29.0.4/download
+  Cargo.lock checksum: 84bf84cd9ca8ca45e2b223a3868f1adf9bfc0c66aeac212e76ee7e40fdadf8f5
+  Authors: gfx-rs developers
+  Repository: https://github.com/gfx-rs/wgpu
+  Notice: licenses/a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9.txt (upstream LICENSE.APACHE; package)
+  Notice: licenses/dc0d97139e8205818c703741c7be7cb3b96888bd5917b8d6fc6133731e403c21.txt (upstream LICENSE.MIT; package)
+
+winapi-util 0.1.11
+  License: Unlicense OR MIT
+  Source: https://crates.io/api/v1/crates/winapi-util/0.1.11/download
+  Cargo.lock checksum: c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22
+  Authors: Andrew Gallant <jamslam@gmail.com>
+  Repository: https://github.com/BurntSushi/winapi-util
+  Notice: licenses/01c266bced4a434da0051174d6bee16a4c82cf634e2679b6155d40d75012390f.txt (upstream COPYING; package)
+  Notice: licenses/cb3c929a05e6cbc9de9ab06a4c57eeb60ca8c724bef6c138c87d3a577e27aa14.txt (upstream LICENSE-MIT; package)
+  Notice: licenses/7e12e5df4bae12cb21581ba157ced20e1986a0508dd10d0e8a4ab9a4cf94e85c.txt (upstream UNLICENSE; package)
+
+windows 0.58.0
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/windows/0.58.0/download
+  Cargo.lock checksum: dd04d41d93c4992d421894c18c8b43496aa748dd4c081bac0dc93eb0489272b6
+  Authors: Microsoft
+  Repository: https://github.com/microsoft/windows-rs
+  Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
+  Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
+
+windows 0.61.3
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/windows/0.61.3/download
+  Cargo.lock checksum: 9babd3a767a4c1aef6900409f85f5d53ce2544ccdfaa86dad48c91782c6d6893
+  Authors: Microsoft
+  Repository: https://github.com/microsoft/windows-rs
+  Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
+  Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
+
+windows 0.62.2
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/windows/0.62.2/download
+  Cargo.lock checksum: 527fadee13e0c05939a6a05d5bd6eec6cd2e3dbd648b9f8e447c6518133d8580
+  Repository: https://github.com/microsoft/windows-rs
+  Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
+  Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
+
+windows-collections 0.2.0
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/windows-collections/0.2.0/download
+  Cargo.lock checksum: 3beeceb5e5cfd9eb1d76b381630e82c4241ccd0d27f1a39ed41b2760b255c5e8
+  Repository: https://github.com/microsoft/windows-rs
+  Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
+  Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
+
+windows-collections 0.3.2
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/windows-collections/0.3.2/download
+  Cargo.lock checksum: 23b2d95af1a8a14a3c7367e1ed4fc9c20e0a26e79551b1454d72583c97cc6610
+  Repository: https://github.com/microsoft/windows-rs
+  Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
+  Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
+
+windows-core 0.58.0
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/windows-core/0.58.0/download
+  Cargo.lock checksum: 6ba6d44ec8c2591c134257ce647b7ea6b20335bf6379a27dac5f1641fcf59f99
+  Authors: Microsoft
+  Repository: https://github.com/microsoft/windows-rs
+  Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
+  Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
+
+windows-core 0.61.2
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/windows-core/0.61.2/download
+  Cargo.lock checksum: c0fdd3ddb90610c7638aa2b3a3ab2904fb9e5cdbecc643ddb3647212781c4ae3
+  Authors: Microsoft
+  Repository: https://github.com/microsoft/windows-rs
+  Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
+  Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
+
+windows-core 0.62.2
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/windows-core/0.62.2/download
+  Cargo.lock checksum: b8e83a14d34d0623b51dce9581199302a221863196a1dde71a7663a4c2be9deb
+  Repository: https://github.com/microsoft/windows-rs
+  Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
+  Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
+
+windows-future 0.2.1
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/windows-future/0.2.1/download
+  Cargo.lock checksum: fc6a41e98427b19fe4b73c550f060b59fa592d7d686537eebf9385621bfbad8e
+  Repository: https://github.com/microsoft/windows-rs
+  Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
+  Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
+
+windows-future 0.3.2
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/windows-future/0.3.2/download
+  Cargo.lock checksum: e1d6f90251fe18a279739e78025bd6ddc52a7e22f921070ccdc67dde84c605cb
+  Repository: https://github.com/microsoft/windows-rs
+  Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
+  Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
+
+windows-implement 0.58.0
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/windows-implement/0.58.0/download
+  Cargo.lock checksum: 2bbd5b46c938e506ecbce286b6628a02171d56153ba733b6c741fc627ec9579b
+  Authors: Microsoft
+  Repository: https://github.com/microsoft/windows-rs
+  Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
+  Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
+
+windows-implement 0.60.2
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/windows-implement/0.60.2/download
+  Cargo.lock checksum: 053e2e040ab57b9dc951b72c264860db7eb3b0200ba345b4e4c3b14f67855ddf
+  Repository: https://github.com/microsoft/windows-rs
+  Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
+  Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
+
+windows-interface 0.58.0
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/windows-interface/0.58.0/download
+  Cargo.lock checksum: 053c4c462dc91d3b1504c6fe5a726dd15e216ba718e84a0e46a88fbe5ded3515
+  Authors: Microsoft
+  Repository: https://github.com/microsoft/windows-rs
+  Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
+  Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
+
+windows-interface 0.59.3
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/windows-interface/0.59.3/download
+  Cargo.lock checksum: 3f316c4a2570ba26bbec722032c4099d8c8bc095efccdc15688708623367e358
+  Repository: https://github.com/microsoft/windows-rs
+  Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
+  Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
+
+windows-link 0.1.3
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/windows-link/0.1.3/download
+  Cargo.lock checksum: 5e6ad25900d524eaabdbbb96d20b4311e1e7ae1699af4fb28c17ae66c80d798a
+  Authors: Microsoft
+  Repository: https://github.com/microsoft/windows-rs
+  Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
+  Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
+
+windows-link 0.2.1
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/windows-link/0.2.1/download
+  Cargo.lock checksum: f0805222e57f7521d6a62e36fa9163bc891acd422f971defe97d64e70d0a4fe5
+  Repository: https://github.com/microsoft/windows-rs
+  Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
+  Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
+
+windows-numerics 0.2.0
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/windows-numerics/0.2.0/download
+  Cargo.lock checksum: 9150af68066c4c5c07ddc0ce30421554771e528bde427614c61038bc2c92c2b1
+  Repository: https://github.com/microsoft/windows-rs
+  Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
+  Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
+
+windows-numerics 0.3.1
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/windows-numerics/0.3.1/download
+  Cargo.lock checksum: 6e2e40844ac143cdb44aead537bbf727de9b044e107a0f1220392177d15b0f26
+  Repository: https://github.com/microsoft/windows-rs
+  Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
+  Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
+
+windows-registry 0.6.1
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/windows-registry/0.6.1/download
+  Cargo.lock checksum: 02752bf7fbdcce7f2a27a742f798510f3e5ad88dbe84871e5168e2120c3d5720
+  Repository: https://github.com/microsoft/windows-rs
+  Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
+  Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
+
+windows-result 0.2.0
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/windows-result/0.2.0/download
+  Cargo.lock checksum: 1d1043d8214f791817bab27572aaa8af63732e11bf84aa21a45a78d6c317ae0e
+  Authors: Microsoft
+  Repository: https://github.com/microsoft/windows-rs
+  Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
+  Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
+
+windows-result 0.3.4
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/windows-result/0.3.4/download
+  Cargo.lock checksum: 56f42bd332cc6c8eac5af113fc0c1fd6a8fd2aa08a0119358686e5160d0586c6
+  Authors: Microsoft
+  Repository: https://github.com/microsoft/windows-rs
+  Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
+  Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
+
+windows-result 0.4.1
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/windows-result/0.4.1/download
+  Cargo.lock checksum: 7781fa89eaf60850ac3d2da7af8e5242a5ea78d1a11c49bf2910bb5a73853eb5
+  Repository: https://github.com/microsoft/windows-rs
+  Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
+  Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
+
+windows-strings 0.1.0
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/windows-strings/0.1.0/download
+  Cargo.lock checksum: 4cd9b125c486025df0eabcb585e62173c6c9eddcec5d117d3b6e8c30e2ee4d10
+  Authors: Microsoft
+  Repository: https://github.com/microsoft/windows-rs
+  Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
+  Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
+
+windows-strings 0.4.2
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/windows-strings/0.4.2/download
+  Cargo.lock checksum: 56e6c93f3a0c3b36176cb1327a4958a0353d5d166c2a35cb268ace15e91d3b57
+  Authors: Microsoft
+  Repository: https://github.com/microsoft/windows-rs
+  Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
+  Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
+
+windows-strings 0.5.1
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/windows-strings/0.5.1/download
+  Cargo.lock checksum: 7837d08f69c77cf6b07689544538e017c1bfcf57e34b4c0ff58e6c2cd3b37091
+  Repository: https://github.com/microsoft/windows-rs
+  Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
+  Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
+
+windows-sys 0.48.0
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/windows-sys/0.48.0/download
+  Cargo.lock checksum: 677d2418bec65e3338edb076e806bc1ec15693c5d0104683f2efe857f61056a9
+  Authors: Microsoft
+  Repository: https://github.com/microsoft/windows-rs
+  Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
+  Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
+
+windows-sys 0.52.0
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/windows-sys/0.52.0/download
+  Cargo.lock checksum: 282be5f36a8ce781fad8c8ae18fa3f9beff57ec1b52cb3de0789201425d9a33d
+  Authors: Microsoft
+  Repository: https://github.com/microsoft/windows-rs
+  Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
+  Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
+
+windows-sys 0.60.2
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/windows-sys/0.60.2/download
+  Cargo.lock checksum: f2f500e4d28234f72040990ec9d39e3a6b950f9f22d3dba18416c35882612bcb
+  Authors: Microsoft
+  Repository: https://github.com/microsoft/windows-rs
+  Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
+  Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
+
+windows-sys 0.61.2
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/windows-sys/0.61.2/download
+  Cargo.lock checksum: ae137229bcbd6cdf0f7b80a31df61766145077ddf49416a728b02cb3921ff3fc
+  Repository: https://github.com/microsoft/windows-rs
+  Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
+  Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
+
+windows-targets 0.48.5
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/windows-targets/0.48.5/download
+  Cargo.lock checksum: 9a2fa6e2155d7247be68c096456083145c183cbbbc2764150dda45a87197940c
+  Authors: Microsoft
+  Repository: https://github.com/microsoft/windows-rs
+  Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
+  Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
+
+windows-targets 0.52.6
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/windows-targets/0.52.6/download
+  Cargo.lock checksum: 9b724f72796e036ab90c1021d4780d4d3d648aca59e491e6b98e725b84e99973
+  Authors: Microsoft
+  Repository: https://github.com/microsoft/windows-rs
+  Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
+  Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
+
+windows-targets 0.53.5
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/windows-targets/0.53.5/download
+  Cargo.lock checksum: 4945f9f551b88e0d65f3db0bc25c33b8acea4d9e41163edf90dcd0b19f9069f3
+  Repository: https://github.com/microsoft/windows-rs
+  Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
+  Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
+
+windows-threading 0.1.0
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/windows-threading/0.1.0/download
+  Cargo.lock checksum: b66463ad2e0ea3bbf808b7f1d371311c80e115c0b71d60efc142cafbcfb057a6
+  Authors: Microsoft
+  Repository: https://github.com/microsoft/windows-rs
+  Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
+  Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
+
+windows-threading 0.2.1
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/windows-threading/0.2.1/download
+  Cargo.lock checksum: 3949bd5b99cafdf1c7ca86b43ca564028dfe27d66958f2470940f73d86d75b37
+  Repository: https://github.com/microsoft/windows-rs
+  Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
+  Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
+
+windows-version 0.1.7
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/windows-version/0.1.7/download
+  Cargo.lock checksum: e4060a1da109b9d0326b7262c8e12c84df67cc0dbc9e33cf49e01ccc2eb63631
+  Repository: https://github.com/microsoft/windows-rs
+  Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
+  Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
+
+windows_x86_64_msvc 0.48.5
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/windows_x86_64_msvc/0.48.5/download
+  Cargo.lock checksum: ed94fce61571a4006852b7389a063ab983c02eb1bb37b47f8272ce92d06d9538
+  Authors: Microsoft
+  Repository: https://github.com/microsoft/windows-rs
+  Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
+  Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
+
+windows_x86_64_msvc 0.52.6
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/windows_x86_64_msvc/0.52.6/download
+  Cargo.lock checksum: 589f6da84c646204747d1270a2a5661ea66ed1cced2631d546fdfb155959f9ec
+  Authors: Microsoft
+  Repository: https://github.com/microsoft/windows-rs
+  Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
+  Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
+
+windows_x86_64_msvc 0.53.1
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/windows_x86_64_msvc/0.53.1/download
+  Cargo.lock checksum: d6bbff5f0aada427a1e5a6da5f1f98158182f26556f345ac9e04d36d0ebed650
+  Repository: https://github.com/microsoft/windows-rs
+  Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
+  Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
+
+winit 0.30.13
+  License: Apache-2.0
+  Source: https://crates.io/api/v1/crates/winit/0.30.13/download
+  Cargo.lock checksum: a6755fa58a9f8350bd1e472d4c3fcc25f824ec358933bba33306d0b63df5978d
+  Authors: The winit contributors, Pierre Krieger <pierre.krieger1708@gmail.com>
+  Repository: https://github.com/rust-windowing/winit
+  Notice: licenses/6dc0e068dcf3a5bc8e054205b85b7720e1d49265bbc64bf515d2cf79197df69a.txt (upstream LICENSE; package)
+
+winnow 0.7.15
+  License: MIT
+  Source: https://crates.io/api/v1/crates/winnow/0.7.15/download
+  Cargo.lock checksum: df79d97927682d2fd8adb29682d1140b343be4ac0f08fd68b7765d9c059d3945
+  Repository: https://github.com/winnow-rs/winnow
+  Notice: licenses/cb5aedb296c5246d1f22e9099f925a65146f9f0d6b4eebba97fd27a6cdbbab2d.txt (upstream LICENSE-MIT; package)
+
+writeable 0.6.3
+  License: Unicode-3.0
+  Source: https://crates.io/api/v1/crates/writeable/0.6.3/download
+  Cargo.lock checksum: 1ffae5123b2d3fc086436f8834ae3ab053a283cfac8fe0a0b8eaae044768a4c4
+  Authors: The ICU4X Project Developers
+  Repository: https://github.com/unicode-org/icu4x
+  Notice: licenses/f367c1b8e1aa262435251e442901da4607b4650e0e63a026f5044473ecfb90f2.txt (upstream LICENSE; package)
+
+yoke 0.8.3
+  License: Unicode-3.0
+  Source: https://crates.io/api/v1/crates/yoke/0.8.3/download
+  Cargo.lock checksum: 709fe23a0424b6a435d82152b1bd3fdfb0833487d5fa90d05d42762a9891fef5
+  Authors: Manish Goregaokar <manishsmail@gmail.com>
+  Repository: https://github.com/unicode-org/icu4x
+  Notice: licenses/f367c1b8e1aa262435251e442901da4607b4650e0e63a026f5044473ecfb90f2.txt (upstream LICENSE; package)
+
+yoke-derive 0.8.2
+  License: Unicode-3.0
+  Source: https://crates.io/api/v1/crates/yoke-derive/0.8.2/download
+  Cargo.lock checksum: de844c262c8848816172cef550288e7dc6c7b7814b4ee56b3e1553f275f1858e
+  Authors: Manish Goregaokar <manishsmail@gmail.com>
+  Repository: https://github.com/unicode-org/icu4x
+  Notice: licenses/f367c1b8e1aa262435251e442901da4607b4650e0e63a026f5044473ecfb90f2.txt (upstream LICENSE; package)
+
+zerocopy 0.8.55
+  License: BSD-2-Clause OR Apache-2.0 OR MIT
+  Source: https://crates.io/api/v1/crates/zerocopy/0.8.55/download
+  Cargo.lock checksum: b5a105cd7b140f6eeec8acff2ea38135d3cab283ada58540f629fe51e46696eb
+  Authors: Joshua Liebow-Feeser <joshlf@google.com>, Jack Wrenn <jswrenn@amazon.com>
+  Repository: https://github.com/google/zerocopy
+  Notice: licenses/9d185ac6703c4b0453974c0d85e9eee43e6941009296bb1f5eb0b54e2329e9f3.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/83c1763356e822adde0a2cae748d938a73fdc263849ccff6b27776dff213bd32.txt (upstream LICENSE-BSD; package)
+  Notice: licenses/1a2f5c12ddc934d58956aa5dbdd3255fe55fd957633ab7d0d39e4f0daa73f7df.txt (upstream LICENSE-MIT; package)
+
+zerocopy-derive 0.8.55
+  License: BSD-2-Clause OR Apache-2.0 OR MIT
+  Source: https://crates.io/api/v1/crates/zerocopy-derive/0.8.55/download
+  Cargo.lock checksum: 0fe976fb70c78cd64cccfe3a6fc142244e8a77b70959b30faf9d0ac37ee228eb
+  Authors: Joshua Liebow-Feeser <joshlf@google.com>, Jack Wrenn <jswrenn@amazon.com>
+  Repository: https://github.com/google/zerocopy
+  Notice: licenses/9d185ac6703c4b0453974c0d85e9eee43e6941009296bb1f5eb0b54e2329e9f3.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/83c1763356e822adde0a2cae748d938a73fdc263849ccff6b27776dff213bd32.txt (upstream LICENSE-BSD; package)
+  Notice: licenses/1a2f5c12ddc934d58956aa5dbdd3255fe55fd957633ab7d0d39e4f0daa73f7df.txt (upstream LICENSE-MIT; package)
+
+zerofrom 0.1.8
+  License: Unicode-3.0
+  Source: https://crates.io/api/v1/crates/zerofrom/0.1.8/download
+  Cargo.lock checksum: 0ec05a11813ea801ff6d75110ad09cd0824ddba17dfe17128ea0d5f68e6c5272
+  Authors: The ICU4X Project Developers
+  Repository: https://github.com/unicode-org/icu4x
+  Notice: licenses/f367c1b8e1aa262435251e442901da4607b4650e0e63a026f5044473ecfb90f2.txt (upstream LICENSE; package)
+
+zerofrom-derive 0.1.7
+  License: Unicode-3.0
+  Source: https://crates.io/api/v1/crates/zerofrom-derive/0.1.7/download
+  Cargo.lock checksum: 11532158c46691caf0f2593ea8358fed6bbf68a0315e80aae9bd41fbade684a1
+  Authors: Manish Goregaokar <manishsmail@gmail.com>
+  Repository: https://github.com/unicode-org/icu4x
+  Notice: licenses/f367c1b8e1aa262435251e442901da4607b4650e0e63a026f5044473ecfb90f2.txt (upstream LICENSE; package)
+
+zeroize 1.9.0
+  License: Apache-2.0 OR MIT
+  Source: https://crates.io/api/v1/crates/zeroize/1.9.0/download
+  Cargo.lock checksum: e13c156562582aa81c60cb29407084cdb54c4164760106ab78e6c5b0858cf64e
+  Authors: The RustCrypto Project Developers
+  Repository: https://github.com/RustCrypto/utils
+  Notice: licenses/cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/8c7516d4b27b1e495be5e38b612298b63de48d05f49cdac94f70f3cd70f8864b.txt (upstream LICENSE-MIT; package)
+
+zerotrie 0.2.4
+  License: Unicode-3.0
+  Source: https://crates.io/api/v1/crates/zerotrie/0.2.4/download
+  Cargo.lock checksum: 0f9152d31db0792fa83f70fb2f83148effb5c1f5b8c7686c3459e361d9bc20bf
+  Authors: The ICU4X Project Developers
+  Repository: https://github.com/unicode-org/icu4x
+  Notice: licenses/f367c1b8e1aa262435251e442901da4607b4650e0e63a026f5044473ecfb90f2.txt (upstream LICENSE; package)
+
+zerovec 0.11.6
+  License: Unicode-3.0
+  Source: https://crates.io/api/v1/crates/zerovec/0.11.6/download
+  Cargo.lock checksum: 90f911cbc359ab6af17377d242225f4d75119aec87ea711a880987b18cd7b239
+  Authors: The ICU4X Project Developers
+  Repository: https://github.com/unicode-org/icu4x
+  Notice: licenses/f367c1b8e1aa262435251e442901da4607b4650e0e63a026f5044473ecfb90f2.txt (upstream LICENSE; package)
+
+zerovec-derive 0.11.3
+  License: Unicode-3.0
+  Source: https://crates.io/api/v1/crates/zerovec-derive/0.11.3/download
+  Cargo.lock checksum: 625dc425cab0dca6dc3c3319506e6593dcb08a9f387ea3b284dbd52a92c40555
+  Authors: Manish Goregaokar <manishsmail@gmail.com>
+  Repository: https://github.com/unicode-org/icu4x
+  Notice: licenses/f367c1b8e1aa262435251e442901da4607b4650e0e63a026f5044473ecfb90f2.txt (upstream LICENSE; package)
+
+zmij 1.0.23
+  License: MIT
+  Source: https://crates.io/api/v1/crates/zmij/1.0.23/download
+  Cargo.lock checksum: 29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b
+  Authors: David Tolnay <dtolnay@gmail.com>
+  Repository: https://github.com/dtolnay/zmij
+  Notice: licenses/23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt (upstream LICENSE-MIT; package)

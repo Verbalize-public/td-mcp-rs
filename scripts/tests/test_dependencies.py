@@ -20,11 +20,19 @@ class DependencyCheckTest(unittest.TestCase):
         def run(command, **kwargs):
             calls.append(command)
             self.assertEqual(kwargs["cwd"], ROOT)
-            self.assertIn("--locked", command)
-            return subprocess.CompletedProcess(command, 1 if len(calls) == 1 else 0, "", "")
+            if command[0:2] == ["cargo", "deny"]:
+                self.assertIn("--locked", command)
+                return subprocess.CompletedProcess(command, 1 if len(calls) == 1 else 0, "", "")
+            self.assertEqual(
+                command,
+                [CHECKS.sys.executable, "scripts/generate_third_party_notices.py", "--check"],
+            )
+            return subprocess.CompletedProcess(command, 0, "", "")
 
         self.assertEqual(CHECKS.check(run), 1)
-        self.assertEqual([c[c.index("--target") + 1] for c in calls], list(CHECKS.TARGETS))
+        target_calls = [call for call in calls if "--target" in call]
+        self.assertEqual([c[c.index("--target") + 1] for c in target_calls], list(CHECKS.TARGETS))
+        self.assertEqual(len(calls), len(CHECKS.TARGETS) + 1)
         workflow = (ROOT / ".github/workflows/release.yml").read_text()
         self.assertEqual(set(CHECKS.TARGETS), set(re.findall(r"- target: ([\w-]+)", workflow)))
 

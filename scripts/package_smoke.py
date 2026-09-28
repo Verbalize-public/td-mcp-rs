@@ -2,6 +2,7 @@
 """Verify an extracted release binary in a temporary installation (no TD needed)."""
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -28,10 +29,74 @@ def check_project_license(directory):
         raise RuntimeError("release package is missing the matching project LICENSE")
 
 
+def sha256_file(path):
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def check_third_party_records(directory):
+    directory = Path(directory)
+    notices = directory / "THIRD_PARTY_NOTICES.txt"
+    offer = directory / "SOURCE_OFFER.md"
+    third_party = directory / "third-party"
+    inventory_path = third_party / "inventory.json"
+    for required in (notices, offer, inventory_path, third_party / "licenses", third_party / "sources"):
+        if not required.exists():
+            raise RuntimeError(f"release package is missing third-party record: {required.name}")
+
+    inventory = json.loads(inventory_path.read_text(encoding="utf-8"))
+    if inventory.get("schemaVersion") != 1 or inventory.get("rootPackage") != "tdmcp-daemon":
+        raise RuntimeError("third-party inventory has an unsupported schema or root package")
+    if not inventory.get("rootVersion") or not inventory.get("rootSourceUrl", "").startswith("https://"):
+        raise RuntimeError("third-party inventory has no release source identity")
+    packages = inventory.get("packages")
+    if not isinstance(packages, list) or not packages:
+        raise RuntimeError("third-party inventory has no release dependencies")
+    identities = [(item.get("name"), item.get("version"), item.get("source")) for item in packages]
+    if identities != sorted(identities):
+        raise RuntimeError("third-party inventory dependency order is not deterministic")
+
+    for package in packages:
+        if not package.get("source", "").startswith("registry+"):
+            raise RuntimeError(f"unsupported third-party source for {package.get('name')}")
+        checksum = package.get("cargoLockChecksum", "")
+        if len(checksum) != 64:
+            raise RuntimeError(f"missing Cargo.lock checksum for {package.get('name')}")
+        license_files = package.get("licenseFiles")
+        if not license_files:
+            raise RuntimeError(f"no applicable license text for {package.get('name')}")
+        for record in license_files:
+            path = third_party / record["packagedPath"]
+            if not path.is_file() or sha256_file(path) != record["sha256"]:
+                raise RuntimeError(f"license text mismatch for {package.get('name')}: {path.name}")
+        bundled = package.get("bundledSource")
+        if bundled:
+            path = third_party / bundled["path"]
+            if bundled.get("modifiedByTdmcp") is not False or not bundled.get("reason"):
+                raise RuntimeError(f"source obligation status is not explicit for {package.get('name')}")
+            if not path.is_file() or sha256_file(path) != bundled["sha256"] or bundled["sha256"] != checksum:
+                raise RuntimeError(f"bundled source mismatch for {package.get('name')}")
+
+    lock_hash = inventory.get("cargoLockSha256")
+    offer_text = offer.read_text(encoding="utf-8")
+    if not lock_hash or lock_hash not in notices.read_text(encoding="utf-8") or lock_hash not in offer_text:
+        raise RuntimeError("third-party notice/source offer does not identify its Cargo.lock graph")
+    if any(package.get("name") == "wayland-protocols-plasma" for package in packages):
+        if inventory["rootSourceUrl"] not in offer_text or "Rebuild and relink" not in offer_text:
+            raise RuntimeError("LGPL source offer lacks project-source or relinking instructions")
+    serialized = inventory_path.read_text(encoding="utf-8")
+    if "manifest_path" in serialized or str(Path.home()) in serialized:
+        raise RuntimeError("third-party inventory exposes a private local path")
+
+
 def smoke(binary, *, distribution=False):
     binary = str(Path(binary).resolve(strict=True))
     if distribution:
         check_project_license(Path(binary).parent)
+        check_third_party_records(Path(binary).parent)
     with tempfile.TemporaryDirectory(prefix="tdmcp-package-") as temporary:
         root = Path(temporary)
         config = root / "config.toml"
@@ -47,6 +112,7 @@ def smoke(binary, *, distribution=False):
             subprocess.run([binary, "install", "--force", "--data-dir", str(data)], env=env, check=True, timeout=30)
         assert 'package-smoke-stable-id' in config.read_text(encoding="utf-8"), "install reset the configuration"
         check_project_license(data)
+        check_third_party_records(data)
         for asset in ["bootstrap.tox", "bridge/tdmcp_bridge/__init__.py", "diagnostics/catalog.yaml", "skills/touchdesigner/SKILL.md"]:
             assert (data / asset).is_file(), f"missing packaged asset: {asset}"
         installed = data / "bin" / Path(binary).name
@@ -67,9 +133,10 @@ def smoke(binary, *, distribution=False):
                         time.sleep(0.1)
                 client = McpClient(base)
                 try:
-                    assert client.call("fleet", {})["processes"] == []
+                    fleet = client.call("fleet", {})
+                    assert fleet is not None and fleet["processes"] == []
                     docs = client.request("resources/read", {"uri": "tdmcp://docs/operate"})
-                    assert docs["contents"][0]["text"], "packaged skills unavailable"
+                    assert docs is not None and docs["contents"][0]["text"], "packaged skills unavailable"
                 finally:
                     client.close()
                 request = urllib.request.Request(base + "/admin/shutdown", data=b"", method="POST")
@@ -83,7 +150,7 @@ def smoke(binary, *, distribution=False):
                 if child.poll() is None:
                     child.kill()
                 child.wait()
-    print("Package smoke passed: repeat install, preserved config, assets, MCP, shutdown")
+    print("Package smoke passed: repeat install, licenses/notices, assets, MCP, shutdown")
 
 
 if __name__ == "__main__":

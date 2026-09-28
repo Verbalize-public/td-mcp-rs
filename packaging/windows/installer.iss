@@ -36,6 +36,9 @@ ArchitecturesInstallIn64BitMode=x64compatible
 [Files]
 Source: "..\..\staging\{#AppEx}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\staging\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\staging\THIRD_PARTY_NOTICES.txt"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\staging\SOURCE_OFFER.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\staging\third-party\*"; DestDir: "{app}\third-party"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppEx}"

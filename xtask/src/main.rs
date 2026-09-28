@@ -168,26 +168,6 @@ fn build_release_daemon_with_gui(workspace: &Path, target: Option<&str>) -> Resu
     Ok(src)
 }
 
-/// Soft-stop + force-kill workspace `tdmcp-daemon` processes locking
-/// `target/release` / `target/dist` so cargo can overwrite the binary.
-fn kill_workspace_daemons(workspace: &Path) -> Result<()> {
-    let status = if cfg!(windows) {
-        Command::new("pwsh")
-            .args(["-File", "scripts/kill-daemons.ps1"])
-            .current_dir(workspace)
-            .status()
-    } else {
-        Command::new("bash")
-            .args(["scripts/kill-daemons.sh"])
-            .status()
-    }
-    .context("run kill-daemons script")?;
-    if !status.success() {
-        bail!("kill-daemons failed");
-    }
-    Ok(())
-}
-
 fn git_output(repo: &Path, args: &[&str]) -> Result<String> {
     let out = Command::new("git")
         .args(args)
@@ -212,9 +192,8 @@ fn dist(out: PathBuf) -> Result<()> {
     let workspace = workspace_root()?;
     let out_dir = resolve_out_dir(&workspace, &out);
 
-    // Unlock release/dist binaries before rebuild (leftover mcp shims hold locks).
-    kill_workspace_daemons(&workspace)?;
-
+    // Building/distributing never grants authority to terminate running instances.
+    // A locked executable must be resolved by its explicitly authorized owner.
     let daemon_src = build_release_daemon_with_gui(&workspace, None)?;
     let daemon_dest = copy_binary(&daemon_src, &out_dir)?;
     println!("{}", daemon_dest.display());
@@ -256,7 +235,7 @@ fn package(target: Option<String>, out: PathBuf) -> Result<()> {
     let out_dir = resolve_out_dir(&workspace, &out);
     fs::create_dir_all(&out_dir).with_context(|| format!("create {}", out_dir.display()))?;
 
-    kill_workspace_daemons(&workspace)?;
+    // No automatic process shutdown: packaging must preserve running user work.
     build_release_daemon_with_gui(&workspace, Some(&triple))?;
 
     let bin_src = release_dir(&workspace, Some(&triple)).join(release_binary_name("tdmcp-daemon"));
@@ -269,7 +248,14 @@ fn package(target: Option<String>, out: PathBuf) -> Result<()> {
     let version = parse_workspace_version(&toml)?;
 
     let stem = artifact_stem(&version, &triple);
-    let archive = stage_and_compress(&bin_src, &workspace.join("LICENSE"), &out_dir, &stem)?;
+    let notices_src = workspace.join("third-party/generated").join(&triple);
+    let archive = stage_and_compress(
+        &bin_src,
+        &workspace.join("LICENSE"),
+        &notices_src,
+        &out_dir,
+        &stem,
+    )?;
     println!("{}", archive.display());
 
     let sums = rewrite_sha256_sums(&out_dir)?;
@@ -287,13 +273,42 @@ fn resolve_out_dir(workspace: &Path, out: &Path) -> PathBuf {
     }
 }
 
-/// Stage the binary and project license, then compress with the native archiver.
+fn copy_tree(src: &Path, dest: &Path) -> Result<()> {
+    fs::create_dir_all(dest).with_context(|| format!("create {}", dest.display()))?;
+    let mut entries = fs::read_dir(src)
+        .with_context(|| format!("read {}", src.display()))?
+        .collect::<std::io::Result<Vec<_>>>()?;
+    entries.sort_by_key(std::fs::DirEntry::file_name);
+    for entry in entries {
+        let source = entry.path();
+        let destination = dest.join(entry.file_name());
+        let file_type = entry
+            .file_type()
+            .with_context(|| format!("inspect {}", source.display()))?;
+        if file_type.is_dir() {
+            copy_tree(&source, &destination)?;
+        } else if file_type.is_file() {
+            fs::copy(&source, &destination)
+                .with_context(|| format!("copy third-party record {}", source.display()))?;
+        } else {
+            bail!(
+                "third-party record is not a regular file: {}",
+                source.display()
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Stage the binary, project license, and target-specific third-party records,
+/// then compress with the native archiver.
 ///
 /// No zip/tar crates on purpose: GitHub runners and dev boxes both ship
 /// `Compress-Archive` / bsdtar, and a dependency-free xtask builds fast in CI.
 fn stage_and_compress(
     bin_src: &Path,
     license_src: &Path,
+    notices_src: &Path,
     out_dir: &Path,
     stem: &str,
 ) -> Result<PathBuf> {
@@ -308,6 +323,42 @@ fn stage_and_compress(
     let staged_license = stage.join("LICENSE");
     fs::copy(license_src, &staged_license)
         .with_context(|| format!("copy project license {}", license_src.display()))?;
+    for required in [
+        "THIRD_PARTY_NOTICES.txt",
+        "SOURCE_OFFER.md",
+        "inventory.json",
+        "licenses",
+    ] {
+        if !notices_src.join(required).exists() {
+            bail!(
+                "target notice inventory is incomplete (missing {required}): {}",
+                notices_src.display()
+            );
+        }
+    }
+    let staged_notices = stage.join("THIRD_PARTY_NOTICES.txt");
+    fs::copy(notices_src.join("THIRD_PARTY_NOTICES.txt"), &staged_notices)
+        .with_context(|| format!("copy third-party notices from {}", notices_src.display()))?;
+    let staged_offer = stage.join("SOURCE_OFFER.md");
+    fs::copy(notices_src.join("SOURCE_OFFER.md"), &staged_offer)
+        .with_context(|| format!("copy source offer from {}", notices_src.display()))?;
+    let staged_third_party = stage.join("third-party");
+    fs::create_dir(&staged_third_party).context("create staged third-party directory")?;
+    fs::copy(
+        notices_src.join("inventory.json"),
+        staged_third_party.join("inventory.json"),
+    )
+    .with_context(|| format!("copy third-party inventory from {}", notices_src.display()))?;
+    copy_tree(
+        &notices_src.join("licenses"),
+        &staged_third_party.join("licenses"),
+    )?;
+    if notices_src.join("sources").is_dir() {
+        copy_tree(
+            &notices_src.join("sources"),
+            &staged_third_party.join("sources"),
+        )?;
+    }
 
     let is_windows = cfg!(windows);
     let archive_name = if is_windows {
@@ -328,26 +379,24 @@ fn stage_and_compress(
         Command::new("pwsh")
             .env("TDMCP_PACKAGE_BINARY", &staged_bin)
             .env("TDMCP_PACKAGE_LICENSE", &staged_license)
+            .env("TDMCP_PACKAGE_NOTICES", &staged_notices)
+            .env("TDMCP_PACKAGE_SOURCE_OFFER", &staged_offer)
+            .env("TDMCP_PACKAGE_THIRD_PARTY", &staged_third_party)
             .env("TDMCP_PACKAGE_ARCHIVE", &temporary)
             .args([
                 "-NoProfile",
                 "-Command",
-                "Compress-Archive -LiteralPath @($env:TDMCP_PACKAGE_BINARY, $env:TDMCP_PACKAGE_LICENSE) -DestinationPath $env:TDMCP_PACKAGE_ARCHIVE -Force -ErrorAction Stop",
+                "Compress-Archive -LiteralPath @($env:TDMCP_PACKAGE_BINARY, $env:TDMCP_PACKAGE_LICENSE, $env:TDMCP_PACKAGE_NOTICES, $env:TDMCP_PACKAGE_SOURCE_OFFER, $env:TDMCP_PACKAGE_THIRD_PARTY) -DestinationPath $env:TDMCP_PACKAGE_ARCHIVE -Force -ErrorAction Stop",
             ])
             .status()
             .context("Compress-Archive")?
     } else {
-        let file_name = staged_bin
-            .file_name()
-            .context("staged binary has no file name")?
-            .to_owned();
         Command::new("tar")
             .args(["-czf"])
             .arg(&temporary)
             .arg("-C")
             .arg(stage)
-            .arg(&file_name)
-            .arg("LICENSE")
+            .arg(".")
             .status()
             .context("tar -czf")?
     };
@@ -745,6 +794,22 @@ fn stamp_tox() -> Result<()> {
 mod tests {
     use super::*;
 
+    fn fixture_notices(root: &Path) -> PathBuf {
+        let notices = root.join("notices");
+        fs::create_dir_all(notices.join("licenses")).unwrap();
+        fs::create_dir_all(notices.join("sources")).unwrap();
+        fs::write(notices.join("THIRD_PARTY_NOTICES.txt"), b"notices fixture").unwrap();
+        fs::write(notices.join("SOURCE_OFFER.md"), b"source fixture").unwrap();
+        fs::write(notices.join("inventory.json"), b"{}\n").unwrap();
+        fs::write(notices.join("licenses/license.txt"), b"license fixture").unwrap();
+        fs::write(
+            notices.join("sources/source.crate"),
+            b"source archive fixture",
+        )
+        .unwrap();
+        notices
+    }
+
     #[test]
     fn archive_contains_binary_and_project_license_with_literal_paths() {
         let temp = tempfile::tempdir().unwrap();
@@ -754,7 +819,9 @@ mod tests {
         let license = temp.path().join("LICENSE");
         fs::write(&binary, b"binary fixture").unwrap();
         fs::write(&license, b"project license fixture").unwrap();
-        let archive = stage_and_compress(&binary, &license, &out, "tdmcp-rs-test").unwrap();
+        let notices = fixture_notices(temp.path());
+        let archive =
+            stage_and_compress(&binary, &license, &notices, &out, "tdmcp-rs-test").unwrap();
         let extracted = out.join("extracted");
         fs::create_dir(&extracted).unwrap();
         let status = if cfg!(windows) {
@@ -786,7 +853,27 @@ mod tests {
             fs::read(extracted.join("LICENSE")).unwrap(),
             b"project license fixture"
         );
-        assert_eq!(fs::read_dir(&extracted).unwrap().count(), 2);
+        assert_eq!(
+            fs::read(extracted.join("THIRD_PARTY_NOTICES.txt")).unwrap(),
+            b"notices fixture"
+        );
+        assert_eq!(
+            fs::read(extracted.join("SOURCE_OFFER.md")).unwrap(),
+            b"source fixture"
+        );
+        assert_eq!(
+            fs::read(extracted.join("third-party/inventory.json")).unwrap(),
+            b"{}\n"
+        );
+        assert_eq!(
+            fs::read(extracted.join("third-party/licenses/license.txt")).unwrap(),
+            b"license fixture"
+        );
+        assert_eq!(
+            fs::read(extracted.join("third-party/sources/source.crate")).unwrap(),
+            b"source archive fixture"
+        );
+        assert_eq!(fs::read_dir(&extracted).unwrap().count(), 5);
     }
 
     #[test]
@@ -805,11 +892,36 @@ mod tests {
         let error = stage_and_compress(
             &binary,
             &temp.path().join("absent-license"),
+            &temp.path().join("absent-notices"),
             &out,
             "tdmcp-rs-test",
         )
         .unwrap_err();
         assert!(error.to_string().contains("project license"));
+        assert_eq!(fs::read(&previous).unwrap(), b"previous archive");
+        assert_eq!(fs::read_dir(&out).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn incomplete_notices_preserve_previous_archive_and_clean_staging() {
+        let temp = tempfile::tempdir().unwrap();
+        let binary = temp.path().join(release_binary_name("tdmcp-daemon"));
+        let license = temp.path().join("LICENSE");
+        fs::write(&binary, b"binary fixture").unwrap();
+        fs::write(&license, b"project license fixture").unwrap();
+        let notices = fixture_notices(temp.path());
+        fs::remove_file(notices.join("inventory.json")).unwrap();
+        let out = temp.path().join("out");
+        fs::create_dir(&out).unwrap();
+        let previous = out.join(if cfg!(windows) {
+            "tdmcp-rs-test.zip"
+        } else {
+            "tdmcp-rs-test.tar.gz"
+        });
+        fs::write(&previous, b"previous archive").unwrap();
+        let error =
+            stage_and_compress(&binary, &license, &notices, &out, "tdmcp-rs-test").unwrap_err();
+        assert!(error.to_string().contains("missing inventory.json"));
         assert_eq!(fs::read(&previous).unwrap(), b"previous archive");
         assert_eq!(fs::read_dir(&out).unwrap().count(), 1);
     }

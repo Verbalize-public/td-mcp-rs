@@ -30,11 +30,15 @@ These are known constraints, not a delivery schedule.
 - Windows setup still stops processes by executable name. Path-scoped upgrade
   shutdown and cleanup of autostart registrations on uninstall need native
   verification before changing this behavior.
-- The dependency gate currently rejects licenses already present in the GUI
-  dependency tree (font licenses, BSL-1.0, CC0-1.0, Unlicense, and MPL-2.0).
-  Distribution notices and explicit license-policy decisions are still needed.
-  Linux's Wayland titlebar dependency also uses the unmaintained `ttf-parser`
-  (`RUSTSEC-2026-0192`); it has not been suppressed in the gate.
+- Third-party notices are generated only for the four supported release targets.
+  Adding a target or dependency requires regenerating its locked graph inventory;
+  the dependency gate rejects drift and any unreviewed license. Before publication,
+  the publisher must confirm whether generated bindings from Plasma's LGPL-licensed
+  protocol XML are treated as LGPL-covered output. The package conservatively
+  preserves terms/source and gives rebuild/relink instructions, but the final
+  tagged project-source archive still must be matched to the shipped binary and
+  retained with the release. Native Windows/macOS installer acceptance remains a
+  platform-specific release check.
 
 Report a reproducible failure with daemon/TD versions, OS, affected PID,
 the tool request, and relevant logs. Do not include keys or private projects.

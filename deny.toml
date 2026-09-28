@@ -20,6 +20,21 @@ allow = [
   "CDLA-Permissive-2.0",
   "OpenSSL",
 ]
+# Required release capabilities with obligations carried by third-party/generated/.
+# Keep these crate/version-scoped so a new dependency cannot inherit approval.
+exceptions = [
+  # Embedded egui fonts; archives/installations preserve each font license text.
+  { crate = "epaint_default_fonts@0.35.0", allow = ["OFL-1.1", "Ubuntu-font-1.0"] },
+  # Public-domain dedication; canonical CC0 text is included in notices.
+  { crate = "hexf-parse@0.2.1", allow = ["CC0-1.0"] },
+  # Linux status-notifier support; upstream UNLICENSE is preserved.
+  { crate = "ksni@0.3.6", allow = ["Unlicense"] },
+  # Directory discovery; exact unmodified source is shipped with the MPL text.
+  { crate = "option-ext@0.2.0", allow = ["MPL-2.0"] },
+  # Windows clipboard support; Boost license text is preserved per package.
+  { crate = "clipboard-win@5.4.1", allow = ["BSL-1.0"] },
+  { crate = "error-code@3.3.2", allow = ["BSL-1.0"] },
+]
 
 [bans]
 multiple-versions = "warn"
