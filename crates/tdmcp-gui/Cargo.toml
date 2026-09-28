@@ -34,7 +34,10 @@ tdmcp-config = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true }
-winit = { workspace = true }
+# Preserve winit's default X11/Wayland behavior while using its supported
+# crossfont CSD backend; the default ab_glyph backend retains unmaintained
+# ttf-parser (RUSTSEC-2026-0192).
+winit = { workspace = true, features = ["wayland-dlopen", "wayland-csd-adwaita-crossfont"] }
 
 # tray-icon drives the native status item everywhere but Linux: its Linux
 # backend needs GTK + libappindicator (crashed the daemon when absent, L-10).
