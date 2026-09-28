@@ -12,10 +12,13 @@ pub mod bridge_rpc;
 mod daemon_link;
 pub mod dialogs;
 pub mod dialogs_tool;
+pub mod discovery;
 mod editor_context;
+pub mod evidence;
 mod fleet;
 pub mod lifecycle;
 mod outcomes;
+pub mod output_views;
 pub mod palette;
 
 pub mod project_install;

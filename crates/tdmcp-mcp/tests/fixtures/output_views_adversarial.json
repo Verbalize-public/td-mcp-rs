@@ -1,0 +1,79 @@
+{
+  "cases": [
+    {
+      "name": "names_vector_literals_and_duplicates",
+      "expectCompact": true,
+      "value": {
+        "ok": true,
+        "nodes": [{
+          "ok": true,
+          "path": "/project1/synthetic",
+          "params": [
+            {"name": "Gain"}, {"name": "gain"}, {"name": "Gain"},
+            {"name": "$ref"}, {"name": "__proto__"}, {"name": "constructor"},
+            {"name": "prototype"}, {"name": "codec"}, {"name": "transforms"},
+            {"name": "日本語"}, {"name": ""}, {"name": "null"},
+            {"name": "false"}, {"name": "0"}, {"name": "Gain"}, {"name": "Gain"}
+          ],
+          "literal": {"$ref": "not-a-reference", "kind": "names_vector", "path": ["inert"]}
+        }]
+      }
+    },
+    {
+      "name": "positive_defaults_preserve_edge_values",
+      "expectCompact": true,
+      "value": {
+        "ok": true,
+        "nodes": [{
+          "ok": true,
+          "path": "/project1/edge",
+          "inputs": [null, {"path": "/project1/a", "name": "a", "opType": "nullTOP"}, null],
+          "warnings": ["synthetic warning remains visible"],
+          "observations": {"warnings": {"available": false, "code": "tdmcp.op.observation_unavailable"}},
+          "timing": {"frame": -3, "clock": "local"},
+          "params": [
+            {"name": "NullValue", "mode": "CONSTANT", "val": null, "evaluation": {"available": true}, "future": {"present": true}},
+            {"name": "FalseValue", "mode": "CONSTANT", "val": false, "evaluation": {"available": true}},
+            {"name": "ZeroValue", "mode": "CONSTANT", "val": 0, "evaluation": {"available": true}},
+            {"name": "NegativeZero", "mode": "CONSTANT", "val": -0.0, "evaluation": {"available": true}},
+            {"name": "WideUnsigned", "mode": "CONSTANT", "val": 18446744073709551615, "evaluation": {"available": true}},
+            {"name": "Empty", "mode": "CONSTANT", "val": "", "evaluation": {"available": true}},
+            {"name": "Marker", "mode": "CONSTANT", "val": "$tdmcp.ref", "evaluation": {"available": true}},
+            {"name": "Unicode", "mode": "CONSTANT", "val": "é雪", "evaluation": {"available": true}}
+          ]
+        }]
+      }
+    },
+    {
+      "name": "identical_api_member_rosters",
+      "expectCompact": true,
+      "value": {
+        "ok": true,
+        "results": [
+          {"ok": true, "kind": "class", "name": "alphaTOP", "doc": "Alpha", "members": ["cook", "destroy", "errors", "family", "inputs", "name", "opType", "outputs", "par", "pars", "path", "warnings"], "memberCount": 12},
+          {"ok": true, "kind": "class", "name": "betaTOP", "doc": "Beta", "members": ["cook", "destroy", "errors", "family", "inputs", "name", "opType", "outputs", "par", "pars", "path", "warnings"], "memberCount": 12},
+          {"ok": false, "kind": "class", "name": "missingTOP", "code": "tdmcp.api_help.not_found", "message": "synthetic missing class"},
+          {"ok": true, "kind": "class", "name": "gammaTOP", "doc": null, "members": ["cook", "destroy", "errors", "family", "inputs", "name", "opType", "outputs", "par", "pars", "path", "warnings"], "memberCount": 12}
+        ]
+      }
+    },
+    {
+      "name": "tiny_missing_node_stays_full",
+      "expectCompact": false,
+      "value": {"ok": true, "nodes": [{"ok": false, "path": "/project1/missing", "code": "tdmcp.op.not_found", "message": "synthetic missing node"}]}
+    },
+    {
+      "name": "negative_evaluation_never_defaulted",
+      "expectCompact": false,
+      "value": {"params": [
+        {"name": "A", "mode": "EXPRESSION", "val": null, "evaluation": {"available": false, "code": "tdmcp.op.observation_unavailable"}},
+        {"name": "B", "mode": "CONSTANT", "val": 0, "evaluation": {"available": true}}
+      ]}
+    },
+    {
+      "name": "prototype_like_literal_subtree_is_inert",
+      "expectCompact": false,
+      "value": {"__proto__": {"params": [{"name": "A"}, {"name": "B"}, {"name": "C"}]}, "constructor": "literal", "prototype": false}
+    }
+  ]
+}
