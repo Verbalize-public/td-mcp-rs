@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 import threading
+import time
 from types import ModuleType
 
 
@@ -37,6 +38,24 @@ def mark_main_thread() -> None:
     the main thread ever diverges from TD's cook thread.
     """
     _pkg()._main_thread_ident = threading.get_ident()
+
+
+def mark_main_thread_pump() -> None:
+    """Record a real main-thread pump observation.
+
+    Worker heartbeat code must only read this cached timestamp; it must never
+    call this function or otherwise synthesize main-thread responsiveness.
+    """
+    require_main_thread()
+    setattr(_pkg(), "_last_main_thread_pump_monotonic", time.monotonic())
+
+
+def main_thread_pump_age_ms() -> int | None:
+    """Age of the last cached main-thread pump observation, if one occurred."""
+    observed = getattr(_pkg(), "_last_main_thread_pump_monotonic", None)
+    if not isinstance(observed, (int, float)):
+        return None
+    return max(0, int((time.monotonic() - observed) * 1000))
 
 
 def is_main_thread() -> bool:

@@ -19,7 +19,7 @@ use tdmcp_daemon::bridge::{BridgeSessions, BridgeTimeouts, HeartbeatConfig};
 use tdmcp_daemon::{LogRing, LogSink};
 use tdmcp_diagnostics::Catalog;
 use tdmcp_ipc::{IpcStream, Message};
-use tdmcp_mcp::dispatch_tool;
+use tdmcp_mcp::{dispatch_tool, BridgeRpc};
 use tdmcp_test_support::FakeTdPeer;
 use tokio::sync::Mutex;
 
@@ -32,6 +32,42 @@ fn test_log_sink(dir: &std::path::Path) -> LogSink {
     // controls flush-on-drop for a file we don't assert on.
     std::mem::forget(_guard);
     LogSink::new(Arc::new(LogRing::new(4096)), writer)
+}
+
+fn ready_payload(load_generation: &str, digest: &str) -> Value {
+    json!({
+        "loadGeneration": load_generation,
+        "protocol": {"name": "tdmcp-bridge-ipc", "version": "1"},
+        "runtime": {
+            "implementation": "CPython",
+            "pythonVersion": "3.11",
+            "platform": "test"
+        },
+        "supportedFeatures": ["inspect", "ping"],
+        "loadedCode": {
+            "kind": "pythonCodeObjects",
+            "algorithm": "sha256-python-marshal-v1",
+            "digest": digest,
+            "coverage": ["inspect", "ping"],
+            "limitations": ["bounded"]
+        },
+        "sourceSnapshot": {
+            "kind": "sourceSnapshot",
+            "provenance": "onDiskAtReadyAfterFinalReload",
+            "algorithm": "sha256-framed-files-v1",
+            "digest": format!("source-{digest}"),
+            "files": ["inspect.py"],
+            "limitations": ["point in time"]
+        },
+        "bundleSnapshot": {
+            "kind": "bridgePackageSnapshot",
+            "provenance": "daemonSelectedPackageOnDiskAtReadyAfterFinalReload",
+            "algorithm": "sha256-framed-files-v1",
+            "digest": format!("bundle-{digest}"),
+            "files": ["manifest.json", "tdmcp_bridge/inspect.py"],
+            "limitations": ["point in time"]
+        }
+    })
 }
 
 fn attrs() -> ProcessAttrs {
@@ -1074,6 +1110,99 @@ async fn never_registered_pid_is_unknown_not_not_connected() {
         matches!(err, BridgeRpcError::Unknown { pid: 424_242 }),
         "expected Unknown, got {err:?}"
     );
+}
+
+#[tokio::test]
+async fn ready_event_is_consumed_without_an_extra_rpc() {
+    let (registry, sessions, mut peer) = setup(76).await;
+    let driver = tokio::spawn(async move {
+        let Message::Request { id, method, .. } = peer.recv_message().await.expect("request")
+        else {
+            panic!("expected request");
+        };
+        assert_eq!(method, "ping");
+        peer.send_event(
+            "bridge_ready",
+            ready_payload("11111111-1111-4111-8111-111111111111", "loaded-a"),
+        )
+        .await
+        .expect("ready");
+        peer.send_response(id, json!({"ok": true, "pong": true}))
+            .await
+            .expect("pong");
+    });
+
+    sessions.call(76, "ping", json!({})).await.expect("ping");
+    driver.await.expect("driver");
+    let reg = registry.lock().await;
+    let identity = &reg.get(76).expect("entry").bridge_identity;
+    assert_eq!(
+        identity
+            .ready
+            .as_ref()
+            .map(|ready| ready.load_generation.as_str()),
+        Some("11111111-1111-4111-8111-111111111111")
+    );
+    assert_eq!(
+        identity
+            .ready
+            .as_ref()
+            .map(|ready| ready.loaded_code.digest.as_str()),
+        Some("loaded-a")
+    );
+}
+
+#[tokio::test]
+async fn heartbeat_health_does_not_replace_stale_main_thread_pump_age() {
+    let heartbeat = HeartbeatConfig {
+        enabled: true,
+        interval: Duration::from_millis(20),
+        pong_timeout: Duration::from_millis(100),
+        idle_dead: Duration::from_millis(300),
+    };
+    let (registry, _sessions, mut peer) = setup_with(78, heartbeat).await;
+    let driver = tokio::spawn(async move {
+        let Message::Request { id, method, params } = peer.recv_message().await.expect("heartbeat")
+        else {
+            panic!("expected request");
+        };
+        assert_eq!(method, "ping");
+        assert_eq!(params["_tdmcp_heartbeat"], true);
+        peer.send_event(
+            "bridge_ready",
+            ready_payload("22222222-2222-4222-8222-222222222222", "loaded-b"),
+        )
+        .await
+        .expect("ready");
+        peer.send_response(
+            id,
+            json!({
+                "ok": true,
+                "pong": true,
+                "bridge": {
+                    "loadGeneration": "22222222-2222-4222-8222-222222222222",
+                    "mainThreadPumpAgeMs": 30_000
+                }
+            }),
+        )
+        .await
+        .expect("pong");
+        tokio::time::sleep(Duration::from_millis(80)).await;
+    });
+
+    tokio::time::sleep(Duration::from_millis(60)).await;
+    {
+        let reg = registry.lock().await;
+        let entry = reg.get(78).expect("entry");
+        assert_eq!(entry.bridge, tdmcp_core::BridgeStatus::Connected);
+        assert!(entry.bridge_identity.ipc_observed_at.is_some());
+        let (_, pump_age) = entry
+            .bridge_identity
+            .main_thread_pump
+            .expect("cached main-thread age");
+        assert_eq!(pump_age, 30_000, "worker pong must not reset pump age");
+    }
+    driver.await.expect("driver");
 }
 
 #[tokio::test]

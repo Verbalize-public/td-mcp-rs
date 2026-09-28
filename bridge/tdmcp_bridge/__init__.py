@@ -21,6 +21,9 @@ _capture_depth = 0
 # threading id of TD's main thread, set by ``bootstrap_threaded`` (main
 # thread only) via ``state.mark_main_thread`` — see ``state.is_main_thread``.
 _main_thread_ident: int | None = None
+# Cached monotonic timestamp written only by main-thread pump entry points.
+# Worker heartbeat reads its age but never updates it.
+_last_main_thread_pump_monotonic: float | None = None
 
 # Records the face DAT mirror deferred because they arrived off the main
 # thread (IPC worker teardown notes, agent scripts' own threads). Drained by
@@ -32,6 +35,7 @@ _deferred_local: list[dict[str, Any]] = []
 
 from . import (
     api_help as _api_help,
+    capabilities as _capabilities,
     capture as _capture,
     constants as _constants,
     editor_context as _editor_context,
@@ -77,6 +81,7 @@ def _reexport(mod: object) -> None:
 
 for _mod in (
     _constants,
+    _capabilities,
     _transport,
     _paths,
     _suggest,
@@ -151,7 +156,11 @@ HANDLERS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "api_help": handle_api_help,
     "editor_context": handle_editor_context,
     "palette_probe": handle_palette_probe,
-    "ping": lambda _p: {"ok": True, "pong": True},
+    "ping": lambda params: (
+        _capabilities.heartbeat_payload()
+        if params.get("_tdmcp_heartbeat") is True
+        else {"ok": True, "pong": True}
+    ),
 }
 
 def dispatch(msg: dict[str, Any]) -> dict[str, Any]:
@@ -294,7 +303,8 @@ def bootstrap(bridge_dir: str | None = None) -> dict[str, Any]:
     )
     pkg_dir = pkg._resolve_bridge_package_dir(bridge_dir, resp)
     pkg._load_bridge_package(pkg_dir)
-    pkg.serve(stream)
+    pkg = sys.modules[__name__]
+    pkg.serve(stream, initial_event=pkg.ready_event())
     return resp
 
 
@@ -428,13 +438,19 @@ def bootstrap_threaded(bridge_dir: str | None = None) -> dict[str, Any]:
     pkg._load_bridge_package(pkg_dir)
     pkg.mark_main_thread()  # second reload above wiped the ident again
     # Bind serve_queued from the (possibly reloaded) module object.
-    serve_fn = sys.modules[__name__].serve_queued
+    pkg = sys.modules[__name__]
+    serve_fn = pkg.serve_queued
+    ready = pkg.ready_event()
     idle_dead_s = pkg.idle_dead_from_handshake(resp)
     max_call_wait_s = pkg.max_call_wait_from_handshake(resp)
     thread = threading.Thread(
         target=serve_fn,
         args=(stream,),
-        kwargs={"idle_dead_s": idle_dead_s, "max_call_wait_s": max_call_wait_s},
+        kwargs={
+            "idle_dead_s": idle_dead_s,
+            "max_call_wait_s": max_call_wait_s,
+            "initial_event": ready,
+        },
         daemon=True,
     )
     # Protect native Textport streams before the worker can print, including

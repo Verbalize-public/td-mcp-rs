@@ -5,6 +5,10 @@ use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use crate::bridge_identity::{
+    validate_ready, BridgeCapabilityError, BridgeHeartbeatObservation, BridgeIdentityState,
+    BridgeReadyEvent,
+};
 use crate::fingerprint::ProcessFingerprint;
 use crate::resurrection::ResurrectionState;
 use crate::task_queue::{QueueError, TaskInfo, TaskMode, TaskQueue, TaskResult};
@@ -68,6 +72,8 @@ pub struct PidEntry {
     pub resurrection: ResurrectionState,
     /// Protocol version from last handshake.
     pub protocol_version: Option<String>,
+    /// Loaded identity/capability observations for the current connection.
+    pub bridge_identity: BridgeIdentityState,
     /// Spawn provenance when this pid was launched via `spawn_td`.
     pub spawn: Option<SpawnRecord>,
 }
@@ -76,6 +82,7 @@ pub struct PidEntry {
 #[derive(Debug, Default)]
 pub struct PidRegistry {
     entries: HashMap<u32, PidEntry>,
+    next_connection_generation: u64,
 }
 
 impl PidRegistry {
@@ -107,7 +114,14 @@ impl PidRegistry {
     /// Handshake from a connecting TD. Handles resurrection vs pid-reuse.
     ///
     /// Any successful handshake also evicts other disconnected fleet ghosts.
-    pub fn handshake(&mut self, pid: u32, process: ProcessAttrs, protocol_version: Option<String>) {
+    pub fn handshake(
+        &mut self,
+        pid: u32,
+        process: ProcessAttrs,
+        protocol_version: Option<String>,
+    ) -> u64 {
+        self.next_connection_generation = self.next_connection_generation.saturating_add(1).max(1);
+        let connection_generation = self.next_connection_generation;
         match self.entries.get_mut(&pid) {
             Some(entry) => {
                 if entry.bridge == BridgeStatus::Starting {
@@ -151,13 +165,148 @@ impl PidRegistry {
                         queue: TaskQueue::new(),
                         resurrection: ResurrectionState::default(),
                         protocol_version,
+                        bridge_identity: BridgeIdentityState::default(),
                         spawn: None,
                     },
                 );
                 tracing::info!(pid, "pid handshake — new registration");
             }
         }
+        if let Some(entry) = self.entries.get_mut(&pid) {
+            entry
+                .bridge_identity
+                .begin_connection(connection_generation, Utc::now());
+        }
         self.evict_all_disconnected(Some(pid));
+        connection_generation
+    }
+
+    /// Record a valid ready event for the exact connected generation.
+    pub fn observe_bridge_ready(
+        &mut self,
+        pid: u32,
+        connection_generation: u64,
+        ready: BridgeReadyEvent,
+        observed_at: DateTime<Utc>,
+    ) -> Result<(), BridgeCapabilityError> {
+        validate_ready(&ready)?;
+        let entry = self.connected_generation_mut(pid, connection_generation)?;
+        if entry.protocol_version.as_deref() != Some(ready.protocol.version.as_str()) {
+            return Err(BridgeCapabilityError::InvalidReady {
+                reason: format!(
+                    "ready protocol {} does not match handshake {:?}",
+                    ready.protocol.version, entry.protocol_version
+                ),
+            });
+        }
+        entry.bridge_identity.ipc_observed_at = Some(observed_at);
+        entry.bridge_identity.main_thread_pump =
+            ready.main_thread_pump_age_ms.map(|age| (observed_at, age));
+        entry.bridge_identity.ready = Some(ready);
+        Ok(())
+    }
+
+    /// Record framed IPC traffic for the exact connected generation.
+    pub fn observe_bridge_ipc(
+        &mut self,
+        pid: u32,
+        connection_generation: u64,
+        observed_at: DateTime<Utc>,
+    ) -> Result<(), BridgeCapabilityError> {
+        let entry = self.connected_generation_mut(pid, connection_generation)?;
+        entry.bridge_identity.ipc_observed_at = Some(observed_at);
+        Ok(())
+    }
+
+    /// Record heartbeat metadata without conflating worker IPC with the cached
+    /// main-thread pump observation.
+    pub fn observe_bridge_heartbeat(
+        &mut self,
+        pid: u32,
+        connection_generation: u64,
+        heartbeat: BridgeHeartbeatObservation,
+        observed_at: DateTime<Utc>,
+    ) -> Result<(), BridgeCapabilityError> {
+        let entry = self.connected_generation_mut(pid, connection_generation)?;
+        let Some(ready) = entry.bridge_identity.ready.as_ref() else {
+            return Err(BridgeCapabilityError::UnknownCapabilities { pid });
+        };
+        if ready.load_generation != heartbeat.load_generation {
+            return Err(BridgeCapabilityError::LoadGenerationMismatch { pid });
+        }
+        entry.bridge_identity.ipc_observed_at = Some(observed_at);
+        if let Some(age) = heartbeat.main_thread_pump_age_ms {
+            entry.bridge_identity.main_thread_pump = Some((observed_at, age));
+        }
+        Ok(())
+    }
+
+    /// Admission helper for future effectful dispatch. Ordinary legacy calls
+    /// intentionally do not invoke this predicate.
+    pub fn require_bridge_features<'a, I>(
+        &self,
+        pid: u32,
+        connection_generation: u64,
+        required: I,
+    ) -> Result<(), BridgeCapabilityError>
+    where
+        I: IntoIterator<Item = &'a str>,
+    {
+        let Some(entry) = self.entries.get(&pid) else {
+            return Err(BridgeCapabilityError::UnknownPid { pid });
+        };
+        if entry.bridge != BridgeStatus::Connected {
+            return Err(BridgeCapabilityError::NotConnected { pid });
+        }
+        if entry.bridge_identity.connection_generation != connection_generation {
+            return Err(BridgeCapabilityError::StaleGeneration {
+                pid,
+                expected: entry.bridge_identity.connection_generation,
+                observed: connection_generation,
+            });
+        }
+        let Some(ready) = entry.bridge_identity.ready.as_ref() else {
+            return Err(BridgeCapabilityError::UnknownCapabilities { pid });
+        };
+        let unsupported: Vec<String> = required
+            .into_iter()
+            .filter(|feature| {
+                !ready
+                    .supported_features
+                    .iter()
+                    .any(|supported| supported == feature)
+            })
+            .map(str::to_owned)
+            .collect();
+        if unsupported.is_empty() {
+            Ok(())
+        } else {
+            Err(BridgeCapabilityError::UnsupportedFeatures {
+                pid,
+                features: unsupported,
+            })
+        }
+    }
+
+    fn connected_generation_mut(
+        &mut self,
+        pid: u32,
+        connection_generation: u64,
+    ) -> Result<&mut PidEntry, BridgeCapabilityError> {
+        let Some(entry) = self.entries.get_mut(&pid) else {
+            return Err(BridgeCapabilityError::UnknownPid { pid });
+        };
+        if entry.bridge != BridgeStatus::Connected {
+            return Err(BridgeCapabilityError::NotConnected { pid });
+        }
+        if entry.bridge_identity.connection_generation != connection_generation {
+            return Err(BridgeCapabilityError::StaleGeneration {
+                pid,
+                expected: entry.bridge_identity.connection_generation,
+                observed: connection_generation,
+            });
+        }
+        Ok(entry)
     }
 
     /// Register a freshly spawned process pre-handshake.
@@ -181,6 +330,7 @@ impl PidRegistry {
                         queue: TaskQueue::new(),
                         resurrection: ResurrectionState::default(),
                         protocol_version: None,
+                        bridge_identity: BridgeIdentityState::default(),
                         spawn: Some(record),
                     },
                 );
@@ -326,6 +476,49 @@ pub enum EnqueueError {
 #[allow(clippy::unwrap_used, clippy::expect_used, reason = "unit tests")]
 mod tests {
     use super::*;
+
+    fn ready(load: &str, digest: &str) -> BridgeReadyEvent {
+        BridgeReadyEvent {
+            load_generation: load.into(),
+            protocol: crate::BridgeProtocolIdentity {
+                name: "tdmcp-bridge-ipc".into(),
+                version: "1".into(),
+            },
+            runtime: crate::BridgeRuntimeIdentity {
+                implementation: "CPython".into(),
+                python_version: "3.11".into(),
+                platform: "test".into(),
+            },
+            supported_features: vec!["inspect".into(), "ping".into()],
+            loaded_code: crate::LoadedCodeIdentity {
+                kind: "pythonCodeObjects".into(),
+                algorithm: "sha256-python-marshal-v1".into(),
+                digest: digest.into(),
+                coverage: vec!["inspect".into()],
+                missing: Vec::new(),
+                limitations: vec!["bounded".into()],
+            },
+            source_snapshot: crate::BridgeSourceSnapshot {
+                kind: "sourceSnapshot".into(),
+                provenance: "onDiskAtReadyAfterFinalReload".into(),
+                algorithm: "sha256-framed-files-v1".into(),
+                digest: format!("source-{digest}"),
+                files: vec!["inspect.py".into()],
+                unavailable: Vec::new(),
+                limitations: vec!["point in time".into()],
+            },
+            bundle_snapshot: crate::BridgeBundleSnapshot {
+                kind: "bridgePackageSnapshot".into(),
+                provenance: "daemonSelectedPackageOnDiskAtReadyAfterFinalReload".into(),
+                algorithm: "sha256-framed-files-v1".into(),
+                digest: format!("bundle-{digest}"),
+                files: vec!["manifest.json".into(), "tdmcp_bridge/inspect.py".into()],
+                unavailable: Vec::new(),
+                limitations: vec!["point in time".into()],
+            },
+            main_thread_pump_age_ms: Some(25),
+        }
+    }
 
     fn attrs(title: &str) -> ProcessAttrs {
         ProcessAttrs {
@@ -525,6 +718,130 @@ mod tests {
         assert!(
             r.get(11).unwrap().spawn.is_none(),
             "reuse clears provenance"
+        );
+    }
+
+    #[test]
+    fn old_bridge_without_ready_stays_capability_unknown() {
+        let mut r = PidRegistry::new();
+        let generation = r.handshake(12, attrs("legacy"), Some("1".into()));
+        let entry = r.get(12).unwrap();
+        assert_eq!(entry.bridge_identity.connection_generation, generation);
+        assert!(entry.bridge_identity.ready.is_none());
+        assert!(matches!(
+            r.require_bridge_features(12, generation, ["inspect"]),
+            Err(BridgeCapabilityError::UnknownCapabilities { pid: 12 })
+        ));
+    }
+
+    #[test]
+    fn ready_is_generation_bound_and_cleared_on_reconnect() {
+        let mut r = PidRegistry::new();
+        let first = r.handshake(13, attrs("proj"), Some("1".into()));
+        r.observe_bridge_ready(13, first, ready("load-a", "aaa"), Utc::now())
+            .unwrap();
+        r.require_bridge_features(13, first, ["inspect"]).unwrap();
+        assert!(matches!(
+            r.require_bridge_features(13, first, ["evidence_read"]),
+            Err(BridgeCapabilityError::UnsupportedFeatures { features, .. })
+                if features == vec!["evidence_read"]
+        ));
+
+        let second = r.handshake(13, attrs("proj"), Some("1".into()));
+        assert_ne!(first, second);
+        assert!(r.get(13).unwrap().bridge_identity.ready.is_none());
+        assert!(matches!(
+            r.observe_bridge_ready(13, first, ready("stale", "bbb"), Utc::now()),
+            Err(BridgeCapabilityError::StaleGeneration {
+                expected,
+                observed,
+                ..
+            }) if expected == second && observed == first
+        ));
+        assert!(matches!(
+            r.require_bridge_features(13, second, ["inspect"]),
+            Err(BridgeCapabilityError::UnknownCapabilities { .. })
+        ));
+    }
+
+    #[test]
+    fn same_protocol_version_can_have_different_loaded_identity() {
+        let mut r = PidRegistry::new();
+        let first = r.handshake(14, attrs("proj"), Some("1".into()));
+        r.observe_bridge_ready(14, first, ready("load-a", "aaa"), Utc::now())
+            .unwrap();
+        let first_snapshot = r.get(14).unwrap().bridge_identity.snapshot(Utc::now());
+
+        let second = r.handshake(14, attrs("proj"), Some("1".into()));
+        r.observe_bridge_ready(14, second, ready("load-b", "bbb"), Utc::now())
+            .unwrap();
+        let second_snapshot = r.get(14).unwrap().bridge_identity.snapshot(Utc::now());
+        assert_eq!(
+            first_snapshot.protocol.as_ref().unwrap().version,
+            second_snapshot.protocol.as_ref().unwrap().version
+        );
+        assert_ne!(
+            first_snapshot.load_generation,
+            second_snapshot.load_generation
+        );
+        assert_ne!(
+            first_snapshot.loaded_code.unwrap().digest,
+            second_snapshot.loaded_code.unwrap().digest
+        );
+    }
+
+    #[test]
+    fn heartbeat_cannot_invent_or_cross_load_pump_observation() {
+        let mut r = PidRegistry::new();
+        let generation = r.handshake(15, attrs("proj"), Some("1".into()));
+        let mut initial = ready("load-a", "aaa");
+        initial.main_thread_pump_age_ms = None;
+        r.observe_bridge_ready(15, generation, initial, Utc::now())
+            .unwrap();
+        assert!(r
+            .get(15)
+            .unwrap()
+            .bridge_identity
+            .main_thread_pump
+            .is_none());
+
+        assert!(matches!(
+            r.observe_bridge_heartbeat(
+                15,
+                generation,
+                BridgeHeartbeatObservation {
+                    load_generation: "other-load".into(),
+                    main_thread_pump_age_ms: Some(1),
+                },
+                Utc::now(),
+            ),
+            Err(BridgeCapabilityError::LoadGenerationMismatch { pid: 15 })
+        ));
+        assert!(r
+            .get(15)
+            .unwrap()
+            .bridge_identity
+            .main_thread_pump
+            .is_none());
+
+        r.observe_bridge_heartbeat(
+            15,
+            generation,
+            BridgeHeartbeatObservation {
+                load_generation: "load-a".into(),
+                main_thread_pump_age_ms: Some(5_000),
+            },
+            Utc::now(),
+        )
+        .unwrap();
+        assert_eq!(
+            r.get(15)
+                .unwrap()
+                .bridge_identity
+                .main_thread_pump
+                .unwrap()
+                .1,
+            5_000
         );
     }
 }

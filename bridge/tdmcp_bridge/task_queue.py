@@ -38,7 +38,7 @@ def _dispatch(msg: dict[str, Any]) -> dict[str, Any]:
 
     return dispatch(msg)
 
-def serve(stream) -> None:
+def serve(stream, *, initial_event: dict[str, Any] | None = None) -> None:
     """Framed dispatch loop over a connected IPC stream — direct dispatch.
 
     Runs `dispatch()` (and therefore any `td.*` call inside a handler)
@@ -47,6 +47,8 @@ def serve(stream) -> None:
     is guaranteed to never touch `op`/`td.project` (never true for our
     handlers). Live TD sessions must use [`serve_queued`] instead.
     """
+    if initial_event is not None:
+        _write_frame(stream, initial_event)
     while True:
         try:
             msg = _read_frame(stream)
@@ -324,6 +326,7 @@ def process_pending(max_items: int = 64) -> int:
     """
     global _running
     _state.require_main_thread()
+    _state.mark_main_thread_pump()
     n = 0
     while n < max_items:
         with _pending_lock:
@@ -503,6 +506,7 @@ def serve_queued(
     *,
     idle_dead_s: float = IDLE_DEAD_S,
     max_call_wait_s: float = DEFAULT_MAX_CALL_WAIT_S,
+    initial_event: dict[str, Any] | None = None,
 ) -> None:
     """Framed dispatch loop, worker-thread-safe for TD API methods.
 
@@ -533,6 +537,18 @@ def serve_queued(
     global _event_queue
     my_event_queue: "queue.Queue[dict[str, Any]]" = queue.Queue(maxsize=1024)
     _event_queue = my_event_queue
+
+    if initial_event is not None:
+        try:
+            _write_frame(stream, initial_event)
+        except Exception as exc:  # noqa: BLE001 — readiness is optional, stream failure is terminal
+            sys.stderr.write(
+                f"tdmcp_bridge: serve_queued stopping (ready event write failed: {exc})\n"
+            )
+            if _event_queue is my_event_queue:
+                _event_queue = None
+            _close_serve_stream(stream)
+            return
 
     last_recv = time.monotonic()
     try:

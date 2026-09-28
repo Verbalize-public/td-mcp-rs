@@ -25,7 +25,10 @@ use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use serde_json::Value;
-use tdmcp_core::{BridgeMethod, PidRegistry, ProcessAttrs, TaskResult};
+use tdmcp_core::{
+    BridgeHeartbeatObservation, BridgeMethod, BridgeReadyEvent, PidRegistry, ProcessAttrs,
+    TaskResult,
+};
 use tdmcp_ipc::{HandshakeOffer, IpcListener, IpcStream, Message};
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio::time::{timeout, MissedTickBehavior};
@@ -283,8 +286,29 @@ impl BridgeSessions {
     /// job channel is dropped so the prior actor exits even when blocked in a
     /// tool wait (does not rely solely on the Python peer closing the old pipe).
     pub async fn spawn(&self, pid: u32, stream: IpcStream) {
+        let connection_generation = self
+            .registry
+            .lock()
+            .await
+            .get(pid)
+            .map(|entry| entry.bridge_identity.connection_generation)
+            .unwrap_or_default();
+        self.spawn_for_connection(pid, connection_generation, stream)
+            .await;
+    }
+
+    /// Spawn an actor bound to an exact daemon connection generation.
+    ///
+    /// The accept loop uses this form so a concurrent same-pid reconnect cannot
+    /// attach a stale actor to the newer registry generation.
+    pub async fn spawn_for_connection(
+        &self,
+        pid: u32,
+        connection_generation: u64,
+        stream: IpcStream,
+    ) {
         let (job_tx, job_rx) = mpsc::channel::<TaskJob>(JOB_CHANNEL_CAPACITY);
-        let generation = SESSION_GENERATION.fetch_add(1, Ordering::Relaxed);
+        let actor_generation = SESSION_GENERATION.fetch_add(1, Ordering::Relaxed);
         let cancel = CancellationToken::new();
         let previous = {
             let mut s = self.sessions.lock().await;
@@ -292,7 +316,7 @@ impl BridgeSessions {
                 pid,
                 BridgeHandle {
                     job_tx,
-                    generation,
+                    generation: actor_generation,
                     cancel: cancel.clone(),
                 },
             )
@@ -315,7 +339,8 @@ impl BridgeSessions {
         tokio::spawn(async move {
             run_session(
                 pid,
-                generation,
+                actor_generation,
+                connection_generation,
                 stream,
                 job_rx,
                 registry,
@@ -371,7 +396,8 @@ impl BridgeRpc for BridgeSessions {
 #[allow(clippy::too_many_arguments, reason = "session actor wiring")]
 async fn run_session(
     pid: u32,
-    generation: u64,
+    actor_generation: u64,
+    connection_generation: u64,
     mut stream: IpcStream,
     mut job_rx: mpsc::Receiver<TaskJob>,
     registry: Arc<Mutex<PidRegistry>>,
@@ -383,7 +409,10 @@ async fn run_session(
     cancel: CancellationToken,
     log_sink: Option<LogSink>,
 ) {
-    info!(pid, generation, "bridge session started");
+    info!(
+        pid,
+        actor_generation, connection_generation, "bridge session started"
+    );
     let mut last_activity = Instant::now();
 
     let mut ticker = tokio::time::interval(if heartbeat.enabled {
@@ -408,7 +437,7 @@ async fn run_session(
         tokio::select! {
             biased;
             () = cancel.cancelled() => {
-                info!(pid, generation, "bridge session cancelled (superseded)");
+                info!(pid, actor_generation, connection_generation, "bridge session cancelled (superseded)");
                 break;
             }
             job = job_rx.recv() => {
@@ -416,7 +445,7 @@ async fn run_session(
                     break;
                 };
                 let timeouts = settings.as_ref().map(|s| BridgeTimeouts::from(&s.current().bridge)).unwrap_or(timeouts);
-                match run_tool_job(pid, &mut stream, &registry, timeouts, &cancel, job, log_sink.as_ref()).await {
+                match run_tool_job(pid, connection_generation, &mut stream, &registry, timeouts, &cancel, job, log_sink.as_ref()).await {
                     // Always refresh on Continue — including call Timeout. A timed-out
                     // wait otherwise leaves last_activity stale across a budget longer
                     // than idle_dead, and the next select iteration immediately
@@ -437,7 +466,7 @@ async fn run_session(
                 if last_activity.elapsed() < heartbeat.interval {
                     continue;
                 }
-                match run_heartbeat_ping(pid, &mut stream, heartbeat.pong_timeout, &cancel, log_sink.as_ref()).await {
+                match run_heartbeat_ping(pid, connection_generation, &mut stream, &registry, heartbeat.pong_timeout, &cancel, log_sink.as_ref()).await {
                     Ok(()) => {
                         last_activity = Instant::now();
                     }
@@ -447,7 +476,7 @@ async fn run_session(
         }
     }
 
-    teardown(pid, generation, registry, sessions, disconnected_ttl).await;
+    teardown(pid, actor_generation, registry, sessions, disconnected_ttl).await;
 }
 
 enum JobLoop {
@@ -458,6 +487,7 @@ enum JobLoop {
 #[allow(clippy::too_many_arguments, reason = "session actor wiring")]
 async fn run_tool_job(
     pid: u32,
+    connection_generation: u64,
     stream: &mut IpcStream,
     registry: &Arc<Mutex<PidRegistry>>,
     timeouts: BridgeTimeouts,
@@ -487,7 +517,18 @@ async fn run_tool_job(
     };
 
     let outcome = match stream.send(&req).await {
-        Ok(()) => match await_matching_response(pid, stream, &id, budget, cancel, log_sink).await {
+        Ok(()) => match await_matching_response(
+            pid,
+            connection_generation,
+            stream,
+            registry,
+            &id,
+            budget,
+            cancel,
+            log_sink,
+        )
+        .await
+        {
             RecvOutcome::Matched(result, error) => {
                 if let Some(err) = error {
                     let msg = err
@@ -542,9 +583,15 @@ enum RecvOutcome {
 /// Single-flight wire: a mismatched Response is always a leftover from an
 /// earlier timed-out call — discard and keep reading until match, IO error,
 /// or the budget elapses.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "session response observation wiring"
+)]
 async fn await_matching_response(
     pid: u32,
+    connection_generation: u64,
     stream: &mut IpcStream,
+    registry: &Arc<Mutex<PidRegistry>>,
     want_id: &str,
     budget: Duration,
     cancel: &CancellationToken,
@@ -563,39 +610,63 @@ async fn await_matching_response(
             () = cancel.cancelled() => return RecvOutcome::Disconnected,
             recv = timeout(remaining, stream.recv_message()) => {
                 match recv {
-                    Ok(Ok(Message::Response {
-                        id: rid,
-                        result,
-                        error,
-                    })) if rid == want_id => {
-                        return RecvOutcome::Matched(result, error);
-                    }
-                    Ok(Ok(Message::Response { id: rid, .. })) => {
-                        warn!(
+                    Ok(Ok(message)) => {
+                        let observed_at = chrono::Utc::now();
+                        let _ = registry.lock().await.observe_bridge_ipc(
                             pid,
-                            want = %want_id,
-                            got = %rid,
-                            "discarding stale bridge response (prior timeout)"
+                            connection_generation,
+                            observed_at,
                         );
-                        continue;
-                    }
-                    // Log uplink (M2): never a disconnect signal, on any wait.
-                    Ok(Ok(Message::Event { name, payload })) if name == "log" => {
-                        if let Some(sink) = log_sink {
-                            ingest_bridge_logs(pid, &payload, sink);
+                        match message {
+                            Message::Response { id: rid, result, error } if rid == want_id => {
+                                return RecvOutcome::Matched(result, error);
+                            }
+                            Message::Response { id: rid, .. } => {
+                                warn!(
+                                    pid,
+                                    want = %want_id,
+                                    got = %rid,
+                                    "discarding stale bridge response (prior timeout)"
+                                );
+                                continue;
+                            }
+                            // Log uplink (M2): never a disconnect signal, on any wait.
+                            Message::Event { name, payload } if name == "log" => {
+                                if let Some(sink) = log_sink {
+                                    ingest_bridge_logs(pid, &payload, sink);
+                                }
+                                continue;
+                            }
+                            Message::Event { name, payload } if name == "bridge_ready" => {
+                                match serde_json::from_value::<BridgeReadyEvent>(payload) {
+                                    Ok(ready) => {
+                                        if let Err(error) = registry.lock().await.observe_bridge_ready(
+                                            pid,
+                                            connection_generation,
+                                            ready,
+                                            observed_at,
+                                        ) {
+                                            warn!(pid, %error, "rejecting bridge ready event");
+                                        }
+                                    }
+                                    Err(error) => {
+                                        warn!(pid, %error, "invalid bridge ready event payload");
+                                    }
+                                }
+                                continue;
+                            }
+                            Message::Event { name, .. } => {
+                                debug!(pid, event = %name, "unrecognized bridge event");
+                                continue;
+                            }
+                            Message::Request { .. } => {
+                                warn!(
+                                    pid,
+                                    "unexpected request while awaiting bridge reply"
+                                );
+                                return RecvOutcome::Disconnected;
+                            }
                         }
-                        continue;
-                    }
-                    Ok(Ok(Message::Event { name, .. })) => {
-                        debug!(pid, event = %name, "unrecognized bridge event");
-                        continue;
-                    }
-                    Ok(Ok(_other)) => {
-                        warn!(
-                            pid,
-                            "unexpected non-response frame while awaiting tool reply"
-                        );
-                        return RecvOutcome::Disconnected;
                     }
                     Ok(Err(_e)) => return RecvOutcome::Disconnected,
                     Err(_) => return RecvOutcome::TimedOut,
@@ -608,7 +679,9 @@ async fn await_matching_response(
 /// Internal liveness probe — not registered on the task queue / fleet.
 async fn run_heartbeat_ping(
     pid: u32,
+    connection_generation: u64,
     stream: &mut IpcStream,
+    registry: &Arc<Mutex<PidRegistry>>,
     pong_timeout: Duration,
     cancel: &CancellationToken,
     log_sink: Option<&LogSink>,
@@ -617,19 +690,47 @@ async fn run_heartbeat_ping(
     let req = Message::Request {
         id: id.clone(),
         method: BridgeMethod::Ping.wire_str().to_owned(),
-        params: Value::Object(serde_json::Map::new()),
+        params: serde_json::json!({"_tdmcp_heartbeat": true}),
     };
     if stream.send(&req).await.is_err() {
         warn!(pid, "bridge heartbeat send failed");
         return Err(());
     }
-    match await_matching_response(pid, stream, &id, pong_timeout, cancel, log_sink).await {
+    match await_matching_response(
+        pid,
+        connection_generation,
+        stream,
+        registry,
+        &id,
+        pong_timeout,
+        cancel,
+        log_sink,
+    )
+    .await
+    {
         RecvOutcome::Matched(result, None) => {
             let ok = result
                 .as_ref()
                 .and_then(|v| v.get("ok"))
                 .and_then(Value::as_bool)
                 .unwrap_or(true);
+            if let Some(metadata) = result.as_ref().and_then(|value| value.get("bridge")) {
+                match serde_json::from_value::<BridgeHeartbeatObservation>(metadata.clone()) {
+                    Ok(observation) => {
+                        if let Err(error) = registry.lock().await.observe_bridge_heartbeat(
+                            pid,
+                            connection_generation,
+                            observation,
+                            chrono::Utc::now(),
+                        ) {
+                            debug!(pid, %error, "ignoring ineligible bridge heartbeat metadata");
+                        }
+                    }
+                    Err(error) => {
+                        warn!(pid, %error, "invalid bridge heartbeat metadata");
+                    }
+                }
+            }
             if ok {
                 Ok(())
             } else {
@@ -766,7 +867,7 @@ pub async fn run_ipc_accept(
                 tokio::spawn(async move {
                     let pid = stream.pid;
                     let handshake = stream.handshake.clone();
-                    {
+                    let connection_generation = {
                         let mut reg = registry.lock().await;
                         reg.handshake(
                             pid,
@@ -781,9 +882,11 @@ pub async fn run_ipc_accept(
                                 ..Default::default()
                             },
                             Some(handshake.protocol_version.clone()),
-                        );
-                    }
-                    sessions.spawn(pid, stream).await;
+                        )
+                    };
+                    sessions
+                        .spawn_for_connection(pid, connection_generation, stream)
+                        .await;
                 });
             }
             Err(e) => {
