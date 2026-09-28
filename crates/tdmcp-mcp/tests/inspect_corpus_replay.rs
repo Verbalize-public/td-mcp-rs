@@ -101,8 +101,11 @@ fn every_recorded_inspect_payload_round_trips_through_the_codec() -> Result<(), 
     let codec = OutputCodec::default();
     let mut compact_count = 0_u64;
     let mut full_count = 0_u64;
-    let mut full_bytes_total = 0_u64;
-    let mut compact_bytes_total = 0_u64;
+    // Corpus-wide serialized bytes. `baseline` is what a client received before
+    // any compact view existed; `adaptive` is what this encoder returns. These
+    // are bytes, not tokens, and support no token claim.
+    let mut baseline_bytes = 0_u64;
+    let mut adaptive_bytes = 0_u64;
     let mut reasons: std::collections::BTreeMap<&'static str, u64> = Default::default();
 
     for payload in &payloads {
@@ -120,8 +123,8 @@ fn every_recorded_inspect_payload_round_trips_through_the_codec() -> Result<(), 
                 transforms,
             } => {
                 compact_count += 1;
-                full_bytes_total += u64::try_from(full_bytes).unwrap_or(0);
-                compact_bytes_total += u64::try_from(compact_bytes).unwrap_or(0);
+                baseline_bytes += u64::try_from(full_bytes).unwrap_or(0);
+                adaptive_bytes += u64::try_from(compact_bytes).unwrap_or(0);
                 assert!(
                     compact_bytes < full_bytes,
                     "{label}: compact was selected but is not smaller ({compact_bytes} >= {full_bytes})"
@@ -135,8 +138,15 @@ fn every_recorded_inspect_payload_round_trips_through_the_codec() -> Result<(), 
                     "{label}: plan says compact but the output is not a compact document"
                 );
             }
-            PresentationPlan::Full { reason, .. } => {
+            PresentationPlan::Full {
+                full_bytes, reason, ..
+            } => {
                 full_count += 1;
+                // A declined compact request costs exactly the baseline bytes: the
+                // full value is returned intact rather than trimmed.
+                let full = u64::try_from(full_bytes.unwrap_or(0)).unwrap_or(0);
+                baseline_bytes += full;
+                adaptive_bytes += full;
                 let name = match reason {
                     tdmcp_mcp::output_views::FullReason::NoTransforms => "no_transforms",
                     tdmcp_mcp::output_views::FullReason::NotSmaller => "not_smaller",
@@ -167,9 +177,12 @@ fn every_recorded_inspect_payload_round_trips_through_the_codec() -> Result<(), 
     for (reason, count) in &reasons {
         eprintln!("  full because {reason}: {count}");
     }
-    if compact_count > 0 {
+    if baseline_bytes > 0 {
+        let saved = baseline_bytes.saturating_sub(adaptive_bytes);
         eprintln!(
-            "  compact bytes {compact_bytes_total} vs full bytes {full_bytes_total} over compact-selected payloads only"
+            "  serialized bytes over the whole corpus: baseline {baseline_bytes} -> adaptive \
+             {adaptive_bytes} ({saved} fewer, {:.2}%)",
+            100.0 * (saved as f64) / (baseline_bytes as f64)
         );
     }
     Ok(())
