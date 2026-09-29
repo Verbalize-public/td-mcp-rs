@@ -154,15 +154,48 @@ def _before_state(target: str) -> dict[str, Any]:
     return _stat_of(target)
 
 
-def _unsaved_report() -> dict[str, Any]:
+def _project_unsaved() -> dict[str, Any]:
+    """`project.modified`, for a receipt about the PROJECT.
+
+    MEASURED: a list of operator paths, not a flag, so a count is not a summary
+    of it. Bounded, and `truncated` says so. A save never claims to have made
+    these clean -- TouchDesigner does not report that, and a receipt that
+    implied otherwise would be asserting something nobody checked.
+    """
     paths, truncated = _modified_paths()
     return {
+        "available": True,
+        "scope": "project",
         "modifiedPaths": paths,
         "modifiedCount": len(paths),
         "truncated": truncated,
         "explanation": (
             "TouchDesigner reports unsaved state as a list of operator paths, "
-            "not a flag; a save below does not claim to have made them clean"
+            "not a flag; this save does not claim to have made them clean"
+        ),
+    }
+
+
+def _component_unsaved(node: Any, path: str) -> dict[str, Any]:
+    """Unsaved state for a COMPONENT receipt.
+
+    Deliberately reports `available: false`. TouchDesigner's Python surface
+    exposes no per-operator dirty flag -- measured: `isModified` reads None on
+    every child of root, and `td.root.dirty` is a single whole-tree bool with
+    nothing per component.
+
+    An earlier version put the PROJECT's modified paths here, which was wrong
+    twice over: a component save does not save the project, so those paths
+    describe something this call never touched; and an empty list would have
+    read as "nothing is unsaved", which is the opposite of what is known.
+    """
+    return {
+        "available": False,
+        "scope": "component",
+        "explanation": (
+            "TouchDesigner exposes no per-component dirty flag, so this receipt "
+            "says nothing about whether this component has unsaved changes; "
+            "the project's own modified paths are reported by action=project"
         ),
     }
 
@@ -214,7 +247,7 @@ def _snapshot_component(node: Any, path: str, params: dict[str, Any]) -> dict[st
             "target": target,
             "before": before,
             "after": after,
-            "unsaved": _unsaved_report(),
+            "unsaved": _component_unsaved(node, path),
             "explanation": (
                 "the save raised; whether anything was written is reported as "
                 "observed, not assumed"
@@ -232,7 +265,7 @@ def _snapshot_component(node: Any, path: str, params: dict[str, Any]) -> dict[st
             "path": path,
             "target": target,
             "before": before,
-            "unsaved": _unsaved_report(),
+            "unsaved": _component_unsaved(node, path),
         }
 
     after = _stat_of(saved_to)
@@ -248,7 +281,7 @@ def _snapshot_component(node: Any, path: str, params: dict[str, Any]) -> dict[st
             "target": target,
             "written": saved_to,
             "before": before,
-            "unsaved": _unsaved_report(),
+            "unsaved": _component_unsaved(node, path),
         }
 
     return {
@@ -262,7 +295,7 @@ def _snapshot_component(node: Any, path: str, params: dict[str, Any]) -> dict[st
         "before": before,
         "overwrote": bool(before["exists"] and saved_to == target),
         "destination": _requested_vs_written(target, saved_to),
-        "unsaved": _unsaved_report(),
+        "unsaved": _component_unsaved(node, path),
         "explanation": (
             "the artifact is identified by the path TouchDesigner returned and "
             "the digest of what is on disk, not by the path that was requested"
@@ -317,7 +350,7 @@ def _snapshot_project(params: dict[str, Any]) -> dict[str, Any]:
             existing=before,
         )
 
-    unsaved = _unsaved_report()
+    unsaved = _project_unsaved()
     try:
         returned = bool(td.project.save(target))
     except Exception as exc:  # noqa: BLE001
@@ -459,7 +492,7 @@ def handle_project_snapshot(params: dict[str, Any]) -> dict[str, Any]:
             "kind": "status",
             "name": _text(getattr(_project(), "name", None), 256),
             "folder": _text(getattr(_project(), "folder", None)),
-            "unsaved": _unsaved_report(),
+            "unsaved": _project_unsaved(),
             "explanation": "writes nothing; this is the current unsaved state",
         }
 
