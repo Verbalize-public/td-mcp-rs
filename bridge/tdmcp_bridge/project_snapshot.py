@@ -475,6 +475,25 @@ def _snapshot_project(params: dict[str, Any]) -> dict[str, Any]:
       and it is never reported as the other two, because claiming "nothing was
       written" when a file may exist is the worst available answer — and it
       invites a retry that double-writes.
+
+    # A project save over MCP is not a usable operation, and the reason is
+    # specific rather than general.
+    #
+    # MEASURED: `td.project.save(<path>)` produced "MCP stream ended without a
+    # response" while the bridge stayed CONNECTED and the daemon kept serving
+    # `fleet`. So the call did not fail cleanly, and it did not return either —
+    # there is no receipt, because the response never arrived.
+    #
+    # A COMPONENT save is unaffected and works over this transport, verified
+    # live: `COMP.save` returns its path and the receipt follows. The
+    # difference is the project save's own behaviour on this build, not the
+    # bridge's handling of the response.
+    #
+    # The `unknown` branch below is therefore a backstop for a save that
+    # returns but writes nothing, not a description of the common case. The
+    # common case for a project save is that the caller sees a transport-level
+    # failure and must treat the destination as UNKNOWN, exactly as W6 requires
+    # of any operation whose result nobody observed.
     """
     import td  # type: ignore
 
