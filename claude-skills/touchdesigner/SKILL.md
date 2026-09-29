@@ -30,6 +30,9 @@ For live work, establish the actual daemon/PID/project and affected scope using 
 | Maintain/describe a requested Palette slice | [`palette-curation`](./reference/palette-curation.md) |
 | Finish, hand off or distinguish evidence limits | [`verify-handoff`](./reference/verify-handoff.md) |
 
+| Confirm what changed, or write only if nothing moved | [`delta-guarded-writes`](./reference/delta-guarded-writes.md) |
+
+
 Load the relevant contract before its first use, subject to the host's loading requirements. Reuse guidance already current in this task; refresh when essential context or its source changes. **Links are navigation, not a recursive reading checklist.** Choose a specialized reference only when it answers a concrete unresolved question. Future tools/options require actual capability/schema support, not a remembered release-plan name.
 
 ## Invariants during work

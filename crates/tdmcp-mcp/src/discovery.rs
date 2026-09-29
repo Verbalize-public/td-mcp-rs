@@ -190,7 +190,13 @@ pub fn describe(params: DescribeToolsParams) -> Result<Value, serde_json::Error>
         missing,
     });
     let revisions = if params.include_revisions {
-        let provider = ResourceProvider::from_embedded()
+        // Gate on the same live tool list the daemon and proxy use, so the
+        // `resources` digest describes the cards a caller can actually read.
+        // Digesting the ungated pack would advertise a revision whose content
+        // is not served — a fingerprint for a document nobody can fetch.
+        let gate =
+            crate::CapabilityGate::from_tools(tool_descriptors().iter().map(|d| d.name.clone()));
+        let provider = ResourceProvider::from_embedded_with_gate(gate)
             .map_err(<serde_json::Error as serde::de::Error>::custom)?;
         let mut rendered = provider
             .engine()

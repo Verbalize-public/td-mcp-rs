@@ -10,7 +10,7 @@ use rmcp::model::{
     ResourceContents, ServerCapabilities,
 };
 
-use crate::template::TemplateEngine;
+use crate::template::{CapabilityGate, TemplateEngine};
 
 const URI_PREFIX: &str = "tdmcp://docs/";
 
@@ -69,8 +69,17 @@ pub struct ResourceProvider {
 impl ResourceProvider {
     /// Build from the embedded `MANIFEST.yaml` + `templates/` tree.
     pub fn from_embedded() -> Result<Self, String> {
+        Self::from_embedded_with_gate(CapabilityGate::unobserved())
+    }
+
+    /// Build from the embedded tree under an observed [`CapabilityGate`].
+    ///
+    /// A gated-out card is absent from `resources/list` and refused by
+    /// `resources/read`, so a caller is neither offered nor walked to a tool
+    /// name this backend cannot honour.
+    pub fn from_embedded_with_gate(gate: CapabilityGate) -> Result<Self, String> {
         let catalog = crate::template::Catalog::from_manifest_yaml(crate::MANIFEST_YAML)?;
-        let engine = crate::template::TemplateEngine::new(catalog, &crate::TEMPLATES)?;
+        let engine = crate::template::TemplateEngine::with_gate(catalog, &crate::TEMPLATES, gate)?;
         Ok(Self::new(engine))
     }
 
@@ -84,8 +93,7 @@ impl ResourceProvider {
     pub fn list_resources(&self) -> ListResourcesResult {
         let resources: Vec<Resource> = self
             .engine
-            .catalog()
-            .iter()
+            .available_entries()
             .map(|entry| {
                 Resource::new(uri_for(&entry.id), entry.id.clone())
                     .with_description(format!("{} — {}", entry.title, entry.description))
@@ -119,9 +127,18 @@ impl ResourceProvider {
             .with_cache_scope(CacheScope::Private))
     }
 
-    /// Number of catalog entries.
+    /// Number of catalog entries, including any the capability gate withholds.
     pub fn catalog_len(&self) -> usize {
         self.engine.catalog().len()
+    }
+
+    /// Number of entries the gate actually serves.
+    ///
+    /// Distinct from [`Self::catalog_len`] under a gate: the difference is
+    /// exactly how many cards were withheld for naming a tool this backend
+    /// does not register.
+    pub fn available_len(&self) -> usize {
+        self.engine.available_entries().count()
     }
 
     /// Access the underlying engine (for FS-mode rendering, install, etc.).

@@ -178,6 +178,13 @@ fn classified_guidance_requests_use_actual_decoders() {
             "palette_index" => {
                 serde_json::from_value::<tdmcp_mcp::palette::PaletteIndexParams>(value).map(drop)
             }
+            // The D5 overlay card documents compare_nodes; without a real
+            // decoder arm its requests would be schema-checked but never run
+            // through the Serde type that actually serves them.
+            "compare_nodes" => {
+                serde_json::from_value::<tdmcp_mcp::compare_nodes::CompareNodesParams>(value)
+                    .map(drop)
+            }
             other => panic!("add a real decoder for documented tool {other}"),
         }
     }

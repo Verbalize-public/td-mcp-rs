@@ -565,6 +565,84 @@
         "jobId": "returned-job-id",
         "includeSamples": false
       }
+    },
+    {
+      "id": "skills/templates/touchdesigner/reference/delta-guarded-writes.jinja.md:0",
+      "language": "json",
+      "sha256": "a5b5482c98dadd429a25581aed2db8b4fca720c9614a5399ce8f958319889d94",
+      "kind": "request",
+      "context": "Illustrative targets must be rebound to confirmed authorized resources; validation never executes this request.",
+      "expected": "Generated JSON Schema and the actual Serde decoder accept the request shape; the stamped observation returned is what a real comparison must pass back. TD outcome depends on target state.",
+      "tool": "compare_nodes",
+      "arguments": {
+        "pid": 123,
+        "paths": [
+          "/project1/audio_gain"
+        ],
+        "fields": [
+          "par.gain",
+          "comment"
+        ],
+        "capture": true
+      }
+    },
+    {
+      "id": "skills/templates/touchdesigner/reference/delta-guarded-writes.jinja.md:1",
+      "language": "json",
+      "sha256": "a832d5aed71ecf66da169e1c91739634f6f70a63d5db53b95a20d671d49e365f",
+      "kind": "request",
+      "context": "Illustrative targets must be rebound to confirmed authorized resources; validation never executes this request.",
+      "expected": "Generated JSON Schema and the actual Serde decoder accept a stamped baseline; a projection without observedAtMs is refused by the bridge, not accepted as a baseline.",
+      "tool": "compare_nodes",
+      "arguments": {
+        "pid": 123,
+        "paths": [
+          "/project1/audio_gain"
+        ],
+        "fields": [
+          "par.gain",
+          "comment"
+        ],
+        "baseline": {
+          "observedAtMs": 1750000000000,
+          "fields": [
+            "par.gain",
+            "comment"
+          ],
+          "nodes": [
+            {
+              "path": "/project1/audio_gain",
+              "values": []
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "skills/templates/touchdesigner/reference/delta-guarded-writes.jinja.md:2",
+      "language": "json",
+      "sha256": "367e73d51ce62941612b9281e1ec9b7e4cdf81efaf9569e2c4eddfd97c32ab46",
+      "kind": "request",
+      "context": "Illustrative targets must be rebound to confirmed authorized resources; validation never executes this request.",
+      "expected": "Generated JSON Schema and the actual Serde decoder accept the guarded step; a mismatching precondition refuses the step without writing. TD outcome depends on target state.",
+      "tool": "mutate_nodes",
+      "arguments": {
+        "pid": 123,
+        "steps": [
+          {
+            "op": "set",
+            "path": "/project1/audio_gain",
+            "values": {
+              "gain": 0.4
+            },
+            "expect": {
+              "fields": {
+                "par.gain": 0.5
+              }
+            }
+          }
+        ]
+      }
     }
   ],
   "negativeRequests": [

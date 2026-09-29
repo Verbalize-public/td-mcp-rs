@@ -27,6 +27,14 @@ struct ManifestEntry {
     output_path: String,
     title: String,
     description: String,
+    /// Tool ids this card is only useful with (D5 capability gate).
+    ///
+    /// Empty means the card depends on no tool and is always available. A
+    /// non-empty list means the card must not be handed to a caller whose
+    /// backend does not register those tools — teaching a release-plan tool
+    /// name to a build that cannot honour it is the failure this prevents.
+    #[serde(default)]
+    requires: Vec<String>,
 }
 
 /// Flat catalog of all known skill ids.
@@ -49,6 +57,8 @@ pub struct CatalogEntry {
     pub title: String,
     /// One-line description.
     pub description: String,
+    /// Tool ids this card is only useful with (D5 capability gate).
+    pub requires: Vec<String>,
 }
 
 impl Catalog {
@@ -72,6 +82,7 @@ impl Catalog {
                 template_path: me.template_path.clone(),
                 title: me.title.clone(),
                 description: me.description.clone(),
+                requires: me.requires.clone(),
             });
         }
 
@@ -96,6 +107,86 @@ impl Catalog {
     /// Whether the catalog is empty.
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Capability gate (D5)
+// ---------------------------------------------------------------------------
+
+/// The set of tool ids a running backend can actually honour.
+///
+/// This is deliberately driven by what the *backend reports*, not by the
+/// compile-time [`ToolName::ALL`](crate::tools::ToolName) list: the bridge that
+/// actually serves a session can be an older build than this binary, and a
+/// card that names a tool the running backend never registered is a promise
+/// nothing will keep.
+///
+/// An unknown capability set is represented by `None`, which means "not yet
+/// observed" and gates nothing. That is the honest default: withholding every
+/// gated card because a probe failed would be as misleading as the opposite.
+#[derive(Debug, Clone, Default)]
+pub struct CapabilityGate {
+    available: Option<Vec<String>>,
+}
+
+impl CapabilityGate {
+    /// No observed capabilities: every card is available.
+    #[must_use]
+    pub fn unobserved() -> Self {
+        Self { available: None }
+    }
+
+    /// Build from the tool ids the backend actually advertised.
+    #[must_use]
+    pub fn from_tools<I, S>(tools: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        let mut available: Vec<String> = tools.into_iter().map(Into::into).collect();
+        available.sort();
+        Self {
+            available: Some(available),
+        }
+    }
+
+    /// Whether capabilities have actually been observed.
+    #[must_use]
+    pub fn is_observed(&self) -> bool {
+        self.available.is_some()
+    }
+
+    /// Whether one tool id is available.
+    ///
+    /// An unobserved gate answers `true` for everything, so a card is never
+    /// hidden merely because a probe did not run.
+    #[must_use]
+    pub fn has(&self, tool: &str) -> bool {
+        match &self.available {
+            None => true,
+            Some(list) => list.iter().any(|t| t == tool),
+        }
+    }
+
+    /// Whether a card may be handed to a caller.
+    ///
+    /// A card with no `requires` list is always available: it teaches nothing
+    /// about a tool that could be missing.
+    #[must_use]
+    pub fn allows(&self, entry: &CatalogEntry) -> bool {
+        entry.requires.iter().all(|tool| self.has(tool))
+    }
+
+    /// Which of a card's required tools this gate does not have.
+    #[must_use]
+    pub fn missing_for<'e>(&self, entry: &'e CatalogEntry) -> Vec<&'e str> {
+        entry
+            .requires
+            .iter()
+            .filter(|t| !self.has(t))
+            .map(String::as_str)
+            .collect()
     }
 }
 
@@ -183,12 +274,27 @@ pub struct TemplateEngine {
     catalog: Arc<Catalog>,
     env: Environment<'static>,
     templates: HashMap<String, String>,
+    /// Which cards this backend may hand out (D5).
+    gate: CapabilityGate,
 }
 
 impl TemplateEngine {
     /// Build the engine from a parsed [`Catalog`] and the embedded templates
     /// directory (`skills/templates/`).
     pub fn new(catalog: Catalog, templates_dir: &'static Dir<'_>) -> Result<Self, String> {
+        Self::with_gate(catalog, templates_dir, CapabilityGate::unobserved())
+    }
+
+    /// Build the engine with an observed [`CapabilityGate`].
+    ///
+    /// Cards whose `requires` list names a tool the gate does not have are
+    /// then neither renderable nor linkable, so a caller cannot be walked to
+    /// a tool name this backend cannot honour.
+    pub fn with_gate(
+        catalog: Catalog,
+        templates_dir: &'static Dir<'_>,
+        gate: CapabilityGate,
+    ) -> Result<Self, String> {
         let mut templates = HashMap::new();
         collect_templates(templates_dir, &mut templates);
 
@@ -202,13 +308,44 @@ impl TemplateEngine {
         }
 
         let catalog = Arc::new(catalog);
-        let env = build_env(Arc::clone(&catalog));
+        let env = build_env(Arc::clone(&catalog), gate.clone());
 
         Ok(Self {
             catalog,
             env,
             templates,
+            gate,
         })
+    }
+
+    /// The capability gate in force.
+    #[must_use]
+    pub fn gate(&self) -> &CapabilityGate {
+        &self.gate
+    }
+
+    /// Catalog entries this backend may hand out.
+    ///
+    /// A gated card is omitted rather than rendered with a warning: a card
+    /// that says "you could use compare_nodes if the backend had it" still
+    /// teaches the name.
+    pub fn available_entries(&self) -> impl Iterator<Item = &CatalogEntry> {
+        self.catalog.iter().filter(|e| self.gate.allows(e))
+    }
+
+    /// Why a card is unavailable, for an honest refusal.
+    fn gate_refusal(&self, id: &str) -> Option<String> {
+        let entry = self.catalog.get(id)?;
+        if self.gate.allows(entry) {
+            return None;
+        }
+        let missing = self.gate.missing_for(entry);
+        Some(format!(
+            "skill '{id}' needs tool(s) this backend does not register: {}; \
+             it is withheld rather than rendered, because a card naming an \
+             unavailable tool teaches a promise nothing will keep",
+            missing.join(", ")
+        ))
     }
 
     /// Test-only: construct an engine from pre-built components (bypasses
@@ -223,11 +360,15 @@ impl TemplateEngine {
             catalog: Arc::new(catalog),
             env,
             templates,
+            gate: CapabilityGate::unobserved(),
         }
     }
 
     /// Render one template by its catalog id in the given mode.
     pub fn render(&self, id: &str, mode: RenderMode) -> Result<String, String> {
+        if let Some(refusal) = self.gate_refusal(id) {
+            return Err(refusal);
+        }
         let entry = self.catalog.get(id).ok_or_else(|| {
             // Agents self-correct from the available-ids list — never bare.
             let mut ids: Vec<&str> = self.catalog.iter().map(|e| e.id.as_str()).collect();
@@ -268,12 +409,14 @@ impl TemplateEngine {
         Ok(result)
     }
 
-    /// Render all catalog entries in the given mode.
+    /// Render all catalog entries the gate allows, in the given mode.
     ///
-    /// Returns a `Vec` of `(output_path, content)` pairs.
+    /// Returns a `Vec` of `(output_path, content)` pairs. A gated-out card is
+    /// simply absent — it is not rendered with a caveat, because a caveat
+    /// still names the tool.
     pub fn render_all(&self, mode: RenderMode) -> Result<Vec<(String, String)>, String> {
         let mut results = Vec::with_capacity(self.catalog.len());
-        for entry in self.catalog.iter() {
+        for entry in self.available_entries() {
             let content = self.render(&entry.id, mode)?;
             results.push((entry.output_path.clone(), content));
         }
@@ -288,11 +431,22 @@ impl TemplateEngine {
 
 /// Build a Minijinja environment with `skill` / `skill_read` functions that
 /// capture the catalog by `Arc`.
-fn build_env(catalog: Arc<Catalog>) -> Environment<'static> {
+fn build_env(catalog: Arc<Catalog>, gate: CapabilityGate) -> Environment<'static> {
     let mut env = Environment::new();
     env.set_auto_escape_callback(|_| minijinja::AutoEscape::None);
 
     let cat = Arc::clone(&catalog);
+    let read_gate = gate.clone();
+    let skill_gate = gate.clone();
+    let has_cap = gate.clone();
+    // A capability predicate, so a template can omit a whole row or section
+    // rather than render an empty one. `skill_opt` blanks the link but leaves
+    // the surrounding text, which reads as a formatting fault inside a table.
+    env.add_function(
+        "has_capability",
+        move |_state: &State, tool: String| -> bool { has_cap.has(&tool) },
+    );
+
     env.add_function(
         "skill",
         move |state: &State, id: String| -> Result<String, Error> {
@@ -306,6 +460,46 @@ fn build_env(catalog: Arc<Catalog>) -> Environment<'static> {
                 )
             })?;
 
+            // A link to a withheld card is as much a leak as handing over the
+            // card: the caller would fetch a URI this backend will refuse.
+            if !skill_gate.allows(entry) {
+                return Err(gate_refusal_error(entry, &skill_gate));
+            }
+
+            Ok(match mode {
+                RenderMode::Mcp => format!("`tdmcp://docs/{}`", entry.id),
+                RenderMode::FileSystem => {
+                    let rel = match &current_path {
+                        Some(cp) => relative_path(cp, &entry.output_path),
+                        None => format!("./{}", entry.output_path),
+                    };
+                    format!("[`{}`]({rel})", entry.id)
+                }
+            })
+        },
+    );
+
+    // The gate-aware variant, for OPTIONAL links. A gated-out card here
+    // renders as nothing, so an index that lists optional overlays survives a
+    // backend that cannot honour one. `skill()` stays strict on purpose: a
+    // required link to a missing card should fail the render loudly rather
+    // than leave a hole the reader cannot explain.
+    let opt_cat = Arc::clone(&catalog);
+    let opt_gate = gate.clone();
+    env.add_function(
+        "skill_opt",
+        move |state: &State, id: String| -> Result<String, Error> {
+            let Some(entry) = opt_cat.get(&id) else {
+                return Err(Error::new(
+                    minijinja::ErrorKind::UnknownMethod,
+                    format!("unknown skill id: {id}"),
+                ));
+            };
+            if !opt_gate.allows(entry) {
+                return Ok(String::new());
+            }
+            let mode = mode_from_state(state);
+            let current_path = current_path_from_state(state);
             Ok(match mode {
                 RenderMode::Mcp => format!("`tdmcp://docs/{}`", entry.id),
                 RenderMode::FileSystem => {
@@ -332,6 +526,12 @@ fn build_env(catalog: Arc<Catalog>) -> Environment<'static> {
                 )
             })?;
 
+            // Same gate as `skill`: a "read this card" pointer to a withheld
+            // card teaches the name just as much as a link does.
+            if !read_gate.allows(entry) {
+                return Err(gate_refusal_error(entry, &read_gate));
+            }
+
             Ok(match mode {
                 RenderMode::Mcp => format!("`resources/read` `tdmcp://docs/{}`", entry.id),
                 RenderMode::FileSystem => {
@@ -346,6 +546,19 @@ fn build_env(catalog: Arc<Catalog>) -> Environment<'static> {
     );
 
     env
+}
+
+/// The error a gated-out card produces inside a template.
+fn gate_refusal_error(entry: &CatalogEntry, gate: &CapabilityGate) -> Error {
+    Error::new(
+        minijinja::ErrorKind::UnknownMethod,
+        format!(
+            "skill '{}' is unavailable: this backend does not register {}; \
+             it is not linked so the name is not taught",
+            entry.id,
+            gate.missing_for(entry).join(", ")
+        ),
+    )
 }
 
 /// Recursively collect `.jinja.md` files from an embedded dir.
@@ -406,19 +619,48 @@ primer/cook-and-families:
         Catalog::from_manifest_yaml(yaml).expect("test catalog")
     }
 
+    /// A catalog carrying one gated card, for the capability-gate tests.
+    fn gated_catalog() -> Catalog {
+        let yaml = r#"
+operate:
+  template_path: touchdesigner/SKILL.jinja.md
+  output_path: touchdesigner/SKILL.md
+  title: TouchDesigner operate
+  description: Umbrella skill
+python-api:
+  template_path: touchdesigner/reference/python-api.jinja.md
+  output_path: touchdesigner/reference/python-api.md
+  title: TD Python API
+  description: Mandatory before execute_python
+delta-guarded-writes:
+  template_path: touchdesigner/reference/delta-guarded-writes.jinja.md
+  output_path: touchdesigner/reference/delta-guarded-writes.md
+  title: Delta and guarded writes
+  description: Stamped baseline and guarded writes
+  requires:
+    - compare_nodes
+"#;
+        Catalog::from_manifest_yaml(yaml).expect("gated catalog")
+    }
+
     fn engine_for(cat: Catalog, source: &str) -> TemplateEngine {
+        engine_with_gate(cat, source, CapabilityGate::unobserved())
+    }
+
+    fn engine_with_gate(cat: Catalog, source: &str, gate: CapabilityGate) -> TemplateEngine {
         let mut templates = HashMap::new();
         for entry in cat.iter() {
             templates.insert(entry.template_path.clone(), source.to_string());
         }
 
         let cat = Arc::new(cat);
-        let env = build_env(Arc::clone(&cat));
+        let env = build_env(Arc::clone(&cat), gate.clone());
 
         TemplateEngine {
             catalog: cat,
             env,
             templates,
+            gate,
         }
     }
 
@@ -529,6 +771,264 @@ primer/cook-and-families:
         let engine = engine_for(test_catalog(), "ok");
         let result = engine.render("nope", RenderMode::Mcp);
         assert!(result.is_err());
+    }
+
+    // -- Capability gate (D5) -----------------------------------------------
+
+    #[test]
+    fn an_unobserved_gate_withholds_nothing() {
+        // The honest default: a probe that never ran must not hide every
+        // gated card, which would be as misleading as the opposite.
+        let engine = engine_with_gate(gated_catalog(), "body", CapabilityGate::unobserved());
+        assert!(!engine.gate().is_observed());
+        assert!(engine
+            .render("delta-guarded-writes", RenderMode::Mcp)
+            .is_ok());
+        assert_eq!(engine.render_all(RenderMode::Mcp).unwrap().len(), 3);
+    }
+
+    #[test]
+    fn a_gated_card_is_withheld_when_its_tool_is_absent() {
+        let engine = engine_with_gate(
+            gated_catalog(),
+            "body",
+            CapabilityGate::from_tools(["inspect", "mutate_nodes"]),
+        );
+        let err = engine
+            .render("delta-guarded-writes", RenderMode::Mcp)
+            .expect_err("a card naming an unavailable tool must not render");
+        assert!(err.contains("compare_nodes"), "{err}");
+        // The rest of the pack still renders: withholding one card must not
+        // take the docs down with it.
+        assert!(engine.render("operate", RenderMode::Mcp).is_ok());
+        assert!(engine.render("python-api", RenderMode::Mcp).is_ok());
+    }
+
+    #[test]
+    fn a_gated_card_renders_once_its_tool_is_present() {
+        let engine = engine_with_gate(
+            gated_catalog(),
+            "body",
+            CapabilityGate::from_tools(["inspect", "compare_nodes"]),
+        );
+        assert!(engine
+            .render("delta-guarded-writes", RenderMode::Mcp)
+            .is_ok());
+        assert_eq!(engine.render_all(RenderMode::Mcp).unwrap().len(), 3);
+    }
+
+    #[test]
+    fn a_gated_card_is_absent_from_render_all_rather_than_rendered_with_a_caveat() {
+        // A card that says "use compare_nodes if you have it" still teaches
+        // the name, which is the whole thing the gate exists to prevent.
+        let engine = engine_with_gate(
+            gated_catalog(),
+            "body",
+            CapabilityGate::from_tools(["inspect"]),
+        );
+        let outputs: Vec<String> = engine
+            .render_all(RenderMode::Mcp)
+            .unwrap()
+            .into_iter()
+            .map(|(path, _)| path)
+            .collect();
+        assert!(!outputs.iter().any(|p| p.contains("delta-guarded-writes")));
+        assert!(outputs.iter().any(|p| p.contains("python-api")));
+    }
+
+    #[test]
+    fn a_strict_link_to_a_withheld_card_fails_the_render() {
+        // `skill()` is strict on purpose: a required link to a missing card
+        // should fail loudly rather than leave a hole the reader cannot
+        // explain.
+        let engine = engine_with_gate(
+            gated_catalog(),
+            "See {{ skill(\"delta-guarded-writes\") }}.",
+            CapabilityGate::from_tools(["inspect"]),
+        );
+        let err = engine.render("operate", RenderMode::Mcp).unwrap_err();
+        assert!(err.contains("compare_nodes"), "{err}");
+    }
+
+    #[test]
+    fn an_optional_link_to_a_withheld_card_renders_empty_instead_of_failing() {
+        // This is what lets an index row survive on a backend that cannot
+        // honour the overlay.
+        let engine = engine_with_gate(
+            gated_catalog(),
+            "See {{ skill_opt(\"delta-guarded-writes\") }}.",
+            CapabilityGate::from_tools(["inspect"]),
+        );
+        let out = engine.render("operate", RenderMode::Mcp).unwrap();
+        assert_eq!(out, "See .");
+        assert!(!out.contains("delta-guarded-writes"));
+    }
+
+    #[test]
+    fn an_optional_link_still_resolves_when_the_capability_is_there() {
+        let engine = engine_with_gate(
+            gated_catalog(),
+            "See {{ skill_opt(\"delta-guarded-writes\") }}.",
+            CapabilityGate::from_tools(["compare_nodes"]),
+        );
+        let out = engine.render("operate", RenderMode::Mcp).unwrap();
+        assert!(out.contains("tdmcp://docs/delta-guarded-writes"), "{out}");
+    }
+
+    #[test]
+    fn an_optional_link_to_an_unknown_id_is_still_an_error() {
+        // Gating must not turn a typo into a silently empty cell.
+        let engine = engine_with_gate(
+            gated_catalog(),
+            "{{ skill_opt(\"nope\") }}",
+            CapabilityGate::unobserved(),
+        );
+        assert!(engine.render("operate", RenderMode::Mcp).is_err());
+    }
+
+    #[test]
+    fn the_capability_predicate_lets_a_template_omit_a_whole_row() {
+        let body = "{% if has_capability(\"compare_nodes\") %}\n| delta |\n{% endif %}";
+        let without = engine_with_gate(
+            gated_catalog(),
+            body,
+            CapabilityGate::from_tools(["inspect"]),
+        );
+        assert_eq!(without.render("operate", RenderMode::Mcp).unwrap(), "");
+        let with = engine_with_gate(
+            gated_catalog(),
+            body,
+            CapabilityGate::from_tools(["compare_nodes"]),
+        );
+        assert!(with
+            .render("operate", RenderMode::Mcp)
+            .unwrap()
+            .contains("delta"));
+    }
+
+    #[test]
+    fn a_card_needing_every_one_of_several_tools_is_withheld_if_any_is_missing() {
+        let yaml = r#"
+both:
+  template_path: both.jinja.md
+  output_path: both.md
+  title: Both
+  description: needs two
+  requires:
+    - compare_nodes
+    - sample_data
+"#;
+        let cat = Catalog::from_manifest_yaml(yaml).expect("catalog");
+        let partial = engine_with_gate(cat, "body", CapabilityGate::from_tools(["compare_nodes"]));
+        let entry = partial.catalog().get("both").expect("entry");
+        assert!(!partial.gate().allows(entry));
+        assert_eq!(partial.gate().missing_for(entry), vec!["sample_data"]);
+    }
+
+    #[test]
+    fn the_shipped_pack_gates_the_overlay_card_on_compare_nodes() {
+        // The real pack, not a fixture: this is the assertion that keeps the
+        // manifest's `requires` honest as tools are added and removed.
+        let cat = Catalog::from_manifest_yaml(crate::MANIFEST_YAML).expect("manifest");
+        let entry = cat
+            .get("delta-guarded-writes")
+            .expect("delta-guarded-writes is registered");
+        assert_eq!(entry.requires, vec!["compare_nodes".to_string()]);
+        assert!(cat.get("operate").expect("operate").requires.is_empty());
+    }
+
+    /// The real shipped pack under a real gate that lacks `compare_nodes`.
+    ///
+    /// This is the assertion that actually matters: every OTHER card must
+    /// still render, the overlay must be gone, and the *rendered text* of
+    /// every other card must not mention the tool at all. A gate that merely
+    /// refused the card would still leak the name through the two cards that
+    /// link to it, which is the failure the gate exists to prevent.
+    #[test]
+    fn the_shipped_pack_never_teaches_a_tool_the_backend_lacks() {
+        let gate = CapabilityGate::from_tools([
+            "fleet",
+            "execute_python",
+            "inspect",
+            "mutate_nodes",
+            "capture",
+            "record",
+            "api_help",
+            "editor_context",
+            "describe_tools",
+            "td_installs",
+            "dialogs",
+            "spawn_td",
+            "kill_td",
+            "project_unpack",
+            "project_pack",
+            "project_lint",
+            "project_install_bridge",
+            "palette_index",
+            "palette_probe",
+        ]);
+        let cat = Catalog::from_manifest_yaml(crate::MANIFEST_YAML).expect("manifest");
+        let engine =
+            TemplateEngine::with_gate(cat, &crate::TEMPLATES, gate).expect("templates under gate");
+
+        assert!(engine
+            .render("delta-guarded-writes", RenderMode::Mcp)
+            .is_err());
+
+        for entry in engine.available_entries() {
+            for mode in [RenderMode::Mcp, RenderMode::FileSystem] {
+                let rendered = engine.render(&entry.id, mode).expect("render");
+                assert!(
+                    !rendered.contains("delta-guarded-writes"),
+                    "{} ({mode:?}) still links the withheld card",
+                    entry.id
+                );
+                assert!(
+                    !rendered.contains("compare_nodes"),
+                    "{} ({mode:?}) still names the withheld tool",
+                    entry.id
+                );
+            }
+        }
+
+        // The two cards that used to link it must still render, with the row
+        // gone rather than left with an empty cell.
+        let umbrella = engine
+            .render("operate", RenderMode::FileSystem)
+            .expect("umbrella");
+        assert!(!umbrella.contains("Confirm what changed"));
+        let index = engine
+            .render("reference-index", RenderMode::FileSystem)
+            .expect("index");
+        assert!(!index.contains("Confirming a change"));
+        for line in index.lines().filter(|l| l.starts_with('|')) {
+            assert!(
+                !line.ends_with("|  |"),
+                "index row left with an empty cell: {line}"
+            );
+        }
+    }
+
+    /// The same pack, WITH the capability: the overlay renders and both cards
+    /// link it. Guards against a gate that silently withholds everything.
+    #[test]
+    fn the_shipped_pack_renders_the_overlay_once_the_capability_exists() {
+        let gate = CapabilityGate::from_tools(["inspect", "compare_nodes"]);
+        let cat = Catalog::from_manifest_yaml(crate::MANIFEST_YAML).expect("manifest");
+        let engine =
+            TemplateEngine::with_gate(cat, &crate::TEMPLATES, gate).expect("templates under gate");
+
+        assert!(engine
+            .render("delta-guarded-writes", RenderMode::Mcp)
+            .is_ok());
+        let umbrella = engine
+            .render("operate", RenderMode::FileSystem)
+            .expect("umbrella");
+        assert!(umbrella.contains("delta-guarded-writes"), "{umbrella}");
+        let index = engine
+            .render("reference-index", RenderMode::FileSystem)
+            .expect("index");
+        assert!(index.contains("delta-guarded-writes"), "{index}");
     }
 
     static EMPTY_DIR: Dir<'static> = Dir::new("", &[]);
@@ -673,7 +1173,7 @@ primer/cook-and-families:
                 }
             }
             // Every referenced id must resolve.
-            for captures in ["skill(", "skill_read("] {
+            for captures in ["skill(", "skill_read(", "skill_opt("] {
                 let mut rest = source.as_str();
                 while let Some(idx) = rest.find(captures) {
                     let after = &rest[idx + captures.len()..];
@@ -717,7 +1217,7 @@ primer/cook-and-families:
             let Some(source) = templates.get(&entry.template_path) else {
                 continue;
             };
-            for captures in ["skill(", "skill_read("] {
+            for captures in ["skill(", "skill_read(", "skill_opt("] {
                 let mut rest = source.as_str();
                 while let Some(idx) = rest.find(captures) {
                     let after = &rest[idx + captures.len()..];

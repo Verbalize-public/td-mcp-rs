@@ -915,8 +915,28 @@ async fn run_daemon(
     } else {
         info!("dialogs watcher disabled");
     }
+    // The capability gate is built from the tool list THIS process actually
+    // registers, so a card teaching a tool this build does not serve is
+    // neither listed nor linked, rather than offered as a name that would then
+    // be refused. Derived from live registration rather than a hand-kept list,
+    // so it cannot drift from the binary it ships in.
+    let gate = tdmcp_mcp::CapabilityGate::from_tools(
+        tdmcp_mcp::tool_descriptors().iter().map(|d| d.name.clone()),
+    );
+    {
+        let provider = tdmcp_mcp::ResourceProvider::from_embedded_with_gate(gate.clone())
+            .map_err(|e| anyhow::anyhow!("initialize embedded skills resource provider: {e}"))?;
+        let withheld = provider.catalog_len() - provider.available_len();
+        if withheld > 0 {
+            info!(
+                available = provider.available_len(),
+                total = provider.catalog_len(),
+                "skill cards withheld for tools this build does not register"
+            );
+        }
+    }
     let resource_provider = Arc::new(
-        tdmcp_mcp::ResourceProvider::from_embedded()
+        tdmcp_mcp::ResourceProvider::from_embedded_with_gate(gate)
             .map_err(|e| anyhow::anyhow!("initialize embedded skills resource provider: {e}"))?,
     );
 

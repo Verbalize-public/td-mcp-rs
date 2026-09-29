@@ -29,6 +29,9 @@ For live work, establish the actual daemon/PID/project and affected scope using 
 | Author or ship a reusable component | {{ skill("component-authoring") }} |
 | Maintain/describe a requested Palette slice | {{ skill("palette-curation") }} |
 | Finish, hand off or distinguish evidence limits | {{ skill("verify-handoff") }} |
+{% if has_capability("compare_nodes") %}
+| Confirm what changed, or write only if nothing moved | {{ skill("delta-guarded-writes") }} |
+{% endif %}
 
 Load the relevant contract before its first use, subject to the host's loading requirements. Reuse guidance already current in this task; refresh when essential context or its source changes. **Links are navigation, not a recursive reading checklist.** Choose a specialized reference only when it answers a concrete unresolved question. Future tools/options require actual capability/schema support, not a remembered release-plan name.
 

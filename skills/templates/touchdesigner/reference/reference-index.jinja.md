@@ -18,6 +18,9 @@ behavior win over remembered examples; each fact's verification scope matters.
 | Shader authoring, dialect, conversion | {{ skill("glsl") }}, {{ skill("td-glsl-ground-truth") }}, {{ skill("shadertoy-conversion") }} |
 | Claim-specific verification and visual comparison | {{ skill("definition-of-done") }}, {{ skill("look-grade") }} |
 | Busy/uncertain effects and static output | {{ skill("tooling-concurrency") }}, {{ skill("play-state") }} |
+{% if has_capability("compare_nodes") %}
+| Confirming a change, or writing only if nothing moved | {{ skill("delta-guarded-writes") }} |
+{% endif %}
 | Offline project files, launch and supported dialogs | {{ skill("project-io") }}, {{ skill("lifecycle") }}, {{ skill("popups") }} |
 | Ordinary component selection versus library maintenance | {{ skill("palette") }}, {{ skill("palette-scan") }} |
 

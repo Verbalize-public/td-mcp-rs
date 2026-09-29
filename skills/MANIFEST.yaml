@@ -16,6 +16,17 @@ operate:
     Inspect, build, debug, and capture TouchDesigner projects through td-mcp-rs.
     Entry point for live operator work, scripting, and offline project tools.
 
+delta-guarded-writes:
+  template_path: touchdesigner/reference/delta-guarded-writes.jinja.md
+  output_path: touchdesigner/reference/delta-guarded-writes.md
+  title: Delta and guarded writes
+  description: >-
+    Take a stamped baseline, diff a fresh read against it, and write only if
+    the field still holds what you read. Use when a change must be confirmed
+    or a write must not clobber an edit you did not make.
+  requires:
+    - compare_nodes
+
 opsketch-notation:
   template_path: touchdesigner/reference/opsketch-notation.jinja.md
   output_path: touchdesigner/reference/opsketch-notation.md

@@ -119,6 +119,19 @@
       "migration": "split-entry-anchors-preserved",
       "evidenceScope": "Source/unit/native claims are scoped individually; no blanket native verification."
     },
+    "delta-guarded-writes": {
+      "kind": "reference",
+      "audience": "agent",
+      "trigger": "Take a stamped baseline, diff a fresh read against it, and write only if the field still holds what you read. Use when a change must be confirmed or a write must not clobber an edit you did not make.",
+      "nonTrigger": "Does not replace inspect for reading detail, and does not make a write atomic or exactly-once; it narrows a race and reports what it observed.",
+      "canonicalOwner": "delta-guarded-writes",
+      "capabilities": [
+        "current-tools",
+        "compare_nodes"
+      ],
+      "migration": "new",
+      "evidenceScope": "Comparison and guard semantics are unit-tested against fake operators; no native acceptance run has yet shown a real diff on a real project."
+    },
     "custom-parameters": {
       "kind": "procedure",
       "audience": "agent",

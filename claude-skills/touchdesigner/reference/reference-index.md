@@ -18,6 +18,9 @@ behavior win over remembered examples; each fact's verification scope matters.
 | Shader authoring, dialect, conversion | [`glsl`](./glsl.md), [`td-glsl-ground-truth`](./td-glsl-ground-truth.md), [`shadertoy-conversion`](./shadertoy-conversion.md) |
 | Claim-specific verification and visual comparison | [`definition-of-done`](./definition-of-done.md), [`look-grade`](./look-grade.md) |
 | Busy/uncertain effects and static output | [`tooling-concurrency`](./tooling-concurrency.md), [`play-state`](./play-state.md) |
+
+| Confirming a change, or writing only if nothing moved | [`delta-guarded-writes`](./delta-guarded-writes.md) |
+
 | Offline project files, launch and supported dialogs | [`project-io`](./project-io.md), [`lifecycle`](./lifecycle.md), [`popups`](./popups.md) |
 | Ordinary component selection versus library maintenance | [`palette`](./palette.md), [`palette-scan`](./palette-scan.md) |
 

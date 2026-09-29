@@ -140,8 +140,13 @@ where
     }
     info!(%daemon_url, "serving stdio (daemon link lazy)");
 
+    // Same gate as the daemon: a card teaching a tool this build does not
+    // register is withheld rather than offered as a name that would then be
+    // refused. Derived from live tool registration, so it cannot drift.
+    let gate =
+        crate::CapabilityGate::from_tools(crate::tool_descriptors().iter().map(|d| d.name.clone()));
     let resource_provider = Arc::new(
-        ResourceProvider::from_embedded()
+        ResourceProvider::from_embedded_with_gate(gate)
             .map_err(|e| StdioProxyError::Serve(format!("resource provider: {e}")))?,
     );
 
