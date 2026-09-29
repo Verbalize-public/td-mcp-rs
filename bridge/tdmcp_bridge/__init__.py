@@ -46,6 +46,7 @@ from . import (
     mutate as _mutate,
     palette as _palette,
     paths as _paths,
+    sample_data as _sample_data,
     state as _state,
     suggest as _suggest,
     task_queue as _task_queue,
@@ -150,6 +151,7 @@ class BridgeErrResult(TypedDict):
 HANDLERS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "execute_python": handle_execute_python,
     "capture": handle_capture,
+    "sample_data": _sample_data.handle_sample_data,
     "record": lambda params: _timing.handle('record', params),
     "inspect": handle_inspect,
     "mutate_nodes": handle_mutate,

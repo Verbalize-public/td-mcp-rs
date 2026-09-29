@@ -24,6 +24,7 @@ from . import state as _state
 SUPPORTED_FEATURES: tuple[str, ...] = (
     "execute_python",
     "capture",
+    "sample_data",
     "record",
     "inspect",
     "mutate_nodes",
@@ -42,6 +43,7 @@ _READY_PAYLOAD: dict[str, Any] | None = None
 _CODE_BINDINGS: tuple[tuple[str, str, str], ...] = (
     ("execute_python", "tdmcp_bridge.execute", "handle_execute_python"),
     ("capture", "tdmcp_bridge.capture", "handle_capture"),
+    ("sample_data", "tdmcp_bridge.sample_data", "handle_sample_data"),
     ("record", "tdmcp_bridge.timing", "handle"),
     ("inspect", "tdmcp_bridge.inspect", "handle_inspect"),
     ("mutate_nodes", "tdmcp_bridge.mutate", "handle_mutate"),

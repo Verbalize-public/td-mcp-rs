@@ -15,6 +15,11 @@ pub enum BridgeMethod {
     ExecutePython,
     /// Perception capture.
     Capture,
+    /// Exact numerical reads from a TOP or CHOP.
+    ///
+    /// Separate from [`Self::Capture`] because capture answers "what does this
+    /// look like" and serves an 8-bit PNG, while this returns the values.
+    SampleData,
     /// Frame-exact video jobs and artifact retrieval.
     Record,
     /// Structural inspect.
@@ -38,6 +43,7 @@ impl BridgeMethod {
         match self {
             Self::ExecutePython => "execute_python",
             Self::Capture => "capture",
+            Self::SampleData => "sample_data",
             Self::Record => "record",
             Self::Inspect => "inspect",
             Self::MutateNodes => "mutate_nodes",
@@ -54,6 +60,7 @@ impl BridgeMethod {
         match self {
             Self::ExecutePython => "PythonEval",
             Self::Capture => "Capture",
+            Self::SampleData => "SampleData",
             Self::Record => "Record",
             Self::Inspect => "Inspect",
             Self::MutateNodes => "Mutate",
@@ -68,6 +75,7 @@ impl BridgeMethod {
     pub const ALL: &[Self] = &[
         Self::ExecutePython,
         Self::Capture,
+        Self::SampleData,
         Self::Record,
         Self::Inspect,
         Self::MutateNodes,
@@ -82,6 +90,7 @@ impl BridgeMethod {
         match s {
             "execute_python" => Some(Self::ExecutePython),
             "capture" => Some(Self::Capture),
+            "sample_data" => Some(Self::SampleData),
             "record" => Some(Self::Record),
             "inspect" => Some(Self::Inspect),
             "mutate_nodes" => Some(Self::MutateNodes),

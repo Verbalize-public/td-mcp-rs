@@ -27,6 +27,7 @@ RESULT_MAX_BYTES = 4 * 1024 * 1024
 BRIDGE_METHODS: tuple[str, ...] = (
     "execute_python",
     "capture",
+    "sample_data",
     "record",
     "inspect",
     "mutate_nodes",
@@ -86,6 +87,16 @@ API_HELP_MODULE_SAMPLE = 32
 CHOP_DATA_MAX_CHANNELS = 64
 CHOP_DATA_MAX_SAMPLES = 1024
 CHOP_DATA_MAX_SCALARS = 32768
+
+# Exact numerical sampling (sample_data). These bound the RESPONSE, not the read:
+# numpyArray() has already transferred the whole image by the time a cap applies,
+# so these keep a reply inside the IPC frame rather than pretending to limit work.
+# SAMPLE_MAX_REGION_PIXELS counts VALUES (pixels x channels), because that is what
+# actually reaches the wire.
+SAMPLE_MAX_POINT_SAMPLES = 4096
+SAMPLE_MAX_REGION_PIXELS = 262144
+SAMPLE_DATA_MAX_CHANNELS = 64
+SAMPLE_DATA_MAX_SCALARS = 32768
 
 _LOGS_RETURN_MAX = 128 * 1024
 _DEBUG_DAT_RING_MAX = 256 * 1024
