@@ -15,6 +15,7 @@
 #![allow(clippy::expect_used, reason = "test setup/assertions may panic")]
 #![allow(clippy::panic, reason = "test assertions may panic")]
 
+use std::collections::BTreeSet;
 use std::error::Error;
 use std::path::{Path, PathBuf};
 
@@ -197,6 +198,69 @@ fn the_fixture_set_covers_every_observation_state_and_capability() -> Result<(),
                 "{name} must stay unknown until its backend is built"
             );
         }
+    }
+    Ok(())
+}
+
+/// The fixture set must actually REACH every coverage count it claims to pin.
+///
+/// This test exists because of a fixture that did not. `coverage-accounting-
+/// does-not-inflate` modelled a failed node without the `code` the bridge
+/// actually sends for a missing path, so it landed in the `unavailable` branch
+/// and the `missing` branch was never exercised. A mutation that counted
+/// `missing` as `returned` survived against a fixture named "accounting does
+/// not inflate" — the name was the claim, the fixture was not the evidence.
+///
+/// A coverage fixture that never produces a non-zero `missing` is asserting
+/// nothing about `missing`, so this asserts the counts are reached, and that
+/// they are mutually exclusive: the three dispositions partition what was
+/// requested, which is the property "does not inflate" actually names.
+#[test]
+fn the_fixture_set_reaches_every_coverage_count_it_claims_to_pin() -> Result<(), Box<dyn Error>> {
+    let mut reached = BTreeSet::new();
+    for case in cases()?.iter() {
+        let envelope = envelope(case)?;
+        for count in ["returned", "missing", "unavailable"] {
+            if at(&envelope, &format!("coverage.{count}"))
+                .and_then(Value::as_u64)
+                .is_some_and(|value| value > 0)
+            {
+                reached.insert(count.to_owned());
+            }
+        }
+
+        // The partition: whatever was requested is accounted for exactly once.
+        let number = |key: &str| -> Result<u64, Box<dyn Error>> {
+            at(&envelope, &format!("coverage.{key}"))
+                .and_then(Value::as_u64)
+                .ok_or_else(|| -> Box<dyn Error> {
+                    format!("{}: coverage.{key} is absent", case.name).into()
+                })
+        };
+        let (requested, accounted, returned, missing, unavailable) = (
+            number("requested")?,
+            number("accountedFor")?,
+            number("returned")?,
+            number("missing")?,
+            number("unavailable")?,
+        );
+        assert_eq!(
+            returned + missing + unavailable,
+            accounted,
+            "{}: the three dispositions must partition what was accounted for",
+            case.name
+        );
+        assert_eq!(
+            accounted, requested,
+            "{}: accounting must not invent or drop observations",
+            case.name
+        );
+    }
+    for count in ["returned", "missing", "unavailable"] {
+        assert!(
+            reached.contains(count),
+            "no fixture reaches a non-zero coverage.{count}; the set no longer pins it"
+        );
     }
     Ok(())
 }

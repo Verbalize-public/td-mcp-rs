@@ -2,8 +2,11 @@
   "case": {
     "expect": {
       "contract": "v2",
-      "coverage.requested": 2,
-      "coverage.returned": 1
+      "coverage.accountedFor": 3,
+      "coverage.missing": 1,
+      "coverage.requested": 3,
+      "coverage.returned": 1,
+      "coverage.unavailable": 1
     },
     "legacy": {
       "nodes": [
@@ -29,16 +32,16 @@
           "warnings": []
         },
         {
-          "childCount": 0,
-          "children": [],
-          "comment": "",
-          "errors": [],
-          "family": "CON",
+          "code": "tdmcp.op.not_found",
+          "message": "operator not found: /project1/fx/absent",
           "ok": false,
-          "opType": "constantDAT",
-          "params": [],
-          "path": "/project1/fx/absent",
-          "warnings": []
+          "path": "/project1/fx/absent"
+        },
+        {
+          "code": "tdmcp.bridge.timeout",
+          "message": "timed out reading this node",
+          "ok": false,
+          "path": "/project1/fx/unreadable"
         }
       ],
       "ok": true
@@ -49,7 +52,8 @@
     "query": {
       "paths": [
         "/project1/fx/const0",
-        "/project1/fx/absent"
+        "/project1/fx/absent",
+        "/project1/fx/unreadable"
       ],
       "pid": 1
     }

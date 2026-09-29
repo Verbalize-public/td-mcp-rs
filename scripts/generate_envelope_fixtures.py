@@ -155,31 +155,55 @@ CASES: list[tuple[str, str, dict, dict, dict, dict]] = [
     (
         "coverage-accounting-does-not-inflate",
         "requested, returned, missing and unavailable are counted separately",
-        {"pid": 1, "paths": ["/project1/fx/const0", "/project1/fx/absent"]},
+        {
+            "pid": 1,
+            "paths": [
+                "/project1/fx/const0",
+                "/project1/fx/absent",
+                "/project1/fx/unreadable",
+            ],
+        },
         {
             "ok": True,
             "nodes": [
                 legacy_read()["nodes"][0],
                 {
-                    "childCount": 0,
-                    "children": [],
-                    "comment": "",
-                    "errors": [],
-                    "family": "CON",
+                    # The shape the bridge actually emits for a path that does
+                    # not exist: `ok: false` WITH `code: tdmcp.op.not_found`
+                    # (bridge/tdmcp_bridge/inspect.py:616-620). An earlier
+                    # revision of this fixture left the code off, which routed
+                    # the node to the `unavailable` branch instead — so the
+                    # fixture named "accounting does not inflate" was
+                    # exercising none of the inflation it claimed to, and a
+                    # mutation that counted `missing` as `returned` survived
+                    # against it. The code is what distinguishes the two.
                     "ok": False,
-                    "opType": "constantDAT",
-                    "params": [],
                     "path": "/project1/fx/absent",
-                    "warnings": [],
+                    "code": "tdmcp.op.not_found",
+                    "message": "operator not found: /project1/fx/absent",
+                },
+                {
+                    # A path that exists but could not be observed. Any failure
+                    # code other than not_found lands here, and a node with no
+                    # `ok` at all lands here too.
+                    "ok": False,
+                    "path": "/project1/fx/unreadable",
+                    "code": "tdmcp.bridge.timeout",
+                    "message": "timed out reading this node",
                 },
             ],
         },
         {"contract": "v2"},
         {
             "contract": "v2",
-            # One node came back, one did not. The counts must say exactly that.
+            # One came back, one does not exist, one could not be read. All
+            # three are named separately; a caller told "2 of 3 returned"
+            # would be told a lie either way.
+            "coverage.requested": 3,
             "coverage.returned": 1,
-            "coverage.requested": 2,
+            "coverage.missing": 1,
+            "coverage.unavailable": 1,
+            "coverage.accountedFor": 3,
         },
     ),
     (
