@@ -50,6 +50,11 @@
           "const": "status",
           "description": "Report unsaved state; writes nothing.",
           "type": "string"
+        },
+        {
+          "const": "load",
+          "description": "Report what loading `target` would mean, and load nothing.\n\nThere is deliberately no \"do the load\" arm. Measured on TouchDesigner\n2025.32460: `project.load(path)` returns `None`, so there is nothing to\nverify the load against; it destroys the open project; and there is no\n`open`, `revert` or `revertProjects` to undo it. `root.load` and\n`COMP.load` do not exist either, so a `.tox` cannot be loaded into an\nempty operator to make the load non-destructive. A fresh process\n(`spawn_td`) is the genuinely fresh load, and the daemon owns it.",
+          "type": "string"
         }
       ]
     },

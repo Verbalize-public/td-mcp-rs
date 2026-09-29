@@ -625,6 +625,90 @@ def _find_written(target: str, siblings_before: dict[str, str]) -> str | None:
     return None
 
 
+def _same_path(folder: str, name: str, candidate: str) -> bool:
+    """Whether `candidate` IS `folder`/`name`, across separator conventions.
+
+    A host bridge on Linux receives forward-slash paths while TouchDesigner
+    under Wine reports backslashes for the very same file, so the comparison
+    normalises both sides before matching.
+    """
+    if not folder or not name or not candidate:
+        return False
+    left = [part for part in f"{folder}/{name}".replace("\\", "/").split("/") if part]
+    right = [part for part in candidate.replace("\\", "/").split("/") if part]
+    return [part.lower() for part in left] == [part.lower() for part in right]
+
+
+def _load_plan(target: str) -> dict[str, Any]:
+    """What loading `target` would mean, decided WITHOUT loading it.
+
+    The plan asks for a "separate fresh-load workflow", and the measurement is
+    why it cannot be a load:
+
+    * `td.project.load(path) -> None` returns NOTHING. There is no path back
+      and no success value, so a caller cannot verify a load happened or that
+      it got the file it asked for.
+    * It is destructive: the loaded file becomes the project and whatever was
+      open is gone.
+    * There is no `open`, no `revert` and no `revertProjects` on this build, so
+      there is no undo.
+    * `td.root.load` and `COMP.load` do not exist, so a `.tox` cannot be
+      loaded into an empty COMP to make a fresh load non-destructive.
+
+    A tool that offered an unverifiable, irreversible, session-destroying load
+    would be a data-loss primitive wearing a recovery tool's name. So this
+    reports the plan and stops: identity of the file, whether it is already
+    what is loaded, and what loading it would cost.
+    """
+    import td  # type: ignore
+
+    artifact = _stat_of(target)
+    current_name = _text(getattr(td.project, "name", None), 256)
+    current_folder = _text(getattr(td.project, "folder", None))
+    # Compared component-wise, not by joining with a separator: TouchDesigner
+    # runs on Windows under Wine and reports backslash paths, while the host
+    # bridge runs on Linux and receives forward-slash ones. Hardcoding either
+    # separator made "is this the file I already have open?" answer false for
+    # the file that is actually open.
+    loaded_match = _same_path(current_folder, current_name, target)
+    return {
+        "ok": True,
+        "outcome": "planned",
+        "kind": "loadPlan",
+        # Named for what it is: a fact about the FILE. A key called `loaded`
+        # reads in both directions on this response -- "loaded into TD" and
+        # "present on disk" -- and the first version resolved it to the
+        # inverse of both, so a missing candidate reported `loaded: true`.
+        "artifactPresent": artifact["exists"],
+        "artifact": artifact,
+        "currentProject": {"name": current_name, "folder": current_folder},
+        "isCurrentProject": loaded_match,
+        "loadingWould": (
+            "destroy the currently open project and make this file the session"
+        ),
+        "verified": False,
+        "undone": False,
+        "refusal": {
+            "code": "tdmcp.snapshot.load_not_offered",
+            "reason": (
+                "TouchDesigner offers no safe in-place load on this build: "
+                "project.load returns nothing to verify against, there is no "
+                "open/revert/revertProjects to undo it, and neither root nor a "
+                "COMP can load a .tox into an empty operator"
+            ),
+            "instead": (
+                "spawn a fresh TouchDesigner with spawn_td: a new process is "
+                "genuinely fresh, the old session is untouched, and the "
+                "daemon already owns that lifecycle"
+            ),
+        },
+        "explanation": (
+            "this reports what loading would mean and performs none of it; the "
+            "artifact is identified by the digest of the bytes on disk"
+        ),
+    }
+
+
 def handle_project_snapshot(params: dict[str, Any]) -> dict[str, Any]:
     """`project_snapshot`: save a project or a named component, with a receipt.
 
@@ -632,6 +716,7 @@ def handle_project_snapshot(params: dict[str, Any]) -> dict[str, Any]:
       project   save the whole project to `target`
       component save one COMP to `target`
       status    report unsaved state and the project file, writing nothing
+      load      report what loading `target` would mean, and load NOTHING
 
     Every save reports `written` — the path TouchDesigner actually produced —
     and `artifact`, a digest of the bytes on disk. The requested path is
@@ -663,6 +748,15 @@ def handle_project_snapshot(params: dict[str, Any]) -> dict[str, Any]:
                 path=path,
             )
         return _snapshot_component(node, path, params)
+
+    if action == "load":
+        target = _text(params.get("target") or params.get("targetPath"))
+        if not target:
+            return _err(
+                "tdmcp.snapshot.target_required",
+                "a load plan needs target: the .toe/.tox you are considering",
+            )
+        return _load_plan(target)
 
     if action == "project":
         return _snapshot_project(params)

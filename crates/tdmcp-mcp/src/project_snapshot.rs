@@ -44,6 +44,16 @@ pub enum SnapshotAction {
     Component,
     /// Report unsaved state; writes nothing.
     Status,
+    /// Report what loading `target` would mean, and load nothing.
+    ///
+    /// There is deliberately no "do the load" arm. Measured on TouchDesigner
+    /// 2025.32460: `project.load(path)` returns `None`, so there is nothing to
+    /// verify the load against; it destroys the open project; and there is no
+    /// `open`, `revert` or `revertProjects` to undo it. `root.load` and
+    /// `COMP.load` do not exist either, so a `.tox` cannot be loaded into an
+    /// empty operator to make the load non-destructive. A fresh process
+    /// (`spawn_td`) is the genuinely fresh load, and the daemon owns it.
+    Load,
 }
 
 impl SnapshotAction {
@@ -54,6 +64,7 @@ impl SnapshotAction {
             Self::Project => "project",
             Self::Component => "component",
             Self::Status => "status",
+            Self::Load => "load",
         }
     }
 }
@@ -132,6 +143,25 @@ mod tests {
         let params = parse(json!({"pid": 1, "target": "/tmp/a.toe"}));
         assert_eq!(params.action, SnapshotAction::Project);
         assert_eq!(params.action.as_str(), "project");
+    }
+
+    #[test]
+    fn the_load_action_reports_a_plan_and_never_loads() {
+        // Named for what it does, so a caller cannot read it as an instruction
+        // to replace the open project.
+        let params = parse(json!({"pid": 1, "action": "load", "target": "/tmp/a.toe"}));
+        assert_eq!(params.action, SnapshotAction::Load);
+        assert_eq!(params.action.as_str(), "load");
+    }
+
+    #[test]
+    fn the_default_action_is_never_load() {
+        // An omitted action must not destroy the open project. `project` is a
+        // save to an explicit target, which is at least reversible; the load
+        // arm is a report and has to be asked for by name.
+        let params = parse(json!({"pid": 1, "target": "/tmp/a.toe"}));
+        assert_ne!(params.action, SnapshotAction::Load);
+        assert_eq!(params.action, SnapshotAction::Project);
     }
 
     #[test]

@@ -336,6 +336,119 @@ class UnsavedStateTests(unittest.TestCase):
         self.assertIn("would look like an answer", report["explanation"])
 
 
+class LoadPlanTests(TempDirCase):
+    """The plan asks for a "separate fresh-load workflow".
+
+    Measured: TouchDesigner offers no safe in-place load on this build, so
+    this reports the plan and performs none of it. A tool that offered an
+    unverifiable, irreversible, session-destroying load would be a data-loss
+    primitive wearing a recovery tool's name.
+    """
+
+    def _td(self, name: str = "other.toe", folder: str = "/elsewhere") -> Any:
+        return SimpleNamespace(project=SimpleNamespace(name=name, folder=folder))
+
+    def test_a_plan_loads_nothing_and_says_so(self) -> None:
+        path = self.write(self.target("candidate.toe"), b"toe-bytes")
+        with mock.patch.dict(sys.modules, {"td": self._td()}):
+            out = snap._load_plan(path)
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["outcome"], "planned")
+        self.assertFalse(out["verified"])
+        self.assertFalse(out["undone"])
+        # The file is still the only one that was there.
+        self.assertEqual(os.listdir(self.dir), ["candidate.toe"])
+
+    def test_a_plan_identifies_the_candidate_by_digest(self) -> None:
+        path = self.write(self.target("candidate.toe"), b"toe-bytes")
+        with mock.patch.dict(sys.modules, {"td": self._td()}):
+            out = snap._load_plan(path)
+        self.assertTrue(out["artifact"]["exists"])
+        self.assertEqual(len(out["artifact"]["sha256"]), 64)
+        self.assertEqual(out["artifact"]["bytes"], 9)
+
+    def test_a_missing_candidate_is_reported_absent_not_as_a_plan(self) -> None:
+        # Planning a load of a file that is not there would be reporting on
+        # something that does not exist.
+        with mock.patch.dict(sys.modules, {"td": self._td()}):
+            out = snap._load_plan(self.target("nope.toe"))
+        self.assertTrue(out["ok"])
+        self.assertFalse(out["artifactPresent"])
+        self.assertFalse(out["artifact"]["exists"])
+
+    def test_a_candidate_that_is_already_loaded_is_named(self) -> None:
+        # "Would loading this replace what I have open?" is the question a
+        # caller actually has, and it needs the current project named.
+        folder = self.dir
+        name = "current.toe"
+        self.write(os.path.join(folder, name), b"current")
+        candidate = os.path.join(folder, name)
+        with mock.patch.dict(sys.modules, {"td": self._td(name=name, folder=folder)}):
+            out = snap._load_plan(candidate)
+        self.assertTrue(out["isCurrentProject"])
+        self.assertTrue(out["artifactPresent"])
+        self.assertEqual(out["currentProject"]["name"], name)
+
+    def test_the_refusal_names_what_to_do_instead(self) -> None:
+        # A refusal with no route forward is a dead end; the fresh-TD route is
+        # genuinely fresh and already owned by this codebase.
+        path = self.write(self.target("candidate.toe"), b"toe-bytes")
+        with mock.patch.dict(sys.modules, {"td": self._td()}):
+            out = snap._load_plan(path)
+        refusal = out["refusal"]
+        self.assertEqual(refusal["code"], "tdmcp.snapshot.load_not_offered")
+        self.assertIn("spawn_td", refusal["instead"])
+        self.assertIn("revert", refusal["reason"])
+
+    def test_the_current_project_comparison_survives_mixed_separators(self) -> None:
+        # TouchDesigner runs on Windows under Wine and reports BACKSLASH paths
+        # for the very same file a Linux host bridge receives with forward
+        # slashes. Hardcoding either separator made "is this what I already have
+        # open?" answer false for the file that IS open.
+        root = "/home/acorbeau/project"
+        backslashed = root.replace("/", "\\")
+        self.assertTrue(
+            snap._same_path(root, "scratch.toe", backslashed + "\\scratch.toe")
+        )
+        self.assertTrue(
+            snap._same_path(backslashed, "scratch.toe", root + "/scratch.toe")
+        )
+        # And a different file is still different.
+        self.assertFalse(snap._same_path(root, "scratch.toe", root + "/other.toe"))
+        # A partial path is not a match, and empty parts are not a wildcard.
+        self.assertFalse(snap._same_path(root, "scratch.toe", root))
+        self.assertFalse(snap._same_path("", "", root + "/scratch.toe"))
+
+    def test_the_comparison_is_case_insensitive(self) -> None:
+        # TD reports paths with its own casing conventions, and the host may
+        # send them either way.
+        self.assertTrue(snap._same_path("/Home/Proj", "A.toe", "/home/proj/a.toe"))
+
+    def test_a_wine_drive_prefix_is_not_treated_as_the_same_file(self) -> None:
+        # TD reports `z:/home/...` where the host sees `/home/...`. That mapping
+        # is real, but stripping a drive prefix would make a DIFFERENT mounted
+        # path compare equal, so the mismatch is left visible for a caller that
+        # knows the mapping rather than guessed away here.
+        self.assertFalse(
+            snap._same_path(
+                "z:/home/acorbeau/project", "a.toe", "/home/acorbeau/project/a.toe"
+            )
+        )
+
+    def test_the_load_action_requires_a_target(self) -> None:
+        with mock.patch.dict(sys.modules, {"td": self._td()}):
+            out = snap.handle_project_snapshot({"action": "load"})
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["code"], "tdmcp.snapshot.target_required")
+
+    def test_the_load_action_routes_to_the_plan(self) -> None:
+        path = self.write(self.target("candidate.toe"), b"toe-bytes")
+        with mock.patch.dict(sys.modules, {"td": self._td()}):
+            out = snap.handle_project_snapshot({"action": "load", "target": path})
+        self.assertEqual(out["kind"], "loadPlan")
+        self.assertEqual(out["outcome"], "planned")
+
+
 class HandlerTests(TempDirCase):
     def test_an_unknown_action_is_refused_by_name(self) -> None:
         out = snap.handle_project_snapshot({"action": "rewrite"})
