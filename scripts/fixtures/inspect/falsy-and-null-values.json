@@ -1,0 +1,67 @@
+{
+  "provenance": {
+    "args": {
+      "include": [
+        "params"
+      ],
+      "paths": [],
+      "pid": 1
+    },
+    "callSeq": 3,
+    "expectPlan": "full:no_transforms",
+    "resultSeq": 4,
+    "session": "synthetic",
+    "source": "synthetic"
+  },
+  "response": {
+    "nodes": [
+      {
+        "childCount": 0,
+        "children": [],
+        "comment": "",
+        "errors": [],
+        "family": "CON",
+        "ok": true,
+        "opType": "constantDAT",
+        "params": [
+          {
+            "name": "nullval"
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "falseflag",
+            "val": false
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "zeroval",
+            "val": 0
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "emptystr",
+            "val": ""
+          }
+        ],
+        "path": "/project1/fx/falsy",
+        "timing": {
+          "available": true
+        },
+        "warnings": []
+      }
+    ],
+    "ok": true,
+    "timing": {
+      "available": true
+    }
+  }
+}

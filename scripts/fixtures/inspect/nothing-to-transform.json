@@ -1,0 +1,39 @@
+{
+  "provenance": {
+    "args": {
+      "include": [
+        "params"
+      ],
+      "paths": [],
+      "pid": 1
+    },
+    "callSeq": 12,
+    "expectPlan": "full:no_transforms",
+    "resultSeq": 13,
+    "session": "synthetic",
+    "source": "synthetic"
+  },
+  "response": {
+    "nodes": [
+      {
+        "childCount": 0,
+        "children": [],
+        "comment": "",
+        "errors": [],
+        "family": "NUL",
+        "ok": true,
+        "opType": "nullCOMP",
+        "params": [],
+        "path": "/project1/fx/bare",
+        "timing": {
+          "available": true
+        },
+        "warnings": []
+      }
+    ],
+    "ok": true,
+    "timing": {
+      "available": true
+    }
+  }
+}

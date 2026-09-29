@@ -1,0 +1,40 @@
+{
+  "provenance": {
+    "args": {
+      "include": [
+        "params"
+      ],
+      "paths": [],
+      "pid": 1
+    },
+    "callSeq": 6,
+    "expectPlan": "full:no_transforms",
+    "resultSeq": 7,
+    "session": "synthetic",
+    "source": "synthetic"
+  },
+  "response": {
+    "nodes": [
+      {
+        "childCount": 0,
+        "children": [],
+        "errors": [
+          {
+            "code": "op.missing",
+            "message": "node is not in the project"
+          }
+        ],
+        "family": "MIS",
+        "ok": false,
+        "opType": "missing",
+        "params": [],
+        "path": "/project1/fx/ghost",
+        "warnings": []
+      }
+    ],
+    "ok": false,
+    "timing": {
+      "available": true
+    }
+  }
+}

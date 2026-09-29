@@ -1,0 +1,50 @@
+{
+  "provenance": {
+    "args": {
+      "include": [
+        "params"
+      ],
+      "paths": [],
+      "pid": 1
+    },
+    "callSeq": 9,
+    "expectPlan": "full:no_transforms",
+    "resultSeq": 10,
+    "session": "synthetic",
+    "source": "synthetic"
+  },
+  "response": {
+    "nodes": [
+      {
+        "childCount": 1200,
+        "children": [
+          {
+            "path": "/project1/fx/paged/child0"
+          },
+          {
+            "path": "/project1/fx/paged/child1"
+          },
+          {
+            "path": "/project1/fx/paged/child2"
+          }
+        ],
+        "childrenPage": {
+          "cursor": "opaque-cursor",
+          "returned": 3,
+          "total": 1200
+        },
+        "errors": [],
+        "family": "COM",
+        "ok": true,
+        "opType": "folderCOMP",
+        "params": [],
+        "path": "/project1/fx/paged",
+        "warnings": []
+      }
+    ],
+    "ok": true,
+    "timing": {
+      "available": true
+    }
+  }
+}

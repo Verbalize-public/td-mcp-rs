@@ -1,0 +1,1032 @@
+{
+  "provenance": {
+    "args": {
+      "include": [
+        "params"
+      ],
+      "paths": [],
+      "pid": 1
+    },
+    "callSeq": 1,
+    "expectPlan": "compact",
+    "resultSeq": 2,
+    "session": "synthetic",
+    "source": "synthetic"
+  },
+  "response": {
+    "nodes": [
+      {
+        "childCount": 0,
+        "children": [],
+        "comment": "",
+        "errors": [],
+        "family": "CON",
+        "ok": true,
+        "opType": "constantDAT",
+        "params": [
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param0",
+            "val": 0.0
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param1",
+            "val": 0.25
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param2",
+            "val": 0.5
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param3",
+            "val": 0.75
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param4",
+            "val": 1.0
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param5",
+            "val": 1.25
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param6",
+            "val": 1.5
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param7",
+            "val": 1.75
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param8",
+            "val": 2.0
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param9",
+            "val": 2.25
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param10",
+            "val": 2.5
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param11",
+            "val": 2.75
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param12",
+            "val": 3.0
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param13",
+            "val": 3.25
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param14",
+            "val": 3.5
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param15",
+            "val": 3.75
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param16",
+            "val": 4.0
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param17",
+            "val": 4.25
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param18",
+            "val": 4.5
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param19",
+            "val": 4.75
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param20",
+            "val": 5.0
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param21",
+            "val": 5.25
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param22",
+            "val": 5.5
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param23",
+            "val": 5.75
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param24",
+            "val": 6.0
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param25",
+            "val": 6.25
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param26",
+            "val": 6.5
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param27",
+            "val": 6.75
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param28",
+            "val": 7.0
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param29",
+            "val": 7.25
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param30",
+            "val": 7.5
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param31",
+            "val": 7.75
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param32",
+            "val": 8.0
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param33",
+            "val": 8.25
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param34",
+            "val": 8.5
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param35",
+            "val": 8.75
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param36",
+            "val": 9.0
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param37",
+            "val": 9.25
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param38",
+            "val": 9.5
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param39",
+            "val": 9.75
+          }
+        ],
+        "path": "/project1/fx/gain0",
+        "timing": {
+          "available": true
+        },
+        "warnings": []
+      },
+      {
+        "childCount": 0,
+        "children": [],
+        "comment": "",
+        "errors": [],
+        "family": "CON",
+        "ok": true,
+        "opType": "constantDAT",
+        "params": [
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param0",
+            "val": 0.0
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param1",
+            "val": 0.25
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param2",
+            "val": 0.5
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param3",
+            "val": 0.75
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param4",
+            "val": 1.0
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param5",
+            "val": 1.25
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param6",
+            "val": 1.5
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param7",
+            "val": 1.75
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param8",
+            "val": 2.0
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param9",
+            "val": 2.25
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param10",
+            "val": 2.5
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param11",
+            "val": 2.75
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param12",
+            "val": 3.0
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param13",
+            "val": 3.25
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param14",
+            "val": 3.5
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param15",
+            "val": 3.75
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param16",
+            "val": 4.0
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param17",
+            "val": 4.25
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param18",
+            "val": 4.5
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param19",
+            "val": 4.75
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param20",
+            "val": 5.0
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param21",
+            "val": 5.25
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param22",
+            "val": 5.5
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param23",
+            "val": 5.75
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param24",
+            "val": 6.0
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param25",
+            "val": 6.25
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param26",
+            "val": 6.5
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param27",
+            "val": 6.75
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param28",
+            "val": 7.0
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param29",
+            "val": 7.25
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param30",
+            "val": 7.5
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param31",
+            "val": 7.75
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param32",
+            "val": 8.0
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param33",
+            "val": 8.25
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param34",
+            "val": 8.5
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param35",
+            "val": 8.75
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param36",
+            "val": 9.0
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param37",
+            "val": 9.25
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param38",
+            "val": 9.5
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param39",
+            "val": 9.75
+          }
+        ],
+        "path": "/project1/fx/gain1",
+        "timing": {
+          "available": true
+        },
+        "warnings": []
+      },
+      {
+        "childCount": 0,
+        "children": [],
+        "comment": "",
+        "errors": [],
+        "family": "CON",
+        "ok": true,
+        "opType": "constantDAT",
+        "params": [
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param0",
+            "val": 0.0
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param1",
+            "val": 0.25
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param2",
+            "val": 0.5
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param3",
+            "val": 0.75
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param4",
+            "val": 1.0
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param5",
+            "val": 1.25
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param6",
+            "val": 1.5
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param7",
+            "val": 1.75
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param8",
+            "val": 2.0
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param9",
+            "val": 2.25
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param10",
+            "val": 2.5
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param11",
+            "val": 2.75
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param12",
+            "val": 3.0
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param13",
+            "val": 3.25
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param14",
+            "val": 3.5
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param15",
+            "val": 3.75
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param16",
+            "val": 4.0
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param17",
+            "val": 4.25
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param18",
+            "val": 4.5
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param19",
+            "val": 4.75
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param20",
+            "val": 5.0
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param21",
+            "val": 5.25
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param22",
+            "val": 5.5
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param23",
+            "val": 5.75
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param24",
+            "val": 6.0
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param25",
+            "val": 6.25
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param26",
+            "val": 6.5
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param27",
+            "val": 6.75
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param28",
+            "val": 7.0
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param29",
+            "val": 7.25
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param30",
+            "val": 7.5
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param31",
+            "val": 7.75
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param32",
+            "val": 8.0
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param33",
+            "val": 8.25
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param34",
+            "val": 8.5
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param35",
+            "val": 8.75
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param36",
+            "val": 9.0
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param37",
+            "val": 9.25
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param38",
+            "val": 9.5
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "param39",
+            "val": 9.75
+          }
+        ],
+        "path": "/project1/fx/gain2",
+        "timing": {
+          "available": true
+        },
+        "warnings": []
+      }
+    ],
+    "ok": true,
+    "timing": {
+      "available": true
+    }
+  }
+}

@@ -1,0 +1,63 @@
+{
+  "provenance": {
+    "args": {
+      "include": [
+        "params"
+      ],
+      "paths": [],
+      "pid": 1
+    },
+    "callSeq": 7,
+    "expectPlan": "full:not_smaller",
+    "resultSeq": 8,
+    "session": "synthetic",
+    "source": "synthetic"
+  },
+  "response": {
+    "nodes": [
+      {
+        "childCount": 0,
+        "children": [],
+        "errors": [],
+        "family": "DAT",
+        "observations": {
+          "errors": {
+            "available": false
+          },
+          "params": {
+            "available": false
+          },
+          "warnings": {
+            "available": true
+          }
+        },
+        "ok": true,
+        "opType": "executeDAT",
+        "params": [
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "a",
+            "val": 1
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "b",
+            "val": 2
+          }
+        ],
+        "path": "/project1/fx/unavailable",
+        "warnings": []
+      }
+    ],
+    "ok": true,
+    "timing": {
+      "available": true
+    }
+  }
+}

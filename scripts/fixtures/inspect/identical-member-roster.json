@@ -1,0 +1,159 @@
+{
+  "provenance": {
+    "args": {
+      "include": [
+        "params"
+      ],
+      "paths": [],
+      "pid": 1
+    },
+    "callSeq": 8,
+    "expectPlan": "compact",
+    "resultSeq": 9,
+    "session": "synthetic",
+    "source": "synthetic"
+  },
+  "response": {
+    "nodes": [
+      {
+        "apiHelp": [
+          "save",
+          "load",
+          "reset"
+        ],
+        "childCount": 0,
+        "children": [],
+        "comment": "",
+        "errors": [],
+        "family": "PAN",
+        "ok": true,
+        "opType": "panelDAT",
+        "params": [
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "index",
+            "val": 0
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "index",
+            "val": 1
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "index",
+            "val": 2
+          }
+        ],
+        "path": "/project1/fx/roster0",
+        "timing": {
+          "available": true
+        },
+        "warnings": []
+      },
+      {
+        "apiHelp": [
+          "save",
+          "load",
+          "reset"
+        ],
+        "childCount": 0,
+        "children": [],
+        "comment": "",
+        "errors": [],
+        "family": "PAN",
+        "ok": true,
+        "opType": "panelDAT",
+        "params": [
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "index",
+            "val": 0
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "index",
+            "val": 1
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "index",
+            "val": 2
+          }
+        ],
+        "path": "/project1/fx/roster1",
+        "timing": {
+          "available": true
+        },
+        "warnings": []
+      },
+      {
+        "apiHelp": [
+          "save",
+          "load",
+          "reset"
+        ],
+        "childCount": 0,
+        "children": [],
+        "comment": "",
+        "errors": [],
+        "family": "PAN",
+        "ok": true,
+        "opType": "panelDAT",
+        "params": [
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "index",
+            "val": 0
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "index",
+            "val": 1
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "index",
+            "val": 2
+          }
+        ],
+        "path": "/project1/fx/roster2",
+        "timing": {
+          "available": true
+        },
+        "warnings": []
+      }
+    ],
+    "ok": true,
+    "timing": {
+      "available": true
+    }
+  }
+}

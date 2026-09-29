@@ -1,0 +1,56 @@
+{
+  "provenance": {
+    "args": {
+      "include": [
+        "params"
+      ],
+      "paths": [],
+      "pid": 1
+    },
+    "callSeq": 2,
+    "expectPlan": "full:not_smaller",
+    "resultSeq": 3,
+    "session": "synthetic",
+    "source": "synthetic"
+  },
+  "response": {
+    "nodes": [
+      {
+        "childCount": 0,
+        "children": [],
+        "comment": "",
+        "errors": [],
+        "family": "EXP",
+        "ok": true,
+        "opType": "expressionDAT",
+        "params": [
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "value",
+            "val": 1.0
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "EXPRESSION",
+            "name": "driven",
+            "val": "frame"
+          }
+        ],
+        "path": "/project1/fx/mixed",
+        "timing": {
+          "available": true
+        },
+        "warnings": []
+      }
+    ],
+    "ok": true,
+    "timing": {
+      "available": true
+    }
+  }
+}

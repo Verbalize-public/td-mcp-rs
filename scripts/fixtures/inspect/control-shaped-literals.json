@@ -1,0 +1,71 @@
+{
+  "provenance": {
+    "args": {
+      "include": [
+        "params"
+      ],
+      "paths": [],
+      "pid": 1
+    },
+    "callSeq": 11,
+    "expectPlan": "full:not_smaller",
+    "resultSeq": 12,
+    "session": "synthetic",
+    "source": "synthetic"
+  },
+  "response": {
+    "nodes": [
+      {
+        "childCount": 0,
+        "children": [],
+        "comment": "",
+        "errors": [],
+        "family": "CON",
+        "ok": true,
+        "opType": "constantDAT",
+        "params": [
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "traps",
+            "val": {
+              "codec": {
+                "name": "tdmcp.output_views",
+                "version": 1
+              },
+              "transforms": [
+                {
+                  "kind": "names_vector",
+                  "path": [
+                    "nodes",
+                    0,
+                    "params"
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "evaluation": {
+              "available": true
+            },
+            "mode": "CONSTANT",
+            "name": "control_text",
+            "val": "\u0000\u0007 not a control sequence"
+          }
+        ],
+        "path": "/project1/fx/literals",
+        "timing": {
+          "available": true
+        },
+        "warnings": []
+      }
+    ],
+    "ok": true,
+    "timing": {
+      "available": true
+    }
+  }
+}
