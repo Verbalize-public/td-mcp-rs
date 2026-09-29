@@ -1,0 +1,1032 @@
+{
+  "case": {
+    "expect": {
+      "capabilities.compactView.state": "unknown",
+      "contract": "v2",
+      "presentation.applied": "full",
+      "presentation.fullReason": "absent",
+      "presentation.requested": "full"
+    },
+    "legacy": {
+      "nodes": [
+        {
+          "childCount": 0,
+          "children": [],
+          "comment": "",
+          "errors": [],
+          "family": "CON",
+          "ok": true,
+          "opType": "constantDAT",
+          "params": [
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value0",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value1",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value2",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value3",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value4",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value5",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value6",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value7",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value8",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value9",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value10",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value11",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value12",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value13",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value14",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value15",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value16",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value17",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value18",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value19",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value20",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value21",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value22",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value23",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value24",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value25",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value26",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value27",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value28",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value29",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value30",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value31",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value32",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value33",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value34",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value35",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value36",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value37",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value38",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value39",
+              "val": 1.0
+            }
+          ],
+          "path": "/project1/fx/const0",
+          "warnings": []
+        },
+        {
+          "childCount": 0,
+          "children": [],
+          "comment": "",
+          "errors": [],
+          "family": "CON",
+          "ok": true,
+          "opType": "constantDAT",
+          "params": [
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value0",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value1",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value2",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value3",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value4",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value5",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value6",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value7",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value8",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value9",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value10",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value11",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value12",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value13",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value14",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value15",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value16",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value17",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value18",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value19",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value20",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value21",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value22",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value23",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value24",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value25",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value26",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value27",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value28",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value29",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value30",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value31",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value32",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value33",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value34",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value35",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value36",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value37",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value38",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value39",
+              "val": 1.0
+            }
+          ],
+          "path": "/project1/fx/const1",
+          "warnings": []
+        },
+        {
+          "childCount": 0,
+          "children": [],
+          "comment": "",
+          "errors": [],
+          "family": "CON",
+          "ok": true,
+          "opType": "constantDAT",
+          "params": [
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value0",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value1",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value2",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value3",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value4",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value5",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value6",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value7",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value8",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value9",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value10",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value11",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value12",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value13",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value14",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value15",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value16",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value17",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value18",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value19",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value20",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value21",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value22",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value23",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value24",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value25",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value26",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value27",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value28",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value29",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value30",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value31",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value32",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value33",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value34",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value35",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value36",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value37",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value38",
+              "val": 1.0
+            },
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value39",
+              "val": 1.0
+            }
+          ],
+          "path": "/project1/fx/const2",
+          "warnings": []
+        }
+      ],
+      "ok": true,
+      "timing": {
+        "available": false,
+        "reason": "not requested"
+      }
+    },
+    "options": {
+      "contract": "v2"
+    },
+    "query": {
+      "paths": [
+        "/project1/fx/const0"
+      ],
+      "pid": 1
+    }
+  },
+  "provenance": {
+    "purpose": "omitting the view is a full response, and is not recorded as a compact one",
+    "source": "synthetic"
+  }
+}

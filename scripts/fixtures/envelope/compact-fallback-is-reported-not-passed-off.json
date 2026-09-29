@@ -1,0 +1,55 @@
+{
+  "case": {
+    "expect": {
+      "capabilities.compactView.state": "unknown",
+      "contract": "v2",
+      "presentation.applied": "full",
+      "presentation.fullReason": "present",
+      "presentation.requested": "compact"
+    },
+    "legacy": {
+      "nodes": [
+        {
+          "childCount": 0,
+          "children": [],
+          "comment": "",
+          "errors": [],
+          "family": "CON",
+          "ok": true,
+          "opType": "constantDAT",
+          "params": [
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value0",
+              "val": 1.0
+            }
+          ],
+          "path": "/project1/fx/const0",
+          "warnings": []
+        }
+      ],
+      "ok": true,
+      "timing": {
+        "available": false,
+        "reason": "not requested"
+      }
+    },
+    "options": {
+      "contract": "v2",
+      "view": "compact"
+    },
+    "query": {
+      "paths": [
+        "/project1/fx/const0"
+      ],
+      "pid": 1
+    }
+  },
+  "provenance": {
+    "purpose": "a compact request that could not compact says so, and claims no compact support",
+    "source": "synthetic"
+  }
+}

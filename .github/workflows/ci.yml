@@ -56,6 +56,7 @@ jobs:
       - run: python scripts/check_docs.py
       - run: python scripts/check_guidance.py
       - run: python scripts/generate_inspect_fixtures.py --check
+      - run: python scripts/generate_envelope_fixtures.py --check
       - run: python -m unittest discover -s scripts/tests
       - run: cargo fmt --all -- --check
       - run: cargo clippy --locked --workspace --all-targets -- -D warnings

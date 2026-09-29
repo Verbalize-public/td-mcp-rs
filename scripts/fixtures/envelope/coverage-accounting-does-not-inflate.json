@@ -1,0 +1,61 @@
+{
+  "case": {
+    "expect": {
+      "contract": "v2",
+      "coverage.requested": 2,
+      "coverage.returned": 1
+    },
+    "legacy": {
+      "nodes": [
+        {
+          "childCount": 0,
+          "children": [],
+          "comment": "",
+          "errors": [],
+          "family": "CON",
+          "ok": true,
+          "opType": "constantDAT",
+          "params": [
+            {
+              "evaluation": {
+                "available": true
+              },
+              "mode": "CONSTANT",
+              "name": "value0",
+              "val": 1.0
+            }
+          ],
+          "path": "/project1/fx/const0",
+          "warnings": []
+        },
+        {
+          "childCount": 0,
+          "children": [],
+          "comment": "",
+          "errors": [],
+          "family": "CON",
+          "ok": false,
+          "opType": "constantDAT",
+          "params": [],
+          "path": "/project1/fx/absent",
+          "warnings": []
+        }
+      ],
+      "ok": true
+    },
+    "options": {
+      "contract": "v2"
+    },
+    "query": {
+      "paths": [
+        "/project1/fx/const0",
+        "/project1/fx/absent"
+      ],
+      "pid": 1
+    }
+  },
+  "provenance": {
+    "purpose": "requested, returned, missing and unavailable are counted separately",
+    "source": "synthetic"
+  }
+}
