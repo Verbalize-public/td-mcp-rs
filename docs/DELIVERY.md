@@ -105,5 +105,7 @@ the old PID to exit before binding.
 Do not describe unsigned installers as signed or notarized. Publishing and
 native OS installation cannot be fully proven by Linux-only local checks.
 
+Upgrading from an earlier version: [Migrating to v0.2.0](MIGRATION.md).
+
 Bootstrap changes need [live TD repacking](../scripts/pack_bootstrap_tox.md).
 Skill changes need [checked-in rendering](../skills/README.md).
