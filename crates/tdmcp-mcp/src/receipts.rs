@@ -18,23 +18,58 @@ use std::sync::Arc;
 use serde_json::Value;
 use tdmcp_core::EffectState;
 
-/// Wire methods that only read. A read cannot change the scene, so its effect
-/// is [`EffectState::NotApplicable`] rather than an unknown — the difference
-/// between "this could not have changed anything" and "we did not find out".
-pub const READ_ONLY_METHODS: &[&str] = &[
-    "api_help",
-    "capture",
-    "dialog_state",
-    "editor_context",
-    "inspect",
-    "palette_index",
-    "palette_probe",
-    "project_lint",
-    "td_installs",
-];
+/// What kind of thing a dispatch was, which decides what its payload can prove.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EffectClass {
+    /// The call cannot have changed anything: a pure observation.
+    Read,
+    /// The call may have changed the scene, and its payload says what it applied.
+    Applying,
+    /// The call may have changed something and its payload may not say.
+    ///
+    /// The safe default. Claiming an effect nobody established is worse than
+    /// admitting ignorance, so anything not positively known to be a read
+    /// lands here.
+    Unknown,
+}
 
-/// Wire methods whose payload states what it applied.
-pub const APPLYING_METHODS: &[&str] = &["execute_python", "mutate_nodes"];
+/// Classify a plain wire method.
+///
+/// Only for methods whose *every* call is the same kind of thing. Methods that
+/// multiplex several actions — `capture` and `record` run a job, a status poll,
+/// a cancel, an artifact read, and a release behind one name — must be
+/// classified by their caller with [`classify_job`], because the method name
+/// alone would misreport them.
+#[must_use]
+pub fn classify_effect(method: &str) -> EffectClass {
+    match method {
+        "api_help" | "editor_context" | "inspect" | "palette_index" | "palette_probe"
+        | "project_lint" | "td_installs" => EffectClass::Read,
+        "execute_python" | "mutate_nodes" => EffectClass::Applying,
+        _ => EffectClass::Unknown,
+    }
+}
+
+/// Classify a deferred timing job by the action it was asked to perform.
+///
+/// `capture` and `record` share one wire method across five very different
+/// operations, so the method name cannot answer this. Getting it wrong in the
+/// read direction is the dangerous direction: a `start` that begins writing
+/// artifacts and takes transport ownership would be recorded as
+/// `not_applicable`, which claims the call could not have changed anything.
+#[must_use]
+pub fn classify_job(action: crate::timing::JobAction) -> EffectClass {
+    use crate::timing::JobAction;
+    match action {
+        // Polling for progress and reading a finalized artifact change nothing.
+        JobAction::Status | JobAction::Read => EffectClass::Read,
+        // Starting a job, cancelling one (which finalizes partial results and
+        // releases transport ownership), and releasing retained artifacts all
+        // do change something. None of them reports an `applied` count, so they
+        // stay unknown rather than being rounded to "applied" or "none".
+        JobAction::Start | JobAction::Cancel | JobAction::Release => EffectClass::Unknown,
+    }
+}
 
 /// Why a receipt could not be written.
 ///
@@ -240,22 +275,19 @@ pub fn read_mutate_effect(value: &Value) -> EffectState {
     EffectState::None
 }
 
-/// Read the effect for a wire method.
+/// Read the effect a dispatch established.
 ///
-/// The method decides the *class* of operation; the payload decides what
-/// happened within that class. A read that returned cannot have changed
-/// anything, so its effect is not merely unknown — it is not applicable.
+/// The caller decides the *class* of operation, because only it knows whether
+/// this particular call was a read; the payload decides what happened within
+/// that class. A read that returned cannot have changed anything, so its effect
+/// is not merely unknown — it is not applicable.
 #[must_use]
-pub fn read_effect(method: &str, value: &Value) -> EffectState {
-    if READ_ONLY_METHODS.contains(&method) {
-        return EffectState::NotApplicable;
+pub fn read_effect(class: EffectClass, value: &Value) -> EffectState {
+    match class {
+        EffectClass::Read => EffectState::NotApplicable,
+        EffectClass::Applying => read_mutate_effect(value),
+        EffectClass::Unknown => EffectState::Unknown,
     }
-    if APPLYING_METHODS.contains(&method) {
-        return read_mutate_effect(value);
-    }
-    // An unrecognised method could be anything. Claiming a scene change would
-    // be worse than admitting ignorance.
-    EffectState::Unknown
 }
 
 #[cfg(test)]
@@ -320,11 +352,7 @@ mod tests {
         // The distinction a caller actually needs: "this could not have changed
         // anything" versus "we did not find out".
         assert_eq!(
-            read_effect("inspect", &json!({})),
-            EffectState::NotApplicable
-        );
-        assert_eq!(
-            read_effect("capture", &json!({"width": 1})),
+            read_effect(EffectClass::Read, &json!({})),
             EffectState::NotApplicable
         );
     }
@@ -332,21 +360,64 @@ mod tests {
     #[test]
     fn a_mutating_method_still_depends_on_its_payload() {
         assert_eq!(
-            read_effect("mutate_nodes", &json!({"applied": 1, "failedAt": 0})),
+            read_effect(EffectClass::Applying, &json!({"applied": 1, "failedAt": 0})),
             EffectState::Applied
         );
         assert_eq!(
-            read_effect("execute_python", &json!({})),
+            read_effect(EffectClass::Applying, &json!({})),
             EffectState::Unknown
         );
     }
 
     #[test]
-    fn an_unrecognised_method_claims_no_effect() {
+    fn an_unclassified_method_claims_no_effect() {
         assert_eq!(
-            read_effect("something_new", &json!({"applied": 5})),
-            EffectState::Unknown
+            read_effect(EffectClass::Unknown, &json!({"applied": 5})),
+            EffectState::Unknown,
+            "an `applied` count is not this call's effect when the call was never classified"
         );
+    }
+
+    #[test]
+    fn a_pure_read_is_classified_as_one_and_a_mutation_as_not() {
+        for method in ["inspect", "api_help", "editor_context", "palette_probe"] {
+            assert_eq!(classify_effect(method), EffectClass::Read, "{method}");
+        }
+        for method in ["execute_python", "mutate_nodes"] {
+            assert_eq!(classify_effect(method), EffectClass::Applying, "{method}");
+        }
+    }
+
+    #[test]
+    fn an_unrecognised_method_is_never_assumed_to_be_a_read() {
+        // The dangerous direction: a new tool nobody classified must not be
+        // recorded as `not_applicable`, which would claim it changed nothing.
+        assert_eq!(classify_effect("something_new"), EffectClass::Unknown);
+    }
+
+    #[test]
+    fn a_timing_job_is_classified_by_its_action_not_its_method() {
+        use crate::timing::JobAction;
+        // `capture` and `record` share one wire method across five operations,
+        // so the method name alone would misreport every one of them.
+        assert_eq!(classify_job(JobAction::Status), EffectClass::Read);
+        assert_eq!(classify_job(JobAction::Read), EffectClass::Read);
+        // A cancel finalizes partial results and releases transport ownership,
+        // so it changes something even though it sounds like a stop.
+        assert_eq!(classify_job(JobAction::Cancel), EffectClass::Unknown);
+        assert_eq!(classify_job(JobAction::Start), EffectClass::Unknown);
+        assert_eq!(classify_job(JobAction::Release), EffectClass::Unknown);
+    }
+
+    #[test]
+    fn a_job_start_is_never_recorded_as_having_changed_nothing() {
+        // The regression the action-based classification exists to prevent:
+        // `capture` was on the read-only method list, so starting a job that
+        // writes artifacts and takes transport ownership would have been
+        // recorded as `not_applicable`.
+        use crate::timing::JobAction;
+        assert_ne!(classify_job(JobAction::Start), EffectClass::Read);
+        assert_ne!(classify_job(JobAction::Cancel), EffectClass::Read);
     }
 
     /// A handle that records what it was told, so a guard's own behaviour can

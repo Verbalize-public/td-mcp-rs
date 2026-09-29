@@ -31,7 +31,7 @@ use crate::outcomes::{
     slave_unreachable,
 };
 use crate::output_v2;
-use crate::receipts::{read_effect, DispatchJournal};
+use crate::receipts::{classify_effect, classify_job, read_effect, DispatchJournal, EffectClass};
 use crate::schema::input_schema_for;
 use crate::server::FederationCtx;
 use crate::session_registry::{BridgeCallSlot, McpSessionRegistry, DAEMON_SCOPE_LOCAL};
@@ -1405,6 +1405,7 @@ async fn dispatch_tool_inner(
                 bridge,
                 params.pid,
                 BridgeMethod::PaletteProbe,
+                classify_effect(BridgeMethod::PaletteProbe.wire_str()),
                 serde_json::json!({
                     "targets": targets,
                     "detailLevel": params.detail_level.as_str(),
@@ -1483,6 +1484,7 @@ async fn dispatch_tool_inner(
                 bridge,
                 params.pid,
                 method,
+                classify_effect(method.wire_str()),
                 serde_json::json!({
                     "script": params.script,
                     "contextPath": params.context_path,
@@ -1544,6 +1546,7 @@ async fn dispatch_tool_inner(
                 bridge,
                 params.pid,
                 method,
+                classify_job(params.action),
                 {
                     let mut wire = serde_json::json!({
                         "path": params.path,
@@ -1600,6 +1603,7 @@ async fn dispatch_tool_inner(
                 bridge,
                 params.pid,
                 BridgeMethod::Record,
+                classify_job(params.action),
                 args,
                 journal,
             )
@@ -1643,6 +1647,7 @@ async fn dispatch_tool_inner(
                 bridge,
                 params.pid,
                 method,
+                classify_effect(method.wire_str()),
                 bridge_inspect_params(&params),
                 journal,
             )
@@ -1740,6 +1745,7 @@ async fn dispatch_tool_inner(
                 bridge,
                 params.pid,
                 method,
+                classify_effect(method.wire_str()),
                 serde_json::json!({
                     "steps": steps,
                     "contextPath": params.context_path,
@@ -1790,6 +1796,7 @@ async fn dispatch_tool_inner(
                 bridge,
                 params.pid,
                 BridgeMethod::ApiHelp,
+                classify_effect(BridgeMethod::ApiHelp.wire_str()),
                 serde_json::json!({
                     "queries": queries,
                     "detailLevel": params.detail_level.as_str(),
@@ -1827,6 +1834,7 @@ async fn dispatch_tool_inner(
                 bridge,
                 params.pid,
                 BridgeMethod::EditorContext,
+                classify_effect(BridgeMethod::EditorContext.wire_str()),
                 serde_json::json!({}),
                 journal,
             )
@@ -2160,6 +2168,7 @@ async fn enqueue_and_call(
     bridge: &dyn BridgeRpc,
     pid: Pid,
     method: BridgeMethod,
+    effect_class: EffectClass,
     params: Value,
     journal: Option<&dyn DispatchJournal>,
 ) -> BridgeOutcome {
@@ -2222,7 +2231,7 @@ async fn enqueue_and_call(
         match &outcome {
             BridgeOutcome::Ok(value) => {
                 let ok = value.get("ok").and_then(Value::as_bool).unwrap_or(true);
-                let effect = read_effect(method.wire_str(), value);
+                let effect = read_effect(effect_class, value);
                 if let Err(error) = guard.settled(ok, effect, None) {
                     // The work is done and the receipt failed. Returning the
                     // work's result is right — discarding a successful mutation
