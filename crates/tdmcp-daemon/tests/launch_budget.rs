@@ -169,6 +169,56 @@ async fn call_through_proxy(
     response
 }
 
+/// Initialize a proxy, issue one launch, then DROP the client end without
+/// reading the answer — a caller that goes away mid-launch.
+async fn disconnect_during_launch(url: &str, cfg: ReconnectConfig) {
+    let (client_side, server_side) = tokio::io::duplex(64 * 1024);
+    let (server_read, server_write) = tokio::io::split(server_side);
+    let proxy_url = url.to_owned();
+    let proxy = tokio::spawn(async move {
+        run_stdio_proxy_rw_config(&proxy_url, server_read, server_write, cfg).await
+    });
+    let (read, mut write) = tokio::io::split(client_side);
+    let mut read = BufReader::new(read);
+    let mut line = String::new();
+
+    let init = json!({
+        "jsonrpc": "2.0", "id": 1, "method": "initialize",
+        "params": {
+            "protocolVersion": "2025-06-18",
+            "capabilities": {},
+            "clientInfo": {"name": "disconnect-test", "version": "1.0"}
+        }
+    });
+    write
+        .write_all(format!("{init}\n").as_bytes())
+        .await
+        .unwrap();
+    line.clear();
+    tokio::time::timeout(Duration::from_secs(10), read.read_line(&mut line))
+        .await
+        .expect("initialize timeout")
+        .unwrap();
+    write
+        .write_all(b"{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}\n")
+        .await
+        .unwrap();
+    let call = json!({
+        "jsonrpc": "2.0", "id": 9, "method": "tools/call",
+        "params": {"name": "spawn_td", "arguments": {
+            "exePath": "/opt/td/TouchDesigner", "waitTimeoutMs": 100
+        }}
+    });
+    write
+        .write_all(format!("{call}\n").as_bytes())
+        .await
+        .unwrap();
+    // No flush-and-read: the caller simply vanishes mid-flight.
+    drop(write);
+    drop(read);
+    drop(proxy);
+}
+
 #[tokio::test]
 async fn a_launch_that_outlives_the_proxy_deadline_is_reported_as_a_launch_timeout() {
     // 100ms requested + 50ms head-room = a 150ms ceiling, against a 30s stall.
@@ -335,5 +385,24 @@ async fn concurrent_launches_are_budgeted_independently() {
         calls.load(Ordering::SeqCst),
         3,
         "three launches in, three dispatches out — never fewer, never more"
+    );
+}
+
+#[tokio::test]
+async fn a_caller_that_disconnects_mid_launch_leaves_the_launch_alone() {
+    // Disconnect is the one case that must NOT produce a repair. The caller is
+    // gone, so there is nobody to answer; the launch is still owned by the
+    // daemon and may yet handshake. Healing or re-sending here would be acting
+    // on a vanished client — and re-sending is the double-spawn.
+    let cfg = launch_config(Duration::from_millis(50), Duration::from_millis(200));
+    let (url, _admin, calls) = spawn_stalling_daemon().await;
+    disconnect_during_launch(&url, cfg).await;
+
+    // Let the proxy's deadline pass and the stub's own answer arrive after it.
+    tokio::time::sleep(Duration::from_secs(32)).await;
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "a disconnected caller must not cause a second launch"
     );
 }
