@@ -444,6 +444,11 @@ def _recover_session() -> None:
         stream = getattr(candidate, "tdmcp_stream", None)
         if stream is not None:
             _active_stream, _active_thread = stream, candidate
+            # Restoring the THREAD is also what keeps the session's outbound
+            # queue reachable: `task_queue.active_event_queue` resolves the
+            # queue as `tdmcp_event_queue` on this thread, so re-adopting the
+            # worker re-adopts its queue with it. The queue itself needs no
+            # global here precisely because it was never a global.
             return
     _active_stream, _active_thread = None, None
 

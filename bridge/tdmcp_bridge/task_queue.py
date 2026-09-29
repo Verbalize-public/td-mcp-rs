@@ -98,13 +98,39 @@ _running: _PendingItem | None = None
 _event_queue: "queue.Queue[dict[str, Any]] | None" = None
 
 
+def active_event_queue() -> "queue.Queue[dict[str, Any]] | None":
+    """The queue of the session that is CURRENTLY serving, or None.
+
+    Resolution is by IDENTITY — the queue is published on the worker thread
+    that owns it and the *package* points at that thread — never by module
+    global. A reload resets module globals, and a bounded teardown can leave a
+    superseded worker running while the next session publishes its own queue, so
+    "the most recently published queue" and "the queue belonging to the live
+    session" are different things whenever two are alive at once. Producers
+    (`enqueue_event`) want the second: an event meant for the session the daemon
+    is waiting on must not be handed to a worker that has already been
+    superseded.
+    """
+    import tdmcp_bridge as pkg
+
+    thread = getattr(pkg, "_active_thread", None)
+    if thread is None or not thread.is_alive():
+        return None
+    # No fallback to "the only worker that published a queue": a live worker
+    # from a SUPERSEDED session is indistinguishable from the live one by its
+    # attributes alone, and picking the wrong one is the exact defect this
+    # resolution exists to prevent. If the session is not recorded, there is no
+    # session to enqueue for.
+    return getattr(thread, "tdmcp_event_queue", None)
+
+
 def enqueue_event(msg: dict[str, Any]) -> bool:
     """Queue an outbound event frame for the active connection to send.
 
     Returns False (silently) when no connection is currently serving —
     callers (e.g. the log uplink) should just drop in that case.
     """
-    q = _event_queue
+    q = active_event_queue()
     if q is None:
         return False
     try:
@@ -114,12 +140,22 @@ def enqueue_event(msg: dict[str, Any]) -> bool:
         return False
 
 
-def _drain_outbound(stream, max_items: int = 64) -> bool:
-    """Write queued outbound events onto ``stream``. Returns False on the
-    first write failure (caller should treat the connection as dead)."""
-    q = _event_queue
+def _drain_outbound(stream, q, max_items: int = 64) -> bool:
+    """Write queued outbound events from ``q`` onto ``stream``.
+
+    Returns False on the first write failure (caller should treat the connection
+    as dead).
+
+    ``q`` is REQUIRED and is the calling worker's own queue, never read from the
+    module global: a superseded worker draining the global would write the live
+    session's frames onto a stream the daemon has already abandoned, which both
+    loses the event and steals it from the session waiting for it. There is
+    exactly one caller and it always passes its own queue, so the parameter is
+    mandatory rather than a silent fallback to a shared global — a fallback
+    nobody can reach is a false promise about what the function does.
+    """
     if q is None:
-        return True
+        raise TypeError("_drain_outbound requires the calling worker's own queue")
     n = 0
     while n < max_items:
         try:
@@ -537,6 +573,42 @@ def serve_queued(
     global _event_queue
     my_event_queue: "queue.Queue[dict[str, Any]]" = queue.Queue(maxsize=1024)
     _event_queue = my_event_queue
+    # The queue is ALSO published on the worker thread, which is what
+    # `active_event_queue` resolves against. The module global alone is not
+    # enough: it is reset by every reload, and two workers can be alive at once
+    # when a bounded teardown starts the next session before this one finished.
+    # The thread outlives the module, so it is the durable place for the value.
+    #
+    # This worker CLAIMS the session. It was started because the bridge decided
+    # to serve again, so it is the live one by construction — even if a previous
+    # worker is still running because the teardown's bounded wait expired. Its
+    # predecessor finds out it was superseded at DRAIN time (see `owns_queue`),
+    # not here: a startup check would decide ownership once, and the
+    # supersession happens after it.
+    me = threading.current_thread()
+    if me is not None:
+        import tdmcp_bridge as _pkg
+
+        me.tdmcp_event_queue = my_event_queue  # type: ignore[attr-defined]
+        _pkg._active_thread = me
+        if getattr(_pkg, "_active_stream", None) is None:
+            _pkg._active_stream = stream
+
+    def owns_queue() -> bool:
+        """Is this worker still the session the bridge is serving?
+
+        Re-checked on every pass, because the answer flips WHILE the worker
+        runs: a superseded worker that keeps draining writes the live session's
+        frames onto a stream the daemon has already abandoned, losing the event
+        and stealing it from the session waiting for it. A startup-only
+        ownership decision cannot catch that — the supersession happens after
+        startup, not before it.
+        """
+        if me is None:
+            return True
+        import tdmcp_bridge as _pkg
+
+        return getattr(_pkg, "_active_thread", None) is me
 
     if initial_event is not None:
         try:
@@ -547,6 +619,11 @@ def serve_queued(
             )
             if _event_queue is my_event_queue:
                 _event_queue = None
+            if me is not None:
+                try:
+                    del me.tdmcp_event_queue  # type: ignore[attr-defined]
+                except Exception:  # noqa: BLE001 — best-effort teardown
+                    pass
             _close_serve_stream(stream)
             return
 
@@ -554,8 +631,9 @@ def serve_queued(
     try:
         while True:
             # Flush any queued outbound events (M2 log uplink) before the next
-            # blocking read — keeps all stream writes on this one thread.
-            if not _drain_outbound(stream):
+            # blocking read — keeps all stream writes on this one thread, and
+            # only while this worker is still the session being served.
+            if owns_queue() and not _drain_outbound(stream, my_event_queue):
                 break
             try:
                 msg = _read_frame(stream, idle_dead_s=idle_dead_s)
@@ -635,4 +713,9 @@ def serve_queued(
     finally:
         if _event_queue is my_event_queue:
             _event_queue = None
+        if me is not None:
+            try:
+                del me.tdmcp_event_queue  # type: ignore[attr-defined]
+            except Exception:  # noqa: BLE001 — best-effort teardown
+                pass
         _close_serve_stream(stream)

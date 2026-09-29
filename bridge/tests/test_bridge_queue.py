@@ -32,6 +32,12 @@ class QueuedServeTest(unittest.TestCase):
         # Fresh module-level queue per test — tests run in one process.
         tdmcp_bridge._reset_pending_for_tests()  # noqa: SLF001
         tdmcp_bridge._task_queue._event_queue = None  # noqa: SLF001
+        # Also clear the SESSION identity, which is what `enqueue_event` now
+        # resolves against. Resetting only the global leaves a worker leaked
+        # by an earlier test recorded as the live session, so this test's own
+        # worker declines ownership and the producer resolves the wrong one.
+        tdmcp_bridge._active_thread = None
+        tdmcp_bridge._active_stream = None
         bridge_sock, daemon_sock = socket.socketpair()
         self.bridge_stream = bridge_sock.makefile("rwb")
         self.daemon_stream = daemon_sock.makefile("rwb")
@@ -225,12 +231,22 @@ class QueuedServeTest(unittest.TestCase):
             target=tdmcp_bridge.serve_queued, args=(self.bridge_stream,), daemon=True
         )
         worker.start()
+        # `enqueue_event` resolves the serving session by IDENTITY — the queue
+        # published on that worker's own thread — not by the module global (see
+        # `task_queue.active_event_queue`). Wait for the worker's own
+        # publication, or producer and consumer can straddle a reload that
+        # reset the global while the session kept serving.
         deadline = time.monotonic() + 1.0
-        while tdmcp_bridge._task_queue._event_queue is None and time.monotonic() < deadline:  # noqa: SLF001
+        while (
+            getattr(worker, "tdmcp_event_queue", None) is None
+            and time.monotonic() < deadline
+        ):
             time.sleep(0.01)
         self.assertIsNotNone(
-            tdmcp_bridge._task_queue._event_queue,  # noqa: SLF001
-            "serve_queued must install its outbound queue before serving",
+            getattr(worker, "tdmcp_event_queue", None),
+            "serve_queued must publish its outbound queue on its own thread "
+            "before serving, or `enqueue_event` cannot tell which session is "
+            "serving",
         )
 
         ok = tdmcp_bridge.enqueue_event(
@@ -254,7 +270,15 @@ class QueuedServeTest(unittest.TestCase):
         self.assertEqual(frame["payload"]["records"][0]["msg"], "hi")
 
     def test_enqueue_event_without_active_connection_drops_silently(self) -> None:
-        self.assertIsNone(tdmcp_bridge._task_queue._event_queue)  # noqa: SLF001
+        # Explicitly no session, even if a worker leaked from another test:
+        # the property under test is "with no serving session, producers drop
+        # silently", and a leaked worker would make that unobservable.
+        tdmcp_bridge._active_thread = None
+        tdmcp_bridge._active_stream = None
+        self.assertIsNone(
+            tdmcp_bridge._task_queue.active_event_queue(),  # noqa: SLF001
+            "no worker is serving, so there is no session to enqueue for",
+        )
         self.assertFalse(tdmcp_bridge.enqueue_event({"type": "event", "name": "log", "payload": {}}))
 
 
