@@ -17,7 +17,9 @@
 //! * a compact choice was actually smaller than full;
 //! * a decode never silently degrades — a failure is a test failure.
 //!
-//! These are byte counts. They are not token counts and support no token claim.
+//! The headroom numbers are serialized BYTES. A token count is a different
+//! measurement over a different unit, so it is opt-in, it names its tokenizer,
+//! and it never replaces the byte figures — see `TDMCP_TOKEN_DUMP` below.
 
 use std::error::Error;
 use std::path::{Path, PathBuf};
@@ -148,12 +150,96 @@ struct Tally {
     reasons: std::collections::BTreeMap<&'static str, u64>,
 }
 
+/// One payload's two documents, dumped for offline token measurement.
+///
+/// The Rust test cannot count tokens: doing so would put a tokenizer in the
+/// build, and the test-only Python dependencies are not available to a
+/// `cargo test` run. It CAN emit exactly the two documents a client would have
+/// received, and let a separate step count them with a NAMED tokenizer. That
+/// keeps the byte assertions here and the token figure in the one place that
+/// can state which tokenizer produced it.
+struct TokenDump {
+    entries: Vec<TokenEntry>,
+}
+
+struct TokenEntry {
+    label: String,
+    plan: &'static str,
+    full: String,
+    adaptive: String,
+}
+
+impl TokenDump {
+    /// Where to write, if the caller asked for a dump.
+    ///
+    /// A configured-but-unwritable path is an error rather than a silent skip:
+    /// a dump that quietly did not happen is a measurement that looks absent
+    /// instead of unmeasured.
+    fn requested() -> Result<Option<Self>, Box<dyn Error>> {
+        let Some(path) = std::env::var_os("TDMCP_TOKEN_DUMP") else {
+            return Ok(None);
+        };
+        let path = PathBuf::from(&path);
+        // The dump path itself, not its parent: almost every real path has a
+        // directory as its parent, so checking the parent refuses exactly the
+        // paths a caller would write.
+        if path.is_dir() {
+            return Err(format!(
+                "TDMCP_TOKEN_DUMP must name a file to write, not a directory: {}",
+                path.display()
+            )
+            .into());
+        }
+        Ok(Some(Self {
+            entries: Vec::new(),
+        }))
+    }
+
+    fn push(&mut self, label: String, plan: &'static str, full: String, adaptive: String) {
+        self.entries.push(TokenEntry {
+            label,
+            plan,
+            full,
+            adaptive,
+        });
+    }
+
+    fn write(self) -> Result<(), Box<dyn Error>> {
+        let Some(path) = std::env::var_os("TDMCP_TOKEN_DUMP") else {
+            return Ok(());
+        };
+        let rows = self
+            .entries
+            .iter()
+            .map(|entry| {
+                serde_json::json!({
+                    "label": entry.label,
+                    "plan": entry.plan,
+                    "full": entry.full,
+                    "adaptive": entry.adaptive,
+                })
+            })
+            .collect::<Vec<_>>();
+        std::fs::write(&path, serde_json::to_string_pretty(&rows)?)?;
+        eprintln!(
+            "wrote {} document pairs to {} for offline token measurement",
+            self.entries.len(),
+            std::path::Path::new(&path).display()
+        );
+        Ok(())
+    }
+}
+
 /// Replay every payload through the codec and prove the round trip is lossless.
 ///
 /// The invariants are the same for the private corpus and the public fixtures,
 /// which is the point: the checked-in set exercises the same assertions in CI
 /// that the private set gets during release work.
-fn replay(codec: &OutputCodec, payloads: &[Payload]) -> Result<Tally, Box<dyn Error>> {
+fn replay(
+    codec: &OutputCodec,
+    payloads: &[Payload],
+    mut dump: Option<TokenDump>,
+) -> Result<Tally, Box<dyn Error>> {
     let mut tally = Tally::default();
 
     for payload in payloads {
@@ -187,6 +273,16 @@ fn replay(codec: &OutputCodec, payloads: &[Payload]) -> Result<Tally, Box<dyn Er
             );
         }
 
+        // The adaptive document is serialized up front, by REFERENCE: the
+        // `decode` below still needs `planned.output`, so consuming it into a
+        // wire value here would move it out from under the round-trip check.
+        // Serializing the compact payload by reference produces exactly the
+        // JSON `into_wire_value` builds, which is what a client is sent.
+        let adaptive_wire = match &planned.output {
+            EncodedOutput::Compact(output) => Some(serde_json::to_string(output)?),
+            EncodedOutput::Full(_) => None,
+        };
+
         match planned.plan {
             PresentationPlan::Compact {
                 full_bytes,
@@ -208,6 +304,20 @@ fn replay(codec: &OutputCodec, payloads: &[Payload]) -> Result<Tally, Box<dyn Er
                     matches!(planned.output, EncodedOutput::Compact(_)),
                     "{label}: plan says compact but the output is not a compact document"
                 );
+                if let Some(dump) = dump.as_mut() {
+                    dump.push(
+                        label.clone(),
+                        "compact",
+                        original.clone(),
+                        // Not `None` in this arm: the plan says compact and the
+                        // assertion above already proved the output is a
+                        // compact document, so a missing serialization here
+                        // would be a real inconsistency rather than a plan shape.
+                        adaptive_wire.clone().ok_or_else(|| {
+                            format!("{label}: compact plan with no compact document to measure")
+                        })?,
+                    );
+                }
             }
             PresentationPlan::Full {
                 full_bytes, reason, ..
@@ -228,6 +338,14 @@ fn replay(codec: &OutputCodec, payloads: &[Payload]) -> Result<Tally, Box<dyn Er
                     tdmcp_mcp::output_views::FullReason::TransformBudget => "transform_budget",
                 };
                 *tally.reasons.entry(name).or_default() += 1;
+                if let Some(dump) = dump.as_mut() {
+                    // A declined request served the full value, so both
+                    // documents are identical. That is the point of recording
+                    // it: a token measurement over the whole set has to
+                    // include the calls that gained nothing, or the saving
+                    // describes only the calls that were going to win anyway.
+                    dump.push(label.clone(), "full", original.clone(), original.clone());
+                }
             }
         }
 
@@ -241,11 +359,16 @@ fn replay(codec: &OutputCodec, payloads: &[Payload]) -> Result<Tally, Box<dyn Er
         );
     }
 
+    if let Some(dump) = dump {
+        dump.write()?;
+    }
+
     Ok(tally)
 }
 
-/// Report a replay pass. These are serialized BYTES, not tokens: no tokenizer
-/// is available on the build host, so no token claim is made from them.
+/// Report a replay pass. These are serialized BYTES. A token figure is a
+/// different measurement, produced by `scripts/measure_tokens.py` over the
+/// `TDMCP_TOKEN_DUMP` output, and it names the tokenizer it used.
 fn report(label: &str, payloads: &[Payload], tally: &Tally) {
     eprintln!(
         "replayed {label} {} inspect payloads: {} compact, {} full",
@@ -283,7 +406,7 @@ fn public_inspect_fixtures_round_trip_through_the_codec() -> Result<(), Box<dyn 
         dir.display()
     );
 
-    let tally = replay(&OutputCodec::default(), &payloads)?;
+    let tally = replay(&OutputCodec::default(), &payloads, None)?;
     report("public fixture", &payloads, &tally);
     Ok(())
 }
@@ -311,7 +434,7 @@ fn every_recorded_inspect_payload_round_trips_through_the_codec() -> Result<(), 
         dir.display()
     );
 
-    let tally = replay(&OutputCodec::default(), &payloads)?;
+    let tally = replay(&OutputCodec::default(), &payloads, TokenDump::requested()?)?;
     report("recorded", &payloads, &tally);
     Ok(())
 }
