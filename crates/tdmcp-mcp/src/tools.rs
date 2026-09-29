@@ -722,6 +722,56 @@ pub enum OnOccupied {
     Error,
 }
 
+/// Preconditions a guarded step rechecks against a fresh read.
+///
+/// A guard narrows the window between "you looked" and "you wrote". It does
+/// not close it: a callback, a second script or a user can still change the
+/// field after the recheck and before the write. A guarded write is therefore
+/// never atomic and never exactly-once, and the pass result says so rather
+/// than implying a scene-wide lock.
+///
+/// `fields` is REQUIRED, not optional. The bridge treats a missing or empty
+/// block as "no guard", which would let a caller's requested precondition be
+/// silently skipped; requiring it here turns that into a decode error the
+/// caller can see.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct StepPrecondition {
+    /// Field path to expected value, e.g. `{"par.gain": 0.5}`.
+    ///
+    /// Presence-aware: an expected `null`, `false`, `0` or `""` is a real
+    /// expectation, distinct from a field that is absent. A field that cannot
+    /// be read fails the guard closed — nothing is written over a value nobody
+    /// observed.
+    pub fields: Map<String, Value>,
+}
+
+impl<'de> Deserialize<'de> for StepPrecondition {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Raw {
+            fields: Map<String, Value>,
+        }
+
+        let raw = Raw::deserialize(deserializer)?;
+        // An empty `fields` reads as a guard and behaves as none: the bridge
+        // treats it as no precondition at all. Accepting it would let a
+        // caller request a guard and get an unguarded write, so refuse it at
+        // the boundary instead of silently dropping the intent.
+        if raw.fields.is_empty() {
+            return Err(serde::de::Error::custom(
+                "expect.fields must name at least one field; an empty block \
+                 would be ignored and the write would run unguarded",
+            ));
+        }
+        Ok(Self { fields: raw.fields })
+    }
+}
+
 /// One ordered mutate step (`create` / `set` / `delete` / `connect` / `disconnect`).
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "lowercase", deny_unknown_fields)]
@@ -768,11 +818,23 @@ pub enum MutateStep {
         /// Direct OP attribute writes (`node.<name> = val`); allowlist = TD Common Flags subset, see CONTRACT.md.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         flags: Option<Map<String, Value>>,
+        /// Preconditions rechecked against a FRESH read immediately before the
+        /// write. On any mismatch the step is refused and NOTHING is written.
+        ///
+        /// This narrows the race; it does not close it. A value can still change
+        /// between the recheck and the write, so a guarded write is not atomic
+        /// and not exactly-once. It is never retried, because retrying a write
+        /// whose effect is unknown turns one intent into two mutations.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        expect: Option<StepPrecondition>,
     },
     /// Destroy a node.
     Delete {
         /// Target node path.
         path: OpPath,
+        /// Preconditions rechecked before the delete (see `Set::expect`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        expect: Option<StepPrecondition>,
     },
     /// Wire `src` output connector to `dst` input connector.
     Connect {
@@ -2745,6 +2807,92 @@ mod timeout_tests {
             serde_json::from_value::<MutateStep>(wire[0].clone()).is_err(),
             "internal op must not leak into the public MCP schema"
         );
+    }
+
+    #[test]
+    fn a_guarded_step_decodes_and_reaches_the_wire_unchanged() {
+        use super::{bridge_mutate_steps, MutateStep};
+        use serde_json::json;
+
+        // The whole point of the guard is that the bridge receives it. A
+        // decode that dropped or renamed `expect` would leave a caller
+        // believing it was protected while writing unguarded.
+        let steps: Vec<MutateStep> = serde_json::from_value(json!([
+            {"op": "set", "path": "/project1/audio_gain", "values": {"gain": 0.4},
+             "expect": {"fields": {"par.gain": 0.5}}}
+        ]))
+        .unwrap();
+        let wire = bridge_mutate_steps(&steps).unwrap();
+        assert_eq!(wire[0]["expect"]["fields"]["par.gain"], json!(0.5));
+        assert_eq!(wire[0]["values"]["gain"], json!(0.4));
+    }
+
+    #[test]
+    fn an_empty_precondition_is_refused_instead_of_writing_unguarded() {
+        use super::MutateStep;
+        use serde_json::json;
+
+        // The bridge treats an empty block as "no guard". Accepting it here
+        // would be a request for protection answered with none.
+        let err = serde_json::from_value::<MutateStep>(json!({
+            "op": "set", "path": "/p", "expect": {"fields": {}}
+        }))
+        .expect_err("an empty fields map must not decode");
+        assert!(
+            err.to_string().contains("unguarded"),
+            "refusal should say why: {err}"
+        );
+    }
+
+    #[test]
+    fn a_guard_absent_from_the_request_stays_absent() {
+        use super::{bridge_mutate_steps, MutateStep};
+        use serde_json::json;
+
+        // Existing callers must be unaffected: a step with no `expect` is
+        // serialized without one, not with a fabricated empty guard.
+        let steps: Vec<MutateStep> =
+            serde_json::from_value(json!([{"op": "set", "path": "/p", "values": {"a": 1}}]))
+                .unwrap();
+        let wire = bridge_mutate_steps(&steps).unwrap();
+        assert!(wire[0].get("expect").is_none(), "{wire}");
+    }
+
+    #[test]
+    fn create_cannot_carry_a_guard_it_would_silently_skip() {
+        use super::MutateStep;
+        use serde_json::json;
+
+        // The bridge skips the precondition for create/place because there is
+        // no prior state. Accepting the field would promise a check that
+        // never runs, so the decoder must refuse it.
+        assert!(
+            serde_json::from_value::<MutateStep>(
+                json!({"op": "create", "path": "/p", "opType": "constantTOP",
+                      "expect": {"fields": {"par.gain": 0.5}}})
+            )
+            .is_err(),
+            "create must not accept an expect it would ignore"
+        );
+    }
+
+    #[test]
+    fn a_guard_can_expect_a_falsy_value() {
+        use super::{bridge_mutate_steps, MutateStep};
+        use serde_json::json;
+
+        // null/false/0/"" are real expectations, and an absent field is a
+        // fifth distinct state. A decoder that dropped falsy values would let
+        // a clobbering write through.
+        let steps: Vec<MutateStep> = serde_json::from_value(json!([{
+            "op": "set", "path": "/p",
+            "expect": {"fields": {"comment": "", "par.bypass": false, "par.raw": null}}
+        }]))
+        .unwrap();
+        let wire = bridge_mutate_steps(&steps).unwrap();
+        assert_eq!(wire[0]["expect"]["fields"]["comment"], json!(""));
+        assert_eq!(wire[0]["expect"]["fields"]["par.bypass"], json!(false));
+        assert_eq!(wire[0]["expect"]["fields"]["par.raw"], json!(null));
     }
 
     use super::{derive_timeout, BRIDGE_TIMEOUT, PROXY_TIMEOUT};

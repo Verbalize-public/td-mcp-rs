@@ -112,6 +112,17 @@
                 "null"
               ]
             },
+            "expect": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/StepPrecondition"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Preconditions rechecked against a FRESH read immediately before the\nwrite. On any mismatch the step is refused and NOTHING is written.\n\nThis narrows the race; it does not close it. A value can still change\nbetween the recheck and the write, so a guarded write is not atomic\nand not exactly-once. It is never retried, because retrying a write\nwhose effect is unknown turns one intent into two mutations."
+            },
             "expressions": {
               "additionalProperties": true,
               "description": "Expression strings; mode is set to expression before assign.",
@@ -172,6 +183,17 @@
           "additionalProperties": false,
           "description": "Destroy a node.",
           "properties": {
+            "expect": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/StepPrecondition"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Preconditions rechecked before the delete (see `Set::expect`)."
+            },
             "op": {
               "const": "delete",
               "type": "string"
@@ -340,6 +362,21 @@
         }
       ],
       "description": "OS process id — sole address for tools and queues."
+    },
+    "StepPrecondition": {
+      "additionalProperties": false,
+      "description": "Preconditions a guarded step rechecks against a fresh read.\n\nA guard narrows the window between \"you looked\" and \"you wrote\". It does\nnot close it: a callback, a second script or a user can still change the\nfield after the recheck and before the write. A guarded write is therefore\nnever atomic and never exactly-once, and the pass result says so rather\nthan implying a scene-wide lock.\n\n`fields` is REQUIRED, not optional. The bridge treats a missing or empty\nblock as \"no guard\", which would let a caller's requested precondition be\nsilently skipped; requiring it here turns that into a decode error the\ncaller can see.",
+      "properties": {
+        "fields": {
+          "additionalProperties": true,
+          "description": "Field path to expected value, e.g. `{\"par.gain\": 0.5}`.\n\nPresence-aware: an expected `null`, `false`, `0` or `\"\"` is a real\nexpectation, distinct from a field that is absent. A field that cannot\nbe read fails the guard closed — nothing is written over a value nobody\nobserved.",
+          "type": "object"
+        }
+      },
+      "required": [
+        "fields"
+      ],
+      "type": "object"
     }
   },
   "additionalProperties": false,
