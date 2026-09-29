@@ -118,6 +118,48 @@ whether the declared route is sufficient and the replaced route is closed, not
 what a model would do. `replacedRoutesProbed` is the evidence;
 `replacedRouteRefused` is a summary of it.
 
+### The four scorecards, reported separately
+
+`scripts/scorecard_report.py` assembles the four separate scorecards into one
+report. It is deliberately *four* rows and not a blend: a saving on one route
+must not be able to pay for an unmeasured claim on another, so the script
+refuses to exit zero while any card is unmeasured and names the gap instead.
+
+```sh
+.venv/bin/python scripts/scorecard_report.py
+```
+
+| Card | What it measures | Evidence |
+| --- | --- | --- |
+| `encoding` | The same projection, compact vs full, in named tokenizers | `scripts/fixtures/inspect/public-token-dump.json` |
+| `projections` | A reference front, and what it costs to reassemble | The private output study |
+| `workflows` | The four new tools, costed per session, apart from encoding | The guidance fixtures |
+| `transport` | The same read on every surface | `client_parity.rs` |
+
+`encoding` reports the compact and declined arms separately, because ten calls
+that returned the full value and two that did not average into a number that
+describes neither. The declined arm is 0% by design: a declined call returns
+the full document unchanged, and reporting that as a saving would be the whole
+category error this work exists to prevent.
+
+`projections` is measured on a **recorded corpus**, and its source says its
+counts are upper-bound opportunities. The report repeats that, and adds the
+figure the study is easy to misread: reading every unique source back to
+reassemble an answer costs more characters than the reference front saved, so
+the front is only cheaper for a reader who fetches a subset.
+
+`transport` names the tests backing the claim and checks they are still in the
+file. A renamed or deleted test leaves the claim exactly as true and the
+evidence exactly as gone; the card goes unmeasured instead of quoting a test
+that no longer runs. It does not claim the tests passed today — run
+`cargo test -p tdmcp-daemon --test client_parity`.
+
+The report also lists what it is not claiming: model token A/B significance,
+agent task-acceptance rate, per-client model input admission, and packaging
+qualification. None of those are measured by anything in this repository, and
+a release note that implied otherwise would be a larger problem than the
+numbers.
+
 ### A measured default, and what the measurement is not
 
 `scripts/fixtures/admission/live-capture-bytes.json` records what real captures

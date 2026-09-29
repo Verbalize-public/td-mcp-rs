@@ -159,6 +159,12 @@ struct Tally {
 /// keeps the byte assertions here and the token figure in the one place that
 /// can state which tokenizer produced it.
 struct TokenDump {
+    /// Where to write, when the caller asked for one. Carried on the struct
+    /// rather than re-read from the environment at write time: a test that
+    /// wanted a dump in a known place would otherwise have to set a
+    /// process-wide variable, which is both unsound in Rust 2021 and racy
+    /// beside the other test in this file.
+    path: Option<PathBuf>,
     entries: Vec<TokenEntry>,
 }
 
@@ -190,9 +196,14 @@ impl TokenDump {
             )
             .into());
         }
-        Ok(Some(Self {
+        Ok(Some(Self::at(path)))
+    }
+
+    fn at(path: PathBuf) -> Self {
+        Self {
+            path: Some(path),
             entries: Vec::new(),
-        }))
+        }
     }
 
     fn push(&mut self, label: String, plan: &'static str, full: String, adaptive: String) {
@@ -205,7 +216,7 @@ impl TokenDump {
     }
 
     fn write(self) -> Result<(), Box<dyn Error>> {
-        let Some(path) = std::env::var_os("TDMCP_TOKEN_DUMP") else {
+        let Some(path) = self.path else {
             return Ok(());
         };
         let rows = self
@@ -415,6 +426,47 @@ fn public_inspect_fixtures_round_trip_through_the_codec() -> Result<(), Box<dyn 
     // unverifiable in CI.
     let tally = replay(&OutputCodec::default(), &payloads, TokenDump::requested()?)?;
     report("public fixture", &payloads, &tally);
+    Ok(())
+}
+
+/// The checked-in dump is what `scripts/scorecard_report.py` scores, so it is
+/// a fixture like any other: a reviewer who has the repository can produce
+/// scorecard 1 without running a test or holding the private corpus, which is
+/// what makes that scorecard checkable by a third party rather than asserted by
+/// whoever ran the release pass.
+///
+/// The check is byte equality, deliberately. A summarized dump -- counts, a
+/// checksum, a representative pair -- would be enough to compute a percentage
+/// and would drift silently whenever the codec changed shape, so the
+/// percentages in a report would describe documents nobody can read. A stale
+/// dump is a loud failure here instead.
+#[test]
+fn the_checked_in_dump_is_what_this_replay_produces() -> Result<(), Box<dyn Error>> {
+    const CHECKED_IN: &str =
+        include_str!("../../../scripts/fixtures/inspect/public-token-dump.json");
+    let committed: serde_json::Value = serde_json::from_str(CHECKED_IN)
+        .map_err(|error| format!("the checked-in public token dump is not JSON: {error}"))?;
+
+    let dir = public_fixture_dir();
+    let payloads = load(&dir)?;
+    let temporary =
+        std::env::temp_dir().join(format!("tdmcp-public-dump-{}.json", std::process::id()));
+    replay(
+        &OutputCodec::default(),
+        &payloads,
+        Some(TokenDump::at(temporary.clone())),
+    )?;
+
+    let fresh: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&temporary)?)?;
+    let _ = std::fs::remove_file(&temporary);
+
+    assert_eq!(
+        committed, fresh,
+        "scripts/fixtures/inspect/public-token-dump.json is stale: the public \
+         fixtures now replay to different documents. Regenerate it with \
+         TDMCP_TOKEN_DUMP=scripts/fixtures/inspect/public-token-dump.json \
+         cargo test -p tdmcp-mcp --test inspect_corpus_replay"
+    );
     Ok(())
 }
 
