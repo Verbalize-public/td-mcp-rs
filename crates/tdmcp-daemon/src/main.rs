@@ -992,10 +992,44 @@ async fn run_daemon(
         info!("operation receipts enabled (dispatch receipts are recorded per client)");
     }
 
+    // Retained evidence: owner-scoped immutable observations behind
+    // `output.retain: true`.
+    //
+    // Also non-fatal, for the same reason as the journal. A daemon that cannot
+    // open a store still serves every call; what it loses is the ability to
+    // answer "retain this" with a handle. Retention then REFUSES with a reason
+    // naming the missing store, because the alternative — quietly answering
+    // with an inline value — is the silent substitution the whole contract
+    // exists to prevent.
+    let evidence: Option<Arc<dyn tdmcp_mcp::evidence::EvidenceStore>> = {
+        let root = cfg.data_dir.join("evidence");
+        let config = tdmcp_daemon::evidence_store::EvidenceStoreConfig::default();
+        match tdmcp_daemon::evidence_store::SqliteEvidenceStore::open(&root, config) {
+            Ok(store) => {
+                info!(root = %root.display(), "evidence store open");
+                Some(Arc::new(store) as Arc<dyn tdmcp_mcp::evidence::EvidenceStore>)
+            }
+            Err(error) => {
+                warn!(
+                    root = %root.display(),
+                    %error,
+                    "evidence store unavailable; output.retain will be refused"
+                );
+                None
+            }
+        }
+    };
+    if evidence.is_none() {
+        info!("retained evidence disabled (output.retain: true will be refused, not ignored)");
+    }
+
     let mut state = AppState::new_shared(registry.clone(), catalog, bridge, resource_provider)
         .with_federation(fed_ctx);
     if let Some(receipts) = receipts.clone() {
         state = state.with_receipts(receipts);
+    }
+    if let Some(evidence) = evidence.clone() {
+        state = state.with_evidence(evidence);
     }
     let admin_state = state.clone();
     let mcp_handler_state = state.clone();

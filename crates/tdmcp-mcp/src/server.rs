@@ -20,6 +20,8 @@ use tdmcp_diagnostics::Catalog;
 use tokio::sync::Mutex;
 
 use crate::bridge_rpc::BridgeRpc;
+use crate::evidence::EvidenceStore;
+use crate::evidence_capture::EvidenceBinding;
 use crate::resources::ResourceProvider;
 use crate::session_registry::McpSessionRegistry;
 use crate::tools::{dispatch_tool_recorded, tool_descriptors, ToolCallError};
@@ -70,6 +72,14 @@ pub struct AppState {
     /// they carry no receipt. That is honest — the row is absent rather than
     /// attributed to a principal nobody authenticated.
     pub receipts: Option<Arc<dyn ReceiptFactory>>,
+    /// The store `output.retain: true` writes into.
+    ///
+    /// `None` on a daemon that could not open one — the same shape as a failed
+    /// journal open: calls still work, retention is refused with a reason
+    /// naming the cause, and nothing is silently dropped. The owner is
+    /// resolved per request from the same identity claim as the receipts, so a
+    /// store without an owner is never usable.
+    pub evidence: Option<Arc<dyn EvidenceStore>>,
 }
 
 impl AppState {
@@ -89,6 +99,7 @@ impl AppState {
             resource_provider,
             federation: None,
             receipts: None,
+            evidence: None,
         }
     }
 
@@ -109,6 +120,7 @@ impl AppState {
             resource_provider,
             federation: None,
             receipts: None,
+            evidence: None,
         }
     }
 
@@ -126,11 +138,38 @@ impl AppState {
         self
     }
 
+    /// Attach the evidence store that backs `output.retain: true`.
+    #[must_use]
+    pub fn with_evidence(mut self, evidence: Arc<dyn EvidenceStore>) -> Self {
+        self.evidence = Some(evidence);
+        self
+    }
+
     /// Number of live Streamable HTTP MCP session leases.
     #[must_use]
     pub fn mcp_session_count(&self) -> usize {
         self.mcp_sessions.len()
     }
+}
+
+/// Resolve one request's evidence seam.
+///
+/// Returns `None` unless BOTH halves are present: a store to write into and a
+/// principal resolved from this request's own identity claim. A store with no
+/// owner is not usable (there is nothing to scope the bytes to) and an owner
+/// with no store has nowhere to put them, so neither partial case produces a
+/// context. `None` therefore means "this call retains nothing", which the
+/// producer reports as a refusal when the caller asked for retention — never as
+/// a value that will quietly be dropped.
+#[must_use]
+pub fn evidence_binding(
+    store: Option<&Arc<dyn EvidenceStore>>,
+    receipts: Option<&Arc<dyn ReceiptFactory>>,
+    claim: Option<&str>,
+) -> Option<EvidenceBinding> {
+    let store = store?;
+    let owner = receipts?.owner_for_claim(claim)?;
+    Some(EvidenceBinding::new(Arc::clone(store), owner))
 }
 
 /// The client's install-scoped identity claim, if it sent one.
@@ -202,6 +241,16 @@ async fn call_tool(
             "the client's identity claim was refused; this call has no receipt"
         );
     }
+    // Retention needs BOTH the store and a principal. The principal comes from
+    // the same claim the receipt port was built from, so one authenticated
+    // call has exactly one owner; `None` here (refused claim, or no store) is
+    // the honest "this call retains nothing" answer rather than a default
+    // owner.
+    let evidence = evidence_binding(
+        state.evidence.as_ref(),
+        state.receipts.as_ref(),
+        claim_header(&headers),
+    );
     match dispatch_tool_recorded(
         &state.registry,
         &state.catalog,
@@ -211,6 +260,7 @@ async fn call_tool(
         None, // JSON fallback has no MCP session lease; pid exclusive still applies
         state.federation.as_ref(),
         claim.as_deref(),
+        evidence,
     )
     .await
     {

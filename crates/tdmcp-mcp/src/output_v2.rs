@@ -521,12 +521,18 @@ fn to_value<T: serde::Serialize>(value: &T) -> Value {
 /// `retain: true` must not be answered with an inline-only capture: the caller
 /// asked for something durable, and quietly returning a value that will be
 /// dropped is exactly the silent substitution the contract forbids.
+///
+/// Whether the backend *can* honour it is a per-call fact, not a property of
+/// the build: retention needs a store bound to an authenticated principal, and
+/// a call with no client identity has neither. The producer therefore consults
+/// this only when it has no store for this call, and a producer holding a store
+/// asks it instead of asking this.
 #[must_use]
 pub fn retention_rejection(options: &OutputOptions) -> Option<&'static str> {
     if options.retain == Some(true) {
         Some(
-            "retain:true is not available: this build captures in memory only and no \
-             permitted reader route exists for a retained projection",
+            "retain:true is not available for this call: the request carried no client \
+             identity, so there is no principal to scope a retained observation to",
         )
     } else {
         None
@@ -772,6 +778,11 @@ mod tests {
         assert!(retention_rejection(&retain(Some(true))).is_some());
         assert!(retention_rejection(&retain(Some(false))).is_none());
         assert!(retention_rejection(&retain(None)).is_none());
+        // The refusal is about the CALL, not the document: the same options are
+        // refused for a reason naming the missing identity, so a caller can act
+        // on it (authenticate) rather than conclude the backend is incapable.
+        let reason = retention_rejection(&retain(Some(true))).unwrap();
+        assert!(reason.contains("no client identity"), "{reason}");
     }
 
     #[test]

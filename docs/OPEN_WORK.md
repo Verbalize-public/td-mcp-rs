@@ -30,6 +30,14 @@ These are known constraints, not a delivery schedule.
 - Windows setup still stops processes by executable name. Path-scoped upgrade
   shutdown and cleanup of autostart registrations on uninstall need native
   verification before changing this behavior.
+- Retained evidence is written and readable by the client that asked for it, but
+  only `inspect` captures, only in the daemon's own store, and only over the HTTP
+  transport — there is no tool to page a retained observation, no cross-machine
+  grant (`grant`/`revoke_grant` have no caller-facing route), and no export to a
+  caller-chosen destination. Grant plumbing and the export path are tested at the
+  store layer only. Retention is bounded by the store's quota and lease; there is
+  no UI to inspect or pin what a session retained, so an observation is found
+  again only by the id from the original reply.
 - Third-party notices are generated only for the four supported release targets.
   Adding a target or dependency requires regenerating its locked graph inventory;
   the dependency gate rejects drift and any unreviewed license. Before publication,

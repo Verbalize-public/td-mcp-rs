@@ -484,6 +484,66 @@ There is no aggregate response-byte budget in this slice. Parameter values and
 multi-node responses can still be large; aggregate budgeting and its explicit
 completeness contract are deferred rather than silently dropping fields.
 
+### `output` — the v2 envelope and retained evidence
+
+`inspect` accepts an optional `output` object. Omitting it returns the response
+exactly as it was, byte for byte — the v2 envelope is never selected implicitly.
+
+```json
+{ "contract": "v2", "view": "compact" | "full", "retain": true | false }
+```
+
+With `contract: "v2"` the reply is a document rather than the flat shape above:
+
+| Key | Meaning |
+| --- | --- |
+| `contract` | `"v2"` |
+| `identity` | `observationId`, `payloadHash`, `queryHash` (algorithm/encoding/value) |
+| `window` | When the read happened, and its monotonic span |
+| `coverage` | What was actually captured — `missing`, `unavailable`, and `truncated` stay distinct from a captured `null`, `false`, or `0` |
+| `outcome` | The operation's state and established effect |
+| `presentation` | What was requested vs. applied, and why a compact view was declined |
+| `capabilities` | Per-capability support for **this** reply |
+| `data` | The value the flat response would have carried |
+| `retention` | Whether this observation was retained (below) — always present |
+
+`view: "compact"` is a **request**, not a promise: `presentation.applied` is
+`full` whenever the compact form was not smaller, had no transforms to apply, or
+hit a traversal/serialization budget, and it says which. A caller that needs the
+full value has it — the same bytes — and is told why it did not get the other.
+
+#### Retained evidence (`retain: true`)
+
+Omission and `false` both mean no retention; neither is silently upgraded.
+
+| `retention` | When |
+| --- | --- |
+| `{ retained: true, evidenceId, expiresAtMs, bytes }` | Committed. The id is the store's, and the bytes are the **same legacy value** `data` carries, so a retained page answers the question `payloadHash` claims it answers |
+| `{ retained: false, reason }` | Not retained — the option was omitted, or this call resolved to no principal |
+| `{ retained: false, reason, retentionRequested: true, retentionFailed: true }` | Asked for and could not be made durable; `reason` is the store's own words |
+| `{ retained: false, …, retentionUncertain: true }` | The capture task did not return, so the commit may or may not have landed. **Inspect before retrying** — a blind retry can leave two observations claiming the same bytes |
+
+The block is present in **every** v2 reply, so "not retained" and "retained but
+unmentioned" can never be the same answer.
+
+**Retention is never implicit.** A daemon with a store bound still writes
+nothing unless the caller asked: retention is as explicit as a compact view.
+
+**Owner scoping.** A retained observation belongs to the principal the daemon
+resolved from the request's `x-tdmcp-client` claim — the same claim the dispatch
+receipt uses, so one authenticated call has one owner. The id is opaque, not a
+capability: another client that learns it is refused. A claim the daemon refuses
+is **refused for retention**, never defaulted to a shared principal, and a
+daemon that cannot open a store serves every call and refuses `retain` with a
+reason naming the missing store. Retention is never answered with an inline
+value as if it had been kept.
+
+**Reading it back** is owner-scoped and stable: each page is a bounded read over
+the committed bytes with a cursor, and paging the same id again returns the same
+bytes in the same order. Expiry is lease-based — after `expiresAtMs` the
+observation is gone, and a released or expired one is reported as such rather
+than as one that never existed.
+
 ### `editor_context` — Shipped
 
 Live multi-pane snapshot of TouchDesigner’s UI via `td.ui.panes` (bridge method — not `execute_python`). Requires `pid` only.

@@ -147,6 +147,19 @@ pub trait ReceiptFactory: Send + Sync {
     /// unrecorded", which the caller must not turn into a claim that it was
     /// recorded.
     fn for_claim(&self, claim: Option<&str>) -> Option<Arc<dyn DispatchJournal>>;
+
+    /// The principal a claim resolves to, without building a receipt port.
+    ///
+    /// Evidence retention needs the owner and no receipt — a capture is not a
+    /// dispatch — so the two are separate methods rather than one that hands
+    /// back a journal and leaves the caller to dig the owner out of it.
+    ///
+    /// Returning the SAME owner for the same claim as [`Self::for_claim`] is
+    /// required, and deliberately so: a caller that resolved one identity for
+    /// its receipt and a different one for its evidence would be holding two
+    /// principals for one authenticated call, and only one of them would match
+    /// what the store recorded.
+    fn owner_for_claim(&self, claim: Option<&str>) -> Option<crate::evidence::OwnerId>;
 }
 
 /// Keeps a dispatch honest until somebody says otherwise.

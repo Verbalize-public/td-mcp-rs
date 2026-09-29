@@ -18,6 +18,7 @@ pub mod dialogs_tool;
 pub mod discovery;
 mod editor_context;
 pub mod evidence;
+pub mod evidence_capture;
 mod fleet;
 pub mod lifecycle;
 mod outcomes;

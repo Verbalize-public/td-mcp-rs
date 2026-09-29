@@ -161,11 +161,18 @@ impl std::fmt::Debug for ClientReceiptFactory {
 
 impl ReceiptFactory for ClientReceiptFactory {
     fn for_claim(&self, claim: Option<&str>) -> Option<Arc<dyn DispatchJournal>> {
-        let identity = ClientIdentity::resolve(claim, &self.auth_mode, &self.psk).ok()?;
-        let owner = identity.owner_id().ok()?;
+        let owner = self.owner_for_claim(claim)?;
         Some(Arc::new(DispatchJournalPort::new(Arc::new(
             OperationRecorder::new(Arc::clone(&self.journal), owner),
         ))))
+    }
+
+    /// Delegates to the inherent method so both callers of this factory — the
+    /// read-back routes and the trait — resolve the claim in exactly one
+    /// place. Two resolution paths would be two chances for a receipt and an
+    /// evidence capture to land under different principals.
+    fn owner_for_claim(&self, claim: Option<&str>) -> Option<OwnerId> {
+        ClientReceiptFactory::owner_for_claim(self, claim)
     }
 }
 

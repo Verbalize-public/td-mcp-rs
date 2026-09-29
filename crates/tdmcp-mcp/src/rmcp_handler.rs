@@ -174,6 +174,14 @@ impl ServerHandler for McpHandler {
             );
         }
 
+        // Retention needs BOTH the store and a principal, and the principal
+        // comes from the same claim the receipt port was built from: one
+        // authenticated call has exactly one owner.
+        let evidence = crate::server::evidence_binding(
+            self.state.evidence.as_ref(),
+            self.state.receipts.as_ref(),
+            headers.and_then(crate::server::claim_header),
+        );
         match dispatch_tool_recorded(
             &self.state.registry,
             &self.state.catalog,
@@ -186,6 +194,7 @@ impl ServerHandler for McpHandler {
             }),
             self.state.federation.as_ref(),
             claim.as_deref(),
+            evidence,
         )
         .await
         {

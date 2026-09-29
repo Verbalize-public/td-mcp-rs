@@ -24,6 +24,9 @@ use tokio::sync::Mutex;
 use crate::args_diag::{coded_failure, parse_args, serialize_failed};
 use crate::bridge_rpc::{BridgeRpc, BridgeRpcError};
 use crate::editor_context::EditorContextParams;
+use crate::evidence_capture::{
+    capture_record, retention_block, EvidenceBinding, DEFAULT_RETENTION,
+};
 use crate::fleet::{fleet_summary, FleetParams, FleetProcess, FleetResponse};
 use crate::outcomes::{
     ambiguous_pid, map_api_help_outcome, map_editor_context_outcome, map_inspect_outcome,
@@ -1142,6 +1145,80 @@ fn resolve_place_steps(
     Ok(())
 }
 
+/// Commit one observation to the bound store, off the executor.
+///
+/// [`EvidenceStore`](crate::evidence::EvidenceStore) is a SYNCHRONOUS port
+/// that performs blocking disk and database work, so calling it straight from
+/// this async function would occupy an executor worker for the whole upload —
+/// a `MAX` MB observation is minutes of one worker, and the daemon serves
+/// every other client from the same pool. It runs on the blocking pool here.
+///
+/// The block is produced in ALL THREE cases:
+///
+/// * no binding — `retained: false`, because a caller that never learns the
+///   status cannot tell "not retained" from "retained but unmentioned";
+/// * refused claim or unopenable store — a declined capture, with the store's
+///   own words;
+/// * a task that did not come back — an UNCERTAIN outcome, named as one,
+///   because a commit that may have landed must not be reported as a clean
+///   failure the caller would simply retry.
+async fn capture_off_executor(
+    evidence: Option<EvidenceBinding>,
+    record: &output_v2::ObservationRecord,
+    tool: &str,
+    legacy: &Value,
+    requested: bool,
+) -> Value {
+    let Some(binding) = evidence else {
+        return retention_block(&crate::evidence_capture::CaptureOutcome::NotRetained {
+            reason: "this call is not attributable to a client, so there is no principal to \
+                     scope a retained observation to"
+                .to_owned(),
+        });
+    };
+    if !requested {
+        // Retention is explicit, exactly as a compact view is. A store being
+        // BOUND is not a request: writing a durable blob for every read would
+        // spend the owner's quota on calls nobody asked to keep, and the
+        // resulting `retained: true` would be something the caller never
+        // consented to. This is reported, not silent, so "declined" stays
+        // distinguishable from "not mentioned".
+        return retention_block(&crate::evidence_capture::CaptureOutcome::NotRetained {
+            reason: "retention was not requested for this call (omit the option or pass \
+                     retain:false)"
+                .to_owned(),
+        });
+    }
+    let record = record.clone();
+    let legacy = legacy.clone();
+    let tool = tool.to_owned();
+    let task = tokio::task::spawn_blocking(move || {
+        retention_block(&capture_record(
+            binding.store().as_ref(),
+            binding.owner(),
+            &record,
+            &tool,
+            &legacy,
+            // The lease the producer asks for. A store clamps by REFUSING
+            // anything above its own limit, so a store with a shorter ceiling
+            // turns this into a reported failure rather than a silently
+            // shortened retention the caller was never told about.
+            DEFAULT_RETENTION,
+        ))
+    });
+    match task.await {
+        Ok(block) => block,
+        // The task was cancelled or panicked. The commit may or may not have
+        // landed, and this is the one outcome that must not be dressed up as a
+        // clean refusal.
+        Err(_) => crate::evidence_capture::uncertain_block(
+            "the retention task did not complete, so whether this observation was \
+             committed is unknown; inspect the store before retrying"
+                .to_owned(),
+        ),
+    }
+}
+
 /// A trimmed non-empty view of an optional string field.
 fn non_empty(value: &Option<String>) -> Option<&str> {
     value.as_deref().map(str::trim).filter(|s| !s.is_empty())
@@ -1170,6 +1247,13 @@ pub struct SessionGate<'a> {
 /// genuinely not attributable to a client — a boot-time self-check, a test — and
 /// note that such a call gets no receipt: there is no principal to record it
 /// under, and inventing one would be worse than the missing row.
+///
+/// `evidence` is the retained-evidence seam: the store plus the OWNER this
+/// call's authenticated identity resolved to. The owner is bound by the
+/// transport layer from the same `x-tdmcp-client` claim the receipt port uses
+/// and is never a request argument — a caller that could name its own owner
+/// could read another principal's evidence. `None` means this call is not
+/// attributable to a client, and it therefore retains nothing.
 #[allow(
     clippy::too_many_arguments,
     reason = "one parameter per dispatch input"
@@ -1183,12 +1267,13 @@ pub async fn dispatch_tool_recorded(
     session: Option<SessionGate<'_>>,
     federation: Option<&FederationCtx>,
     journal: Option<&dyn DispatchJournal>,
+    evidence: Option<EvidenceBinding>,
 ) -> Result<Value, ToolCallError> {
     // One boundary record per call — the only per-call trace agents and the
     // tray Logs view ever see (observability spec §5.7 rule 3).
     let started = std::time::Instant::now();
     let result = dispatch_tool_inner(
-        registry, catalog, bridge, name, args, session, federation, journal,
+        registry, catalog, bridge, name, args, session, federation, journal, evidence,
     )
     .await;
     let elapsed_ms = started.elapsed().as_millis() as u64;
@@ -1225,7 +1310,7 @@ pub async fn dispatch_tool(
     federation: Option<&FederationCtx>,
 ) -> Result<Value, ToolCallError> {
     dispatch_tool_recorded(
-        registry, catalog, bridge, name, args, session, federation, None,
+        registry, catalog, bridge, name, args, session, federation, None, None,
     )
     .await
 }
@@ -1243,6 +1328,7 @@ async fn dispatch_tool_inner(
     session: Option<SessionGate<'_>>,
     federation: Option<&FederationCtx>,
     journal: Option<&dyn DispatchJournal>,
+    evidence: Option<EvidenceBinding>,
 ) -> Result<Value, ToolCallError> {
     let tool =
         ToolName::from_wire(name).ok_or_else(|| ToolCallError::UnknownTool(name.to_owned()))?;
@@ -2066,13 +2152,20 @@ async fn dispatch_tool_inner(
             let Some(options) = params.output else {
                 return Ok(legacy);
             };
-            if let Some(reason) = output_v2::retention_rejection(&options) {
+            // `retain: true` is answered HERE, where the record exists, rather
+            // than refused for the whole build: the only honest reason to
+            // refuse is that there is no store bound to an authenticated
+            // principal for THIS call, and that is a per-call fact. The refusal
+            // stays a refusal — a caller who asked for a durable observation
+            // never receives a value that will be dropped.
+            if options.retain == Some(true) && evidence.is_none() {
                 return Err(coded_failure(
                     catalog,
                     tool,
                     codes::ARGS_WRONG_TYPE,
                     "output.retain",
-                    reason,
+                    output_v2::retention_rejection(&options)
+                        .unwrap_or("retain:true is not available for this call"),
                 ));
             }
             // Read the identity fields under the lock rather than cloning the
@@ -2097,7 +2190,20 @@ async fn dispatch_tool_inner(
                 target,
                 bridge_generation,
             );
-            output_v2::wrap_v2(&record, legacy, &options).map_err(|error| {
+            // Retention happens HERE, where both the record and the exact
+            // legacy value are in hand, and BEFORE `wrap_v2` consumes the
+            // value. The stored bytes are the legacy value a non-opt-in caller
+            // would have received, so a retained page decodes to the same thing
+            // `payloadHash` digests.
+            let retention = capture_off_executor(
+                evidence,
+                &record,
+                tool.wire_str(),
+                &legacy,
+                options.retain == Some(true),
+            )
+            .await;
+            let mut wrapped = output_v2::wrap_v2(&record, legacy, &options).map_err(|error| {
                 coded_failure(
                     catalog,
                     tool,
@@ -2105,7 +2211,14 @@ async fn dispatch_tool_inner(
                     "output.view",
                     format!("the requested output view could not be built: {error}"),
                 )
-            })
+            })?;
+            // The block is inserted here, outside `wrap_v2`, because retention
+            // is not a property of the document: the same bytes are wrapped
+            // identically whether or not the caller asked for a durable copy.
+            if let Some(map) = wrapped.as_object_mut() {
+                map.insert("retention".to_owned(), retention);
+            }
+            Ok(wrapped)
         }
         ToolName::MutateNodes => {
             let mut params: MutateNodesParams = parse_args(catalog, tool, args.clone())?;
@@ -2745,7 +2858,15 @@ mod output_v2_forwarding_tests {
         let options = params.output.unwrap();
         let reason = crate::output_v2::retention_rejection(&options);
         assert!(reason.is_some());
-        assert!(reason.unwrap().contains("no permitted reader route"));
+        // The refusal must name the actual missing thing. The old text blamed
+        // the build ("this build captures in memory only"), which was a claim
+        // about every call; the real reason is that THIS call has no
+        // principal to scope a retained observation to.
+        assert!(reason.unwrap().contains("no client identity"), "{reason:?}");
+        assert!(
+            !reason.unwrap().contains("this build"),
+            "the refusal must not blame the build for a per-call fact"
+        );
     }
 }
 
