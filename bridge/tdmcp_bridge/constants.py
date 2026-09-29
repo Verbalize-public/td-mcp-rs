@@ -30,6 +30,7 @@ BRIDGE_METHODS: tuple[str, ...] = (
     "sample_data",
     "script_source",
     "param_interface",
+    "project_snapshot",
     "record",
     "inspect",
     "mutate_nodes",
@@ -149,3 +150,14 @@ INTERFACE_MAX_MENU_ITEMS = 64
 INTERFACE_MAX_APPLY_STEPS = 256
 INTERFACE_MAX_NAME_CHARS = 64
 INTERFACE_MAX_LABEL_CHARS = 128
+
+# project_snapshot caps. The write itself is bounded by what TouchDesigner
+# accepts; these bound what COMES BACK, because a save receipt that echoes an
+# unbounded unsaved-state list is a response-sized problem, not a receipt.
+SNAPSHOT_MAX_MODIFIED_PATHS = 128
+SNAPSHOT_MAX_PATH_CHARS = 512
+# How far a `project.save` may have incremented away from the requested path
+# (`name.toe` -> `name.1.toe` -> `name.2.toe` ...). Beyond this the result is
+# reported as a divergence rather than a retarget, because a rename that far
+# from what was asked for is not the file the caller named.
+SNAPSHOT_MAX_INCREMENT = 32

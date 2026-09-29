@@ -17,6 +17,8 @@ pub enum BridgeMethod {
     Capture,
     /// Export a COMP's parameter interface, or apply one additively.
     ParamInterface,
+    /// Save a project or a component, with a receipt naming what was written.
+    ProjectSnapshot,
     /// Named Python sources: register, inspect, and run.
     ///
     /// Shares the inline execution path with [`Self::ExecutePython`], so a
@@ -53,6 +55,7 @@ impl BridgeMethod {
             Self::SampleData => "sample_data",
             Self::ScriptSource => "script_source",
             Self::ParamInterface => "param_interface",
+            Self::ProjectSnapshot => "project_snapshot",
             Self::Record => "record",
             Self::Inspect => "inspect",
             Self::MutateNodes => "mutate_nodes",
@@ -72,6 +75,7 @@ impl BridgeMethod {
             Self::SampleData => "SampleData",
             Self::ScriptSource => "ScriptSource",
             Self::ParamInterface => "ParamInterface",
+            Self::ProjectSnapshot => "ProjectSnapshot",
             Self::Record => "Record",
             Self::Inspect => "Inspect",
             Self::MutateNodes => "Mutate",
@@ -89,6 +93,7 @@ impl BridgeMethod {
         Self::SampleData,
         Self::ScriptSource,
         Self::ParamInterface,
+        Self::ProjectSnapshot,
         Self::Record,
         Self::Inspect,
         Self::MutateNodes,
@@ -106,6 +111,7 @@ impl BridgeMethod {
             "sample_data" => Some(Self::SampleData),
             "script_source" => Some(Self::ScriptSource),
             "param_interface" => Some(Self::ParamInterface),
+            "project_snapshot" => Some(Self::ProjectSnapshot),
             "record" => Some(Self::Record),
             "inspect" => Some(Self::Inspect),
             "mutate_nodes" => Some(Self::MutateNodes),
