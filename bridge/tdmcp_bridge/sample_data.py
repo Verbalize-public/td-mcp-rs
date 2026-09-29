@@ -514,11 +514,40 @@ def _sample_chop(
                 "default indexed read",
                 path=path,
             )
+        # MEASURED on 2025.32460: a CHOP's numpyArray is CHANNEL-MAJOR, shape
+        # [numChans, numSamples] -- a noiseCHOP reported [1, 600], not [600, 1].
+        # So channel c's sample j is block[c][j].
+        #
+        # This was previously indexed the other way round and returned ONE sample
+        # per channel instead of all of them: silently wrong, and worse than not
+        # offering the path, because the shape field made the output look
+        # deliberate. The axis order is now measured, so it is asserted against
+        # the CHOP's own counts rather than assumed.
         shape = [int(dim) for dim in (getattr(block, "shape", []) or [])]
+        if len(shape) != 2:
+            return _err(
+                "tdmcp.sample.unsupported",
+                f"expected a 2-D [channels, samples] array, got shape {shape}",
+                path=path,
+                arrayShape=shape,
+            )
+        if shape[0] != num_chans or shape[1] != num_samples:
+            # Refuse rather than read: a shape that disagrees with the CHOP's own
+            # reported counts means the layout is not the one this code knows,
+            # and guessing is how the transpose happened.
+            return _err(
+                "tdmcp.sample.unsupported",
+                f"array shape {shape} does not match the CHOP's reported "
+                f"{num_chans} channels x {num_samples} samples; refusing to "
+                "guess the axis order",
+                path=path,
+                arrayShape=shape,
+                numChans=num_chans,
+                numSamples=num_samples,
+            )
         channels_out: list[dict[str, Any]] = []
         for ci in range(chan_limit):
-            column = [block[j][ci] for j in range(min(sample_limit, shape[0]))]
-            values, counts = _encode(column)
+            values, counts = _encode(block[ci][:sample_limit])
             channels_out.append({"index": ci, "samples": values, "nonFinite": counts})
         return {
             "ok": True,
@@ -527,9 +556,10 @@ def _sample_chop(
             "mode": "exact_samples",
             "readMethod": "numpyArray",
             "arrayShape": shape,
-            # The axis order was not measured on this build, so the shape is
-            # reported and the layout is called out rather than asserted.
-            "axisOrderVerified": False,
+            "arrayOrder": "channel_major_cns",
+            # Measured on this build and cross-checked against the CHOP's own
+            # numChans/numSamples, so it is verified rather than assumed.
+            "axisOrderVerified": True,
             "numChans": num_chans,
             "numSamples": num_samples,
             "returnedChans": chan_limit,
@@ -538,8 +568,8 @@ def _sample_chop(
             "channels": channels_out,
             "cook": _cook_state(node, forced),
             "explanation": (
-                "exact float samples in channel-major order; the array axis "
-                "order is unverified, so prefer the default indexed read"
+                "exact float samples read from a channel-major [channels, "
+                "samples] array whose shape was checked against the CHOP"
             ),
         }
 

@@ -406,21 +406,28 @@ def fake_chop(
         cook=lambda force=False: None,
     )
     if expose_numpy:
-        # Deliberately transposed [samples, chans], the layout the numpy branch
-        # reads. Its axis order is unverified on this build, which is why the
-        # indexer is the default.
+        # MEASURED: a CHOP's numpyArray is channel-major, [numChans, numSamples].
+        # A noiseCHOP on 2025.32460 reported shape [1, 600] for 1 channel of 600
+        # samples -- not [600, 1].
         node.numpyArray = lambda: FakeChopArray(samples)
     return node
 
 
 class FakeChopArray:
+    """A channel-major [channels, samples] stand-in."""
+
     def __init__(self, samples: list[list[float]]) -> None:
-        self._samples = samples
-        self.shape = (len(samples[0]) if samples else 0, len(samples))
+        self._channels = samples
+        self.shape = (len(samples), len(samples[0]) if samples else 0)
         self.dtype = "float32"
 
     def __getitem__(self, index: int) -> list[float]:
-        return [row[index] for row in self._samples]
+        row = self._channels[index]
+        # Slicing is what the bridge does, so a real list must be returned.
+        return list(row)
+
+    def __len__(self) -> int:
+        return len(self._channels)
 
 
 class ChopTests(unittest.TestCase):
@@ -446,16 +453,53 @@ class ChopTests(unittest.TestCase):
         self.assertTrue(out["axisOrderVerified"])
         self.assertEqual(out["channels"][0]["samples"], [1.0, 2.0])
 
-    def test_the_numpy_read_reports_its_unverified_axis_order(self) -> None:
-        node = fake_chop(num_chans=2, num_samples=2, samples=[[1.0, 2.0], [3.0, 4.0]])
+    def test_the_numpy_read_returns_every_sample_of_every_channel(self) -> None:
+        # The transpose this guards: the branch once indexed [samples][chans]
+        # against a channel-major array and returned ONE sample per channel
+        # while looking deliberate. Both channels, both samples, in order.
+        node = fake_chop(
+            num_chans=2, num_samples=3, samples=[[1.0, 2.0, 3.0], [10.0, 20.0, 30.0]]
+        )
         out = sample_data._sample_chop(node, "/p", {"readMethod": "numpyArray"})
         self.assertTrue(out["ok"])
         self.assertEqual(out["readMethod"], "numpyArray")
-        self.assertFalse(
-            out["axisOrderVerified"],
-            "an unmeasured axis order must not be presented as verified",
-        )
-        self.assertEqual(list(out["arrayShape"]), [2, 2])
+        self.assertEqual(out["arrayOrder"], "channel_major_cns")
+        self.assertTrue(out["axisOrderVerified"])
+        self.assertEqual(list(out["arrayShape"]), [2, 3])
+        self.assertEqual(out["channels"][0]["samples"], [1.0, 2.0, 3.0])
+        self.assertEqual(out["channels"][1]["samples"], [10.0, 20.0, 30.0])
+
+    def test_a_numpy_shape_that_disagrees_with_the_chop_is_refused(self) -> None:
+        # The shape is cross-checked against the CHOP's own numChans and
+        # numSamples. A mismatch means the layout is not the one this code
+        # knows, and guessing is exactly how the transpose happened.
+        node = fake_chop(num_chans=2, num_samples=3, samples=[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
+        array = node.numpyArray()
+
+        class WrongShape(FakeChopArray):
+            def __init__(self) -> None:
+                super().__init__([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
+                # Transposed: claims 3 channels of 2 samples.
+                self.shape = (3, 2)
+
+        node.numpyArray = WrongShape
+        out = sample_data._sample_chop(node, "/p", {"readMethod": "numpyArray"})
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["code"], "tdmcp.sample.unsupported")
+        self.assertIn("refusing to guess", out["message"])
+        self.assertEqual(list(array.shape), [2, 3])
+
+    def test_a_non_2d_chop_array_is_refused(self) -> None:
+        node = fake_chop(num_chans=1, num_samples=2, samples=[[1.0, 2.0]])
+
+        class OneD:
+            shape = (2,)
+            dtype = "float32"
+
+        node.numpyArray = OneD
+        out = sample_data._sample_chop(node, "/p", {"readMethod": "numpyArray"})
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["code"], "tdmcp.sample.unsupported")
 
     def test_a_nan_in_a_chop_is_null_and_counted(self) -> None:
         node = fake_chop(num_chans=1, num_samples=2, samples=[[1.0, NAN]])
