@@ -44,15 +44,23 @@ pub enum SnapshotAction {
     Component,
     /// Report unsaved state; writes nothing.
     Status,
-    /// Report what loading `target` would mean, and load nothing.
+    /// Load — two different things, and `path` is what distinguishes them.
     ///
-    /// There is deliberately no "do the load" arm. Measured on TouchDesigner
-    /// 2025.32460: `project.load(path)` returns `None`, so there is nothing to
-    /// verify the load against; it destroys the open project; and there is no
-    /// `open`, `revert` or `revertProjects` to undo it. `root.load` and
-    /// `COMP.load` do not exist either, so a `.tox` cannot be loaded into an
-    /// empty operator to make the load non-destructive. A fresh process
-    /// (`spawn_td`) is the genuinely fresh load, and the daemon owns it.
+    /// **With `path`** (a COMP to load into): loads the `.tox` at `target` with
+    /// `loadTox`, which is genuinely non-destructive. Measured on TouchDesigner
+    /// 2025.32460: pages, parameter names, parameter types and a python
+    /// parameter's expression all survive the round trip.
+    ///
+    /// **Without `path`**: reports what loading the file as the PROJECT would
+    /// mean, and loads nothing. `project.load(path)` returns `None`, so there
+    /// is nothing to verify a load against; it destroys the open project; and
+    /// there is no `open`, `revert` or `revertProjects` to undo it. A fresh
+    /// process (`spawn_td`) is the genuinely fresh load, and the daemon owns
+    /// that lifecycle.
+    ///
+    /// The `path`/`no path` split is deliberate: replacing the session is
+    /// destructive and unverifiable, loading a component is neither, and one
+    /// verb covering both would make the safe case the unusual one to ask for.
     Load,
 }
 
@@ -111,7 +119,12 @@ pub struct ProjectSnapshotParams {
     /// to put in a receipt.
     #[serde(default)]
     pub target: Option<String>,
-    /// The COMP to save, for `action: component`.
+    /// The COMP to save, for `action: component`; and the COMP to load
+    /// `target` INTO, for `action: load` with a `target`.
+    ///
+    /// Meaningful in both directions, which is why omitting it is meaningful
+    /// too: `load` with a `path` loads a component, `load` without one only
+    /// plans a project load.
     #[serde(default)]
     pub path: Option<OpPath>,
     /// What to do when the destination exists. Defaults to `fail`.
@@ -146,12 +159,29 @@ mod tests {
     }
 
     #[test]
-    fn the_load_action_reports_a_plan_and_never_loads() {
-        // Named for what it does, so a caller cannot read it as an instruction
-        // to replace the open project.
-        let params = parse(json!({"pid": 1, "action": "load", "target": "/tmp/a.toe"}));
-        assert_eq!(params.action, SnapshotAction::Load);
-        assert_eq!(params.action.as_str(), "load");
+    fn the_load_action_covers_both_a_component_load_and_a_project_plan() {
+        // One verb, two meanings, and `path` is what distinguishes them: with a
+        // path it loads a COMPONENT (non-destructive, and MEASURED to preserve
+        // pages, types and a python expression), without one it only PLANS a
+        // project load, because replacing the session is destructive and
+        // `project.load` returns nothing to verify against.
+        let component = parse(json!({
+            "pid": 1, "action": "load", "target": "/tmp/dep.tox",
+            "path": "/project1/host"
+        }));
+        assert_eq!(component.action, SnapshotAction::Load);
+        assert_eq!(component.target.as_deref(), Some("/tmp/dep.tox"));
+        assert!(
+            component.path.is_some(),
+            "a host path is what makes it a load"
+        );
+
+        let plan = parse(json!({"pid": 1, "action": "load", "target": "/tmp/a.toe"}));
+        assert_eq!(plan.action, SnapshotAction::Load);
+        assert!(
+            plan.path.is_none(),
+            "no host path must not read as a component load"
+        );
     }
 
     #[test]

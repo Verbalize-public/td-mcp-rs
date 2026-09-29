@@ -53,7 +53,7 @@
         },
         {
           "const": "load",
-          "description": "Report what loading `target` would mean, and load nothing.\n\nThere is deliberately no \"do the load\" arm. Measured on TouchDesigner\n2025.32460: `project.load(path)` returns `None`, so there is nothing to\nverify the load against; it destroys the open project; and there is no\n`open`, `revert` or `revertProjects` to undo it. `root.load` and\n`COMP.load` do not exist either, so a `.tox` cannot be loaded into an\nempty operator to make the load non-destructive. A fresh process\n(`spawn_td`) is the genuinely fresh load, and the daemon owns it.",
+          "description": "Load — two different things, and `path` is what distinguishes them.\n\n**With `path`** (a COMP to load into): loads the `.tox` at `target` with\n`loadTox`, which is genuinely non-destructive. Measured on TouchDesigner\n2025.32460: pages, parameter names, parameter types and a python\nparameter's expression all survive the round trip.\n\n**Without `path`**: reports what loading the file as the PROJECT would\nmean, and loads nothing. `project.load(path)` returns `None`, so there\nis nothing to verify a load against; it destroys the open project; and\nthere is no `open`, `revert` or `revertProjects` to undo it. A fresh\nprocess (`spawn_td`) is the genuinely fresh load, and the daemon owns\nthat lifecycle.\n\nThe `path`/`no path` split is deliberate: replacing the session is\ndestructive and unverifiable, loading a component is neither, and one\nverb covering both would make the safe case the unusual one to ask for.",
           "type": "string"
         }
       ]
@@ -122,7 +122,7 @@
         }
       ],
       "default": null,
-      "description": "The COMP to save, for `action: component`."
+      "description": "The COMP to save, for `action: component`; and the COMP to load\n`target` INTO, for `action: load` with a `target`.\n\nMeaningful in both directions, which is why omitting it is meaningful\ntoo: `load` with a `path` loads a component, `load` without one only\nplans a project load."
     },
     "pid": {
       "$ref": "#/$defs/Pid",
