@@ -20,6 +20,7 @@ use std::sync::Arc;
 
 use tdmcp_core::EffectState;
 use tdmcp_mcp::client_id::ClientIdentity;
+use tdmcp_mcp::evidence::OwnerId;
 use tdmcp_mcp::receipts::{
     DispatchGuard, DispatchJournal, JournalError, ReceiptFactory, ReceiptHandle,
 };
@@ -116,6 +117,26 @@ pub struct ClientReceiptFactory {
 }
 
 impl ClientReceiptFactory {
+    /// The journal behind this factory.
+    ///
+    /// For the read-back route. Returns the same journal the ports record into,
+    /// so a receipt a client lists is the one its dispatches wrote.
+    #[must_use]
+    pub fn journal(&self) -> &Arc<dyn OperationJournal> {
+        &self.journal
+    }
+
+    /// The principal a claim resolves to, without building a receipt port.
+    ///
+    /// For the read-back route, which needs the owner to scope a `list` and has
+    /// no dispatch to record. `None` means the claim was refused, and the caller
+    /// must then answer for nobody rather than falling back to a default owner.
+    #[must_use]
+    pub fn owner_for_claim(&self, claim: Option<&str>) -> Option<OwnerId> {
+        let identity = ClientIdentity::resolve(claim, &self.auth_mode, &self.psk).ok()?;
+        identity.owner_id().ok()
+    }
+
     /// Bind the factory to one journal and the transport's credential.
     #[must_use]
     pub fn new(journal: Arc<dyn OperationJournal>, auth_mode: &str, psk: &str) -> Self {
@@ -159,7 +180,6 @@ mod tests {
     use super::*;
     use crate::opjournal::{JournalConfig, MemoryOperationJournal, OperationJournal, ReceiptState};
     use std::time::Duration;
-    use tdmcp_mcp::evidence::OwnerId;
 
     fn port() -> (
         DispatchJournalPort,

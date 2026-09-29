@@ -957,19 +957,25 @@ async fn run_daemon(
         }
     };
 
+    // One factory, shared by the dispatch path and the read-back route, so the
+    // receipts a client lists are the ones its dispatches wrote. The credential
+    // lives only in here, so no handler can choose its own principal: a request
+    // contributes a label, never an owner.
+    let receipts = journal.map(|journal| {
+        Arc::new(tdmcp_daemon::receipt_port::ClientReceiptFactory::new(
+            journal,
+            &cfg.auth_mode,
+            &cfg.auth_psk,
+        ))
+    });
+    if receipts.is_some() {
+        info!("operation receipts enabled (dispatch receipts are recorded per client)");
+    }
+
     let mut state = AppState::new_shared(registry.clone(), catalog, bridge, resource_provider)
         .with_federation(fed_ctx);
-    if let Some(journal) = journal {
-        // The credential lives only in this factory, so no handler can choose
-        // its own principal: a request contributes a label, never an owner.
-        state = state.with_receipts(Arc::new(
-            tdmcp_daemon::receipt_port::ClientReceiptFactory::new(
-                journal,
-                &cfg.auth_mode,
-                &cfg.auth_psk,
-            ),
-        ));
-        info!("operation receipts enabled (dispatch receipts are recorded per client)");
+    if let Some(receipts) = receipts.clone() {
+        state = state.with_receipts(receipts);
     }
     let admin_state = state.clone();
     let mcp_handler_state = state.clone();
@@ -1029,6 +1035,7 @@ async fn run_daemon(
             federation.clone(),
             log_sink.clone(),
             cfg.logging_dir.clone(),
+            receipts,
         ))
         .nest_service("/mcp/rpc", streamable_http)
         // Axum's Json/Bytes extractors default to 2 MiB regardless of the

@@ -36,7 +36,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tdmcp_core::{EffectState, ExtensionData, OperationOutcome, OperationState};
 use tdmcp_mcp::evidence::{EvidenceError, OwnerId};
 
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 /// Journal rows retained for one owner, including terminal tombstones.
 const DEFAULT_MAX_ROWS_PER_OWNER: u64 = 512;
 /// Journal rows retained across the journal, including tombstones.
@@ -159,6 +159,25 @@ impl ReceiptState {
     }
 }
 
+/// What a *caller* says it observed about an unobserved dispatch.
+///
+/// This is deliberately not a receipt state. The daemon never saw the result, so
+/// nothing here can promote an [`ReceiptState::UnknownEffect`] receipt to
+/// `completed` — a future reader of the `state` field would otherwise be unable
+/// to tell an observation from an assertion. The caller's account sits beside
+/// the state, labelled, and the state stays unknown.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CallerResolution {
+    /// What the caller observed in TouchDesigner.
+    pub observed_effect: EffectState,
+    /// Bounded, caller-supplied note. Never interpreted by the daemon.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+    /// Wall-clock milliseconds when the caller recorded this.
+    pub resolved_at_ms: i64,
+}
+
 /// One durable receipt.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -183,6 +202,9 @@ pub struct OperationReceipt {
     /// When a terminal receipt may be dropped.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expires_at_ms: Option<i64>,
+    /// The owner's own account of an unobserved dispatch, if they gave one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resolution: Option<CallerResolution>,
 }
 
 impl OperationReceipt {
@@ -260,6 +282,28 @@ pub trait OperationJournal: Send + Sync {
 
     /// Read one receipt owned by `owner`.
     fn get(&self, owner: &OwnerId, id: &str) -> Result<Option<OperationReceipt>, EvidenceError>;
+
+    /// Record the caller's own account of an unobserved dispatch.
+    ///
+    /// The receipt's `state` and `effect` are NOT changed. The daemon never
+    /// saw the result, so a caller's assertion cannot become an observation:
+    /// if it could, a later reader of `state` could no longer tell the two
+    /// apart, and the whole point of `unknown_effect` is that it stays unknown.
+    ///
+    /// The account is stored beside the state as a [`CallerResolution`], which
+    /// is only legal on a receipt that is actually unresolved. Resolving an
+    /// already-observed receipt is a conflict: its state is the better record,
+    /// and a caller note must not paper over it.
+    ///
+    /// This is also not a retry. Nothing is re-sent, and the caller's account is
+    /// not permission to repeat the work.
+    fn resolve(
+        &self,
+        owner: &OwnerId,
+        id: &str,
+        observed_effect: EffectState,
+        note: Option<&str>,
+    ) -> Result<OperationReceipt, EvidenceError>;
 
     /// List an owner's receipts, newest first, at most `limit` rows.
     fn list(&self, owner: &OwnerId, limit: u64) -> Result<Vec<OperationReceipt>, EvidenceError>;
@@ -346,11 +390,25 @@ impl SqliteOperationJournal {
                              detail       TEXT,
                              created_at_ms INTEGER NOT NULL,
                              updated_at_ms INTEGER NOT NULL,
-                             expires_at_ms INTEGER
+                             expires_at_ms INTEGER,
+                             resolution    TEXT
                          );
                          CREATE INDEX IF NOT EXISTS receipts_owner
                              ON receipts(owner, created_at_ms);
-                         PRAGMA user_version = 1;",
+                         PRAGMA user_version = 2;",
+                    )
+                    .map_err(db_error)?;
+            }
+            // A v1 journal predates caller-supplied resolutions. The column is
+            // added rather than the journal rebuilt: the receipts in it are the
+            // only record of dispatches nobody observed, and discarding them to
+            // apply a schema change would throw away exactly the thing this
+            // journal exists to preserve.
+            Some(1) => {
+                connection
+                    .execute_batch(
+                        "ALTER TABLE receipts ADD COLUMN resolution TEXT;
+                         PRAGMA user_version = 2;",
                     )
                     .map_err(db_error)?;
             }
@@ -391,7 +449,8 @@ impl SqliteOperationJournal {
                      detail       TEXT,
                      created_at_ms INTEGER NOT NULL,
                      updated_at_ms INTEGER NOT NULL,
-                     expires_at_ms INTEGER
+                     expires_at_ms INTEGER,
+                     resolution    TEXT
                  );
                  CREATE INDEX receipts_owner ON receipts(owner, created_at_ms);",
             )
@@ -401,6 +460,29 @@ impl SqliteOperationJournal {
             config,
             _writer_lock: File::open("/dev/null").map_err(io_error)?,
         })
+    }
+
+    /// Read one receipt while the connection lock is already held.
+    ///
+    /// Separate from [`OperationJournal::get`] so a path that is mid-transaction
+    /// — `resolve` re-reads to tell "not yours" from "not annotatable" — does
+    /// not have to drop and retake the lock it is holding.
+    fn get_locked(
+        &self,
+        connection: &rusqlite::Connection,
+        owner: &OwnerId,
+        id: &str,
+    ) -> Result<Option<OperationReceipt>, EvidenceError> {
+        connection
+            .query_row(
+                "SELECT id, owner, subject, state, effect, detail, created_at_ms, updated_at_ms,
+                        expires_at_ms, resolution
+                   FROM receipts WHERE id = ?1 AND owner = ?2",
+                params![id, owner.as_str()],
+                row_to_receipt,
+            )
+            .optional()
+            .map_err(db_error)
     }
 
     fn bound_detail(&self, detail: Option<&str>) -> Result<Option<String>, EvidenceError> {
@@ -665,16 +747,54 @@ impl OperationJournal for SqliteOperationJournal {
             .connection
             .lock()
             .map_err(|_| EvidenceError::Conflict)?;
-        connection
-            .query_row(
-                "SELECT id, owner, subject, state, effect, detail, created_at_ms, updated_at_ms,
-                        expires_at_ms
-                   FROM receipts WHERE id = ?1 AND owner = ?2",
-                params![id, owner.as_str()],
-                row_to_receipt,
+        self.get_locked(&connection, owner, id)
+    }
+
+    fn resolve(
+        &self,
+        owner: &OwnerId,
+        id: &str,
+        observed_effect: EffectState,
+        note: Option<&str>,
+    ) -> Result<OperationReceipt, EvidenceError> {
+        let note = self.bound_detail(note)?;
+        let resolution = serde_json::to_string(&CallerResolution {
+            observed_effect,
+            note,
+            resolved_at_ms: now_ms(),
+        })
+        // A struct this small cannot fail to serialize; a failure here would be
+        // a bug, and reporting it beats dropping the caller's account.
+        .map_err(|error| EvidenceError::Backend(error.to_string()))?;
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| EvidenceError::Conflict)?;
+        // Only an unresolved receipt may be annotated, and only ever *alongside*
+        // its state. The expected states are the ones where nobody observed the
+        // result: a dispatched or wait-expired call whose work may still be
+        // running, and an unknown-effect one promoted by recovery.
+        let updated = connection
+            .execute(
+                "UPDATE receipts
+                    SET resolution = ?1, updated_at_ms = ?2
+                  WHERE id = ?3 AND owner = ?4
+                    AND state IN ('dispatched', 'wait_expired', 'unknown_effect')",
+                params![resolution, now_ms(), id, owner.as_str()],
             )
-            .optional()
-            .map_err(db_error)
+            .map_err(db_error)?;
+        if updated == 0 {
+            // Say nothing about a row that is not the caller's: a foreign id
+            // and a state that may not be annotated are the same answer, so this
+            // cannot be used to probe another principal's receipts.
+            return Err(if self.get_locked(&connection, owner, id)?.is_some() {
+                EvidenceError::Conflict
+            } else {
+                EvidenceError::NotFound
+            });
+        }
+        self.get_locked(&connection, owner, id)?
+            .ok_or(EvidenceError::NotFound)
     }
 
     fn list(&self, owner: &OwnerId, limit: u64) -> Result<Vec<OperationReceipt>, EvidenceError> {
@@ -686,7 +806,7 @@ impl OperationJournal for SqliteOperationJournal {
         let mut statement = connection
             .prepare(
                 "SELECT id, owner, subject, state, effect, detail, created_at_ms, updated_at_ms,
-                        expires_at_ms
+                        expires_at_ms, resolution
                    FROM receipts WHERE owner = ?1
                    ORDER BY created_at_ms DESC, id DESC
                    LIMIT ?2",
@@ -714,7 +834,7 @@ impl OperationJournal for SqliteOperationJournal {
             let mut statement = connection
                 .prepare(
                     "SELECT id, owner, subject, state, effect, detail, created_at_ms, updated_at_ms,
-                            expires_at_ms
+                            expires_at_ms, resolution
                        FROM receipts WHERE state IN ('dispatched', 'wait_expired')",
                 )
                 .map_err(db_error)?;
@@ -763,7 +883,7 @@ impl SqliteOperationJournal {
         connection
             .query_row(
                 "SELECT id, owner, subject, state, effect, detail, created_at_ms, updated_at_ms,
-                        expires_at_ms
+                        expires_at_ms, resolution
                    FROM receipts WHERE id = ?1",
                 params![id],
                 row_to_receipt,
@@ -790,6 +910,18 @@ fn row_to_receipt(row: &rusqlite::Row<'_>) -> rusqlite::Result<OperationReceipt>
         .ok_or_else(|| unrecognized(format!("unrecognized operation state {state_text:?}"), 3))?;
     let effect = parse_effect(&effect_text)
         .ok_or_else(|| unrecognized(format!("unrecognized operation effect {effect_text:?}"), 4))?;
+    let resolution_text: Option<String> = row.get(9)?;
+    let resolution = match &resolution_text {
+        None => None,
+        Some(text) => Some(
+            serde_json::from_str::<CallerResolution>(text).map_err(|error| {
+                unrecognized(
+                    format!("unrecognized caller resolution {text:?}: {error}"),
+                    9,
+                )
+            })?,
+        ),
+    };
     Ok(OperationReceipt {
         id: row.get(0)?,
         owner: row.get(1)?,
@@ -800,6 +932,7 @@ fn row_to_receipt(row: &rusqlite::Row<'_>) -> rusqlite::Result<OperationReceipt>
         created_at_ms: row.get(6)?,
         updated_at_ms: row.get(7)?,
         expires_at_ms: row.get(8)?,
+        resolution,
     })
 }
 
@@ -975,6 +1108,7 @@ impl OperationJournal for MemoryOperationJournal {
             created_at_ms: now,
             updated_at_ms: now,
             expires_at_ms: None,
+            resolution: None,
         };
         let mut receipts = self.receipts.lock().map_err(|_| EvidenceError::Conflict)?;
         receipts.insert(id.clone(), receipt);
@@ -1093,6 +1227,48 @@ impl OperationJournal for MemoryOperationJournal {
         receipt.updated_at_ms = now_ms();
         receipt.expires_at_ms = Some(now_ms() + retention_ms(self.config.retention));
         Ok(())
+    }
+
+    fn resolve(
+        &self,
+        owner: &OwnerId,
+        id: &str,
+        observed_effect: EffectState,
+        note: Option<&str>,
+    ) -> Result<OperationReceipt, EvidenceError> {
+        if let Some(note) = note {
+            if u64::try_from(note.len()).unwrap_or(u64::MAX) > self.config.max_detail_bytes {
+                return Err(EvidenceError::QuotaExceeded(
+                    "operation receipt detail exceeds the configured bound".to_owned(),
+                ));
+            }
+            if note.chars().any(char::is_control) {
+                return Err(EvidenceError::InvalidInput(
+                    "operation receipt detail must not contain control characters".to_owned(),
+                ));
+            }
+        }
+        let now = now_ms();
+        let mut receipts = self.receipts.lock().map_err(|_| EvidenceError::Conflict)?;
+        let receipt = receipts
+            .get_mut(id)
+            .filter(|receipt| receipt.owner == owner.as_str())
+            .ok_or(EvidenceError::NotFound)?;
+        // Same rule as the disk backend: only an unobserved dispatch may be
+        // annotated, and the annotation never rewrites the state.
+        if !matches!(
+            receipt.state,
+            ReceiptState::Dispatched | ReceiptState::WaitExpired | ReceiptState::UnknownEffect
+        ) {
+            return Err(EvidenceError::Conflict);
+        }
+        receipt.resolution = Some(CallerResolution {
+            observed_effect,
+            note: note.map(str::to_owned),
+            resolved_at_ms: now,
+        });
+        receipt.updated_at_ms = now;
+        Ok(receipt.clone())
     }
 
     fn get(&self, owner: &OwnerId, id: &str) -> Result<Option<OperationReceipt>, EvidenceError> {
@@ -1732,6 +1908,75 @@ mod tests {
         );
     }
 
+    /// Build a v1-shaped journal by hand, so the migration is exercised against
+    /// a database this build did not create.
+    ///
+    /// Creating a fresh journal and reading it back would prove nothing: a fresh
+    /// journal runs the CREATE TABLE branch, never the migration.
+    #[cfg(unix)]
+    fn write_a_v1_journal(root: &std::path::Path) -> String {
+        let connection = rusqlite::Connection::open(root.join("operations.sqlite3")).unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE receipts (
+                     id           TEXT    NOT NULL PRIMARY KEY,
+                     owner        TEXT    NOT NULL,
+                     subject      TEXT    NOT NULL,
+                     state        TEXT    NOT NULL,
+                     effect       TEXT    NOT NULL,
+                     detail       TEXT,
+                     created_at_ms INTEGER NOT NULL,
+                     updated_at_ms INTEGER NOT NULL,
+                     expires_at_ms INTEGER
+                 );
+                 CREATE INDEX receipts_owner ON receipts(owner, created_at_ms);
+                 PRAGMA user_version = 1;",
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO receipts
+                     (id, owner, subject, state, effect, detail, created_at_ms, updated_at_ms,
+                      expires_at_ms)
+                 VALUES ('op_v1', 'alice', 'mutate_nodes', 'unknown_effect', 'unknown', NULL, 1, 1, NULL)",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
+            .unwrap();
+        drop(connection);
+        // The v1 row is the only record of a dispatch nobody observed, so the
+        // migration must carry it across rather than rebuild the journal.
+        "op_v1".to_owned()
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_older_journal_is_migrated_without_losing_its_unobserved_receipts() {
+        let root = temp_root("migrate");
+        let id = write_a_v1_journal(&root);
+
+        let journal = SqliteOperationJournal::open(&root, config()).unwrap();
+        let receipt = journal
+            .get(&alice(), &id)
+            .unwrap()
+            .expect("a v1 receipt survives the migration");
+        assert_eq!(receipt.state, ReceiptState::UnknownEffect);
+        assert_eq!(receipt.effect, EffectState::Unknown);
+        assert_eq!(receipt.subject, "mutate_nodes");
+        // Pre-resolution, so there is no caller account to carry forward.
+        assert!(receipt.resolution.is_none());
+
+        // The migrated journal is fully usable, not merely readable.
+        let fresh = journal.admit(&alice(), "mutate_nodes", None).unwrap();
+        journal.mark_dispatched(&alice(), &fresh).unwrap();
+        let resolved = journal
+            .resolve(&alice(), &fresh, EffectState::Applied, Some("checked"))
+            .unwrap();
+        assert!(resolved.resolution.is_some());
+    }
+
     #[cfg(unix)]
     #[test]
     fn the_disk_journal_recovers_a_dispatch_that_a_restart_interrupted() {
@@ -2048,6 +2293,146 @@ mod tests {
         // Settled means it holds no in-flight slot, so a client whose TD is down
         // can retry instead of being refused by its own quota.
         assert!(receipt.expires_at_ms.is_some());
+    }
+
+    /// The caller's account of an unobserved dispatch must be *beside* the
+    /// state, never merged into it. This is the property the whole route rests
+    /// on: if a caller's note could promote a receipt to completed, a later
+    /// reader of `state` could no longer tell an observation from an assertion.
+    fn resolution_contract(journal: &dyn OperationJournal) {
+        let id = journal.admit(&alice(), "mutate_nodes", None).unwrap();
+        journal.mark_dispatched(&alice(), &id).unwrap();
+        journal
+            .mark_wait_expired(&alice(), &id, "caller stopped waiting")
+            .unwrap();
+        // Recovery promotes it to the terminal unknown, which is where a caller
+        // returning after a restart will find it.
+        journal.recover_uncertain().unwrap();
+
+        let resolved = journal
+            .resolve(&alice(), &id, EffectState::Applied, Some("applied in TD"))
+            .unwrap();
+        assert_eq!(
+            resolved.state,
+            ReceiptState::UnknownEffect,
+            "a caller's account must not rewrite the daemon's state"
+        );
+        assert_eq!(
+            resolved.effect,
+            EffectState::Unknown,
+            "and must not rewrite the daemon's effect either"
+        );
+        let note = resolved
+            .resolution
+            .expect("the caller's account is recorded");
+        assert_eq!(note.observed_effect, EffectState::Applied);
+        assert_eq!(note.note.as_deref(), Some("applied in TD"));
+        assert!(note.resolved_at_ms > 0);
+
+        // It survives a re-read, so the answer is not lost between calls.
+        let again = journal.get(&alice(), &id).unwrap().unwrap();
+        assert_eq!(again.state, ReceiptState::UnknownEffect);
+        assert!(again.resolution.is_some());
+    }
+
+    #[test]
+    fn a_caller_can_account_for_an_unobserved_dispatch_without_changing_it() {
+        resolution_contract(&memory());
+    }
+
+    #[test]
+    fn a_sqlite_backed_resolution_matches_the_memory_one() {
+        resolution_contract(&SqliteOperationJournal::open_memory(config()).unwrap());
+    }
+
+    #[test]
+    fn an_observed_receipt_cannot_be_re_annotated_away() {
+        // Its state is the better record: the daemon saw the result. A caller
+        // note must not paper over it or be allowed to disagree.
+        let journal = memory();
+        let id = journal.admit(&alice(), "mutate_nodes", None).unwrap();
+        journal.mark_dispatched(&alice(), &id).unwrap();
+        journal
+            .finish(
+                &alice(),
+                &id,
+                ReceiptState::Completed,
+                EffectState::None,
+                None,
+            )
+            .unwrap();
+        assert!(matches!(
+            journal.resolve(&alice(), &id, EffectState::Applied, None),
+            Err(EvidenceError::Conflict)
+        ));
+        let receipt = journal.get(&alice(), &id).unwrap().unwrap();
+        assert_eq!(receipt.state, ReceiptState::Completed);
+        assert!(receipt.resolution.is_none());
+    }
+
+    #[test]
+    fn one_client_cannot_annotate_another_clients_receipt() {
+        let journal = memory();
+        let id = journal.admit(&alice(), "mutate_nodes", None).unwrap();
+        journal.mark_dispatched(&alice(), &id).unwrap();
+        // A foreign id is NotFound, not a hint that the row exists.
+        assert!(matches!(
+            journal.resolve(&bob(), &id, EffectState::Applied, None),
+            Err(EvidenceError::NotFound)
+        ));
+        assert!(journal
+            .get(&alice(), &id)
+            .unwrap()
+            .unwrap()
+            .resolution
+            .is_none());
+    }
+
+    #[test]
+    fn an_oversized_or_control_bearing_note_is_refused() {
+        let journal = memory();
+        let id = journal.admit(&alice(), "mutate_nodes", None).unwrap();
+        journal.mark_dispatched(&alice(), &id).unwrap();
+        let long = "n".repeat(1_000);
+        assert!(matches!(
+            journal.resolve(&alice(), &id, EffectState::Applied, Some(&long)),
+            Err(EvidenceError::QuotaExceeded(_))
+        ));
+        assert!(matches!(
+            journal.resolve(&alice(), &id, EffectState::Applied, Some("has\u{7}nul")),
+            Err(EvidenceError::InvalidInput(_))
+        ));
+    }
+
+    #[test]
+    fn a_resolution_is_not_license_to_retry() {
+        // Recording what the caller saw must not change what the daemon will do
+        // next: a dispatch recorded as unknown stays unknown, so nothing is
+        // re-sent on the strength of the caller's note.
+        let journal = memory();
+        let id = journal.admit(&alice(), "mutate_nodes", None).unwrap();
+        journal.mark_dispatched(&alice(), &id).unwrap();
+        journal
+            .resolve(&alice(), &id, EffectState::Applied, None)
+            .unwrap();
+        // The caller's account does not settle anything: the receipt is still
+        // an unobserved dispatch, not an operation anyone can treat as done.
+        let receipt = journal.get(&alice(), &id).unwrap().unwrap();
+        assert_eq!(receipt.state, ReceiptState::Dispatched);
+        assert_eq!(receipt.outcome().state, OperationState::Dispatched);
+        // And it does not suppress recovery either. A later restart still
+        // promotes it, which is what keeps the unknown honest rather than
+        // quietly parked.
+        let recovered = journal.recover_uncertain().unwrap();
+        assert_eq!(recovered.len(), 1, "recovery still reports the dispatch");
+        assert_eq!(recovered[0].state, ReceiptState::UnknownEffect);
+        // Recovery carries the caller's account forward rather than dropping it.
+        assert!(journal
+            .get(&alice(), &id)
+            .unwrap()
+            .unwrap()
+            .resolution
+            .is_some());
     }
 
     #[test]

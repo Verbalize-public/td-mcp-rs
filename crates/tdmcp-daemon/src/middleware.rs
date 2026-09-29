@@ -73,6 +73,11 @@ pub fn requires_psk_auth(path: &str) -> bool {
         // rather than a follow-up touch when ingest lands.
         || path == "/admin/logs"
         || path.starts_with("/admin/logs/")
+        // Operation receipts are a client's own history, including the
+        // unobserved dispatches nobody can otherwise account for. They get the
+        // same rule as the rest of /admin rather than being added later.
+        || path == "/admin/operations"
+        || path.starts_with("/admin/operations/")
 }
 
 fn unauthorized_response() -> Response {
@@ -181,6 +186,12 @@ mod tests {
         assert!(requires_psk_auth("/admin/logs"));
         assert!(requires_psk_auth("/admin/logs/path"));
         assert!(requires_psk_auth("/admin/logs/ingest"));
+        assert!(requires_psk_auth("/admin/operations"));
+        assert!(requires_psk_auth("/admin/operations/resolve"));
+        // An unrecognised subpath is still covered: the prefix rule is what
+        // makes a route added later authenticated by default rather than
+        // accidentally public.
+        assert!(requires_psk_auth("/admin/operations/other"));
         assert!(!requires_psk_auth("/admin/federation/status"));
         assert!(!requires_psk_auth("/admin/federation/status/extra"));
         assert!(!requires_psk_auth("/admin/status"));

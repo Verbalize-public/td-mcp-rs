@@ -80,6 +80,9 @@ fn admin_router_with_logs(state: AppState, logs: LogSink) -> axum::Router {
         test_federation(),
         logs,
         PathBuf::from("/tmp/tdmcp-test-logs"),
+        // No receipt journal: these tests are about MCP sessions, and a route
+        // that reports receipts as unavailable is the correct behaviour here.
+        None,
     )
 }
 

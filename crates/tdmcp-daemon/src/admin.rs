@@ -6,6 +6,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
+use axum::extract::rejection::JsonRejection;
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
@@ -23,6 +24,8 @@ use crate::ensure::configure_detached_spawn;
 use crate::federation::{tag_local_processes, FederationRuntime};
 use crate::logrecord::{Level, Src};
 use crate::logring::{ingest_proxy_logs, LogSink};
+use crate::opjournal::ReceiptState;
+use crate::receipt_port::ClientReceiptFactory;
 
 /// Arguments needed to respawn the daemon after `/admin/restart`.
 #[derive(Debug, Clone)]
@@ -53,6 +56,13 @@ struct AdminState {
     federation: FederationRuntime,
     logs: LogSink,
     logs_dir: PathBuf,
+    /// Resolves a request's identity claim and reads that principal's receipts.
+    ///
+    /// `None` when no journal could be opened. The routes then answer with an
+    /// explicit "receipts are unavailable" rather than an empty list, so a
+    /// client is never told "you have no unobserved operations" when the truth is
+    /// that the daemon cannot say.
+    receipts: Option<Arc<ClientReceiptFactory>>,
 }
 
 /// Process start instant for the `/admin/status` uptime field.
@@ -69,6 +79,7 @@ pub fn build_admin_router(
     federation: FederationRuntime,
     logs: LogSink,
     logs_dir: PathBuf,
+    receipts: Option<Arc<ClientReceiptFactory>>,
 ) -> Router {
     let _ = START.set(Instant::now());
     let state = AdminState {
@@ -79,6 +90,7 @@ pub fn build_admin_router(
         federation: federation.clone(),
         logs,
         logs_dir,
+        receipts,
     };
     Router::new()
         .route("/admin/status", get(status))
@@ -90,6 +102,8 @@ pub fn build_admin_router(
         .route("/admin/logs", get(admin_logs))
         .route("/admin/logs/path", get(admin_logs_path))
         .route("/admin/logs/ingest", post(admin_logs_ingest))
+        .route("/admin/operations", get(admin_operations))
+        .route("/admin/operations/resolve", post(admin_operations_resolve))
         .with_state(state)
         .merge(crate::federation::federation_router(federation))
 }
@@ -431,4 +445,166 @@ async fn admin_logs_ingest(State(state): State<AdminState>, Json(body): Json<Val
     let proxy_pid = body.get("pid").and_then(Value::as_u64).unwrap_or(0) as u32;
     let ingested = ingest_proxy_logs(proxy_pid, &body, &state.logs);
     Json(json!({ "ok": true, "ingested": ingested })).into_response()
+}
+
+/// Max rows one `/admin/operations` read will return.
+///
+/// Bounded so a client with a long history cannot make the daemon build an
+/// unbounded response; the journal itself keeps more.
+const OPERATIONS_PAGE_LIMIT: u64 = 64;
+
+/// A client's own operation receipts, newest first.
+///
+/// The list is scoped to the caller's principal by its `x-tdmcp-client` claim,
+/// so a client can only ever see its own dispatches. `unresolved` is broken out
+/// because that is the question a client actually has after a restart: which of
+/// my operations ran without anyone observing the result?
+async fn admin_operations(
+    State(state): State<AdminState>,
+    headers: axum::http::HeaderMap,
+    Query(query): Query<OperationsQuery>,
+) -> Json<Value> {
+    let Some(factory) = state.receipts.as_ref() else {
+        // Explicitly not an empty list. "You have no unobserved operations" and
+        // "this daemon cannot tell" are different answers, and only one of them
+        // is true when the journal is unavailable.
+        return Json(json!({
+            "ok": false,
+            "available": false,
+            "message": "operation receipts are unavailable: this daemon could not open its journal",
+        }));
+    };
+    let Some(owner) = factory.owner_for_claim(claim_of(&headers)) else {
+        return Json(json!({
+            "ok": false,
+            "available": true,
+            "message": "the client identity claim was refused; no receipts are attributed to it",
+        }));
+    };
+    let limit = query
+        .limit
+        .unwrap_or(OPERATIONS_PAGE_LIMIT)
+        .clamp(1, OPERATIONS_PAGE_LIMIT);
+    match factory.journal().list(&owner, limit) {
+        Ok(receipts) => {
+            let unresolved: Vec<&ReceiptState> = receipts
+                .iter()
+                .filter(|receipt| receipt.state == ReceiptState::UnknownEffect)
+                .map(|receipt| &receipt.state)
+                .collect();
+            Json(json!({
+                "ok": true,
+                "available": true,
+                "count": receipts.len(),
+                // Named as a count rather than left implicit: a client reading
+                // `unresolved: 0` learns that nothing is unaccounted for, which
+                // is a different and stronger statement than an empty list.
+                "unresolved": unresolved.len(),
+                "receipts": receipts,
+            }))
+        }
+        Err(error) => Json(json!({
+            "ok": false,
+            "available": true,
+            "message": format!("the operation receipts could not be read: {error}"),
+        })),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct OperationsQuery {
+    /// Maximum rows to return, clamped to the route's bound.
+    #[serde(default)]
+    limit: Option<u64>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ResolveBody {
+    /// Receipt identity the caller is accounting for.
+    id: String,
+    /// What the caller observed in TouchDesigner.
+    observed_effect: tdmcp_core::EffectState,
+    /// Optional bounded note.
+    #[serde(default)]
+    note: Option<String>,
+}
+
+/// Record the caller's own account of an unobserved dispatch.
+///
+/// This does **not** resolve anything on the daemon's behalf and does not
+/// re-send the work. The receipt's state stays `unknown_effect`; the caller's
+/// account is stored beside it, labelled, so a later reader can tell an
+/// observation from an assertion. That is the only honest way to close the loop
+/// when the daemon never saw the result.
+async fn admin_operations_resolve(
+    State(state): State<AdminState>,
+    headers: axum::http::HeaderMap,
+    body: Result<Json<ResolveBody>, JsonRejection>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let Json(body) = match body {
+        Ok(json) => json,
+        Err(rejection) => {
+            return Err((
+                rejection.status(),
+                Json(json!({"ok": false, "summary": rejection.body_text()})),
+            ));
+        }
+    };
+    let Some(factory) = state.receipts.as_ref() else {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({
+                "ok": false,
+                "message": "operation receipts are unavailable: this daemon could not open its journal",
+            })),
+        ));
+    };
+    let Some(owner) = factory.owner_for_claim(claim_of(&headers)) else {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "ok": false,
+                "message": "the client identity claim was refused; nothing is recorded against it",
+            })),
+        ));
+    };
+    match factory
+        .journal()
+        .resolve(&owner, &body.id, body.observed_effect, body.note.as_deref())
+    {
+        Ok(receipt) => Ok(Json(json!({
+            "ok": true,
+            "receipt": receipt,
+            // Restated in the response so a client cannot read the account back
+            // as the daemon having observed the outcome.
+            "observedBy": "caller",
+            "stateUnchanged": true,
+        }))),
+        Err(error) => {
+            // A foreign id and a receipt that may not be annotated are
+            // deliberately the same shape here: telling them apart would let a
+            // caller probe which ids exist. The status is enough to act on.
+            let status = match error {
+                tdmcp_mcp::evidence::EvidenceError::NotFound => StatusCode::NOT_FOUND,
+                tdmcp_mcp::evidence::EvidenceError::QuotaExceeded(_) => {
+                    StatusCode::PAYLOAD_TOO_LARGE
+                }
+                tdmcp_mcp::evidence::EvidenceError::InvalidInput(_) => StatusCode::BAD_REQUEST,
+                _ => StatusCode::CONFLICT,
+            };
+            Err((
+                status,
+                Json(json!({"ok": false, "message": error.to_string()})),
+            ))
+        }
+    }
+}
+
+/// The client's install-scoped identity claim, if it sent one.
+fn claim_of(headers: &axum::http::HeaderMap) -> Option<&str> {
+    headers
+        .get(tdmcp_mcp::client_id::CLIENT_ID_HEADER)
+        .and_then(|value| value.to_str().ok())
 }
