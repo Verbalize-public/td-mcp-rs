@@ -389,6 +389,28 @@ class LoadPlanTests(TempDirCase):
         self.assertTrue(out["artifactPresent"])
         self.assertEqual(out["currentProject"]["name"], name)
 
+    def _loaded_child(self) -> Any:
+        """A loaded COMP child, in the shape `loadTox` returns.
+
+        The parameters carry the SAME predicates export classifies on, so the
+        read-back in `_load_component` is genuinely exercised rather than
+        asserted against a bare object.
+        """
+        def par(name: str, kind: str) -> Any:
+            node = SimpleNamespace(name=name, label=name, isFloat=False, isInt=False,
+                                   isMenu=False, isPulse=False, isToggle=False,
+                                   isString=False, isMomentary=False, isSequence=False,
+                                   isPython=False, isFolder=False, isOP=False)
+            setattr(node, {"float": "isFloat", "int": "isInt", "menu": "isMenu",
+                           "pulse": "isPulse", "toggle": "isToggle",
+                           "string": "isString"}[kind], True)
+            return node
+
+        page = SimpleNamespace(name="Controls",
+                               pars=[par("Speed", "float"), par("Count", "int")])
+        return SimpleNamespace(path="/project1/host/loaded", family="COMP",
+                               customPages=[page])
+
     def test_the_refusal_names_what_to_do_instead(self) -> None:
         # A refusal with no route forward is a dead end; the fresh-TD route is
         # genuinely fresh and already owned by this codebase.
@@ -440,6 +462,94 @@ class LoadPlanTests(TempDirCase):
             out = snap.handle_project_snapshot({"action": "load"})
         self.assertFalse(out["ok"])
         self.assertEqual(out["code"], "tdmcp.snapshot.target_required")
+
+    def test_a_component_load_works_and_reports_the_copied_interface(self) -> None:
+        # MEASURED: `loadTox` DOES exist and round-trips. My earlier claim that a
+        # .tox could not be loaded into an empty COMP was a load-shaped guess;
+        # the method is `loadTox`, not `load`.
+        path = self.write(self.target("dep.tox"), b"tox-bytes")
+        child = self._loaded_child()
+        host = SimpleNamespace(family="COMP", path="/project1/host", valid=True,
+                              loadTox=lambda _p, **_k: child)
+        out = snap._load_component(path, host, "/project1/host")
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["outcome"], "loaded")
+        self.assertEqual(out["kind"], "componentLoad")
+        self.assertEqual(out["loaded"]["path"], "/project1/host/loaded")
+        # The interface is READ BACK, so a load that lost a page is visible.
+        self.assertEqual(out["loaded"]["pageCount"], 1)
+        self.assertEqual(
+            [p["name"] for p in out["loaded"]["pages"][0]["pars"]],
+            ["Speed", "Count"],
+        )
+        self.assertEqual(
+            [p["type"] for p in out["loaded"]["pages"][0]["pars"]],
+            ["float", "int"],
+        )
+
+    def test_a_component_load_states_that_it_is_a_copy(self) -> None:
+        # The whole caveat: after a load, host.dirty and root.dirty stay False,
+        # externalTimeStamp stays 0, project.paths stays empty and isLibrary is
+        # None. So the .tox is NOT referenced, editing it later changes nothing
+        # here, and no dependency flag will ever report the divergence.
+        path = self.write(self.target("dep.tox"), b"tox-bytes")
+        host = SimpleNamespace(family="COMP", path="/h", valid=True,
+                              loadTox=lambda _p, **_k: self._loaded_child())
+        out = snap._load_component(path, host, "/h")
+        self.assertEqual(out["linkage"], "copy")
+        caveat = out["linkageCaveat"]
+        self.assertIn("COPIES", caveat)
+        self.assertIn("externalTimeStamp", caveat)
+        self.assertIn("no external-dependency flag will report", caveat)
+
+    def test_a_missing_component_file_is_refused_before_loading(self) -> None:
+        host = SimpleNamespace(family="COMP", path="/h", valid=True)
+        out = snap._load_component(self.target("nope.tox"), host, "/h")
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["code"], "tdmcp.snapshot.target_missing")
+
+    def test_a_load_that_raises_is_failed_with_observed_state(self) -> None:
+        path = self.write(self.target("dep.tox"), b"tox-bytes")
+
+        def boom(_p: str, **_k: Any) -> Any:
+            raise RuntimeError("bad tox")
+
+        host = SimpleNamespace(family="COMP", path="/h", valid=True, loadTox=boom)
+        out = snap._load_component(path, host, "/h")
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["outcome"], "failed")
+        self.assertIn("observed, not assumed", out["explanation"])
+
+    def test_a_load_returning_nothing_is_unknown_not_a_success(self) -> None:
+        path = self.write(self.target("dep.tox"), b"tox-bytes")
+        host = SimpleNamespace(family="COMP", path="/h", valid=True,
+                              loadTox=lambda _p, **_k: None)
+        out = snap._load_component(path, host, "/h")
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["outcome"], "unknown")
+
+    def test_a_load_with_a_host_path_loads_and_without_one_only_plans(self) -> None:
+        path = self.write(self.target("dep.tox"), b"tox-bytes")
+        host = SimpleNamespace(family="COMP", path="/project1/host", valid=True,
+                              loadTox=lambda _p, **_k: self._loaded_child())
+        with mock.patch.object(snap, "resolve_op", return_value=host):
+            loaded = snap.handle_project_snapshot(
+                {"action": "load", "target": path, "path": "/project1/host"}
+            )
+        self.assertEqual(loaded["kind"], "componentLoad")
+        with mock.patch.dict(sys.modules, {"td": self._td()}):
+            planned = snap.handle_project_snapshot({"action": "load", "target": path})
+        self.assertEqual(planned["kind"], "loadPlan")
+
+    def test_a_component_load_into_a_non_comp_is_refused_by_family(self) -> None:
+        path = self.write(self.target("dep.tox"), b"tox-bytes")
+        host = SimpleNamespace(family="TOP", path="/project1/t", valid=True)
+        with mock.patch.object(snap, "resolve_op", return_value=host):
+            out = snap.handle_project_snapshot(
+                {"action": "load", "target": path, "path": "/project1/t"}
+            )
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["code"], "tdmcp.snapshot.unsupported_family")
 
     def test_the_load_action_routes_to_the_plan(self) -> None:
         path = self.write(self.target("candidate.toe"), b"toe-bytes")

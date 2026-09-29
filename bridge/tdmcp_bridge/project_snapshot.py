@@ -639,6 +639,134 @@ def _same_path(folder: str, name: str, candidate: str) -> bool:
     return [part.lower() for part in left] == [part.lower() for part in right]
 
 
+def _load_component(target: str, host: Any, host_path: str) -> dict[str, Any]:
+    """Load a `.tox` into `host` with `loadTox`, and report what came back.
+
+    MEASURED on 2025.32460, and the round trip is genuinely good:
+    `loadTox(filepath, unwired=False, pattern=None, password=None) -> OP`
+    loads the component into the given COMP and returns the new child. Pages,
+    parameter names, parameter TYPES and a python parameter's expression all
+    survive -- a saved interface comes back as the same interface.
+
+    The one thing that does NOT survive is the LINKAGE, and that is the whole
+    caveat. After a load, measured: `host.dirty` False, `root.dirty` False,
+    `externalTimeStamp` still 0, `project.paths` still empty, and the child's
+    `isLibrary` is None. So the loaded operator is a COPY. The `.tox` is not
+    referenced, editing it afterwards changes nothing here, and there is no
+    external-dependency flag that will ever report the divergence -- which is
+    why `linkage: "copy"` is stated rather than left for a caller to discover.
+    """
+    artifact = _stat_of(target)
+    if not artifact["exists"]:
+        return _err(
+            "tdmcp.snapshot.target_missing",
+            f"{target} is not on disk, so there is nothing to load",
+            target=target,
+        )
+    try:
+        child = host.loadTox(target)
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "ok": False,
+            "code": "tdmcp.snapshot.load_failed",
+            "message": f"{type(exc).__name__}: {exc}",
+            "outcome": "failed",
+            "kind": "componentLoad",
+            "host": host_path,
+            "target": target,
+            "artifact": artifact,
+            "explanation": (
+                "loadTox raised; whether a child was created is reported as "
+                "observed, not assumed"
+            ),
+        }
+    if child is None:
+        return {
+            "ok": False,
+            "code": "tdmcp.snapshot.load_failed",
+            "message": "loadTox returned nothing, so no loaded operator can be identified",
+            "outcome": "unknown",
+            "kind": "componentLoad",
+            "host": host_path,
+            "target": target,
+            "artifact": artifact,
+        }
+
+    # The loaded interface, read back rather than assumed: a load that lost a
+    # page or a parameter would otherwise report success.
+    pages: list[dict[str, Any]] = []
+    try:
+        raw_pages = list(getattr(child, "customPages", None) or [])
+    except Exception:  # noqa: BLE001
+        raw_pages = []
+    for page in raw_pages:
+        try:
+            pars = list(getattr(page, "pars", None) or [])
+        except Exception:  # noqa: BLE001
+            pars = []
+        pages.append(
+            {
+                "page": _text(getattr(page, "name", None), 256),
+                "pars": [
+                    {"name": _text(getattr(par, "name", None), 256),
+                     "type": _classify_loaded(par)}
+                    for par in pars
+                ],
+            }
+        )
+    return {
+        "ok": True,
+        "outcome": "loaded",
+        "kind": "componentLoad",
+        "host": host_path,
+        "target": target,
+        "artifact": artifact,
+        "loaded": {
+            "path": _text(getattr(child, "path", None)),
+            "family": _text(getattr(child, "family", None), 16),
+            "pageCount": len(pages),
+            "parCount": sum(len(page["pars"]) for page in pages),
+            "pages": pages,
+        },
+        "linkage": "copy",
+        "linkageCaveat": (
+            "loadTox COPIES the component. Measured after a load: host.dirty "
+            "and root.dirty stay False, externalTimeStamp stays 0, "
+            "project.paths stays empty, and the child's isLibrary is None. So "
+            "this .tox is not referenced, editing it later changes nothing "
+            "here, and no external-dependency flag will report the divergence."
+        ),
+        "explanation": (
+            "the loaded interface is read back from the new operator, so a load "
+            "that lost a page or a parameter is visible here rather than "
+            "reported as a success"
+        ),
+    }
+
+
+def _classify_loaded(par: Any) -> str:
+    """A loaded parameter's type, from the same predicates export uses."""
+    for predicate, label in (
+        ("isMenu", "menu"),
+        ("isPulse", "pulse"),
+        ("isToggle", "toggle"),
+        ("isString", "string"),
+        ("isFloat", "float"),
+        ("isInt", "int"),
+        ("isMomentary", "momentary"),
+        ("isSequence", "sequence"),
+        ("isPython", "python"),
+        ("isFolder", "folder"),
+        ("isOP", "op"),
+    ):
+        try:
+            if getattr(par, predicate, False):
+                return label
+        except Exception:  # noqa: BLE001
+            continue
+    return "unknown"
+
+
 def _load_plan(target: str) -> dict[str, Any]:
     """What loading `target` would mean, decided WITHOUT loading it.
 
@@ -691,10 +819,11 @@ def _load_plan(target: str) -> dict[str, Any]:
         "refusal": {
             "code": "tdmcp.snapshot.load_not_offered",
             "reason": (
-                "TouchDesigner offers no safe in-place load on this build: "
-                "project.load returns nothing to verify against, there is no "
-                "open/revert/revertProjects to undo it, and neither root nor a "
-                "COMP can load a .tox into an empty operator"
+                "TouchDesigner offers no safe way to replace the open project: "
+                "project.load returns nothing to verify against, and there is "
+                "no open/revert/revertProjects to undo it. Loading a COMPONENT "
+                "is a different matter and is supported -- pass a path to load "
+                "one, which copies rather than replacing the session"
             ),
             "instead": (
                 "spawn a fresh TouchDesigner with spawn_td: a new process is "
@@ -716,7 +845,9 @@ def handle_project_snapshot(params: dict[str, Any]) -> dict[str, Any]:
       project   save the whole project to `target`
       component save one COMP to `target`
       status    report unsaved state and the project file, writing nothing
-      load      report what loading `target` would mean, and load NOTHING
+      load      with a `path`, load a COMPONENT into that COMP (a copy);
+                without one, report what loading the file as a PROJECT would
+                mean and load nothing
 
     Every save reports `written` — the path TouchDesigner actually produced —
     and `artifact`, a digest of the bytes on disk. The requested path is
@@ -754,8 +885,24 @@ def handle_project_snapshot(params: dict[str, Any]) -> dict[str, Any]:
         if not target:
             return _err(
                 "tdmcp.snapshot.target_required",
-                "a load plan needs target: the .toe/.tox you are considering",
+                "a load needs target: the .toe/.tox you are considering",
             )
+        # A host path means "load a COMPONENT", which is genuinely
+        # non-destructive on this build. Without one, the caller is asking to
+        # replace the session, which is the thing this tool refuses.
+        host_path = params.get("path")
+        if host_path is not None:
+            host = resolve_op(_text(host_path), params.get("contextPath"))
+            if host is None or not getattr(host, "valid", False):
+                return {"ok": False, "code": "tdmcp.op.not_found", "path": _text(host_path)}
+            if _text(getattr(host, "family", None), 16) != "COMP":
+                return _err(
+                    "tdmcp.snapshot.unsupported_family",
+                    "a component loads into a COMP; resolved family is "
+                    f"{_text(getattr(host, 'family', None), 16)!r}",
+                    path=_text(host_path),
+                )
+            return _load_component(target, host, _text(host_path))
         return _load_plan(target)
 
     if action == "project":
