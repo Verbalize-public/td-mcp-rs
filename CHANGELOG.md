@@ -2,6 +2,136 @@
 
 ## Unreleased
 
+This release is 100 commits against v0.1.4. It is **additive**: every tool,
+argument and response field that existed in v0.1.4 still works, and a call
+that omits `output` still gets the full legacy shape. Read
+[docs/MIGRATION.md](docs/MIGRATION.md) before upgrading — it says what is new,
+what is newly *labelled*, and what this release does not claim.
+
+### Measuring cost, honestly
+
+- feat(mcp): count what was generated, emitted and admitted separately — a
+  result carrying an image now reports four distinct numbers, and
+  `includedInModelInput` is `unavailable` rather than assumed, because the
+  server cannot observe what a client's model was given
+- feat: honour a requested compact view and report when it is not applied —
+  omission never enables compact output
+- fix: a text-only client is pointed at the data (a named field and a size)
+  instead of being handed a silently elided answer; a 256 KiB duplicate is
+  replaced by a pointer, never an empty content array
+- feat: `compare_nodes` compares a *fresh* read against a retained baseline
+  and guards writes. A missing baseline refuses; an unreadable node is never
+  silently unchanged; absent / null / false / 0 / "" stay five states; every
+  response carries `atomic: false` and `exactlyOnce: false`
+- fix: classify a guarded refusal by what the caller asked, not by the method
+  name, and fail closed when the guard itself cannot be read
+
+### Evidence, receipts and retention
+
+- feat: a durable, crash-journaled operation journal; every real bridge
+  dispatch records a receipt, and a client can read back its own and account
+  for unobserved work. A daemon's mutation counter advances on dispatch, not
+  on effect, so it is never used to decide a field is unchanged
+- feat: crash-journaled evidence store with owner-scoped export; only
+  `inspect` captures today
+- fix: a loosened store root is refused, not silently repaired
+
+### New tools for existing jobs
+
+- feat: `sample_data` — exact numerical reads. Validated SOP point adapter,
+  and image coordinates are refused there
+- feat: `script_source` — named Python sources with immutable content refs
+- feat: `param_interface` — export a control surface, apply one additively
+- feat: `project_snapshot` — a save receipt naming what was written, and
+  where
+- fix: a CHOP's `numpyArray` is channel-major, not sample-major. The shape is
+  now cross-checked against the CHOP's own `numChans`/`numSamples` and a
+  mismatch is refused, because a flag on bad data is not a guard
+- fix: a re-registration must not report dependencies it did not apply
+- fix: a menu whose items could not be set must not read as applied
+- fix: a component receipt must not carry the project's unsaved state, and
+  must not claim it can — `COMP.dirty` reads False even after an edit and a
+  save, so the answer is `available: false` *with a reason*
+
+### Correctness fixes found by measurement
+
+- fix: a project save over MCP ends the stream without a response while the
+  bridge stays connected; it is now a specific refusal, and a *component*
+  save is unaffected
+- fix: threading issues in the bridge, and timing-aware capture/record
+- fix: a slow launch is no longer reported as a stalled link, and a launch is
+  budgeted by the caller's own wait rather than a tool class
+- fix: `spawn_td` reports which build actually ran, and a wait timeout says
+  the process is still running
+- fix: a spawned TouchDesigner's ownership is kept until it exits
+- fix: project unpack and bridge install are fail-safe under concurrent
+  writes
+- feat: set aside the file a replace is about to destroy
+- feat: report what a fresh load would cost, and perform none of it
+
+### Palette
+
+- feat(palette): `palette_index` (offline roster: scan / list / get /
+  describe / ignore / unignore / forget / stats) and `palette_probe` (bridged
+  interface digests). Cards are **authored** from a digest; nothing generates
+  one
+- feat(mutate): `place` step — drop a Palette component into the network by
+  `paletteId` or `toxPath`, wired in the same batch
+- feat(projectio): palette root discovery on `InstallInfo` plus an
+  index/card store with fingerprint staleness and id globs
+- feat(config): `[palette]` section — `user_root`, `store_dir`, and a seeded
+  probe blacklist. Loading a blacklisted component runs its startup scripts,
+  so the default probe skips it
+- feat(palette): unwrap the palette wrapper — probe digests the real
+  component and lifts its `help` DAT; `place` lifts the component out of the
+  icon shell via `copyOPs`
+- feat(palette): `thumbnails: true` renders a 256px PNG per component; a
+  black or uniform frame is *reported* rather than stored
+- fix(palette): a fully blacklisted or empty selection explains itself instead
+  of returning a silent empty batch
+- fix(palette): an id absent from the index fails
+  `tdmcp.palette.unknown_id` rather than quietly skipping it
+- fix(palette): a never-dispatched call clears its breadcrumb rather than
+  flagging innocent components `suspect`
+- fix(palette): empty extension slots no longer report a `NoneType` class
+- fix: the observe-change template is committed behind the rendered skill
+
+### Guidance and skills
+
+- feat: V2 guidance ships as capability-gated overlays; task guidance is
+  split and classified examples are validated
+- feat(gui): Palette dashboard section — browsable roster, rendered
+  thumbnails, a copy-to-paste agent brief per component, and an Analyse run.
+  Cards are never written from the GUI
+- feat(skills): `palette` and `palette-scan` cards, and a "look in the
+  Palette before hand-building" umbrella rule
+- fix: correct current-tool guidance and unify task routing
+- feat: targeted tool discovery and identity in the fleet roster; bridge code
+  generations are identified and the v2 output contract is typed
+
+### Platform, packaging and process
+
+- feat(linux): dialogs and TD process lifecycle management; ksni tray
+  backend; GUI tools rows and AUR install detection
+- fix(dialogs): macOS dialog detection actually works
+- fix(gui): popup closes on outside click, not cursor move; X11 backend
+  forced on Linux
+- feat(gui): logo branding, a centered sidebar identity footer, and Clear
+  buttons for the ACTIVITY card and the Logs toolbar
+- feat: ship verifiable per-target third-party notices; **blanket daemon
+  kills are removed**
+- fix: winit's crossfont CSD backend selected, completing the ttf-parser
+  removal
+
+### Not claimed
+
+No model token A/B significance, no agent task-acceptance measurement, no
+native Windows or macOS qualification from a Linux host, and **unsigned
+installers**. `docs/MIGRATION.md` states the same list in full, and
+`scripts/scorecard_report.py` prints it alongside the four measured cards.
+
+## Legacy unreleased notes
+
 ### Added
 - feat(gui): new logo across the app — README header, sidebar brand mark,
   tray-popup header, and tray/window/installer icons regenerated from
