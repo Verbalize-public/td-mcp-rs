@@ -39,6 +39,9 @@ class FakePar:
     the fake answered a field the real thing does not.
     """
 
+    #: Set by a test to reproduce the live build's refusal of menu assignment.
+    refuse_menu_items = False
+
     def __init__(
         self,
         name: str,
@@ -66,13 +69,29 @@ class FakePar:
         self.isFolder = kind == "folder"
         self.isDefault = True
         self.isSamePar = True
-        self.menuNames = menu_names
+        self._menu_names = list(menu_names) if menu_names is not None else None
         self.menuLabels = None
         # MEASURED: min/max read back as TUPLES.
         self._min = (minimum,) if minimum is not None else (0.0,)
         self._max = (maximum,) if maximum is not None else (1.0,)
         self.normMin = (0.0,)
         self.normMax = (1.0,)
+
+    @property
+    def menuNames(self):  # type: ignore[override]
+        return self._menu_names
+
+    @menuNames.setter
+    def menuNames(self, value: Any) -> None:
+        # MEASURED 2025.32460: this build REFUSES every route to setting menu
+        # items on a created parameter, so a fake that always accepts would make
+        # the refusal path untestable and the suite would pass while the tool
+        # silently produced the wrong menu.
+        if FakePar.refuse_menu_items:
+            raise RuntimeError(
+                "Can only assign a scalar or a value with the same number of components"
+            )
+        self._menu_names = list(value)
 
     @property
     def min(self):  # type: ignore[override]
@@ -300,6 +319,70 @@ class ApplyTests(unittest.TestCase):
             comp, "/p", [{"name": "Mode", "type": "menu", "menuNames": ["a", "b"]}]
         )
         self.assertEqual(comp.customPages[0].pars[0].menuNames, ["a", "b"])
+
+    def test_a_refused_menu_assignment_is_reported_on_a_created_step(self) -> None:
+        # MEASURED: this build refuses every route to setting menu items on a
+        # created parameter. A step reported as `failed` would tell the caller
+        # the parameter does not exist -- and it does.
+        FakePar.refuse_menu_items = True
+        try:
+            comp = FakeComp()
+            out = param_interface.apply_interface(
+                comp, "/p", [{"name": "Mode", "type": "menu", "menuNames": ["a", "b"]}]
+            )
+        finally:
+            FakePar.refuse_menu_items = False
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["created"], 1)
+        self.assertEqual(out["failed"], 0)
+        step = out["steps"][0]
+        self.assertEqual(step["status"], "created")
+        self.assertFalse(step["menuNamesApplied"])
+        self.assertIn("menuNamesError", step)
+        self.assertEqual(step["wantedMenuNames"], ["a", "b"])
+        # The parameter really was created.
+        self.assertEqual(len(comp.customPages[0].pars), 1)
+        total = out["created"] + out["unchanged"] + out["skipped"] + out["failed"]
+        self.assertEqual(total, out["requested"])
+
+    def test_a_menu_with_different_items_is_not_reported_as_unchanged(self) -> None:
+        # The permanent-misreport this guards: the step that failed to set the
+        # items left the parameter CREATED, so a retry that matched on type
+        # alone would say `unchanged` and the wrong menu would look correct
+        # forever.
+        comp = FakeComp()
+        param_interface.apply_interface(
+            comp, "/p", [{"name": "Mode", "type": "menu", "menuNames": ["a", "b"]}]
+        )
+        out = param_interface.apply_interface(
+            comp, "/p", [{"name": "Mode", "type": "menu", "menuNames": ["x", "y"]}]
+        )
+        self.assertEqual(out["unchanged"], 0)
+        self.assertEqual(out["skipped"], 1)
+        step = out["steps"][0]
+        self.assertEqual(step["status"], "skipped")
+        self.assertEqual(step["currentMenuNames"], ["a", "b"])
+        self.assertEqual(step["wantedMenuNames"], ["x", "y"])
+        # The reason must not claim a type conversion, which is plainly wrong.
+        self.assertIn("different items", step["reason"])
+        self.assertNotIn("converting", step["reason"])
+
+    def test_a_menu_with_the_same_items_is_unchanged(self) -> None:
+        comp = FakeComp()
+        definitions = [{"name": "Mode", "type": "menu", "menuNames": ["a", "b"]}]
+        param_interface.apply_interface(comp, "/p", definitions)
+        out = param_interface.apply_interface(comp, "/p", definitions)
+        self.assertEqual(out["unchanged"], 1)
+        self.assertEqual(out["skipped"], 0)
+        self.assertNotIn("reason", out["steps"][0])
+
+    def test_a_menu_with_no_wanted_items_is_matched_on_type_alone(self) -> None:
+        # A definition that does not state items is not asking for any, so
+        # items are not a mismatch.
+        comp = FakeComp()
+        param_interface.apply_interface(comp, "/p", [{"name": "Mode", "type": "menu"}])
+        out = param_interface.apply_interface(comp, "/p", [{"name": "Mode", "type": "menu"}])
+        self.assertEqual(out["unchanged"], 1)
 
     def test_apply_removes_nothing(self) -> None:
         # An authoring tool that deleted a user's controls because a payload did

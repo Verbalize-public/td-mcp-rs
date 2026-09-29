@@ -315,15 +315,44 @@ def _validate_definition(definition: Any) -> tuple[dict[str, Any] | None, str | 
     )
 
 
+def _menu_names_of(par: Any) -> list[str] | None:
+    try:
+        names = getattr(par, "menuNames", None)
+    except Exception:  # noqa: BLE001
+        return None
+    if not names:
+        return []
+    try:
+        return [_text(n, 128) for n in list(names)]
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def _matches_existing(par: Any, spec: dict[str, Any]) -> bool:
     """Whether an existing parameter already IS this definition.
 
     Only the shape is compared, never the current value: applying an interface
     is about the control surface, and writing a value the caller did not ask
     for would be authoring in disguise.
+
+    A menu's ITEMS are part of the shape, though. Matching on the type alone
+    would report a menu carrying the wrong items as `unchanged` — which is how
+    a wrong menu becomes permanently reported as fine: the step that failed to
+    set the items left the parameter created, the retry saw the type match, and
+    the discrepancy was never surfaced again.
     """
     kind, _ = classify(par)
-    return kind == spec["type"]
+    if kind != spec["type"]:
+        return False
+    if kind == "menu":
+        wanted = spec.get("menuNames")
+        if wanted:
+            current = _menu_names_of(par)
+            if current is not None and current != [
+                _text(item, 128) for item in list(wanted)[:INTERFACE_MAX_MENU_ITEMS]
+            ]:
+                return False
+    return True
 
 
 def apply_interface(comp: Any, path: str, definitions: Any) -> dict[str, Any]:
@@ -405,20 +434,37 @@ def apply_interface(comp: Any, path: str, definitions: Any) -> dict[str, Any]:
             else:
                 kind, _ = classify(existing)
                 counts["skipped"] += 1
-                steps.append(
-                    {
-                        "index": index,
-                        "status": "skipped",
-                        "name": spec["name"],
-                        "page": page_name,
-                        "reason": (
-                            f"already exists as {kind!r} and converting it to "
-                            f"{spec['type']!r} is not a migration anybody asked "
-                            "for; remove or rename it first"
-                        ),
-                        "existingType": kind,
-                    }
-                )
+                step = {
+                    "index": index,
+                    "status": "skipped",
+                    "name": spec["name"],
+                    "page": page_name,
+                    "existingType": kind,
+                }
+                if kind == spec["type"]:
+                    # Same type, different menu items. Saying "converting it to
+                    # menu" would be plainly wrong, and saying nothing would
+                    # leave the caller with a step that silently did not apply.
+                    current = _menu_names_of(existing)
+                    step["reason"] = (
+                        "already exists as a menu with different items; this "
+                        "bridge does not replace an existing parameter's menu "
+                        "items, so remove or rename it first"
+                    )
+                    step["currentMenuNames"] = current
+                    step["wantedMenuNames"] = [
+                        _text(item, 128)
+                        for item in list(spec.get("menuNames") or [])[
+                            :INTERFACE_MAX_MENU_ITEMS
+                        ]
+                    ]
+                else:
+                    step["reason"] = (
+                        f"already exists as {kind!r} and converting it to "
+                        f"{spec['type']!r} is not a migration anybody asked "
+                        "for; remove or rename it first"
+                    )
+                steps.append(step)
             continue
 
         method_name = _APPEND_FOR_TYPE[spec["type"]]
@@ -454,22 +500,30 @@ def apply_interface(comp: Any, path: str, definitions: Any) -> dict[str, Any]:
             continue
         # Menu items are a SECOND step: `appendMenu` refuses a `menuNames`
         # keyword, so the items are assigned after creation.
+        #
+        # MEASURED 2025.32460: on this build that assignment is REFUSED for
+        # every route tried -- `par.menuNames = [...]` and the tuple form ("Can
+        # only assign a scalar or a value with the same number of components"),
+        # `appendMenu(name, items)` ("Single name argument expected"), every
+        # keyword form ("Call contains unexpected keywords"), `par[i] = item`,
+        # and `setMenu`/`menuDAT`, which do not exist. So a caller asking for
+        # specific items will usually get a default menu, and this is where that
+        # gets said out loud rather than being reported as applied.
+        menu_note: dict[str, Any] | None = None
         if spec["type"] == "menu" and spec["menuNames"]:
             try:
                 items = list(spec["menuNames"])[:INTERFACE_MAX_MENU_ITEMS]
                 par.menuNames = [_text(item, 128) for item in items]
+                menu_note = {"menuNamesApplied": True}
             except Exception as exc:  # noqa: BLE001
-                counts["failed"] += 1
-                steps.append(
-                    {
-                        "index": index,
-                        "status": "failed",
-                        "name": spec["name"],
-                        "page": page_name,
-                        "reason": f"parameter created but its menu items were refused: {exc}",
-                    }
-                )
-                continue
+                menu_note = {
+                    "menuNamesApplied": False,
+                    "menuNamesError": f"{type(exc).__name__}: {exc}",
+                    "currentMenuNames": _menu_names_of(par),
+                    "wantedMenuNames": [
+                        _text(item, 128) for item in list(spec["menuNames"])[:INTERFACE_MAX_MENU_ITEMS]
+                    ],
+                }
         counts["created"] += 1
         step: dict[str, Any] = {
             "index": index,
@@ -478,6 +532,11 @@ def apply_interface(comp: Any, path: str, definitions: Any) -> dict[str, Any]:
             "page": page_name,
             "type": spec["type"],
         }
+        # A refused attribute never demotes the step: the parameter EXISTS, and
+        # reporting it as `failed` would tell the caller it does not. Same
+        # precedent as a refused default.
+        if menu_note is not None:
+            step.update(menu_note)
         if spec["default"] is not None:
             try:
                 par.default = spec["default"]
