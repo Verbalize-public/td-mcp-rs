@@ -128,6 +128,14 @@ entries:
       - kind: tool
         id: fleet
 
+  - code: tdmcp.receipt.unavailable
+    layer: fleet
+    message: "The daemon could not durably record this dispatch, so it was not sent"
+    mitigation:
+      - "Nothing was dispatched, so this call is safe to retry once the cause clears"
+      - "Check the daemon data directory is writable and that no second daemon holds the journal"
+      - "Call fleet to see whether the pid is still connected before retrying"
+
   - code: tdmcp.bridge.queue_busy
     layer: fleet
     message: "Bridge pid queue is busy — call tools sequentially"

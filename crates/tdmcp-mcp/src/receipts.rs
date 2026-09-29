@@ -13,6 +13,8 @@
 //! rules on this side of the boundary: a caller cannot accidentally skip the
 //! settle step, because [`DispatchGuard`] settles on drop.
 
+use std::sync::Arc;
+
 use serde_json::Value;
 use tdmcp_core::EffectState;
 
@@ -54,6 +56,15 @@ pub trait ReceiptHandle: Send {
     /// Opaque receipt identity, for the caller to correlate.
     fn id(&self) -> &str;
 
+    /// Record that the request provably never left the daemon.
+    ///
+    /// Reserved for failures where the transport *knows* the work was not
+    /// handed over — no session, never registered. Everything else must use
+    /// [`ReceiptHandle::abandoned`], because "we could not deliver it" and "we
+    /// delivered it and did not see what happened" are different facts and only
+    /// this one is a proven absence.
+    fn prevented(&mut self, detail: &str) -> Result<(), JournalError>;
+
     /// Record that the dispatch's outcome was never observed.
     ///
     /// Called from [`DispatchGuard`]'s destructor. The requirement is that this
@@ -82,6 +93,27 @@ pub trait DispatchJournal: Send + Sync {
     fn begin(&self, subject: &str) -> Result<DispatchGuard<'_>, JournalError>;
 }
 
+/// Materialise a receipt port for one request's principal.
+///
+/// A daemon serving several clients cannot build a port up front, because the
+/// owner differs per request. This is the seam that lets it: the caller passes
+/// the raw identity *claim* and the factory resolves it against the transport's
+/// credential, then binds the result.
+///
+/// The claim is deliberately not a pre-resolved owner id. A caller that could pass one
+/// in would be a request-supplied identity, which is the one thing owner
+/// scoping exists to prevent. The credential itself never reaches this layer —
+/// the factory owns that knowledge.
+pub trait ReceiptFactory: Send + Sync {
+    /// A port for this request, or `None` when no receipt can be recorded.
+    ///
+    /// `None` is the honest answer when the claim is malformed, or when the
+    /// journal is unavailable. Returning `None` means "this call is
+    /// unrecorded", which the caller must not turn into a claim that it was
+    /// recorded.
+    fn for_claim(&self, claim: Option<&str>) -> Option<Arc<dyn DispatchJournal>>;
+}
+
 /// Keeps a dispatch honest until somebody says otherwise.
 ///
 /// Dropping without settling records an *unsettled* receipt, never a failure.
@@ -106,6 +138,32 @@ impl<'a> DispatchGuard<'a> {
     #[must_use]
     pub fn id(&self) -> Option<&str> {
         self.handle.as_ref().map(|handle| handle.id())
+    }
+
+    /// Record that the request provably never left the daemon.
+    ///
+    /// For transport failures where nothing was handed over. This settles the
+    /// receipt so the caller's next attempt is the *first* dispatch, rather than
+    /// leaving an unsettled row that consumes an in-flight slot for ever.
+    ///
+    /// Using this for anything the transport did not actually prove would be
+    /// the worst available mistake: it tells the caller a mutation did not
+    /// happen when it may already be inside TouchDesigner.
+    ///
+    /// # Errors
+    /// Returns the journal's error, which the caller must report rather than
+    /// swallow — the work did not happen, but the record of that is missing.
+    pub fn prevented(&mut self, detail: &str) -> Result<(), JournalError> {
+        let Some(mut handle) = self.handle.take() else {
+            // Already settled; do not overwrite the first record.
+            return Ok(());
+        };
+        let result = handle.prevented(detail);
+        // Whether or not the journal accepted it, the guard's work here is
+        // done: a failed prevent is reported to the caller, and re-recording on
+        // drop would only add a second, contradictory record.
+        self.handle = None;
+        result
     }
 
     /// Record the observed outcome.
@@ -315,6 +373,10 @@ mod tests {
             &self.id
         }
 
+        fn prevented(&mut self, _detail: &str) -> Result<(), JournalError> {
+            Ok(())
+        }
+
         fn abandoned(&mut self) {
             *self.abandoned.lock().expect("recorder lock") = true;
         }
@@ -410,6 +472,9 @@ mod tests {
             }
             fn id(&self) -> &str {
                 "receipt-fail"
+            }
+            fn prevented(&mut self, _detail: &str) -> Result<(), JournalError> {
+                Ok(())
             }
             fn abandoned(&mut self) {}
         }

@@ -44,6 +44,18 @@ pub enum BridgeRpcError {
         /// Budget that elapsed, in milliseconds.
         budget_ms: u64,
     },
+    /// The dispatch was refused before anything was sent, because the daemon
+    /// could not durably record that it was about to happen.
+    ///
+    /// Deliberately *not* [`Self::BridgeReturned`]: no bridge saw this call, and
+    /// a "bridge error" message would blame a component that was never involved.
+    /// This is a daemon-side refusal, and a client retrying after clearing the
+    /// cause is safe precisely because nothing was dispatched.
+    #[error("the daemon refused the dispatch: {message}")]
+    ReceiptUnavailable {
+        /// Human-readable summary of what refused it.
+        message: String,
+    },
     /// The bridge returned a structured error payload.
     #[error("bridge error: {message}")]
     BridgeReturned {

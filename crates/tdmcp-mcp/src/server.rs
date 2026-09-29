@@ -4,6 +4,9 @@
 //! Streamable HTTP layer nests on top of the same [`AppState`].
 
 use std::sync::Arc;
+
+use crate::receipts::ReceiptFactory;
+
 use std::time::Duration;
 
 use axum::extract::rejection::JsonRejection;
@@ -19,7 +22,7 @@ use tokio::sync::Mutex;
 use crate::bridge_rpc::BridgeRpc;
 use crate::resources::ResourceProvider;
 use crate::session_registry::McpSessionRegistry;
-use crate::tools::{dispatch_tool, tool_descriptors, ToolCallError};
+use crate::tools::{dispatch_tool_recorded, tool_descriptors, ToolCallError};
 
 /// Master-side federation context shared with tool proxy dispatch.
 #[derive(Clone)]
@@ -61,6 +64,12 @@ pub struct AppState {
     pub resource_provider: Arc<ResourceProvider>,
     /// Federation (master) context when role is master/standalone with slaves.
     pub federation: Option<FederationCtx>,
+    /// Builds a per-request receipt port from the caller's identity claim.
+    ///
+    /// `None` on a daemon with no journal wired: tool calls still work, and
+    /// they carry no receipt. That is honest — the row is absent rather than
+    /// attributed to a principal nobody authenticated.
+    pub receipts: Option<Arc<dyn ReceiptFactory>>,
 }
 
 impl AppState {
@@ -79,6 +88,7 @@ impl AppState {
             mcp_sessions: Arc::new(McpSessionRegistry::new()),
             resource_provider,
             federation: None,
+            receipts: None,
         }
     }
 
@@ -98,7 +108,15 @@ impl AppState {
             mcp_sessions: Arc::new(McpSessionRegistry::new()),
             resource_provider,
             federation: None,
+            receipts: None,
         }
+    }
+
+    /// Attach the receipt factory that records dispatches per client.
+    #[must_use]
+    pub fn with_receipts(mut self, receipts: Arc<dyn ReceiptFactory>) -> Self {
+        self.receipts = Some(receipts);
+        self
     }
 
     /// Attach federation context (shared slave registry with the admin runtime).
@@ -113,6 +131,13 @@ impl AppState {
     pub fn mcp_session_count(&self) -> usize {
         self.mcp_sessions.len()
     }
+}
+
+/// The client's install-scoped identity claim, if it sent one.
+pub fn claim_header(headers: &axum::http::HeaderMap) -> Option<&str> {
+    headers
+        .get(crate::client_id::CLIENT_ID_HEADER)
+        .and_then(|value| value.to_str().ok())
 }
 
 #[derive(Debug, Deserialize)]
@@ -141,6 +166,7 @@ async fn list_tools() -> Json<Value> {
 
 async fn call_tool(
     State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
     body: Result<Json<CallBody>, JsonRejection>,
 ) -> Result<Json<Value>, (axum::http::StatusCode, Json<Value>)> {
     // A bare `Json<CallBody>` param would let axum answer oversized/malformed
@@ -160,7 +186,23 @@ async fn call_tool(
             ));
         }
     };
-    match dispatch_tool(
+    // The identity claim is the only thing the caller contributes; the
+    // principal is resolved by the daemon's factory against the transport
+    // credential, never chosen here.
+    let claim = state
+        .receipts
+        .as_ref()
+        .and_then(|factory| factory.for_claim(claim_header(&headers)));
+    if state.receipts.is_some() && claim.is_none() {
+        // A factory that could not produce a port means the receipt is
+        // missing, not that the call was recorded. Say so, rather than
+        // returning a success the client would read as fully accounted for.
+        tracing::warn!(
+            tool = %body.name,
+            "the client's identity claim was refused; this call has no receipt"
+        );
+    }
+    match dispatch_tool_recorded(
         &state.registry,
         &state.catalog,
         state.bridge.as_ref(),
@@ -168,6 +210,7 @@ async fn call_tool(
         body.arguments,
         None, // JSON fallback has no MCP session lease; pid exclusive still applies
         state.federation.as_ref(),
+        claim.as_deref(),
     )
     .await
     {

@@ -385,6 +385,14 @@ pub async fn call_and_record(
             ok: false,
             effect: EffectState::Unknown,
         },
+        // The daemon refused to send because it could not record the dispatch.
+        // `NotSent` is this variant's meaning by definition — it is raised
+        // before anything is handed to a bridge — and saying so settles the
+        // receipt honestly instead of leaving an unknown that no observation
+        // will ever resolve.
+        Err(BridgeRpcError::ReceiptUnavailable { .. }) => DispatchOutcome::NotSent {
+            why: "the daemon refused the dispatch before sending it",
+        },
     };
 
     // A receipt that cannot be settled stays unsettled, which is the safe

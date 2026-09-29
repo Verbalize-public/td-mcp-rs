@@ -18,6 +18,13 @@ pub const BRIDGE_CANCELLED: &str = "tdmcp.bridge.cancelled";
 pub const BRIDGE_MAIN_THREAD_TIMEOUT: &str = "tdmcp.bridge.main_thread_timeout";
 /// Exclusive request rejected — queue non-empty.
 pub const BRIDGE_QUEUE_BUSY: &str = "tdmcp.bridge.queue_busy";
+/// The daemon refused a dispatch because it could not durably record that the
+/// work was about to happen.
+///
+/// Distinct from every bridge code: no bridge saw this call, so reporting it as
+/// a bridge failure would blame a component that was never involved. Nothing was
+/// dispatched, which is what makes a retry safe here and unsafe everywhere else.
+pub const RECEIPT_UNAVAILABLE: &str = "tdmcp.receipt.unavailable";
 /// MCP session already has an in-flight bridged tool against this pid.
 pub const MCP_SESSION_BUSY: &str = "tdmcp.mcp.session_busy";
 /// Another deferred timing job owns the TD transport.
@@ -275,6 +282,7 @@ pub const PERCEPTION_MAX_SIZE_TOO_LARGE: &str = "tdmcp.perception.max_size_too_l
 
 /// All codes that must exist in the catalog (compile-time enumeration).
 pub const ALL: &[&str] = &[
+    RECEIPT_UNAVAILABLE,
     TIMING_BUSY,
     TIMING_INVALID,
     TIMING_NOT_FOUND,

@@ -852,6 +852,10 @@ fn transport(catalog: &Catalog, tool: &str, pid: Pid, err: BridgeRpcError) -> To
             codes::BRIDGE_LOST.to_owned()
         }
         BridgeRpcError::Timeout { .. } => codes::BRIDGE_TIMEOUT.to_owned(),
+        // Its own code, not a bridge one: no bridge saw this call, and a
+        // "bridge lost" message would tell the caller to wait for a link that
+        // was never involved.
+        BridgeRpcError::ReceiptUnavailable { .. } => codes::RECEIPT_UNAVAILABLE.to_owned(),
         BridgeRpcError::BridgeReturned { code: Some(c), .. } if catalog.contains(c.as_str()) => {
             c.clone()
         }

@@ -31,6 +31,7 @@ use crate::outcomes::{
     slave_unreachable,
 };
 use crate::output_v2;
+use crate::receipts::{read_effect, DispatchJournal};
 use crate::schema::input_schema_for;
 use crate::server::FederationCtx;
 use crate::session_registry::{BridgeCallSlot, McpSessionRegistry, DAEMON_SCOPE_LOCAL};
@@ -1048,7 +1049,18 @@ pub struct SessionGate<'a> {
 /// (pid exclusive still applies; session chill is skipped).
 ///
 /// When `federation` is set, bridged tools may proxy to a registered slave.
-pub async fn dispatch_tool(
+/// Dispatch one tool call and record what it actually did.
+///
+/// `journal` is the durable receipt port, supplied by the daemon and bound to
+/// the caller's authenticated client identity. Pass `None` for a call that is
+/// genuinely not attributable to a client — a boot-time self-check, a test — and
+/// note that such a call gets no receipt: there is no principal to record it
+/// under, and inventing one would be worse than the missing row.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "one parameter per dispatch input"
+)]
+pub async fn dispatch_tool_recorded(
     registry: &Arc<Mutex<PidRegistry>>,
     catalog: &tdmcp_diagnostics::Catalog,
     bridge: &dyn BridgeRpc,
@@ -1056,12 +1068,15 @@ pub async fn dispatch_tool(
     args: Value,
     session: Option<SessionGate<'_>>,
     federation: Option<&FederationCtx>,
+    journal: Option<&dyn DispatchJournal>,
 ) -> Result<Value, ToolCallError> {
     // One boundary record per call — the only per-call trace agents and the
     // tray Logs view ever see (observability spec §5.7 rule 3).
     let started = std::time::Instant::now();
-    let result =
-        dispatch_tool_inner(registry, catalog, bridge, name, args, session, federation).await;
+    let result = dispatch_tool_inner(
+        registry, catalog, bridge, name, args, session, federation, journal,
+    )
+    .await;
     let elapsed_ms = started.elapsed().as_millis() as u64;
     match &result {
         Ok(_) => tracing::info!(tool = %name, elapsed_ms, "tool call complete"),
@@ -1081,6 +1096,30 @@ pub async fn dispatch_tool(
     result
 }
 
+/// Dispatch one tool call without a receipt.
+///
+/// Kept as the existing entry point so the many unrecorded callers — tests,
+/// federation probes, describe_tools — keep working unchanged. A daemon serving
+/// a real client should use [`dispatch_tool_recorded`].
+pub async fn dispatch_tool(
+    registry: &Arc<Mutex<PidRegistry>>,
+    catalog: &tdmcp_diagnostics::Catalog,
+    bridge: &dyn BridgeRpc,
+    name: &str,
+    args: Value,
+    session: Option<SessionGate<'_>>,
+    federation: Option<&FederationCtx>,
+) -> Result<Value, ToolCallError> {
+    dispatch_tool_recorded(
+        registry, catalog, bridge, name, args, session, federation, None,
+    )
+    .await
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "one parameter per dispatch input"
+)]
 async fn dispatch_tool_inner(
     registry: &Arc<Mutex<PidRegistry>>,
     catalog: &tdmcp_diagnostics::Catalog,
@@ -1089,6 +1128,7 @@ async fn dispatch_tool_inner(
     args: Value,
     session: Option<SessionGate<'_>>,
     federation: Option<&FederationCtx>,
+    journal: Option<&dyn DispatchJournal>,
 ) -> Result<Value, ToolCallError> {
     let tool =
         ToolName::from_wire(name).ok_or_else(|| ToolCallError::UnknownTool(name.to_owned()))?;
@@ -1370,6 +1410,7 @@ async fn dispatch_tool_inner(
                     "detailLevel": params.detail_level.as_str(),
                     "thumbnails": params.thumbnails,
                 }),
+                journal,
             )
             .await;
             // Only a timeout or a mid-call disconnect means the batch may have
@@ -1448,6 +1489,7 @@ async fn dispatch_tool_inner(
                     "includeLogs": params.include_logs,
                     "formatMode": params.format_mode.as_str(),
                 }),
+                journal,
             )
             .await;
             map_script_outcome(
@@ -1497,22 +1539,29 @@ async fn dispatch_tool_inner(
             let _slot =
                 begin_session_slot(session, catalog, "capture", DAEMON_SCOPE_LOCAL, params.pid)?;
             let method = BridgeMethod::Capture;
-            let outcome = enqueue_and_call(registry, bridge, params.pid, method, {
-                let mut wire = serde_json::json!({
-                    "path": params.path,
-                    "mode": params.mode.as_str(),
-                    "contextPath": params.context_path,
-                    "maxSize": params.max_size,
-                    "action": params.action,
-                    "jobId": params.job_id,
-                    "timing": params.timing,
-                    "inspect": params.inspect,
-                });
-                for (key, value) in sample_options {
-                    wire[key] = value;
-                }
-                wire
-            })
+            let outcome = enqueue_and_call(
+                registry,
+                bridge,
+                params.pid,
+                method,
+                {
+                    let mut wire = serde_json::json!({
+                        "path": params.path,
+                        "mode": params.mode.as_str(),
+                        "contextPath": params.context_path,
+                        "maxSize": params.max_size,
+                        "action": params.action,
+                        "jobId": params.job_id,
+                        "timing": params.timing,
+                        "inspect": params.inspect,
+                    });
+                    for (key, value) in sample_options {
+                        wire[key] = value;
+                    }
+                    wire
+                },
+                journal,
+            )
             .await;
             if params.timing.is_some() || params.action != crate::timing::JobAction::Start {
                 return crate::outcomes::map_timing_outcome(
@@ -1546,8 +1595,15 @@ async fn dispatch_tool_inner(
             }
             let _slot =
                 begin_session_slot(session, catalog, "record", DAEMON_SCOPE_LOCAL, params.pid)?;
-            let outcome =
-                enqueue_and_call(registry, bridge, params.pid, BridgeMethod::Record, args).await;
+            let outcome = enqueue_and_call(
+                registry,
+                bridge,
+                params.pid,
+                BridgeMethod::Record,
+                args,
+                journal,
+            )
+            .await;
             crate::outcomes::map_timing_outcome(catalog, params.pid, "record", outcome)
         }
         ToolName::Inspect => {
@@ -1588,6 +1644,7 @@ async fn dispatch_tool_inner(
                 params.pid,
                 method,
                 bridge_inspect_params(&params),
+                journal,
             )
             .await;
             let completed_at = Utc::now();
@@ -1688,6 +1745,7 @@ async fn dispatch_tool_inner(
                     "contextPath": params.context_path,
                     "detailLevel": params.detail_level.as_str(),
                 }),
+                journal,
             )
             .await;
             map_mutate_outcome(
@@ -1736,6 +1794,7 @@ async fn dispatch_tool_inner(
                     "queries": queries,
                     "detailLevel": params.detail_level.as_str(),
                 }),
+                journal,
             )
             .await;
             map_api_help_outcome(catalog, params.pid, outcome, params.diagnostic_level)
@@ -1769,6 +1828,7 @@ async fn dispatch_tool_inner(
                 params.pid,
                 BridgeMethod::EditorContext,
                 serde_json::json!({}),
+                journal,
             )
             .await;
             map_editor_context_outcome(catalog, params.pid, outcome, params.diagnostic_level)
@@ -2091,12 +2151,17 @@ fn begin_session_slot<'a>(
 /// When the call never reaches actor completion (`NotConnected`, send-fail
 /// `Disconnected`, or the outer MCP wait fires), clear the pid queue so a
 /// zombie slot cannot wedge exclusive callers after dual-MCP races.
+///
+/// `journal` is the durable receipt port, present only for callers that supply
+/// one. Its absence is not a silent loss: the tools below pass it through, and
+/// a tool call with no journal behaves exactly as it did before.
 async fn enqueue_and_call(
     registry: &Arc<Mutex<PidRegistry>>,
     bridge: &dyn BridgeRpc,
     pid: Pid,
     method: BridgeMethod,
     params: Value,
+    journal: Option<&dyn DispatchJournal>,
 ) -> BridgeOutcome {
     let raw_pid = pid.get();
     {
@@ -2109,8 +2174,28 @@ async fn enqueue_and_call(
         }
     }
 
+    // Admitted only once the enqueue succeeded: before that point nothing was
+    // going to be sent, so a receipt here would describe a dispatch that never
+    // existed. `begin` failing is not a reason to proceed — a dispatch the
+    // daemon cannot remember is exactly what this receipt exists to catch.
+    let mut receipt = match journal {
+        Some(journal) => match journal.begin(method.wire_str()) {
+            Ok(guard) => Some(guard),
+            Err(error) => {
+                // Refuse the call rather than perform an unrecordable one. The
+                // failure is returned as the call's own error so the caller sees
+                // why nothing happened.
+                clear_queue_keep_connected(registry, raw_pid).await;
+                return BridgeOutcome::Transport(BridgeRpcError::ReceiptUnavailable {
+                    message: error,
+                });
+            }
+        },
+        None => None,
+    };
+
     let call = bridge.call(raw_pid, method.wire_str(), params);
-    match tokio::time::timeout(effective_bridge_timeout(), call).await {
+    let outcome = match tokio::time::timeout(effective_bridge_timeout(), call).await {
         Ok(Ok(value)) => BridgeOutcome::Ok(value),
         Ok(Err(err)) => {
             if matches!(
@@ -2128,7 +2213,38 @@ async fn enqueue_and_call(
                 budget_ms: effective_bridge_timeout().as_millis() as u64,
             })
         }
+    };
+
+    // Settle the receipt from what was actually observed. Dropping the guard
+    // without this would record "unobserved" even for a call that returned, so
+    // every successful mutation would look uncertain.
+    if let Some(guard) = receipt.as_mut() {
+        match &outcome {
+            BridgeOutcome::Ok(value) => {
+                let ok = value.get("ok").and_then(Value::as_bool).unwrap_or(true);
+                let effect = read_effect(method.wire_str(), value);
+                if let Err(error) = guard.settled(ok, effect, None) {
+                    // The work is done and the receipt failed. Returning the
+                    // work's result is right — discarding a successful mutation
+                    // because bookkeeping failed would be worse — but the
+                    // failure must reach the logs, because the receipt on disk
+                    // now understates what happened.
+                    tracing::warn!(
+                        tool = method.wire_str(),
+                        pid = raw_pid,
+                        %error,
+                        "the dispatch returned but its receipt was not recorded"
+                    );
+                }
+            }
+            // A timeout is not a failure and a disconnect is not a failure:
+            // the request may still be running inside TouchDesigner. Dropping
+            // the guard records an unsettled receipt, which is the honest
+            // answer and what a restart later reports as an unknown effect.
+            BridgeOutcome::Transport(_) | BridgeOutcome::QueueBusy => {}
+        }
     }
+    outcome
 }
 
 async fn clear_queue_keep_connected(registry: &Arc<Mutex<PidRegistry>>, pid: u32) {

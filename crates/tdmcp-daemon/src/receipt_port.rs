@@ -19,9 +19,13 @@
 use std::sync::Arc;
 
 use tdmcp_core::EffectState;
-use tdmcp_mcp::receipts::{DispatchGuard, DispatchJournal, JournalError, ReceiptHandle};
+use tdmcp_mcp::client_id::ClientIdentity;
+use tdmcp_mcp::receipts::{
+    DispatchGuard, DispatchJournal, JournalError, ReceiptFactory, ReceiptHandle,
+};
 
 use crate::opdispatch::{OperationRecorder, PendingDispatch};
+use crate::opjournal::OperationJournal;
 
 /// A receipt port bound to one authenticated client.
 pub struct DispatchJournalPort {
@@ -80,6 +84,12 @@ impl ReceiptHandle for JournalHandle {
             .map_err(|error| format!("the work finished but its receipt was not recorded: {error}"))
     }
 
+    fn prevented(&mut self, detail: &str) -> Result<(), JournalError> {
+        self.pending
+            .not_sent(detail)
+            .map_err(|error| format!("nothing was sent, but its receipt was not recorded: {error}"))
+    }
+
     fn id(&self) -> &str {
         self.pending.id()
     }
@@ -90,6 +100,51 @@ impl ReceiptHandle for JournalHandle {
         // immediately after this returns — so doing it here would run the same
         // transition twice. The doc on the trait's `abandoned` describes the
         // outcome, and the outcome is exactly what that drop produces.
+    }
+}
+
+/// Builds a receipt port per request from a client's identity claim.
+///
+/// The credential lives here, in the daemon, and nowhere else. A handler passes
+/// the raw `x-tdmcp-client` header value; the principal is resolved against the
+/// configured credential and the resulting owner is bound into a port. No
+/// handler can choose its own owner, which is what makes owner scoping hold.
+pub struct ClientReceiptFactory {
+    journal: Arc<dyn OperationJournal>,
+    auth_mode: String,
+    psk: String,
+}
+
+impl ClientReceiptFactory {
+    /// Bind the factory to one journal and the transport's credential.
+    #[must_use]
+    pub fn new(journal: Arc<dyn OperationJournal>, auth_mode: &str, psk: &str) -> Self {
+        Self {
+            journal,
+            auth_mode: auth_mode.to_owned(),
+            psk: psk.to_owned(),
+        }
+    }
+}
+
+impl std::fmt::Debug for ClientReceiptFactory {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Neither the credential nor any principal is printed; a secret in a
+        // `Debug` line is the worst possible place for one.
+        formatter
+            .debug_struct("ClientReceiptFactory")
+            .field("auth_mode", &self.auth_mode)
+            .finish_non_exhaustive()
+    }
+}
+
+impl ReceiptFactory for ClientReceiptFactory {
+    fn for_claim(&self, claim: Option<&str>) -> Option<Arc<dyn DispatchJournal>> {
+        let identity = ClientIdentity::resolve(claim, &self.auth_mode, &self.psk).ok()?;
+        let owner = identity.owner_id().ok()?;
+        Some(Arc::new(DispatchJournalPort::new(Arc::new(
+            OperationRecorder::new(Arc::clone(&self.journal), owner),
+        ))))
     }
 }
 
@@ -174,6 +229,22 @@ mod tests {
         );
         assert_eq!(row.effect, EffectState::Unknown);
         assert!(!row.state.is_terminal());
+    }
+
+    #[test]
+    fn a_provably_unsent_dispatch_settles_instead_of_staying_admitted() {
+        // A client whose TouchDesigner is not running would otherwise leak one
+        // in-flight slot per failed send, until its own quota refused every
+        // subsequent call for ever.
+        let (port, _recorder, journal) = port();
+        let mut guard = port.begin("mutate_nodes").expect("admitted");
+        let id = guard.id().expect("an id").to_owned();
+        guard.prevented("no connected bridge").expect("recorded");
+
+        let row = receipt(&journal, &id);
+        assert_eq!(row.state, ReceiptState::Cancelled);
+        assert_eq!(row.effect, EffectState::PreventedBeforeDispatch);
+        assert!(row.state.is_terminal());
     }
 
     #[test]

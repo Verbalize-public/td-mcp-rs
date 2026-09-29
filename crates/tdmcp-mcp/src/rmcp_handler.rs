@@ -27,7 +27,7 @@ use crate::resources::{server_capabilities, SERVER_INSTRUCTIONS};
 use crate::schema::input_schema_for;
 use crate::session_registry::McpSessionRegistry;
 use crate::tools::ToolName;
-use crate::tools::{dispatch_tool, tool_descriptors, SessionGate, ToolCallError};
+use crate::tools::{dispatch_tool_recorded, tool_descriptors, SessionGate, ToolCallError};
 use crate::AppState;
 
 /// Removes the session row when the last `Arc` clone is dropped.
@@ -150,12 +150,31 @@ impl ServerHandler for McpHandler {
     async fn call_tool(
         &self,
         request: CallToolRequestParams,
-        _context: RequestContext<RoleServer>,
+        context: RequestContext<RoleServer>,
     ) -> Result<CallToolResponse, ErrorData> {
         let name = request.name.into_owned();
         let args = request.arguments.map(Value::Object).unwrap_or(Value::Null);
 
-        match dispatch_tool(
+        // The Streamable HTTP transport injects the remaining `http` request
+        // parts into the request context, so the same identity claim the JSON
+        // route reads is available here. `axum::http` is the same `http` crate,
+        // which is why this needs no new dependency.
+        let headers = context
+            .extensions
+            .get::<axum::http::request::Parts>()
+            .map(|parts| &parts.headers);
+        let claim =
+            self.state.receipts.as_ref().and_then(|factory| {
+                factory.for_claim(headers.and_then(crate::server::claim_header))
+            });
+        if self.state.receipts.is_some() && claim.is_none() {
+            tracing::warn!(
+                tool = %name,
+                "the client's identity claim was refused; this call has no receipt"
+            );
+        }
+
+        match dispatch_tool_recorded(
             &self.state.registry,
             &self.state.catalog,
             self.state.bridge.as_ref(),
@@ -166,6 +185,7 @@ impl ServerHandler for McpHandler {
                 sessions: self.state.mcp_sessions.as_ref(),
             }),
             self.state.federation.as_ref(),
+            claim.as_deref(),
         )
         .await
         {

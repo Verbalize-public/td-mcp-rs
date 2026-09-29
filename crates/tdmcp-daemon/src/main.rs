@@ -927,8 +927,50 @@ async fn run_daemon(
         slaves: federation.slaves.clone(),
         http: tdmcp_mcp::FederationCtx::build_http_client(),
     };
-    let state = AppState::new_shared(registry.clone(), catalog, bridge, resource_provider)
+    // Operation receipts: one durable, owner-scoped record per bridge dispatch.
+    //
+    // Failing to open the journal is NOT fatal. A daemon that cannot record
+    // receipts still serves every call; what it loses is the ability to tell a
+    // caller "this ran and nobody saw the result" after a restart. Degrading
+    // that way is honest, whereas refusing to start over bookkeeping would make
+    // a receipts problem look like a broken install.
+    let journal: Option<Arc<dyn tdmcp_daemon::opjournal::OperationJournal>> = {
+        let root = cfg.data_dir.join("operations");
+        match tdmcp_daemon::opjournal::create_private_journal_root(&root).and_then(|()| {
+            tdmcp_daemon::opjournal::SqliteOperationJournal::open(
+                &root,
+                tdmcp_daemon::opjournal::JournalConfig::default(),
+            )
+        }) {
+            Ok(journal) => {
+                info!(root = %root.display(), "operation journal open");
+                Some(Arc::new(journal) as Arc<dyn tdmcp_daemon::opjournal::OperationJournal>)
+            }
+            Err(error) => {
+                warn!(
+                    root = %root.display(),
+                    %error,
+                    "operation journal unavailable; dispatches will not be recorded"
+                );
+                None
+            }
+        }
+    };
+
+    let mut state = AppState::new_shared(registry.clone(), catalog, bridge, resource_provider)
         .with_federation(fed_ctx);
+    if let Some(journal) = journal {
+        // The credential lives only in this factory, so no handler can choose
+        // its own principal: a request contributes a label, never an owner.
+        state = state.with_receipts(Arc::new(
+            tdmcp_daemon::receipt_port::ClientReceiptFactory::new(
+                journal,
+                &cfg.auth_mode,
+                &cfg.auth_psk,
+            ),
+        ));
+        info!("operation receipts enabled (dispatch receipts are recorded per client)");
+    }
     let admin_state = state.clone();
     let mcp_handler_state = state.clone();
     let mcp_sessions = state.mcp_sessions.clone();

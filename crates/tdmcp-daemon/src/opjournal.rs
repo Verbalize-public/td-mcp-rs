@@ -1241,6 +1241,39 @@ fn verify_private_directory(path: &Path) -> Result<(), EvidenceError> {
     ))
 }
 
+/// Create a journal root that is private to this user.
+///
+/// Idempotent: an existing directory is re-permissioned rather than replaced,
+/// because a non-private journal root is a problem to repair, not a reason to
+/// discard the receipts already in it.
+///
+/// # Errors
+/// Returns the underlying I/O failure, or a refusal on platforms where this
+/// crate has no audited private-directory implementation.
+#[cfg(unix)]
+pub fn create_private_journal_root(path: &Path) -> Result<(), EvidenceError> {
+    use std::os::unix::fs::{DirBuilderExt as _, PermissionsExt as _};
+    let mut builder = fs::DirBuilder::new();
+    builder.recursive(false).mode(0o700);
+    match builder.create(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            fs::set_permissions(path, fs::Permissions::from_mode(0o700)).map_err(io_error)
+        }
+        Err(error) => Err(io_error(error)),
+    }
+}
+
+/// Fails closed: no audited private-directory implementation exists here.
+#[cfg(not(unix))]
+pub fn create_private_journal_root(_path: &Path) -> Result<(), EvidenceError> {
+    Err(EvidenceError::UnsupportedPlatform(
+        "the disk operation journal is unavailable on this platform; \
+         no audited private-file implementation exists"
+            .to_owned(),
+    ))
+}
+
 #[cfg(test)]
 #[allow(
     clippy::unwrap_used,
