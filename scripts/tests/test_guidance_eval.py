@@ -104,7 +104,15 @@ class GuidanceEvalTests(unittest.TestCase):
 
     def test_fixture_covers_all_scenarios_with_explicit_oracles(self):
         data = guidance_eval.load_fixtures()
-        self.assertEqual([row["id"] for row in data["scenarios"]], [f"S{i:02d}" for i in range(1, 34)])
+        # Open-ended, but still SEQUENTIAL -- `validate_fixtures` enforces that.
+        # The assertion is about the property rather than a pinned count: a
+        # hard-coded `range(1, 34)` made every scenario added after this one a
+        # change to the test, and a test that must be edited before it can
+        # accept a new case tends to stop being written at all.
+        ids = [row["id"] for row in data["scenarios"]]
+        self.assertEqual(
+            [f"S{index:02d}" for index in range(1, len(ids) + 1)], ids
+        )
         for row in data["scenarios"]:
             with self.subTest(row=row["id"]):
                 self.assertTrue(row["expected_actions"])

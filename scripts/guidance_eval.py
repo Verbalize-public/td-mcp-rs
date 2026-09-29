@@ -14,6 +14,7 @@ import hashlib
 import json
 from pathlib import Path
 import random
+import re
 import sys
 import tempfile
 from typing import Any
@@ -150,10 +151,17 @@ def load_fixtures(path: Path = DEFAULT_FIXTURES) -> dict[str, Any]:
 def validate_fixtures(data: dict[str, Any]) -> None:
     if data.get("version") != 1 or not isinstance(data.get("scenarios"), list):
         raise HarnessError("fixture version 1 with a scenarios array is required")
-    expected_ids = {f"S{number:02d}" for number in range(1, 34)}
+    # The set is open-ended so a workflow can be added to it, but it stays
+    # SEQUENTIAL: a gap in the numbering means a scenario was lost in an edit
+    # or a rebase, which is the silent loss an enumerated list used to
+    # prevent. Pinning `range(1, 34)` made every future scenario a contract
+    # change to the harness itself -- a poor trade for a property that
+    # sequence + uniqueness already give.
     seen: set[str] = set()
     for scenario in data["scenarios"]:
         scenario_id = scenario.get("id")
+        if not isinstance(scenario_id, str) or re.fullmatch(r"S\d{2,}", scenario_id) is None:
+            raise HarnessError(f"malformed scenario id {scenario_id!r}; expected S01, S02, ...")
         if scenario_id in seen:
             raise HarnessError(f"duplicate scenario {scenario_id}")
         seen.add(scenario_id)
@@ -171,14 +179,41 @@ def validate_fixtures(data: dict[str, Any]) -> None:
         outcome_ids = [row.get("id") for row in scenario["expected_outcomes"]]
         if len(outcome_ids) != len(set(outcome_ids)) or any(not item for item in outcome_ids):
             raise HarnessError(f"{scenario_id}: outcome ids must be unique and nonempty")
+        # A forbidden matcher that CAPTURES a required step makes the scenario
+        # permanently unplayable, and nothing else here would notice:
+        # `submit_request` tests the forbidden list independently of the
+        # expected list, so the required request is answered
+        # `mock.policy.forbidden`, never reaches its scripted response, and the
+        # session is refused on the missing action. Two matchers are in
+        # conflict when either one is a subset of the other -- in that case a
+        # request that satisfies the required action also satisfies the
+        # forbidden one, in one direction or the other. Checked against
+        # REQUIRED expected actions only: an `other_actions` row is by
+        # definition a route the harness may serve, so a scenario may
+        # legitimately forbid one of those as a discouraged alternative.
+        for action in scenario["expected_actions"]:
+            if not action.get("required", True):
+                continue
+            for row in scenario["forbidden_actions"]:
+                if _subset(row["match"], action["match"]) or _subset(
+                    action["match"], row["match"]
+                ):
+                    raise HarnessError(
+                        f"{scenario_id}: forbidden action {row['id']!r} and required action "
+                        f"{action['id']!r} match overlapping requests, so the required step "
+                        "can only ever be refused. Make the matchers disjoint."
+                    )
         for variant in scenario.get("variants", []):
             overlay = variant.get("overlay", {})
             if not variant.get("id") or not isinstance(overlay, dict):
                 raise HarnessError(f"{scenario_id}: malformed variant")
-    missing = expected_ids - seen
-    extra = seen - expected_ids
-    if missing or extra:
-        raise HarnessError(f"scenario coverage mismatch; missing={sorted(missing)}, extra={sorted(extra)}")
+    numbered = sorted(int(scenario_id[1:]) for scenario_id in seen)
+    if numbered != list(range(1, len(numbered) + 1)):
+        missing = sorted(set(range(1, max(numbered) + 1)) - set(numbered))
+        raise HarnessError(
+            f"scenario numbering has a gap: missing={missing}. A hole means a scenario was "
+            "dropped rather than retired; renumber the tail or restore the scenario."
+        )
 
 
 def resolve_scenario(data: dict[str, Any], scenario_id: str, seed: int) -> tuple[dict[str, Any], dict[str, Any], str | None]:

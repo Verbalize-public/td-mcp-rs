@@ -557,6 +557,160 @@
       "forbidden_actions": [{"id": "blind_absolute_rewrite", "match": {"tool": "mutate_nodes"}, "reason": "relative meaning depends on the actual owner/context and reusable internals may need relative paths"}],
       "expected_outcomes": [{"id": "contexts_resolved_separately", "description": "Each owner/context is resolved without a universal path rewrite.", "requires": ["inspect_actual_owners", "resolve_mcp_context"], "state": {"universalRewriteApplied": false}}],
       "final_status": "complete"
+    },
+    {
+            "id": "S34",
+        "title": "Exact pixel value, not a preview",
+        "workflow": "numeric",
+        "rules": ["G03", "G11"],
+        "task": "Report the exact value of pixel [1, 0] on {{node}} for the user. A number is required, not an image.",
+        "stimulus": { "sourceAvailable": true, "liveTargetRequested": true, "needsExactNumber": true },
+        "allowed_tools": ["sample_data", "capture", "inspect", "execute_python"],
+        "initial_state": { "exactValueKnown": false, "previewCaptured": false },
+        "expected_actions": [
+    {
+      "id": "read_exact_pixel",
+      "match": { "tool": "sample_data", "arguments": { "pid": "{{pid}}", "path": "{{node}}", "pixels": [[1, 0]] } },
+      "response": {
+        "ok": true, "path": "{{node}}", "mode": "image",
+        "cook": { "forced": false, "fresh": true },
+        "pixels": [{ "x": 1, "y": 0, "channels": { "R": 0.5, "G": 0.25, "B": 0.125, "A": 1.0 } }],
+        "outOfRange": []
+      },
+      "effects": [{ "op": "set", "path": "exactValueKnown", "value": true }]
     }
+  ],
+        "forbidden_actions": [
+    { "id": "an_image_is_not_a_number", "match": { "tool": "capture" },
+      "reason": "a PNG shows a colour, not the exact channel value the user asked for" },
+    { "id": "no_ad_hoc_python_read", "match": { "tool": "execute_python" },
+      "reason": "an inline read has no cook/freshness record, so a stale frame reads as current" }
+  ],
+        "expected_outcomes": [
+    { "id": "exact_value_reported",
+      "description": "The exact channel value is reported with its cook/freshness record.",
+      "requires": ["read_exact_pixel"], "state": { "exactValueKnown": true } }
+  ],
+        "final_status": "complete"
+    }
+,
+    {
+            "id": "S35",
+        "title": "Registered source referenced, not re-sent",
+        "workflow": "source",
+        "rules": ["G03", "G05"],
+        "task": "Run the already-registered source for {{node}} and report its output. Do not paste the code inline.",
+        "stimulus": { "sourceAvailable": true, "liveTargetRequested": true },
+        "allowed_tools": ["script_source", "execute_python", "inspect"],
+        "initial_state": { "sourceIdKnown": false, "usedInlineSource": false },
+        "expected_actions": [
+    {
+      "id": "register_once",
+      "match": { "tool": "script_source",
+        "arguments": { "pid": "{{pid}}", "action": "register", "name": "unit-probe",
+          "source": "result = op('{{node}}').par.gain.eval()" } },
+      "response": { "ok": true, "action": "register", "sourceId": "sha256:{{token}}", "bytes": 41, "executed": false },
+      "effects": [{ "op": "set", "path": "sourceIdKnown", "value": true }]
+    },
+    {
+      "id": "run_registered_source",
+      "after": ["register_once"],
+      "match": { "tool": "script_source",
+        "arguments": { "pid": "{{pid}}", "action": "run", "sourceId": "sha256:{{token}}" } },
+      "response": {
+        "ok": true, "action": "run", "sourceId": "sha256:{{token}}", "result": 0.35, "logs": [],
+        "dependencies": [{ "name": "gain", "status": "resolved" }]
+      }
+    }
+  ],
+        "forbidden_actions": [
+    { "id": "no_inline_python_run", "match": { "tool": "execute_python" },
+      "reason": "the registered source carries its own dependency and log record; an inline run discards both" }
+  ],
+        "expected_outcomes": [
+    { "id": "source_reused_by_reference",
+      "description": "The registered source is referenced by content address and executed once.",
+      "requires": ["register_once", "run_registered_source"],
+      "state": { "sourceIdKnown": true, "usedInlineSource": false } }
+  ],
+        "final_status": "complete"
+    }
+,
+    {
+            "id": "S36",
+        "title": "Interface exported before it is applied",
+        "workflow": "interface",
+        "rules": ["G03", "G07"],
+        "task": "Add a 'Threshold' slider to {{node}} without changing any existing control the user already set up.",
+        "stimulus": { "sourceAvailable": true, "liveTargetRequested": true },
+        "allowed_tools": ["param_interface", "mutate_nodes", "inspect"],
+        "initial_state": { "exported": false, "existingControlsChanged": false },
+        "expected_actions": [
+    {
+      "id": "export_current_interface",
+      "match": { "tool": "param_interface", "arguments": { "pid": "{{pid}}", "action": "export", "path": "{{node}}" } },
+      "response": {
+        "ok": true, "action": "export", "path": "{{node}}",
+        "definitions": [{ "name": "Gain", "label": "Gain", "type": "float", "page": "Main", "default": 1.0, "min": 0.0, "max": 2.0 }]
+      },
+      "effects": [{ "op": "set", "path": "exported", "value": true }]
+    },
+    {
+      "id": "apply_additive_definition",
+      "after": ["export_current_interface"],
+      "match": { "tool": "param_interface",
+        "arguments": { "pid": "{{pid}}", "action": "apply", "path": "{{node}}",
+          "definitions": [{ "name": "Threshold", "label": "Threshold", "type": "float", "page": "Main", "default": 0.5, "min": 0.0, "max": 1.0 }] } },
+      "response": { "ok": true, "action": "apply", "path": "{{node}}", "applied": ["Threshold"], "added": ["Threshold"], "changed": [], "removed": [], "idempotent": false }
+    }
+  ],
+        "forbidden_actions": [
+    { "id": "no_bare_parameter_write", "match": { "tool": "mutate_nodes" },
+      "reason": "a bare write adds one parameter and says nothing about the controls already there; a blind overwrite of a rebuilt interface can drop the user's own names, ranges and callbacks" }
+  ],
+        "expected_outcomes": [
+    { "id": "interface_extended_additively",
+      "description": "The interface is exported first and extended additively, with nothing existing changed.",
+      "requires": ["export_current_interface", "apply_additive_definition"],
+      "state": { "exported": true, "existingControlsChanged": false } }
+  ],
+        "final_status": "complete"
+    }
+,
+    {
+            "id": "S37",
+        "title": "Save reports a destination, not a default name",
+        "workflow": "checkpoint",
+        "rules": ["G03", "G09"],
+        "task": "Save {{node}} to {{project}} for the user, then confirm the saved file is the one you named.",
+        "stimulus": { "sourceAvailable": true, "liveTargetRequested": true, "destinationExists": false },
+        "allowed_tools": ["project_snapshot", "fleet", "inspect"],
+        "initial_state": { "saved": false, "receiptHoldsPath": false },
+        "expected_actions": [
+    {
+      "id": "save_to_named_path",
+      "match": { "tool": "project_snapshot",
+        "arguments": { "pid": "{{pid}}", "action": "component", "path": "{{node}}", "target": "{{project}}" } },
+      "response": {
+        "ok": true, "action": "component", "saved": true, "target": "{{project}}", "bytes": 184320,
+        "dependencies": { "missing": [], "unresolved": [] },
+        "identity": { "sha256": "sha256:{{token}}", "matchesFreshLoad": null }
+      },
+      "effects": [{ "op": "set", "path": "saved", "value": true }, { "op": "set", "path": "receiptHoldsPath", "value": true }]
+    }
+  ],
+        "forbidden_actions": [
+    { "id": "no_discovery_for_a_named_save", "match": { "tool": "fleet" },
+      "reason": "the user named the destination; searching for processes is not part of this task" }
+  ],
+        "expected_outcomes": [
+    { "id": "save_receipt_is_named",
+      "description": "The save names its destination and its artifact identity, and does not claim a fresh-load match it has not checked.",
+      "requires": ["save_to_named_path"],
+      "state": { "saved": true, "receiptHoldsPath": true } }
+  ],
+        "final_status": "complete"
+    }
+
   ]
 }

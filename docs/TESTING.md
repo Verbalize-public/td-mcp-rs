@@ -90,6 +90,34 @@ as well as for a recorded corpus, so a reviewer without the private recorded
 payloads can still reproduce every figure. Point `TDMCP_INSPECT_CORPUS` at a
 recorded directory to repeat the same measurement over real data.
 
+### Workflow value, measured apart from encoding
+
+A tool that costs schema bytes to make available is not paid for by a smaller
+response document. `scripts/measure_workflow_value.py` keeps the two apart by
+charging each tool to the sessions that would have to carry its schema, and it
+reports four separate scorecards — `numeric`, `source`, `interface`,
+`checkpoint` — rather than one blended row.
+
+```sh
+.venv/bin/python scripts/measure_workflow_value.py
+```
+
+Each scorecard answers two different questions and keeps them apart. It is
+**measured** only when a scenario *requires* the tool, the oracle was
+*executed* to an accepted session, and the route the workflow replaces was
+*refused* — sufficiency and necessity are separate claims, and a tool whose
+old route still works has demonstrated neither use. The cost half reports
+`schemaBytesAddedPerEligibleSession`, the price of making the tool reachable in
+the sessions that do not already allow it, over `eligibleSessions`. A workflow
+with no such scenario is **unmeasured**, and the script exits non-zero saying
+so: unknown is not zero, and four empty scorecards print as four rows of zeros.
+
+Every figure comes from playing the fixtures through `guidance_eval.py`, which
+is a deterministic mock that never connects to TouchDesigner. It measures
+whether the declared route is sufficient and the replaced route is closed, not
+what a model would do. `replacedRoutesProbed` is the evidence;
+`replacedRouteRefused` is a summary of it.
+
 ## Release and CI
 
 CI is manual on ordinary branches, with optional native Windows/macOS tests.
