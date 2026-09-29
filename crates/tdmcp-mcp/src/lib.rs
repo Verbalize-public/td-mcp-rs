@@ -10,6 +10,7 @@ use include_dir::{include_dir, Dir};
 mod args_diag;
 pub mod bridge_rpc;
 pub mod client_id;
+pub mod compare_nodes;
 pub mod cost;
 mod daemon_link;
 pub mod dialogs;

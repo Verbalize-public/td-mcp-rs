@@ -486,6 +486,49 @@ pub fn map_sample_data_outcome(
     }
 }
 
+/// Map a `compare_nodes` outcome.
+///
+/// A read. The bridge's payload is passed through unmodified, and that is
+/// deliberate: a delta is data, and reshaping it would corrupt exactly the
+/// distinctions it exists to carry — a missing field is not a null, a refused
+/// comparison is not an empty one, and `atomic: false` must not be dropped on
+/// the way out.
+pub fn map_compare_nodes_outcome(
+    catalog: &Catalog,
+    pid: Pid,
+    outcome: BridgeOutcome,
+    _diagnostic_level: DiagnosticLevel,
+) -> Result<Value, ToolCallError> {
+    let span = span("compare_nodes", None);
+    match outcome {
+        BridgeOutcome::Ok(value) => {
+            let env = BridgeResultEnvelope::from_value(&value);
+            if env.is_error() {
+                // The bridge owns the diagnosis: it knows whether a comparison
+                // was refused for a reason the caller can act on (a missing
+                // baseline, a projection mismatch) rather than a transport fault.
+                let code = match env.code.as_deref() {
+                    Some(code) if catalog.contains(code) => code.to_owned(),
+                    _ => codes::BRIDGE_RESPONSE_INVALID.to_owned(),
+                };
+                let item = build_diag(
+                    catalog,
+                    &code,
+                    span,
+                    Some(env.message_or("compare_nodes failed")),
+                    ctx(pid, None, None),
+                    DiagnosticLayer::Structure,
+                );
+                Err(failed_one(item))
+            } else {
+                Ok(value)
+            }
+        }
+        BridgeOutcome::QueueBusy => Err(queue_busy(catalog, "compare_nodes", pid)),
+        BridgeOutcome::Transport(err) => Err(transport(catalog, "compare_nodes", pid, err)),
+    }
+}
+
 /// Map an `api_help` outcome.
 pub fn map_api_help_outcome(
     catalog: &Catalog,

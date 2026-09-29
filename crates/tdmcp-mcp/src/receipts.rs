@@ -43,8 +43,8 @@ pub enum EffectClass {
 #[must_use]
 pub fn classify_effect(method: &str) -> EffectClass {
     match method {
-        "api_help" | "editor_context" | "inspect" | "palette_index" | "palette_probe"
-        | "project_lint" | "td_installs" => EffectClass::Read,
+        "api_help" | "compare_nodes" | "editor_context" | "inspect" | "palette_index"
+        | "palette_probe" | "project_lint" | "td_installs" => EffectClass::Read,
         "execute_python" | "mutate_nodes" => EffectClass::Applying,
         _ => EffectClass::Unknown,
     }

@@ -123,6 +123,13 @@ pub enum ToolName {
     ParamInterface,
     /// Save a project or a component, with a receipt naming what was written.
     ProjectSnapshot,
+    /// Exact deltas between a retained baseline and a fresh read.
+    ///
+    /// Separate from [`Self::Inspect`] because a delta is only actionable if
+    /// the caller can show when each side was read, and an inspect result
+    /// carries no such stamp. Refuses rather than diffing nothing when the
+    /// baseline is missing.
+    CompareNodes,
     /// Frame-exact video recording jobs.
     Record,
     /// Live TD Python API cards / class index.
@@ -167,6 +174,7 @@ impl ToolName {
             Self::ScriptSource => "script_source",
             Self::ParamInterface => "param_interface",
             Self::ProjectSnapshot => "project_snapshot",
+            Self::CompareNodes => "compare_nodes",
             Self::Record => "record",
             Self::ApiHelp => "api_help",
             Self::EditorContext => "editor_context",
@@ -214,6 +222,9 @@ impl ToolName {
             }
             Self::ProjectSnapshot => {
                 "Save a project or one COMP, and get a receipt naming the file that was actually written. target is REQUIRED for both save actions, because TouchDesigner's own default is an INCREMENTED name under project.folder — unpredictable, and so impossible to put in a receipt. The requested path is NOT the artifact: component save can overwrite in place and report the same path back with different content, and project save writes name.toe AND name.1.toe when the destination exists. The receipt therefore reports written (the path TD produced) and artifact (sha256 of the bytes on disk), with the requested path carried separately. overwrite defaults to 'fail' and refuses an existing destination before touching anything, so replacing a file is always deliberate. outcome is written | declined | unknown, and they are not interchangeable: TD returns False for a DECLINE (the file exists and you did not replace it), and a save can also leave the outcome unknown. 'unknown' is never reported as the other two — claiming nothing was written when a file may exist is the worst available answer. A component receipt does not report the project's unsaved state: TouchDesigner exposes no per-component dirty flag, so it says so rather than showing you an empty list that reads as 'nothing unsaved'. status writes nothing."
+            }
+            Self::CompareNodes => {
+                "Compare a retained baseline against a FRESH read of the same projection, and get exact per-field deltas. This is not inspect called twice: a diff is only actionable if you can show WHEN each side was read, and an inspect result carries no such stamp, so this reads the projection here and returns a stamped observation. First call capture:true to take a baseline — capture NEVER writes and returns the observation to retain. With a baseline, every field reported as unchanged was actually RE-READ; there is no shortcut. A daemon mutation counter advances on dispatch, not on effect, so it is never used to decide a field is unchanged. MISSING BASELINE REFUSES with baseline_unavailable rather than returning an empty diff: an empty diff would tell you everything is unchanged when nothing was compared, and you would write on top of a scene you never looked at. capture is opt-in so a compare can never quietly become a capture. A baseline over a different field set, or missing a requested path, is refused and names the problem. Each node reports readable:false when it could not be read, so an unreadable node is never silently unchanged. Absent, null, false, 0 and \"\" are five different states and a change between any two of them is reported. NaN/Infinity come back as an explicit unrepresentable marker rather than rounded. atomic:false and exactlyOnce:false in every response: two reads and a comparison are three moments, and a field can change between them. Treat the result as a report about those reads, not a snapshot safe to write against. For a guarded write, pair this with mutate_nodes steps carrying expect — the guard is rechecked at write time, narrows the race without closing it, and never retries."
             }
             Self::Record => "Record exactly frames consecutive samples from one TOP output, without audio. Starts a reset+forward-advance job; status/cancel remain available while it owns the PID. Default timeline FPS, qtrle MOV. Finalized artifact metadata is sample-table verified; read retrieves bounded base64 chunks by jobId/offset/length (works remotely), release removes the private artifact. Retains at most eight jobs per TD bridge generation.",
             Self::ApiHelp => {
@@ -267,6 +278,7 @@ impl ToolName {
         Self::ScriptSource,
         Self::ParamInterface,
         Self::ProjectSnapshot,
+        Self::CompareNodes,
         Self::Record,
         Self::ApiHelp,
         Self::EditorContext,
@@ -296,6 +308,7 @@ impl ToolName {
             "script_source" => Some(Self::ScriptSource),
             "param_interface" => Some(Self::ParamInterface),
             "project_snapshot" => Some(Self::ProjectSnapshot),
+            "compare_nodes" => Some(Self::CompareNodes),
             "record" => Some(Self::Record),
             "api_help" => Some(Self::ApiHelp),
             "editor_context" => Some(Self::EditorContext),
@@ -1793,6 +1806,56 @@ async fn dispatch_tool_inner(
                 params.diagnostic_level,
                 crate::tools::FormatMode::Normal,
                 params.context_path,
+            )
+        }
+        ToolName::CompareNodes => {
+            let params: crate::compare_nodes::CompareNodesParams =
+                parse_args(catalog, tool, args.clone())?;
+            if let ControlFlow::Break(v) = maybe_proxy_bridged(
+                federation,
+                registry,
+                catalog,
+                "compare_nodes",
+                args,
+                params.daemon_id.as_deref(),
+                params.pid,
+                session,
+            )
+            .await?
+            {
+                return Ok(v);
+            }
+            let _slot = begin_session_slot(
+                session,
+                catalog,
+                "compare_nodes",
+                DAEMON_SCOPE_LOCAL,
+                params.pid,
+            )?;
+            let outcome = enqueue_and_call(
+                registry,
+                bridge,
+                params.pid,
+                BridgeMethod::CompareNodes,
+                // A read in both directions: capturing only observes, and
+                // comparing only observes. Nothing here writes, so the receipt
+                // effect is not_applicable rather than unknown.
+                EffectClass::Read,
+                serde_json::json!({
+                    "paths": params.paths,
+                    "fields": params.fields,
+                    "baseline": params.baseline,
+                    "capture": params.capture,
+                    "contextPath": params.context_path,
+                }),
+                journal,
+            )
+            .await;
+            crate::outcomes::map_compare_nodes_outcome(
+                catalog,
+                params.pid,
+                outcome,
+                params.diagnostic_level,
             )
         }
         ToolName::ProjectSnapshot => {

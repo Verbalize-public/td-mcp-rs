@@ -550,6 +550,31 @@ entries:
       - kind: tool
         id: mutate_nodes
 
+  - code: tdmcp.mutate.precondition_failed
+    layer: mutate
+    message: "A guarded write was refused: the field did not hold the expected value"
+    mitigation:
+      - "Nothing was written. The step was refused before the write."
+      - "Re-run compare_nodes to see the current value, then decide whether to re-plan or overwrite deliberately"
+      - "The guard was re-read at write time; a cached earlier read would not have caught this"
+    references:
+      - kind: tool
+        id: mutate_nodes
+      - kind: tool
+        id: compare_nodes
+
+  - code: tdmcp.mutate.precondition_unreadable
+    layer: mutate
+    message: "A guarded write was refused: the precondition could not be read"
+    mitigation:
+      - "Nothing was written. An unconfirmable guard fails closed rather than assuming the value matched."
+      - "Resolve the node, or re-read with inspect, before retrying"
+    references:
+      - kind: tool
+        id: mutate_nodes
+      - kind: tool
+        id: compare_nodes
+
   - code: tdmcp.mutate.step_failed
     layer: mutate
     message: "Mutate step failed with a TD-side exception"

@@ -222,6 +222,10 @@ pub const PAR_SIMILAR_NAME: &str = "tdmcp.par.similar_name";
 pub const PAR_ENABLE_EXPR_FAILED: &str = "tdmcp.par.enable_expr_failed";
 /// Lint: similar opType found (case / near-miss).
 pub const OP_SIMILAR_TYPE: &str = "tdmcp.op.similar_type";
+/// A guarded write was refused: the field did not hold the expected value.
+pub const MUTATE_PRECONDITION_FAILED: &str = "tdmcp.mutate.precondition_failed";
+/// A guarded write was refused: the precondition could not be read at all.
+pub const MUTATE_PRECONDITION_UNREADABLE: &str = "tdmcp.mutate.precondition_unreadable";
 /// Mutate step failed with a TD-side exception (catch-all).
 pub const MUTATE_STEP_FAILED: &str = "tdmcp.mutate.step_failed";
 /// Text write (`create`/`set` `text`) targeted a non-DAT operator.
@@ -381,6 +385,8 @@ pub const ALL: &[&str] = &[
     PAR_SIMILAR_NAME,
     PAR_ENABLE_EXPR_FAILED,
     OP_SIMILAR_TYPE,
+    MUTATE_PRECONDITION_FAILED,
+    MUTATE_PRECONDITION_UNREADABLE,
     MUTATE_STEP_FAILED,
     MUTATE_NOT_DAT,
     WIRE_BAD_INDEX,

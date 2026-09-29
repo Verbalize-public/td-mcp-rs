@@ -1,0 +1,99 @@
+{
+  "$defs": {
+    "DiagnosticLevel": {
+      "description": "Payload size for diagnostics (independent of structural `detailLevel`).",
+      "oneOf": [
+        {
+          "const": "summary",
+          "description": "Codes, messages, capped lints, mitigation.",
+          "type": "string"
+        },
+        {
+          "const": "detailed",
+          "description": "Plus raw traceback / full TD dumps.",
+          "type": "string"
+        }
+      ]
+    },
+    "OpPath": {
+      "description": "Operator path string passed to TD for resolution via `td.op()`.",
+      "type": "string"
+    },
+    "Pid": {
+      "anyOf": [
+        {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "pattern": "^\\s*[0-9]+\\s*$",
+          "type": "string"
+        }
+      ],
+      "description": "OS process id — sole address for tools and queues."
+    }
+  },
+  "additionalProperties": false,
+  "description": "`compare_nodes` arguments.",
+  "properties": {
+    "baseline": {
+      "default": null,
+      "description": "A previous `observation` from this tool, to compare against.\n\nMust be a stamped observation. A bare projection is refused: it cannot\nbe shown to be a read of anything, so a delta against it would carry a\nfreshness claim nothing backs."
+    },
+    "capture": {
+      "default": false,
+      "description": "Take a fresh read and return it for retention, instead of comparing.",
+      "type": "boolean"
+    },
+    "contextPath": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/OpPath"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Optional context path for resolving relative `paths`."
+    },
+    "daemonId": {
+      "default": null,
+      "description": "Optional federated daemon id (omit for local / unique remote resolve).",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "diagnosticLevel": {
+      "$ref": "#/$defs/DiagnosticLevel",
+      "default": "summary",
+      "description": "Diagnostic payload size (`summary` omits raw traceback)."
+    },
+    "fields": {
+      "default": [],
+      "description": "Fields to project per path, e.g. `par.t`, `comment`, `wire.input.0`.\n\nOnly these fields are compared. An unrequested field is not evidence of\nanything, so it is absent from the result rather than reported as\nunchanged.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "paths": {
+      "default": [],
+      "description": "Operator paths to read, both sides.",
+      "items": {
+        "$ref": "#/$defs/OpPath"
+      },
+      "type": "array"
+    },
+    "pid": {
+      "$ref": "#/$defs/Pid",
+      "description": "Target pid."
+    }
+  },
+  "required": [
+    "pid"
+  ],
+  "type": "object"
+}
