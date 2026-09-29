@@ -15,6 +15,8 @@ pub enum BridgeMethod {
     ExecutePython,
     /// Perception capture.
     Capture,
+    /// Export a COMP's parameter interface, or apply one additively.
+    ParamInterface,
     /// Named Python sources: register, inspect, and run.
     ///
     /// Shares the inline execution path with [`Self::ExecutePython`], so a
@@ -50,6 +52,7 @@ impl BridgeMethod {
             Self::Capture => "capture",
             Self::SampleData => "sample_data",
             Self::ScriptSource => "script_source",
+            Self::ParamInterface => "param_interface",
             Self::Record => "record",
             Self::Inspect => "inspect",
             Self::MutateNodes => "mutate_nodes",
@@ -68,6 +71,7 @@ impl BridgeMethod {
             Self::Capture => "Capture",
             Self::SampleData => "SampleData",
             Self::ScriptSource => "ScriptSource",
+            Self::ParamInterface => "ParamInterface",
             Self::Record => "Record",
             Self::Inspect => "Inspect",
             Self::MutateNodes => "Mutate",
@@ -84,6 +88,7 @@ impl BridgeMethod {
         Self::Capture,
         Self::SampleData,
         Self::ScriptSource,
+        Self::ParamInterface,
         Self::Record,
         Self::Inspect,
         Self::MutateNodes,
@@ -100,6 +105,7 @@ impl BridgeMethod {
             "capture" => Some(Self::Capture),
             "sample_data" => Some(Self::SampleData),
             "script_source" => Some(Self::ScriptSource),
+            "param_interface" => Some(Self::ParamInterface),
             "record" => Some(Self::Record),
             "inspect" => Some(Self::Inspect),
             "mutate_nodes" => Some(Self::MutateNodes),

@@ -29,6 +29,7 @@ BRIDGE_METHODS: tuple[str, ...] = (
     "capture",
     "sample_data",
     "script_source",
+    "param_interface",
     "record",
     "inspect",
     "mutate_nodes",
@@ -138,3 +139,13 @@ _FLAG_NAMES = frozenset(
         "viewer",
     }
 )
+
+# Interface authoring (param_interface). Bounds on an export payload and on
+# one apply. These are interface SIZES, not behaviour: the caps keep a reply
+# inside the IPC frame and keep a bulk apply from becoming an unbounded writer.
+INTERFACE_MAX_PAGES = 32
+INTERFACE_MAX_PARS_PER_PAGE = 128
+INTERFACE_MAX_MENU_ITEMS = 64
+INTERFACE_MAX_APPLY_STEPS = 256
+INTERFACE_MAX_NAME_CHARS = 64
+INTERFACE_MAX_LABEL_CHARS = 128
