@@ -126,8 +126,10 @@ what is newly *labelled*, and what this release does not claim.
 ### Not claimed
 
 No model token A/B significance, no agent task-acceptance measurement, no
-native Windows or macOS qualification from a Linux host, and **unsigned
-installers**. `docs/MIGRATION.md` states the same list in full, and
+native Windows or macOS qualification from a Linux host, no live TouchDesigner
+handshake (Wine's Execute DAT callbacks do not run on a headless session, so
+the child-side timing is unmeasured), and **unsigned installers**.
+`docs/MIGRATION.md` states the same list in full, and
 `scripts/scorecard_report.py` prints it alongside the four measured cards.
 
 ## Legacy unreleased notes
