@@ -226,10 +226,93 @@ pub const OP_SIMILAR_TYPE: &str = "tdmcp.op.similar_type";
 pub const MUTATE_PRECONDITION_FAILED: &str = "tdmcp.mutate.precondition_failed";
 /// A guarded write was refused: the precondition could not be read at all.
 pub const MUTATE_PRECONDITION_UNREADABLE: &str = "tdmcp.mutate.precondition_unreadable";
+/// `compare_nodes` had no usable baseline, so nothing was compared.
+///
+/// Its own code, never collapsed into a bridge fault: "I have nothing to
+/// compare against" and "the bridge sent nonsense" call for opposite
+/// responses, and a caller who cannot tell them apart will retry a request
+/// that was never going to succeed.
+pub const COMPARE_BASELINE_UNAVAILABLE: &str = "tdmcp.compare.baseline_unavailable";
+/// `compare_nodes` arguments were self-contradictory (empty/repeated paths or fields).
+pub const COMPARE_INVALID: &str = "tdmcp.compare.invalid";
+/// The baseline was taken over a different field set than the one requested.
+pub const COMPARE_PROJECTION_MISMATCH: &str = "tdmcp.compare.projection_mismatch";
+/// The comparison exceeded the node or field bound.
+pub const COMPARE_TOO_LARGE: &str = "tdmcp.compare.too_large";
 /// Mutate step failed with a TD-side exception (catch-all).
 pub const MUTATE_STEP_FAILED: &str = "tdmcp.mutate.step_failed";
 /// Text write (`create`/`set` `text`) targeted a non-DAT operator.
 pub const MUTATE_NOT_DAT: &str = "tdmcp.mutate.not_dat";
+/// `param_interface` received an action it does not implement.
+pub const INTERFACE_UNKNOWN_ACTION: &str = "tdmcp.interface.unknown_action";
+/// `param_interface` definitions were not a non-empty array of parameters.
+pub const INTERFACE_BAD_DEFINITIONS: &str = "tdmcp.interface.bad_definitions";
+/// The apply exceeded the per-call parameter cap.
+pub const INTERFACE_TOO_MANY_STEPS: &str = "tdmcp.interface.too_many_steps";
+/// An interface belongs on a COMP; the target resolved to another family.
+pub const INTERFACE_UNSUPPORTED_FAMILY: &str = "tdmcp.interface.unsupported_family";
+/// The interface could not be read back from the target.
+pub const INTERFACE_EXPORT_FAILED: &str = "tdmcp.interface.export_failed";
+/// `project_snapshot` received an action it does not implement.
+pub const SNAPSHOT_UNKNOWN_ACTION: &str = "tdmcp.snapshot.unknown_action";
+/// An explicit save/load target is required (the default is unnameable).
+pub const SNAPSHOT_TARGET_REQUIRED: &str = "tdmcp.snapshot.target_required";
+/// `overwrite` was neither `fail` nor `replace`.
+pub const SNAPSHOT_BAD_OVERWRITE: &str = "tdmcp.snapshot.bad_overwrite";
+/// The target exists and `overwrite` is `fail`; nothing was written.
+pub const SNAPSHOT_TARGET_EXISTS: &str = "tdmcp.snapshot.target_exists";
+/// The existing file could not be set aside, so the save was not attempted.
+pub const SNAPSHOT_RECOVERY_FAILED: &str = "tdmcp.snapshot.recovery_failed";
+/// TouchDesigner raised while saving.
+pub const SNAPSHOT_SAVE_FAILED: &str = "tdmcp.snapshot.save_failed";
+/// TouchDesigner declined to save.
+pub const SNAPSHOT_NOT_SAVED: &str = "tdmcp.snapshot.not_saved";
+/// The save returned no path, so no artifact identity is available.
+pub const SNAPSHOT_NO_PATH_RETURNED: &str = "tdmcp.snapshot.no_path_returned";
+/// The save reported a path but no file is there — effect unknown, not success.
+pub const SNAPSHOT_NOT_WRITTEN: &str = "tdmcp.snapshot.not_written";
+/// The load target is not on disk; the load was refused before any attempt.
+pub const SNAPSHOT_TARGET_MISSING: &str = "tdmcp.snapshot.target_missing";
+/// The load raised, or returned nothing identifiable.
+pub const SNAPSHOT_LOAD_FAILED: &str = "tdmcp.snapshot.load_failed";
+/// TouchDesigner offers no safe way to replace the open project.
+pub const SNAPSHOT_LOAD_NOT_OFFERED: &str = "tdmcp.snapshot.load_not_offered";
+/// A component save/load needs a COMP; the target resolved to another family.
+pub const SNAPSHOT_UNSUPPORTED_FAMILY: &str = "tdmcp.snapshot.unsupported_family";
+/// The operator has no resolution, channels or samples to read.
+pub const SAMPLE_EMPTY: &str = "tdmcp.sample.empty";
+/// The forced cook raised before any value could be read.
+pub const SAMPLE_COOK_FAILED: &str = "tdmcp.sample.cook_failed";
+/// This build exposes no exact read path for this operator.
+pub const SAMPLE_UNSUPPORTED: &str = "tdmcp.sample.unsupported";
+/// Exact sampling supports TOP, CHOP and SOP only.
+pub const SAMPLE_UNSUPPORTED_FAMILY: &str = "tdmcp.sample.unsupported_family";
+/// The region is malformed or falls outside the image.
+pub const SAMPLE_BAD_REGION: &str = "tdmcp.sample.bad_region";
+/// The region covers more pixels than the per-call cap.
+pub const SAMPLE_REGION_TOO_LARGE: &str = "tdmcp.sample.region_too_large";
+/// More pixels were requested than the per-call cap.
+pub const SAMPLE_TOO_MANY_PIXELS: &str = "tdmcp.sample.too_many_pixels";
+/// More points were requested than the per-call cap.
+pub const SAMPLE_TOO_MANY_POINTS: &str = "tdmcp.sample.too_many_points";
+/// The point index is not a whole number, or is outside the roster.
+pub const SAMPLE_BAD_POINT: &str = "tdmcp.sample.bad_point";
+/// The requested coordinates do not apply to this operator family.
+pub const SAMPLE_WRONG_COORDINATES: &str = "tdmcp.sample.wrong_coordinates";
+/// A channel or point could not be read — the value is unknown, not zero.
+pub const SAMPLE_READ_FAILED: &str = "tdmcp.sample.read_failed";
+/// `script_source` received an action it does not implement.
+pub const SCRIPT_SOURCE_UNKNOWN_ACTION: &str = "tdmcp.script.unknown_action";
+/// `script_source` requires the content-addressed `sourceId`.
+pub const SCRIPT_SOURCE_MISSING_SOURCE_ID: &str = "tdmcp.script.missing_source_id";
+/// No registered source for this ref.
+pub const SCRIPT_SOURCE_UNKNOWN_SOURCE: &str = "tdmcp.script.unknown_source";
+/// A declared dependency could not be resolved.
+pub const SCRIPT_SOURCE_BAD_DEPENDENCY: &str = "tdmcp.script.bad_dependency";
+/// More dependencies were declared than the per-call cap.
+pub const SCRIPT_SOURCE_TOO_MANY_DEPENDENCIES: &str = "tdmcp.script.too_many_dependencies";
+/// The source registry is at its cap.
+pub const SCRIPT_SOURCE_LIMIT: &str = "tdmcp.script.source_limit";
 /// Connector index out of range for connect/disconnect.
 pub const WIRE_BAD_INDEX: &str = "tdmcp.wire.bad_index";
 /// Connector connect/disconnect raised a TD-side error.
@@ -387,6 +470,45 @@ pub const ALL: &[&str] = &[
     OP_SIMILAR_TYPE,
     MUTATE_PRECONDITION_FAILED,
     MUTATE_PRECONDITION_UNREADABLE,
+    COMPARE_BASELINE_UNAVAILABLE,
+    COMPARE_INVALID,
+    COMPARE_PROJECTION_MISMATCH,
+    COMPARE_TOO_LARGE,
+    INTERFACE_UNKNOWN_ACTION,
+    INTERFACE_BAD_DEFINITIONS,
+    INTERFACE_TOO_MANY_STEPS,
+    INTERFACE_UNSUPPORTED_FAMILY,
+    INTERFACE_EXPORT_FAILED,
+    SNAPSHOT_UNKNOWN_ACTION,
+    SNAPSHOT_TARGET_REQUIRED,
+    SNAPSHOT_BAD_OVERWRITE,
+    SNAPSHOT_TARGET_EXISTS,
+    SNAPSHOT_RECOVERY_FAILED,
+    SNAPSHOT_SAVE_FAILED,
+    SNAPSHOT_NOT_SAVED,
+    SNAPSHOT_NO_PATH_RETURNED,
+    SNAPSHOT_NOT_WRITTEN,
+    SNAPSHOT_TARGET_MISSING,
+    SNAPSHOT_LOAD_FAILED,
+    SNAPSHOT_LOAD_NOT_OFFERED,
+    SNAPSHOT_UNSUPPORTED_FAMILY,
+    SAMPLE_EMPTY,
+    SAMPLE_COOK_FAILED,
+    SAMPLE_UNSUPPORTED,
+    SAMPLE_UNSUPPORTED_FAMILY,
+    SAMPLE_BAD_REGION,
+    SAMPLE_REGION_TOO_LARGE,
+    SAMPLE_TOO_MANY_PIXELS,
+    SAMPLE_TOO_MANY_POINTS,
+    SAMPLE_BAD_POINT,
+    SAMPLE_WRONG_COORDINATES,
+    SAMPLE_READ_FAILED,
+    SCRIPT_SOURCE_UNKNOWN_ACTION,
+    SCRIPT_SOURCE_MISSING_SOURCE_ID,
+    SCRIPT_SOURCE_UNKNOWN_SOURCE,
+    SCRIPT_SOURCE_BAD_DEPENDENCY,
+    SCRIPT_SOURCE_TOO_MANY_DEPENDENCIES,
+    SCRIPT_SOURCE_LIMIT,
     MUTATE_STEP_FAILED,
     MUTATE_NOT_DAT,
     WIRE_BAD_INDEX,
@@ -433,8 +555,13 @@ mod tests {
 
     #[test]
     fn catalog_has_no_orphan_codes_beyond_constants() {
-        // Soft check: every catalog entry should eventually have a constant.
-        // Orphans are allowed only if listed here during a transition.
+        // Every catalog entry must have a constant, not merely "eventually".
+        // The transition allowance this test used to carry is now empty: the
+        // codes it covered (interface / snapshot / sample / script-source)
+        // are real codes the bridge emits, and a constant is what lets Rust
+        // name one. Leaving them as orphans meant nothing in Rust could
+        // reference them, which is how they went uncatalogued in the first
+        // place.
         let cat = Catalog::fallback();
         for code in cat.codes() {
             assert!(
@@ -495,6 +622,52 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// M6 §5.7 rule 8, extended to the half of the codebase the original test
+    /// could not see: **the Python bridge emits codes too**, and a code that is
+    /// absent from the catalog is not merely undocumented — `outcomes.rs` looks
+    /// the code up with `catalog.contains(code)` and falls back to
+    /// `tdmcp.bridge.response_invalid` when it misses. A deliberate refusal
+    /// ("no baseline supplied, so nothing was compared") therefore surfaces as
+    /// a malformed-response fault, which tells the caller the opposite of what
+    /// happened and invites a retry that can never succeed.
+    ///
+    /// Found live, not by inspection: `compare_nodes` shipped four codes
+    /// (`baseline_unavailable`, `invalid`, `projection_mismatch`, `too_large`)
+    /// that no Rust constant covered, and every honest refusal was relabelled.
+    #[test]
+    fn every_code_the_bridge_emits_is_in_the_catalog() {
+        let cat = Catalog::fallback();
+        let bridge_dir =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../bridge/tdmcp_bridge");
+        let Ok(entries) = std::fs::read_dir(&bridge_dir) else {
+            // Packaged builds may not carry the bridge sources; skip rather than
+            // assert on a directory that was never going to exist here.
+            return;
+        };
+        let mut offenders = Vec::new();
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("py") {
+                continue;
+            }
+            let Ok(text) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            for code in extract_tdmcp_code_literals(&text) {
+                if !cat.contains(&code) {
+                    offenders.push(format!("{}: {code}", path.display()));
+                }
+            }
+        }
+        offenders.sort();
+        offenders.dedup();
+        assert!(
+            offenders.is_empty(),
+            "bridge code literal(s) not in diagnostics/catalog.yaml — a missing entry \
+             makes outcomes.rs relabel that refusal as tdmcp.bridge.response_invalid: {offenders:#?}"
+        );
     }
 
     /// Every `"tdmcp.foo.bar"`-shaped string literal in `text` (the catalog's

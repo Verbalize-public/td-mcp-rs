@@ -575,6 +575,49 @@ entries:
       - kind: tool
         id: compare_nodes
 
+  - code: tdmcp.compare.baseline_unavailable
+    layer: structure
+    message: "compare_nodes had no usable baseline, so nothing was compared"
+    mitigation:
+      - "This is a refusal, not an empty diff: nothing was compared, so nothing can be reported as unchanged"
+      - "Take a fresh read with capture=true, retain it, and pass it back as `baseline`"
+      - "The baseline must be a whole observation covering every requested path over the same field set"
+    references:
+      - kind: tool
+        id: compare_nodes
+      - kind: tool
+        id: inspect
+
+  - code: tdmcp.compare.invalid
+    layer: args
+    message: "compare_nodes arguments were self-contradictory"
+    mitigation:
+      - "Pass a non-empty `paths` and a non-empty `fields`, with no repeated path"
+      - "A repeated path would be read twice and diffed against itself"
+    references:
+      - kind: tool
+        id: compare_nodes
+
+  - code: tdmcp.compare.projection_mismatch
+    layer: structure
+    message: "The baseline was taken over a different field set than the one requested"
+    mitigation:
+      - "A diff across a different projection would silently omit fields that were never observed"
+      - "Take a new baseline over the fields you intend to compare, or compare the baseline's own field set"
+    references:
+      - kind: tool
+        id: compare_nodes
+
+  - code: tdmcp.compare.too_large
+    layer: args
+    message: "The comparison exceeded the node or field bound"
+    mitigation:
+      - "Compare fewer paths or fields per call and combine the results"
+      - "The bound is on the request, not on the scene; a smaller request is a smaller honest answer"
+    references:
+      - kind: tool
+        id: compare_nodes
+
   - code: tdmcp.mutate.step_failed
     layer: mutate
     message: "Mutate step failed with a TD-side exception"
@@ -1248,3 +1291,364 @@ entries:
     references:
       - kind: tool
         id: palette_index
+
+  # --- codes the bridge emits that the catalog had never carried ---------
+  # These were found by `every_code_the_bridge_emits_is_in_the_catalog`,
+  # which exists because `outcomes.rs` looks a bridge code up with
+  # `catalog.contains(code)` and falls back to `tdmcp.bridge.response_invalid`
+  # when it misses. A deliberate refusal therefore surfaced as a
+  # malformed-response fault, telling the caller the opposite of what
+  # happened and inviting a retry that could never succeed.
+
+  - code: tdmcp.interface.unknown_action
+    layer: args
+    message: "Unknown param_interface action"
+    mitigation:
+      - "Use export or apply"
+      - "Read the action list from the tool schema rather than guessing"
+    references:
+      - kind: tool
+        id: param_interface
+
+  - code: tdmcp.interface.bad_definitions
+    layer: args
+    message: "definitions must be a non-empty array of parameter objects"
+    mitigation:
+      - "Send at least one parameter definition"
+      - "An empty array would apply nothing while reporting success"
+    references:
+      - kind: tool
+        id: param_interface
+
+  - code: tdmcp.interface.too_many_steps
+    layer: args
+    message: "The apply exceeds the per-call parameter cap"
+    mitigation:
+      - "Split the definitions across several apply calls"
+      - "The cap bounds one call, not the interface; nothing is applied when it is exceeded"
+    references:
+      - kind: tool
+        id: param_interface
+
+  - code: tdmcp.interface.unsupported_family
+    layer: structure
+    message: "An interface belongs on a COMP; the target resolves to another family"
+    mitigation:
+      - "Apply the interface to a COMP, or move the target"
+      - "Read the resolved family with inspect before applying"
+    references:
+      - kind: tool
+        id: param_interface
+      - kind: tool
+        id: inspect
+
+  - code: tdmcp.interface.export_failed
+    layer: structure
+    message: "The interface could not be read back from the target"
+    mitigation:
+      - "The custom pages could not be read; nothing was written"
+      - "Inspect the target, then re-export once the node resolves"
+    references:
+      - kind: tool
+        id: param_interface
+      - kind: tool
+        id: inspect
+
+  - code: tdmcp.snapshot.unknown_action
+    layer: args
+    message: "Unknown project_snapshot action"
+    mitigation:
+      - "Use project, component or status"
+    references:
+      - kind: tool
+        id: project_snapshot
+
+  - code: tdmcp.snapshot.target_required
+    layer: args
+    message: "An explicit target is required"
+    mitigation:
+      - "Pass the exact .toe or .tox path you mean"
+      - "The default is an incremented name under project.folder that no receipt could name, so the artifact identity would be unrecordable"
+    references:
+      - kind: tool
+        id: project_snapshot
+
+  - code: tdmcp.snapshot.bad_overwrite
+    layer: args
+    message: "overwrite must be 'fail' or 'replace'"
+    mitigation:
+      - "Pass overwrite='fail' to refuse an existing target, or 'replace' to overwrite deliberately"
+      - "There is no default that overwrites: a typo cannot destroy a file"
+    references:
+      - kind: tool
+        id: project_snapshot
+
+  - code: tdmcp.snapshot.target_exists
+    layer: mutate
+    message: "The target already exists and overwrite is 'fail'"
+    mitigation:
+      - "Nothing was written"
+      - "Pass overwrite='replace' to save over it, or choose a new target"
+    references:
+      - kind: tool
+        id: project_snapshot
+
+  - code: tdmcp.snapshot.recovery_failed
+    layer: mutate
+    message: "The existing file could not be set aside, so the save was not attempted"
+    mitigation:
+      - "Nothing was overwritten and nothing was written"
+      - "Clear the file lock or permission, then re-run deliberately"
+      - "Check the original file is still intact before retrying"
+    references:
+      - kind: tool
+        id: project_snapshot
+
+  - code: tdmcp.snapshot.save_failed
+    layer: structure
+    message: "TouchDesigner raised while saving"
+    mitigation:
+      - "Read the message for the TD exception"
+      - "Whether anything was written is not established; inspect the target before retrying"
+    references:
+      - kind: tool
+        id: project_snapshot
+
+  - code: tdmcp.snapshot.not_saved
+    layer: structure
+    message: "TouchDesigner declined to save"
+    mitigation:
+      - "The save was refused or the file existed and was not replaced"
+      - "Nothing can be claimed about the artifact; inspect the target before retrying"
+    references:
+      - kind: tool
+        id: project_snapshot
+
+  - code: tdmcp.snapshot.no_path_returned
+    layer: structure
+    message: "The component save returned no path, so no artifact identity is available"
+    mitigation:
+      - "Without a path there is no artifact to name, record or retrieve"
+      - "Re-save with an explicit target, or locate the file yourself and record the path"
+    references:
+      - kind: tool
+        id: project_snapshot
+
+  - code: tdmcp.snapshot.not_written
+    layer: structure
+    message: "The save reported a path but no file is there"
+    mitigation:
+      - "The reported success could not be confirmed on disk, so the effect is unknown, not successful"
+      - "Inspect the target before retrying; a blind retry could produce two writes"
+    references:
+      - kind: tool
+        id: project_snapshot
+      - kind: tool
+        id: inspect
+
+  - code: tdmcp.snapshot.target_missing
+    layer: structure
+    message: "The target is not on disk, so there is nothing to load"
+    mitigation:
+      - "The load was refused before any load was attempted"
+      - "Check the path; a host path loads a component, not a project"
+    references:
+      - kind: tool
+        id: project_snapshot
+
+  - code: tdmcp.snapshot.load_failed
+    layer: structure
+    message: "The load raised, or returned nothing identifiable"
+    mitigation:
+      - "Read the message for the TD exception"
+      - "No loaded operator could be identified, so nothing can be claimed about the current COMP"
+    references:
+      - kind: tool
+        id: project_snapshot
+      - kind: tool
+        id: inspect
+
+  - code: tdmcp.snapshot.load_not_offered
+    layer: structure
+    message: "TouchDesigner offers no safe way to replace the open project"
+    mitigation:
+      - "project.load returns nothing to observe and can leave the project unusable"
+      - "Open the .toe in a separate instance rather than replacing the running one"
+    references:
+      - kind: tool
+        id: project_snapshot
+
+  - code: tdmcp.snapshot.unsupported_family
+    layer: structure
+    message: "A component snapshot needs a COMP; the target resolves to another family"
+    mitigation:
+      - "Save or load a COMP, or choose a different target"
+      - "Read the resolved family with inspect first"
+    references:
+      - kind: tool
+        id: project_snapshot
+      - kind: tool
+        id: inspect
+
+  - code: tdmcp.sample.empty
+    layer: perception
+    message: "The operator has no resolution, channels or samples to read"
+    mitigation:
+      - "A zero-sized result is a different answer from a failed read"
+      - "Check the operator's resolution or channel count before sampling"
+    references:
+      - kind: tool
+        id: sample_data
+
+  - code: tdmcp.sample.cook_failed
+    layer: perception
+    message: "The forced cook raised before any value could be read"
+    mitigation:
+      - "Read the message for the TD exception; no value was read"
+      - "Fix the upstream error, then sample again"
+    references:
+      - kind: tool
+        id: sample_data
+
+  - code: tdmcp.sample.unsupported
+    layer: perception
+    message: "This build exposes no exact read path for this operator"
+    mitigation:
+      - "saveByteArray would be 8-bit and lossy, so no substitute is offered"
+      - "Use a capture to see pixels rather than exact numeric values"
+    references:
+      - kind: tool
+        id: sample_data
+      - kind: tool
+        id: capture
+
+  - code: tdmcp.sample.unsupported_family
+    layer: perception
+    message: "Exact sampling supports TOP, CHOP and SOP only"
+    mitigation:
+      - "Resolve the family with inspect; the requested operator is another family"
+      - "A family that supports no exact read is refused rather than approximated"
+    references:
+      - kind: tool
+        id: sample_data
+      - kind: tool
+        id: inspect
+
+  - code: tdmcp.sample.bad_region
+    layer: args
+    message: "The region is malformed or falls outside the image"
+    mitigation:
+      - "region must be {x, y, x1, y1} with integer bounds inside the resolution"
+    references:
+      - kind: tool
+        id: sample_data
+
+  - code: tdmcp.sample.region_too_large
+    layer: args
+    message: "The region covers more pixels than the per-call cap"
+    mitigation:
+      - "Sample a smaller region, or several calls, and combine the results"
+    references:
+      - kind: tool
+        id: sample_data
+
+  - code: tdmcp.sample.too_many_pixels
+    layer: args
+    message: "More pixels were requested than the per-call cap"
+    mitigation:
+      - "Request fewer pixels per call"
+      - "The cap bounds one call, not the operator"
+    references:
+      - kind: tool
+        id: sample_data
+
+  - code: tdmcp.sample.too_many_points
+    layer: args
+    message: "More points were requested than the per-call cap"
+    mitigation:
+      - "Request fewer points per call"
+    references:
+      - kind: tool
+        id: sample_data
+
+  - code: tdmcp.sample.bad_point
+    layer: args
+    message: "The point index is not a whole number, or is outside the roster"
+    mitigation:
+      - "Point indices are zero-based and must address a real point"
+    references:
+      - kind: tool
+        id: sample_data
+
+  - code: tdmcp.sample.wrong_coordinates
+    layer: args
+    message: "The requested coordinates do not apply to this operator family"
+    mitigation:
+      - "A SOP has no image pixels; use point or points for a point roster"
+    references:
+      - kind: tool
+        id: sample_data
+
+  - code: tdmcp.sample.read_failed
+    layer: perception
+    message: "A channel or point could not be read"
+    mitigation:
+      - "The value is unknown, not zero; no value is reported for the entry that failed"
+    references:
+      - kind: tool
+        id: sample_data
+
+  - code: tdmcp.script.unknown_action
+    layer: args
+    message: "Unknown script_source action"
+    mitigation:
+      - "Use register, describe, list, delete, run or check"
+    references:
+      - kind: tool
+        id: script_source
+
+  - code: tdmcp.script.missing_source_id
+    layer: args
+    message: "sourceId is required"
+    mitigation:
+      - "It is the content address returned by register; a name is not a ref"
+    references:
+      - kind: tool
+        id: script_source
+
+  - code: tdmcp.script.unknown_source
+    layer: structure
+    message: "No registered source for this ref"
+    mitigation:
+      - "A ref is a content address, so this source was never registered here or its bytes differ"
+      - "Re-register the exact bytes; a ref cannot be reconstructed from a name"
+    references:
+      - kind: tool
+        id: script_source
+
+  - code: tdmcp.script.bad_dependency
+    layer: args
+    message: "A dependency could not be resolved"
+    mitigation:
+      - "Name each dependency by kind and target so its status can be reported"
+    references:
+      - kind: tool
+        id: script_source
+
+  - code: tdmcp.script.too_many_dependencies
+    layer: args
+    message: "More dependencies were declared than the per-call cap"
+    mitigation:
+      - "Declare fewer dependencies; the cap bounds one call"
+    references:
+      - kind: tool
+        id: script_source
+
+  - code: tdmcp.script.source_limit
+    layer: args
+    message: "The source registry is at its cap"
+    mitigation:
+      - "Delete sources you no longer need, then register again"
+    references:
+      - kind: tool
+        id: script_source

@@ -213,6 +213,13 @@ mod tests {
             "project_install_bridge",
             "palette_index",
             "palette_probe",
+            // These four emit bridge codes of their own (found by
+            // `every_code_the_bridge_emits_is_in_the_catalog`). Their absence
+            // here is why the catalog could not reference a code they emit.
+            "sample_data",
+            "script_source",
+            "param_interface",
+            "project_snapshot",
         ];
         for code in cat.codes() {
             let entry = cat.get(code).expect("code");
