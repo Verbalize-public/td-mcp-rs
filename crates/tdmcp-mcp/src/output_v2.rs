@@ -454,6 +454,17 @@ pub fn wrap_v2(
         bytes,
     };
 
+    // Feed the process-wide tally. The per-response block above is what a single
+    // caller sees; this is what makes the aggregate answerable, and it is
+    // recorded in serialized bytes only — see `crate::cost`.
+    crate::cost::global_ledger().record(crate::cost::Observation {
+        requested_compact: requested == Presentation::Compact,
+        applied_compact: applied == Presentation::Compact,
+        served_bytes: presentation.bytes.compact.or(presentation.bytes.full),
+        full_bytes: presentation.bytes.full,
+        full_reason,
+    });
+
     let mut out = Map::new();
     out.insert("contract".to_owned(), Value::String("v2".to_owned()));
     out.insert("identity".to_owned(), to_value(&identity));

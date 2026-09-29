@@ -104,6 +104,7 @@ pub fn build_admin_router(
         .route("/admin/logs/ingest", post(admin_logs_ingest))
         .route("/admin/operations", get(admin_operations))
         .route("/admin/operations/resolve", post(admin_operations_resolve))
+        .route("/admin/output-cost", get(admin_output_cost))
         .with_state(state)
         .merge(crate::federation::federation_router(federation))
 }
@@ -614,6 +615,32 @@ async fn admin_operations_resolve(
             ))
         }
     }
+}
+
+/// What the output contract has cost this daemon, in serialized bytes.
+///
+/// Deliberately daemon-wide rather than per client: it measures the shared
+/// ledger, so two callers would each see the total and neither would be able to
+/// subtract the other. Per-client attribution needs per-client ledgers, which
+/// would multiply the bookkeeping on the hot path for a figure nobody has asked
+/// for yet.
+///
+/// Every figure is serialized bytes. The response says so in a `unit` field, and
+/// no field here may be read as a token count: tokens are a property of a
+/// tokenizer and a document mix, and this build cannot measure them.
+async fn admin_output_cost(State(_state): State<AdminState>) -> Json<Value> {
+    let report = tdmcp_mcp::cost::global_report();
+    let avoided = report.bytes_avoided();
+    let fraction = report.avoided_fraction();
+    Json(json!({
+        "ok": true,
+        "report": report,
+        "bytesAvoided": avoided,
+        // `null` rather than 0 when nothing was counted: "no measurement" and
+        // "measured, no saving" are different answers.
+        "avoidedFraction": fraction,
+        "note": "serialized bytes, not tokens; no token saving may be claimed from this figure",
+    }))
 }
 
 /// The client's install-scoped identity claim, if it sent one.

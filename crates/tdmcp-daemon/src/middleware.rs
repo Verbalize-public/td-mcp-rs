@@ -78,6 +78,10 @@ pub fn requires_psk_auth(path: &str) -> bool {
         // same rule as the rest of /admin rather than being added later.
         || path == "/admin/operations"
         || path.starts_with("/admin/operations/")
+        // The aggregate is a daemon-wide figure, so it is the least sensitive
+        // surface here — but it still describes what clients pulled over the
+        // wire, so it gets the same rule as the rest of /admin.
+        || path == "/admin/output-cost"
 }
 
 fn unauthorized_response() -> Response {
@@ -188,6 +192,8 @@ mod tests {
         assert!(requires_psk_auth("/admin/logs/ingest"));
         assert!(requires_psk_auth("/admin/operations"));
         assert!(requires_psk_auth("/admin/operations/resolve"));
+        assert!(requires_psk_auth("/admin/output-cost"));
+        assert!(!requires_psk_auth("/admin/output-cost/other"));
         // An unrecognised subpath is still covered: the prefix rule is what
         // makes a route added later authenticated by default rather than
         // accidentally public.

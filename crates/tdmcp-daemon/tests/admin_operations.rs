@@ -334,3 +334,123 @@ async fn the_row_limit_is_clamped_rather_than_trusted() {
     assert_eq!(body["count"], json!(5));
     assert!(body["count"].as_u64().unwrap() <= 64);
 }
+
+#[tokio::test]
+async fn the_cost_report_is_measured_bytes_and_never_a_token_claim() {
+    // The ledger is process-wide, so this test only asserts the shape and the
+    // unit, not a particular total. The accumulation behaviour is pinned by the
+    // `cost::` unit tests against an isolated ledger.
+    let (router, _journal) = admin_router(Some(journal()));
+
+    let (status, body) = get(router, Some("ide-1"), "/admin/output-cost").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["ok"], json!(true));
+    let report = &body["report"];
+    assert_eq!(
+        report["unit"],
+        json!("serialized_bytes"),
+        "a byte figure must never be readable as a token count"
+    );
+    // The ledger is process-wide, so a sibling test in this binary may already
+    // have fed it. Assert the shape, not a particular total: the
+    // "no measurement is not a measured zero" property is pinned by
+    // `cost::tests::an_empty_ledger_reports_no_measurement_rather_than_no_saving`
+    // against an isolated ledger, which is the only place it can be stated
+    // without depending on test order.
+    // Matched by reference: indexing a `Value` yields an owned `Value`, and the
+    // panic arm needs the same binding afterwards.
+    match &body["avoidedFraction"] {
+        Value::Null => {}
+        Value::Number(n) => {
+            let fraction = n.as_f64().expect("a finite fraction");
+            assert!(
+                (0.0..=1.0).contains(&fraction),
+                "avoided fraction must be a proportion, got {fraction}"
+            );
+        }
+        other => panic!("avoidedFraction must be null or a number, got {other}"),
+    }
+    assert!(
+        body["bytesAvoided"].as_u64().is_some(),
+        "bytes avoided is numeric"
+    );
+    let rendered = body.to_string();
+    assert!(!rendered.contains("tokenSav"), "{rendered}");
+    assert!(
+        rendered.contains("not tokens"),
+        "the caveat travels with the data"
+    );
+}
+
+#[tokio::test]
+async fn real_dispatches_are_measured_into_the_shared_ledger() {
+    // Proves the wiring rather than the arithmetic: a v2-wrapped inspect must
+    // land in the ledger the route reads.
+    let before = tdmcp_mcp::cost::global_report().calls;
+
+    let bridge: Arc<dyn tdmcp_mcp::BridgeRpc> = Arc::new(FakeBridgeRpc::responding(json!({
+        "ok": true,
+        "nodes": []
+    })));
+    let state = AppState::new(
+        registry_with_pid(),
+        Catalog::fallback(),
+        bridge,
+        test_resource_provider().expect("resource provider"),
+    );
+    let router = tdmcp_mcp::build_mcp_router(state);
+    let request = axum::http::Request::builder()
+        .method("POST")
+        .uri("/mcp/tools/call")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            json!({
+                "name": "inspect",
+                "arguments": {
+                    "pid": 34,
+                    "paths": ["/project1"],
+                    "output": {"contract": "v2", "view": "compact"}
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let response = router.oneshot(request).await.expect("router responds");
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body reads");
+    let body: Value = serde_json::from_slice(&bytes).expect("json body");
+    let data = &body["data"];
+    assert_eq!(
+        data["contract"],
+        json!("v2"),
+        "the v2 envelope must be what was measured"
+    );
+    assert_eq!(data["presentation"]["requested"], json!("compact"));
+
+    let after = tdmcp_mcp::cost::global_report();
+    assert!(
+        after.calls > before,
+        "a v2 response must be counted, got {} calls",
+        after.calls
+    );
+    assert_eq!(after.unit, "serialized_bytes");
+}
+
+fn registry_with_pid() -> tdmcp_core::PidRegistry {
+    let mut registry = tdmcp_core::PidRegistry::new();
+    registry.handshake(
+        34,
+        tdmcp_core::ProcessAttrs {
+            title: Some("test".into()),
+            fingerprint: tdmcp_core::ProcessFingerprint {
+                title: Some("test".into()),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        Some("1".into()),
+    );
+    registry
+}
