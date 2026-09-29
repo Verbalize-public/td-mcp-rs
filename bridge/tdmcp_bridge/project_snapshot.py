@@ -200,6 +200,115 @@ def _component_unsaved(node: Any, path: str) -> dict[str, Any]:
     }
 
 
+def _stash_path(target: str) -> str:
+    """A sibling path to keep the displaced file at.
+
+    A SIBLING deliberately: the restore is then a move within one directory,
+    so it cannot half-succeed across a filesystem boundary, and the file stays
+    somewhere the caller can find and delete.
+    """
+    match = re.match(r"^(?P<stem>.+?)(?P<ext>\.[^.]*)$", target)
+    if not match:
+        return f"{target}.replaced"
+    return f"{match.group('stem')}.replaced{match.group('ext')}"
+
+
+def _stash(target: str) -> dict[str, Any]:
+    """Copy the file that is about to be replaced, aside.
+
+    Only ever called when the destination exists and the caller asked to
+    replace it. Without this, a save that fails partway leaves the caller with
+    a half-written file and no copy of what was there -- and the receipt's
+    `before` digest would describe bytes that no longer exist anywhere.
+
+    The copy is verified against the source digest before the save is
+    attempted, so a bad copy is discovered while the original is still
+    intact rather than after it has been clobbered.
+    """
+    import shutil
+
+    source = _stat_of(target)
+    if not source["exists"]:
+        return {"stashed": False, "reason": "there was no file to displace"}
+    stash = _stash_path(target)
+    try:
+        shutil.copyfile(target, stash)
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "stashed": False,
+            "reason": f"the existing file could not be set aside: {type(exc).__name__}: {exc}"[:200],
+        }
+    copied = _stat_of(stash)
+    if copied.get("sha256") != source.get("sha256"):
+        # The copy is not faithful, so the save must not proceed: replacing now
+        # would destroy the only good copy.
+        return {
+            "stashed": False,
+            "reason": "the set-aside copy does not match the original, so the save was not attempted",
+            "stash": stash,
+        }
+    return {
+        "stashed": True,
+        "stash": stash,
+        "sha256": source["sha256"],
+        "bytes": source["bytes"],
+    }
+
+
+def _restore(stash: str, target: str, expected_sha256: str) -> dict[str, Any]:
+    """Put a displaced file back after a failed save, and prove it is the right one.
+
+    The target is passed in rather than recovered from the stash name: deriving
+    it by string surgery is exactly the kind of clever step that silently
+    restores to the wrong path.
+
+    The restored file is then digested and compared with the digest the stash
+    recorded. A restore that reports success without that check would be
+    reporting a file nobody can verify, which is the same claim this whole
+    receipt exists to avoid.
+    """
+    import shutil
+
+    held = _stat_of(stash)
+    if not held["exists"]:
+        return {"restored": False, "reason": "the set-aside copy is no longer there"}
+    try:
+        shutil.copyfile(stash, target)
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "restored": False,
+            "reason": f"restore failed: {type(exc).__name__}: {exc}"[:200],
+        }
+    after = _stat_of(target)
+    if after.get("sha256") != expected_sha256:
+        return {
+            "restored": False,
+            "reason": (
+                "the restored file does not match the digest that was set "
+                "aside, so it is not the file that was displaced"
+            ),
+            "restoredSha256": after.get("sha256"),
+            "expectedSha256": expected_sha256,
+        }
+    return {"restored": True, "restoredSha256": after["sha256"]}
+
+
+def _recover(recovery: dict[str, Any], target: str) -> dict[str, Any]:
+    """Put the displaced file back when a save did not land.
+
+    Used for the `unknown` outcomes, where the file may be absent or
+    half-written and "unchanged from what the caller had" is the only state
+    anybody can verify. A save that raised uses the same path directly, since
+    it has the exception to explain itself.
+    """
+    if not recovery.get("stashed"):
+        return recovery
+    recovery["restore"] = _restore(
+        str(recovery["stash"]), target, str(recovery["sha256"])
+    )
+    return recovery
+
+
 def _snapshot_component(node: Any, path: str, params: dict[str, Any]) -> dict[str, Any]:
     """Save one COMPONENT, and report the file TD actually wrote."""
     target = _text(params.get("target") or params.get("targetPath"))
@@ -231,13 +340,42 @@ def _snapshot_component(node: Any, path: str, params: dict[str, Any]) -> dict[st
             existing=before,
         )
 
-    # The previous content is kept so a failed save can be reported against
-    # something the caller can check, and so a successful overwrite is legible.
+    # Overwrite recovery. Without this, a save that fails partway leaves the
+    # caller with a half-written file and no copy of what was there -- and the
+    # receipt's `before` digest would describe bytes that no longer exist
+    # anywhere, which is a receipt nobody can check.
+    recovery: dict[str, Any] = {"attempted": False}
+    if overwrite == "replace" and before["exists"]:
+        recovery = _stash(target)
+        if not recovery.get("stashed"):
+            # Refuse rather than replace: proceeding would destroy the only
+            # good copy of a file the caller wanted replaced but could not
+            # safely back up.
+            return {
+                "ok": False,
+                "code": "tdmcp.snapshot.recovery_failed",
+                "message": (
+                    "the existing file could not be set aside, so the save was "
+                    "not attempted; replacing it now could destroy the only copy"
+                ),
+                "outcome": "declined",
+                "path": path,
+                "target": target,
+                "before": before,
+                "recovery": recovery,
+                "unsaved": _component_unsaved(node, path),
+            }
+        recovery["attempted"] = True
+
     saved_to: str | None = None
     try:
         returned = node.save(target)
     except Exception as exc:  # noqa: BLE001
         after = _stat_of(target)
+        if recovery.get("stashed"):
+            recovery["restore"] = _restore(
+                str(recovery["stash"]), target, str(recovery["sha256"])
+            )
         return {
             "ok": False,
             "code": "tdmcp.snapshot.save_failed",
@@ -247,6 +385,7 @@ def _snapshot_component(node: Any, path: str, params: dict[str, Any]) -> dict[st
             "target": target,
             "before": before,
             "after": after,
+            "recovery": recovery,
             "unsaved": _component_unsaved(node, path),
             "explanation": (
                 "the save raised; whether anything was written is reported as "
@@ -265,6 +404,7 @@ def _snapshot_component(node: Any, path: str, params: dict[str, Any]) -> dict[st
             "path": path,
             "target": target,
             "before": before,
+            "recovery": _recover(recovery, target),
             "unsaved": _component_unsaved(node, path),
         }
 
@@ -281,6 +421,7 @@ def _snapshot_component(node: Any, path: str, params: dict[str, Any]) -> dict[st
             "target": target,
             "written": saved_to,
             "before": before,
+            "recovery": _recover(recovery, target),
             "unsaved": _component_unsaved(node, path),
         }
 
@@ -294,6 +435,7 @@ def _snapshot_component(node: Any, path: str, params: dict[str, Any]) -> dict[st
         "artifact": after,
         "before": before,
         "overwrote": bool(before["exists"] and saved_to == target),
+        "recovery": recovery,
         "destination": _requested_vs_written(target, saved_to),
         "unsaved": _component_unsaved(node, path),
         "explanation": (

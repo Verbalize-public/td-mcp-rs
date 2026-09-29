@@ -195,6 +195,102 @@ class ComponentSnapshotTests(TempDirCase):
         self.assertEqual(out["code"], "tdmcp.snapshot.not_written")
 
 
+class OverwriteRecoveryTests(TempDirCase):
+    """Replacing a file must not destroy the only copy of what was there.
+
+    Without a set-aside, a save that fails partway leaves a half-written
+    destination and no copy of the original -- and the receipt's `before`
+    digest would describe bytes that no longer exist anywhere.
+    """
+
+    def _node(self, *, raise_on_save: Exception | None = None, write: str = "tox-bytes"):
+        def save(target: str, **_kwargs: Any) -> str:
+            if raise_on_save is not None:
+                # A save that fails PARTWAY: clobber the destination, then
+                # raise. This is the case recovery exists for.
+                with open(target, "wb") as handle:
+                    handle.write(b"half-written")
+                raise raise_on_save
+            with open(target, "wb") as handle:
+                handle.write(write.encode())
+            return target
+
+        return SimpleNamespace(family="COMP", path="/p", valid=True, save=save)
+
+    def test_a_replace_keeps_a_verified_copy_of_the_displaced_file(self) -> None:
+        self.write(self.target(), b"original")
+        out = snap._snapshot_component(
+            self._node(), "/p", {"target": self.target(), "overwrite": "replace"}
+        )
+        self.assertTrue(out["ok"])
+        recovery = out["recovery"]
+        self.assertTrue(recovery["stashed"])
+        self.assertTrue(recovery["attempted"])
+        # The stash is a SIBLING, so the restore is a move within one directory.
+        self.assertEqual(
+            recovery["stash"], self.target().replace(".tox", ".replaced.tox")
+        )
+        with open(recovery["stash"], "rb") as handle:
+            self.assertEqual(handle.read(), b"original", "the original survives")
+
+    def test_a_successful_replace_does_not_delete_the_stash(self) -> None:
+        # A caller who replaced a file is entitled to the copy they displaced.
+        self.write(self.target(), b"original")
+        out = snap._snapshot_component(
+            self._node(), "/p", {"target": self.target(), "overwrite": "replace"}
+        )
+        self.assertTrue(out["ok"])
+        self.assertTrue(snap._stat_of(out["recovery"]["stash"])["exists"])
+
+    def test_a_save_that_raises_partway_restores_the_original(self) -> None:
+        self.write(self.target(), b"original")
+        out = snap._snapshot_component(
+            self._node(raise_on_save=RuntimeError("disk full")),
+            "/p",
+            {"target": self.target(), "overwrite": "replace"},
+        )
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["outcome"], "failed")
+        # The destination holds the ORIGINAL bytes again, not the half-written
+        # ones the failed save left behind.
+        with open(self.target(), "rb") as handle:
+            self.assertEqual(handle.read(), b"original")
+        self.assertTrue(out["recovery"]["restore"]["restored"])
+
+    def test_the_restore_is_verified_against_the_digest_that_was_set_aside(self) -> None:
+        # A restore that reports success without checking would be reporting a
+        # file nobody can verify.
+        self.write(self.target(), b"original")
+        stash = snap._stash(self.target())
+        self.assertTrue(stash["stashed"])
+        # A wrong expected digest must be refused, not accepted.
+        bad = snap._restore(stash["stash"], self.target(), "f" * 64)
+        self.assertFalse(bad["restored"])
+        self.assertIn("does not match", bad["reason"])
+
+    def test_a_recovery_that_refuses_stops_the_save_before_it_destroys_anything(self) -> None:
+        # Proceeding without a good copy would destroy the only one.
+        self.write(self.target(), b"original")
+        node = self._node()
+        with mock.patch.object(snap, "_stash", return_value={"stashed": False, "reason": "no room"}):
+            out = snap._snapshot_component(
+                node, "/p", {"target": self.target(), "overwrite": "replace"}
+            )
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["outcome"], "declined")
+        self.assertEqual(out["code"], "tdmcp.snapshot.recovery_failed")
+        # The original is untouched, and no save was attempted.
+        with open(self.target(), "rb") as handle:
+            self.assertEqual(handle.read(), b"original")
+
+    def test_a_first_save_never_stashes_anything(self) -> None:
+        # Nothing is displaced on a first write, so there is nothing to keep.
+        out = snap._snapshot_component(self._node(), "/p", {"target": self.target()})
+        self.assertTrue(out["ok"])
+        self.assertFalse(out["recovery"].get("stashed", False))
+        self.assertFalse(out["overwrote"])
+
+
 class UnsavedStateTests(unittest.TestCase):
     def test_project_modified_state_is_reported_as_paths_not_a_count_alone(self) -> None:
         # MEASURED: `project.modified` is a PATH LIST, not a flag.
