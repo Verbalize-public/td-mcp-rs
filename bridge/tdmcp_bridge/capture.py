@@ -1,6 +1,7 @@
 """Perception capture (TOP / CHOP / shared OP Viewer)."""
 from __future__ import annotations
 
+import traceback
 from typing import Any
 
 from . import state as _state
@@ -178,11 +179,47 @@ def _capture_chop_data(node: Any, path: str) -> dict[str, Any]:
     return out
 
 
+def _artifact_block(
+    *,
+    source_width: int,
+    source_height: int,
+    delivered_width: int,
+    delivered_height: int,
+    encoded_bytes: int,
+    transformed: bool,
+) -> dict[str, Any]:
+    """Identity + transformation record for one encoded capture.
+
+    C26: an exact pixel/numeric task must not be handed an UNLABELLED lossy
+    preview. Before this block existed the response carried only ``maxSize``
+    -- what was *requested* -- so a caller receiving a 512px downscale of a
+    4K operator had no way to tell the pixels from the original, and no way
+    to know that ``maxSize: null`` meant something different from
+    ``maxSize: 512``.
+
+    The distinction made explicit: a DOWNSCALE is a resample (it keeps every
+    pixel position and changes the sampling rate), which is not the same
+    claim as "this is the operator's output". ``transformation: none`` says
+    the encode came from the operator at its own resolution; ``downscale``
+    says it came through a resolutionTOP. The flag is DERIVED from the two
+    dimension pairs rather than from whether a temporary node was built, so
+    it cannot silently disagree with the numbers printed beside it.
+    """
+    return {
+        "source": {"width": source_width, "height": source_height},
+        "delivered": {"width": delivered_width, "height": delivered_height},
+        "encodedBytes": encoded_bytes,
+        "transformed": bool(transformed),
+        "transformation": "downscale" if transformed else "none",
+    }
+
+
 def _capture_top_image(
     td_mod: Any, target: Any, path: str, max_size: Any
 ) -> dict[str, Any]:
     """TOP → PNG (+ black/uniform soft-fail). Temps always destroyed."""
     import base64
+    import hashlib
 
     if not hasattr(target, "saveByteArray"):
         return {
@@ -220,9 +257,17 @@ def _capture_top_image(
 
     tmp_top = None
     source = target
+    # The dimensions of the operator as asked about, and the dimensions the
+    # caller will actually receive. Read BEFORE any temporary node is built,
+    # because a resolutionTOP reports its OWN resolution -- asking `source`
+    # after the swap would report the downscale as the source.
+    source_width = int(getattr(target, "width", 0) or 0)
+    source_height = int(getattr(target, "height", 0) or 0)
     try:
         if max_size is not None:
             source, tmp_top = _maybe_downscale_top(td_mod, target, int(max_size))
+        delivered_width = int(getattr(source, "width", 0) or 0)
+        delivered_height = int(getattr(source, "height", 0) or 0)
         data = source.saveByteArray(".png")
         raw = bytes(data) if data is not None else b""
         kind, mean_rgb = _classify_frame(source, raw)
@@ -234,6 +279,23 @@ def _capture_top_image(
         elif kind == "uniform":
             code = "tdmcp.perception.uniform_frame"
             message = _perception_frame_message("uniform", mean_rgb)
+        # Both dimension pairs are known only for positive, non-zero values; a
+        # test double (or an op that refuses to report) must not be reported
+        # as a 0x0 native image, which would read as "the operator has no
+        # resolution" rather than "this build did not say".
+        known = all(v > 0 for v in (source_width, source_height, delivered_width, delivered_height))
+        artifact = _artifact_block(
+            source_width=source_width,
+            source_height=source_height,
+            delivered_width=delivered_width,
+            delivered_height=delivered_height,
+            encoded_bytes=len(raw),
+            transformed=known
+            and (delivered_width, delivered_height) != (source_width, source_height),
+        )
+        if not known:
+            # An honest "did not say", distinct from a 0x0 observation.
+            artifact["dimensions"] = "unavailable"
         return {
             # A solid frame can be intentional (constant colors, masks,
             # fades). Report the observation without failing a valid capture.
@@ -246,6 +308,7 @@ def _capture_top_image(
             "mimeType": "image/png",
             "imageBase64": base64.b64encode(raw).decode("ascii") if raw else None,
             "maxSize": max_size,
+            "artifact": artifact,
         }
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": str(exc), "traceback": traceback.format_exc()}
@@ -352,6 +415,23 @@ def _capture_via_shared_viewer(
     result["mode"] = mode
     if family is not None:
         result["family"] = family
+    # The pixels were produced by rasterizing the source THROUGH the shared
+    # OP Viewer, not by encoding the operator's own buffer. `outputresolution`
+    # is "useinput" so the dimensions track the source, but the ROUTE is a
+    # fact a caller needs: a preview of a COMP/POP is the viewer's rendering
+    # of it, and an exact pixel task must be able to see that. Recorded
+    # alongside the dimensions so the two cannot be read independently.
+    if isinstance(result.get("artifact"), dict):
+        result["artifact"]["captureRoute"] = "shared_op_viewer"
+        if result["artifact"].get("transformation") == "none":
+            # The dimensions are unchanged, but a rasterization is still not
+            # the operator's own buffer. `transformed` stays False because
+            # that flag is derived from dimensions and MUST keep agreeing
+            # with them; the route carries the rest.
+            result["artifact"]["note"] = (
+                "pixels rasterized through the bridge's shared OP Viewer at "
+                "the source's resolution; not a read of the operator's buffer"
+            )
     if result.get("ok") is False and "error" in result and "code" not in result:
         return {
             "ok": False,
@@ -434,6 +514,11 @@ def handle_capture(params: dict[str, Any]) -> dict[str, Any]:
                 "mode": "top",
                 "family": fam,
             }
+        # The route is stated, not inferred from its absence: a caller that
+        # needs exact pixels has to be able to tell a direct buffer encode
+        # from a rasterization without knowing which mode it asked for.
+        if isinstance(result.get("artifact"), dict):
+            result["artifact"]["captureRoute"] = "direct_top"
         return result
 
     # Unknown mode string (should not happen for schema-validated callers).

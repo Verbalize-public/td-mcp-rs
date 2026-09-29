@@ -254,7 +254,7 @@ Structured success is **flat tool fields** with a single outer `ok` (bridge may 
 | `inspect`        | `{ ok: true, nodes: [{ ok, path, …node fields or error }], pathsTruncated?, truncation? }`                                                                                                                                                                                                                                         |
 | `api_help`       | `{ ok: true, results: [{ ok, kind, …card or error }], queriesTruncated?, truncation? }` — structured API cards / names index (no `helpText` / wiki body; parameter names via `inspect` include params)                                                                                                                              |
 | `editor_context` | `{ ok: true, panes: [{ ok, id, name, type, focused, ownerPath, selection? }], panesTruncated?, truncation? }` — `selection` omitted when empty; per-pane soft errors inline                                                                                                                                                       |
-| `capture`        | Image modes: `{ ok: true, path, bytes, mimeType, imageBase64?, maxSize?, mode?, family? }` + MCP image content when PNG present (`imageBase64` stripped from structured after promotion). `chop_data`: `{ ok: true, path, mode, family, numChans, numSamples, rate?, channels:[{name, samples}], truncation? }` (structured only; no image) |
+| `capture`        | Image modes: `{ ok: true, path, bytes, mimeType, imageBase64?, maxSize?, artifact?, mode?, family? }` + MCP image content when PNG present (`imageBase64` stripped from structured after promotion). `chop_data`: `{ ok: true, path, mode, family, numChans, numSamples, rate?, channels:[{name, samples}], truncation? }` (structured only; no image) |
 | `fleet`          | tool-specific fleet object (no shared shell)                                                                                                                                                                                                                                                                                     |
 | `describe_tools` | tool-specific catalog object (no shared shell)                                                                                                                                                                                                                                                                                   |
 | `td_installs` | `{ ok: true, installs: [{ installId, versionLabel, rootPath, exePath, tools: { toeexpand, toecollapse, python }, complete, default? }] }` |
@@ -586,6 +586,47 @@ include a `frameClassification` observation and code/message for the caller to
 compare against visual intent; image variance alone is not a failure.
 
 Capture does **not** force-cook. TD cooks on read / `saveByteArray`; shared-viewer modes retarget `./capture_viewer` then encode. Optional `maxSize` uses a temp `resolutionTOP` (always destroyed). If a TOP should have content but capture is black, ensure it is cooking (see `black_frame` mitigation).
+
+**What you were given, and what happened to get it.** `maxSize` is what you *asked*
+for. It is not what you *received*: a 4096×2048 operator captured with the
+default `maxSize: 512` comes back as 512×256 pixels, and before the `artifact`
+block existed that was indistinguishable from a native 512px operator. Every
+image mode therefore reports:
+
+```json
+"artifact": {
+  "source":    { "width": 4096, "height": 2048 },
+  "delivered": { "width": 512,  "height": 256 },
+  "encodedBytes": 12234,
+  "transformed": true,
+  "transformation": "downscale",
+  "captureRoute": "direct_top"
+}
+```
+
+- `transformed` is **derived from the two dimension pairs**, never from whether
+  a temporary node was built, so it cannot disagree with the numbers beside it.
+  Requesting `maxSize` equal to the source's longest side is a no-op and
+  correctly reports `false`.
+- `transformation` is `downscale` or `none`. There is no third case: a
+  downscale is a resample that keeps every pixel position and changes the
+  sampling rate, which is not the same claim as "this is the operator's
+  output".
+- `captureRoute` is `direct_top` (the operator's own buffer) or
+  `shared_op_viewer` (rasterized through the bridge's OP Viewer at the source's
+  resolution). A `shared_op_viewer` capture at `transformation: none` also
+  carries a `note`: the dimensions are unchanged, but the pixels are a
+  rasterization rather than a read of the operator's buffer.
+- If a build does not report dimensions, `dimensions` is `"unavailable"`. It is
+  **not** a `0×0` block — zero would read as "this operator has no
+  resolution" rather than "this build did not say", and `transformed` would
+  compare two zeros and report `none`.
+- `encodedBytes` is the PNG's size, not its base64 size. Base64 inflates by 4/3
+  and would describe bytes the caller does not hold.
+
+An exact pixel or numeric task must read this block before using the image. For
+lossless numbers use `sample_data`; for pixels that must match the operator
+exactly, re-capture with `maxSize: null` (only honored below the 1536px cap).
 
 
 | Mode         | Status      | Behavior                                                                                                                                                                                                                                                                                            |
