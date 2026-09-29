@@ -38,8 +38,8 @@ use tracing_subscriber::layer::{Context as LayerContext, Layer};
 use tracing_subscriber::{prelude::*, EnvFilter};
 
 use crate::daemon_link::{
-    call_timeout_error, is_transport_error, unreachable_error, DaemonLink, HealOutcome,
-    ReconnectConfig, RespawnFn,
+    call_timeout_error, is_transport_error, launch_timeout_error, unreachable_error, DaemonLink,
+    HealOutcome, ReconnectConfig, RespawnFn,
 };
 use crate::resources::{server_capabilities, ResourceProvider, STDIO_SERVER_INSTRUCTIONS};
 use crate::schema::input_schema_for;
@@ -314,11 +314,24 @@ impl ServerHandler for StdioProxy {
     ) -> Result<CallToolResponse, ErrorData> {
         let link = self.ensure_link().await?;
         let budget = budget_for(link.config(), &request);
-        let mut response = self
-            .forward_bounded(&link, budget, |peer| async move {
+        // A launch is forwarded on its own path so a timeout is not misreported
+        // as a stalled link. The requested wait is read here, before `request`
+        // moves into the closure, because the error needs to say what the caller
+        // actually asked for.
+        let requested_wait = requested_launch_wait(&request);
+        let is_launch = request.name.as_ref() == "spawn_td";
+        let forward = if is_launch {
+            self.forward_launch(&link, budget, requested_wait, |peer| async move {
                 peer.call_tool_once(request).await
             })
-            .await?;
+            .await
+        } else {
+            self.forward_bounded(&link, budget, |peer| async move {
+                peer.call_tool_once(request).await
+            })
+            .await
+        };
+        let mut response = forward?;
         if let CallToolResponse::Complete(result) = &mut response {
             // The HTTP peer may use a legacy protocol and omit this field.
             // Restore it for modern stdio clients; rmcp strips it for legacy peers.
@@ -341,21 +354,31 @@ fn budget_for(cfg: &ReconnectConfig, request: &CallToolRequestParams) -> Duratio
     if request.name.as_ref() != "spawn_td" {
         return cfg.tool_call_budget(request.name.as_ref());
     }
-    let requested = request
+    cfg.launch_budget(requested_launch_wait(request))
+}
+
+/// The launch wait a request asked for, in `Duration`.
+///
+/// One reader for this value, so the budget and the error can never disagree
+/// about what the caller asked for — a mismatch there would produce a message
+/// citing a wait the caller never sent.
+///
+/// A STRING is accepted because this is a JSON-RPC boundary and clients do send
+/// numbers that way; refusing it would reintroduce an unfixable short cut. An
+/// unparseable value is `None` rather than a large default, so a typo cannot
+/// become an unbounded wait.
+fn requested_launch_wait(request: &CallToolRequestParams) -> Option<Duration> {
+    request
         .arguments
         .as_ref()
         .and_then(|args| args.get("waitTimeoutMs"))
         .and_then(|raw| {
-            // A string is accepted because this is a JSON-RPC boundary and
-            // clients do send numbers as strings; an unparseable value must not
-            // become an unbounded wait.
             raw.as_u64().or_else(|| {
                 raw.as_str()
                     .and_then(|text| text.trim().parse::<u64>().ok())
             })
         })
-        .map(Duration::from_millis);
-    cfg.launch_budget(requested)
+        .map(Duration::from_millis)
 }
 
 fn tool_from_descriptor(d: crate::tools::ToolDescriptor) -> Tool {
@@ -419,6 +442,66 @@ impl StdioProxy {
     /// response too. Queueing here means a
     /// slow call now delays unrelated calls up to its own budget instead of
     /// silently losing one of them.
+    /// Forward a call, treating a budget overrun as a LAUNCH still starting
+    /// rather than a stalled link.
+    ///
+    /// `forward_bounded` answers a timeout with "the MCP session may have
+    /// stalled, I reconnected, the effect is unknown". That is the right answer
+    /// for a stalled read, and the WRONG one for a spawn, for two reasons:
+    ///
+    /// * The diagnosis is false. A launch that is still coming up is not a
+    ///   stalled session, and a caller reading "reconnected to a fresh session"
+    ///   would reasonably conclude the launch failed and retry — a retried
+    ///   `spawn_td` is exactly the double-spawn B3 forbids.
+    /// * The remedy is harmful. `heal` calls `mark_unhealthy` on entry, so
+    ///   diagnosing a slow launch as a link fault actively degrades a working
+    ///   connection.
+    ///
+    /// So a launch timeout does not heal. It reports the caller's own wait
+    /// budget, states that the child is still owned and may yet handshake, and
+    /// says the outcome is unknown — which is true, and is the same conclusion
+    /// W6 reaches for any operation whose result nobody observed.
+    async fn forward_launch<F, Fut, T>(
+        &self,
+        link: &DaemonLink,
+        budget: Duration,
+        requested_wait: Option<Duration>,
+        op: F,
+    ) -> Result<T, ErrorData>
+    where
+        F: FnOnce(Arc<rmcp::Peer<rmcp::RoleClient>>) -> Fut,
+        Fut: std::future::Future<Output = Result<T, ServiceError>>,
+    {
+        let _gate = link.call_gate().await;
+        let (peer, _gen) = link.current_peer().await;
+        match tokio::time::timeout(budget, op(peer)).await {
+            Ok(Ok(response)) => Ok(response),
+            Ok(Err(e)) if is_transport_error(&e) => {
+                // A genuine transport failure IS a link fault, so this arm
+                // keeps the heal and the link diagnosis.
+                warn!(error = %e, "launch transport error — attempting heal");
+                let outcome = link.heal(_gen).await;
+                Err(unreachable_error(
+                    outcome,
+                    link.config(),
+                    link.can_respawn(),
+                ))
+            }
+            Ok(Err(e)) => {
+                warn!(error = %e, "launch forward failed");
+                Err(service_err_to_error_data(e))
+            }
+            Err(_) => {
+                let waited = requested_wait.map(|wait| wait.as_millis() as u64);
+                warn!(
+                    budget_ms = budget.as_millis(),
+                    "launch exceeded its budget — the child is still owned and was NOT treated as a link fault"
+                );
+                Err(launch_timeout_error(budget, waited))
+            }
+        }
+    }
+
     async fn forward_bounded<F, Fut, T>(
         &self,
         link: &DaemonLink,

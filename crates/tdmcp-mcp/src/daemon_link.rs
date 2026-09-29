@@ -847,6 +847,52 @@ pub fn call_timeout_error(budget: Duration, outcome: HealOutcome) -> ErrorData {
     )
 }
 
+/// A launch that outlived the proxy's own ceiling.
+///
+/// Distinct from [`call_timeout_error`] on purpose. That one says "the MCP
+/// session may have stalled, I reconnected" and suggests verifying with
+/// `inspect` before retrying a MUTATION. For a spawn, the link is very likely
+/// fine and the launcher is simply still coming up — so a caller following that
+/// advice would read a slow launch as a failed one and retry, which is exactly
+/// the double-spawn this must never invite.
+///
+/// The outcome is stated as unknown either way, because it is: the child is
+/// still owned by the daemon and may yet handshake. What differs is the
+/// diagnosis, and the instruction not to spawn again.
+#[must_use]
+pub fn launch_timeout_error(budget: Duration, requested_wait_ms: Option<u64>) -> ErrorData {
+    let budget_ms = budget.as_millis() as u64;
+    let data = json!({
+        "code": codes::SPAWN_WAIT_TIMEOUT,
+        "budgetMs": budget_ms,
+        "requestedWaitMs": requested_wait_ms,
+        // Deliberately not `healed`: nothing was healed, and reporting a
+        // repair that did not happen would send a caller looking for one.
+        "healed": false,
+        "linkHealed": false,
+        "effect": "unknown",
+        "suggestion": (
+            "do NOT spawn again: the child is still owned and may yet handshake. \
+             check fleet for the pid, and raise waitTimeoutMs if the launch is \
+             legitimately slower than this"
+        ),
+    });
+    let requested = match requested_wait_ms {
+        Some(ms) => format!(" (you asked to wait {ms}ms; the proxy's ceiling was {budget_ms}ms)"),
+        None => format!(" (the proxy's ceiling was {budget_ms}ms)"),
+    };
+    ErrorData::internal_error(
+        format!(
+            "the launch is still waiting for its handshake and exceeded the proxy's \
+             deadline{requested}. This is NOT a link fault and the proxy did not \
+             reconnect. The child is still owned by the daemon and may yet \
+             handshake, so the outcome is unknown — check `fleet` for the pid \
+             before doing anything else, and do not spawn a second instance."
+        ),
+        Some(data),
+    )
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, reason = "unit tests")]
 mod tests {
@@ -1077,6 +1123,74 @@ mod tests {
         assert!(without.message.contains("run `tdmcp-daemon ensure`"));
         assert!(!with.message.contains("run `tdmcp-daemon ensure`"));
         assert!(with.message.contains("automatically requested"));
+    }
+
+    #[test]
+    fn a_launch_timeout_does_not_blame_a_stalled_link_or_claim_a_repair() {
+        // The defect B3's diagnosis half is about. `call_timeout_error` says
+        // "the MCP session may have stalled, I reconnected" — true for a stalled
+        // read, false for a launch. Both phrases are forbidden here, and
+        // `healed`/`linkHealed` are false because nothing was healed.
+        let err = launch_timeout_error(Duration::from_millis(215_000), Some(200_000));
+        let text = err.message.to_lowercase();
+        assert!(
+            !text.contains("stalled"),
+            "a slow launch is not a stalled link: {text}"
+        );
+        // Assert the absence of the AFFIRMATIVE claim, not the word: the message
+        // says "the proxy did NOT reconnect", which is the opposite of a repair
+        // and must survive. Forbidding the substring would forbid the denial too.
+        assert!(
+            !text.contains("has reconnected") && !text.contains("and reconnected"),
+            "no repair may be claimed: {text}"
+        );
+        assert!(
+            text.contains("did not reconnect"),
+            "the denial is what is said: {text}"
+        );
+        assert!(text.contains("not a link fault"), "{text}");
+        let data = err.data.expect("structured data");
+        assert_eq!(data["code"], codes::SPAWN_WAIT_TIMEOUT);
+        assert_eq!(data["healed"], false);
+        assert_eq!(data["linkHealed"], false);
+        assert_eq!(data["effect"], "unknown");
+        assert_eq!(data["budgetMs"], 215_000);
+        // The caller's own wait is reported, so the message and the budget can
+        // never cite different numbers.
+        assert_eq!(data["requestedWaitMs"], 200_000);
+    }
+
+    #[test]
+    fn a_launch_timeout_tells_the_caller_not_to_spawn_again() {
+        // The instruction that prevents the double-spawn. Retrying a launch
+        // that is still coming up produces two TouchDesiners.
+        let err = launch_timeout_error(Duration::from_millis(75_000), None);
+        let data = err.data.expect("structured data");
+        let suggestion = data["suggestion"].as_str().expect("a suggestion");
+        assert!(suggestion.contains("do NOT spawn again"), "{suggestion}");
+        assert!(suggestion.contains("fleet"), "{suggestion}");
+        // A missing requested wait is reported as absent rather than invented.
+        assert_eq!(data["requestedWaitMs"], serde_json::Value::Null);
+    }
+
+    #[test]
+    fn a_launch_timeout_differs_from_a_stalled_call_timeout() {
+        // Two different failures, so two different answers: the codes must not
+        // collide or a caller cannot tell a slow launch from a wedged link.
+        let launch = launch_timeout_error(Duration::from_secs(75), None);
+        let stalled = call_timeout_error(
+            Duration::from_secs(75),
+            HealOutcome {
+                healed: true,
+                downtime: None,
+            },
+        );
+        assert_ne!(
+            launch.data.expect("launch data")["code"],
+            stalled.data.expect("call data")["code"]
+        );
+        // And the stalled one still says it reconnected, which is correct there.
+        assert!(stalled.message.contains("reconnected"));
     }
 
     #[test]
