@@ -15,6 +15,11 @@ pub enum BridgeMethod {
     ExecutePython,
     /// Perception capture.
     Capture,
+    /// Named Python sources: register, inspect, and run.
+    ///
+    /// Shares the inline execution path with [`Self::ExecutePython`], so a
+    /// registered source is the same capability with a name, not a new one.
+    ScriptSource,
     /// Exact numerical reads from a TOP or CHOP.
     ///
     /// Separate from [`Self::Capture`] because capture answers "what does this
@@ -44,6 +49,7 @@ impl BridgeMethod {
             Self::ExecutePython => "execute_python",
             Self::Capture => "capture",
             Self::SampleData => "sample_data",
+            Self::ScriptSource => "script_source",
             Self::Record => "record",
             Self::Inspect => "inspect",
             Self::MutateNodes => "mutate_nodes",
@@ -61,6 +67,7 @@ impl BridgeMethod {
             Self::ExecutePython => "PythonEval",
             Self::Capture => "Capture",
             Self::SampleData => "SampleData",
+            Self::ScriptSource => "ScriptSource",
             Self::Record => "Record",
             Self::Inspect => "Inspect",
             Self::MutateNodes => "Mutate",
@@ -76,6 +83,7 @@ impl BridgeMethod {
         Self::ExecutePython,
         Self::Capture,
         Self::SampleData,
+        Self::ScriptSource,
         Self::Record,
         Self::Inspect,
         Self::MutateNodes,
@@ -91,6 +99,7 @@ impl BridgeMethod {
             "execute_python" => Some(Self::ExecutePython),
             "capture" => Some(Self::Capture),
             "sample_data" => Some(Self::SampleData),
+            "script_source" => Some(Self::ScriptSource),
             "record" => Some(Self::Record),
             "inspect" => Some(Self::Inspect),
             "mutate_nodes" => Some(Self::MutateNodes),

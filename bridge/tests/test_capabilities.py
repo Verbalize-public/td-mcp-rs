@@ -39,13 +39,15 @@ class CapabilityPayloadTest(unittest.TestCase):
 
     def test_features_are_only_current_handler_routes(self) -> None:
         self.assertEqual(set(capabilities.SUPPORTED_FEATURES), set(tdmcp_bridge.HANDLERS))
-        # Still-unbuilt routes. `sample_data` left this list when W7 implemented
-        # and registered the handler, so a capability is claimed from the code
-        # that exists rather than from a version string.
+        # Still-unbuilt routes. `sample_data` and `script_source` each left this
+        # list when W7/W8 implemented and registered the handler, so a
+        # capability is claimed from the code that exists rather than from a
+        # version string.
         for future in ("evidence_read", "guarded_writes"):
             self.assertNotIn(future, capabilities.SUPPORTED_FEATURES)
         self.assertTrue(capabilities.supports_required_features(["inspect", "capture"]))
         self.assertTrue(capabilities.supports_required_features(["sample_data"]))
+        self.assertTrue(capabilities.supports_required_features(["script_source"]))
         self.assertFalse(capabilities.supports_required_features(["evidence_read"]))
         with self.assertRaisesRegex(ValueError, "evidence_read"):
             capabilities.require_supported_features(["inspect", "evidence_read"])

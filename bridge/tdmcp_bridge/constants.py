@@ -28,6 +28,7 @@ BRIDGE_METHODS: tuple[str, ...] = (
     "execute_python",
     "capture",
     "sample_data",
+    "script_source",
     "record",
     "inspect",
     "mutate_nodes",
@@ -52,6 +53,15 @@ _COMMENT_TRUNC_MARK = "…"
 # Shader lint caps (scan/consumer budgets reported via truncation markers).
 SHADER_SCAN_LIMIT = 2048
 SHADER_CONSUMER_LIMIT = 64
+# Named Python sources (script_source). These bound the REGISTRY, not the
+# script: `script_source` adds no capability, and a registered source still runs
+# through `execute_python`'s own SCRIPT_MAX_BYTES / RESULT_MAX_BYTES bounds.
+# SCRIPT_SOURCE_MAX_SOURCES exists so a long-lived session cannot grow the
+# registry without limit; it is a cap on memory, not a policy about what may
+# be registered.
+SCRIPT_SOURCE_MAX_SOURCES = 256
+SCRIPT_SOURCE_MAX_DEPENDENCIES = 32
+
 EDITOR_SELECTION_LIMIT = 256
 EDITOR_PANES_LIMIT = 64
 CAPTURE_VIEWER_NAME = "capture_viewer"
