@@ -118,6 +118,21 @@ whether the declared route is sufficient and the replaced route is closed, not
 what a model would do. `replacedRoutesProbed` is the evidence;
 `replacedRouteRefused` is a summary of it.
 
+### A measured default, and what the measurement is not
+
+`scripts/fixtures/admission/live-capture-bytes.json` records what real captures
+actually cost: nine PNG captures taken from a task-owned TD over a resolution
+ladder, each returned its true encoded size. The default admission bound
+admits all nine (largest 440,234 bytes, ~5% of the 8 MiB bound), and
+`admission::tests::the_default_bound_admits_every_capture_we_have_measured`
+fails if the bound ever tightens below a capture someone has taken.
+
+Read the fixture's `note` before citing the number. It is one noise source in
+PNG: it says nothing about HDR/EXR, photographic content, or what a particular
+client's model will accept. It is a floor on the evidence, not a distribution,
+and it is published so the default can be argued against numbers rather than
+against recollection.
+
 ## Release and CI
 
 CI is manual on ordinary branches, with optional native Windows/macOS tests.

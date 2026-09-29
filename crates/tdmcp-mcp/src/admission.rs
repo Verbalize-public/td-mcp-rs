@@ -209,4 +209,50 @@ mod tests {
         let block = admission_record(AdmissionPolicy::default(), 1, 0, 9000, 9000);
         assert_eq!(block["admitted"]["verdict"], "withheld");
     }
+
+    /// The default bound is a claim about real capture sizes, so it is checked
+    /// against real capture sizes rather than against the author's memory of
+    /// them. The sample is [`include_str!`]ed rather than copied so a later
+    /// edit to the measurement cannot leave this test asserting a stale number.
+    ///
+    /// What this proves and what it does not: every recorded observation is
+    /// admitted, so the bound does not withhold the captures anyone has
+    /// actually taken. It does not prove the bound is right — that needs a
+    /// distribution, and the sample is nine PNGs of one noise source. The
+    /// `max_observed` assertion is the honest half: it fails loudly if a future
+    /// capture is large enough to change what the bound should be.
+    #[test]
+    fn the_default_bound_admits_every_capture_we_have_measured() {
+        let sample: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../scripts/fixtures/admission/live-capture-bytes.json"
+        ))
+        .expect("the admission measurement fixture is readable JSON");
+        let observations = sample["observations"]
+            .as_array()
+            .expect("observations is a list");
+        assert!(
+            observations.len() >= 5,
+            "a sample of {} captures is too thin to justify a default",
+            observations.len()
+        );
+
+        let default = AdmissionPolicy::default();
+        let mut largest = 0usize;
+        for row in observations {
+            let id = row["id"].as_str().expect("every observation is named");
+            let bytes = row["encodedBytes"]
+                .as_u64()
+                .expect("{id}: encodedBytes is a number") as usize;
+            largest = largest.max(bytes);
+            assert_eq!(
+                admit_image(default, bytes),
+                Admission::Admitted,
+                "{id} ({bytes} bytes) is withheld by the default bound, so the \
+                 bound is now tighter than a capture anyone has taken"
+            );
+        }
+        // The measurement is a floor on the evidence, not a ceiling on the
+        // sizes the product can produce; this only fails if the sample changes.
+        assert_eq!(largest, 440_234, "the largest measured capture changed");
+    }
 }

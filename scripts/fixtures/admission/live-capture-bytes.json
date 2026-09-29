@@ -1,0 +1,82 @@
+{
+  "note": "Measured on a task-owned TouchDesigner 2025.32460 under Wine, scratch project copied from the shipped template.toe. Every capture below returned its true encoded PNG size in the result text. This is a MEASURED WORKLOAD SAMPLE, not a frozen distribution: it is a resolution ladder over one noise source, and it says nothing about HDR/EXR captures or photographic content. It is published so the admission default can be argued against numbers instead of against a recollection.",
+  "measuredAt": "2026-09-29",
+  "build": "TouchDesigner.2025.32460 (Pro) under Wine, 127.0.0.1 daemon 9860/9861",
+  "bridgePid": 1484729,
+  "mode": "top",
+  "mimeType": "image/png",
+  "captureMaxSizeHardCap": 1536,
+  "observations": [
+    {
+      "id": "preview-1x1",
+      "sourceResolution": "1920x1080",
+      "deliveredResolution": "1x1",
+      "maxSizeRequested": 0,
+      "encodedBytes": 143,
+      "transformed": true,
+      "note": "maxSize 0 downscales to a 1x1px preview rather than to native. A caller asking for the smallest thing still gets a well-formed image."
+    },
+    {
+      "id": "preview-256",
+      "sourceResolution": "1920x1080",
+      "deliveredResolution": "256x144",
+      "maxSizeRequested": 256,
+      "encodedBytes": 27760
+    },
+    {
+      "id": "preview-512-default",
+      "sourceResolution": "1920x1080",
+      "deliveredResolution": "512x288",
+      "maxSizeRequested": 512,
+      "encodedBytes": 73469,
+      "note": "512 is CAPTURE_DEFAULT_MAX_SIZE, so this is the size a capture costs when the caller passes nothing."
+    },
+    {
+      "id": "preview-1024",
+      "sourceResolution": "1920x1080",
+      "deliveredResolution": "1024x576",
+      "maxSizeRequested": 1024,
+      "encodedBytes": 219805
+    },
+    {
+      "id": "preview-1536-cap",
+      "sourceResolution": "1920x1080",
+      "deliveredResolution": "1536x864",
+      "maxSizeRequested": 1536,
+      "encodedBytes": 440234,
+      "note": "The hard cap rung: the most a PNG capture can cost at CAPTURE_MAX_SIZE."
+    },
+    {
+      "id": "source-8k-at-cap",
+      "sourceResolution": "3840x2160",
+      "deliveredResolution": "1536x864",
+      "maxSizeRequested": 1536,
+      "encodedBytes": 412035,
+      "note": "An 8K source downscaled to the cap costs LESS than the same cap applied to a 1080p source, because the downscale is an average and averaging smooths noise. Delivered dimensions, not source resolution, drive the byte cost."
+    },
+    {
+      "id": "portrait-1080x1920-at-cap",
+      "sourceResolution": "1080x1920",
+      "deliveredResolution": "864x1536",
+      "maxSizeRequested": 1536,
+      "encodedBytes": 434265,
+      "note": "Portrait at the cap. The largest observation in this sample."
+    },
+    {
+      "id": "native-720p",
+      "sourceResolution": "1280x720",
+      "deliveredResolution": "1280x720",
+      "maxSizeRequested": 1536,
+      "encodedBytes": 292173,
+      "note": "Native, because 720p is already under the cap. Not transformed."
+    },
+    {
+      "id": "native-256",
+      "sourceResolution": "256x256",
+      "deliveredResolution": "256x256",
+      "maxSizeRequested": 1536,
+      "encodedBytes": 47758,
+      "note": "Native, not transformed."
+    }
+  ]
+}

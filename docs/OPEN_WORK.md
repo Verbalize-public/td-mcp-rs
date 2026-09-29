@@ -15,8 +15,13 @@ These are known constraints, not a delivery schedule.
   [Contract](CONTRACT.md#mcp-tool-result-shapes-stdio--rmcp). The server cannot
   observe what a client's model was given, so `includedInModelInput` is always
   `unavailable` — "the server sent an image" is not evidence that one was
-  inspected. The default bound is derived from rmcp's SSE event cap and has not
-  been frozen against a measured workload distribution.
+  inspected. The default bound is derived from rmcp's SSE event cap and is
+  checked against a measured sample of nine live PNG captures
+  (`scripts/fixtures/admission/live-capture-bytes.json`; largest 440,234 bytes,
+  all admitted), but that sample is one noise source in PNG and not a
+  distribution — HDR/EXR, photographic content and per-client model limits are
+  all unmeasured, so the bound is frozen only as "does not withhold what has
+  been captured", not as a tuned value.
 - Timed capture/record requires explicit TOP outputs; no audio or timed shared
   viewers. Initial recording is qtrle MOV (up to 4096×4096 / 512 MiB), tested on
   TD 2025.32460 under Wine/Linux. Native Windows/macOS and other codecs need

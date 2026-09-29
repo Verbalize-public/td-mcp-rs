@@ -61,6 +61,12 @@ the restart requirement. A restart disconnects MCP/bridge sessions temporarily.
   image) and the default is kept. Derived from rmcp's 16 MiB client-side SSE
   event cap — a safe bound, not a tuned one. See
   [Contract](CONTRACT.md#mcp-tool-result-shapes-stdio--rmcp).
+  **Checked against a measured sample** (nine live PNG captures over a
+  resolution ladder, in `scripts/fixtures/admission/live-capture-bytes.json`):
+  every one is admitted; the largest is 440,234 bytes, about 5% of the bound.
+  The sample is one noise source in PNG — not a distribution — so this shows
+  the bound does not withhold captures anyone has taken, not that it is
+  optimal. Raise it for HDR/EXR or photographic content.
 - `project.template_path`: optional starter .toe; otherwise
   `{dataDir}/template.toe`. New-project creation never overwrites its target.
 - `official_tools`: optional TD/expand/collapse paths and Linux Wine overrides.
