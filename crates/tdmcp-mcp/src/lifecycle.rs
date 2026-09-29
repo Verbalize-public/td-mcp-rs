@@ -425,21 +425,58 @@ fn spawn_waiter(
                     }
                 } else {
                     // Registry cleanup is not process exit: retain the child owner.
-                    let _ = tx.send(json!({"ok": false, "outcome": "wait_timeout", "pid": pid}));
+                    // Same contract as the deadline case below: the row is gone,
+                    // the process is not, and the caller must be told so.
+                    let _ = tx.send(json!({
+                        "ok": false,
+                        "code": tdmcp_diagnostics::codes::SPAWN_WAIT_TIMEOUT,
+                        "outcome": "wait_timeout",
+                        "pid": pid,
+                        "stillAlive": child.try_wait().map(|r| r.is_none()).unwrap_or(true),
+                        "effect": "unknown",
+                        "registryRowPresent": false,
+                        "guidance": concat!(
+                            "The registry row for this pid disappeared before it handshaked, so its ",
+                            "state can no longer be read here; that is not proof the process died. ",
+                            "Do NOT call spawn_td again. Check the pid directly and reconcile with ",
+                            "fleet before any relaunch."
+                        ),
+                    }));
                     drop(reg);
                     reap_owned_child(child, reg2, pid, started_at).await;
                     return;
                 }
             }
             if Instant::now() >= deadline {
+                // A timeout is a successful call reporting a NON-HANDSHAKE
+                // outcome, so it is the payload — not an error — that has to
+                // carry the state a caller acts on. Measured live: this used
+                // to answer just `{ok:false, outcome, pid, stillAlive}`, and a
+                // caller that respected it had no way to learn that the
+                // process was STILL RUNNING and unhandshaken. The only thing
+                // that stopped a second TouchDesigner was a skill card
+                // explaining it, which is the wrong place to put a safety
+                // property. `effect:"unknown"` is the same honesty W6 requires
+                // of any mutation whose result nobody observed: the launch
+                // happened, and its outcome is not yet knowable.
                 let _ = tx.send(json!({
                     "ok": false,
+                    "code": tdmcp_diagnostics::codes::SPAWN_WAIT_TIMEOUT,
                     "outcome": "wait_timeout",
                     "pid": pid,
                     "stillAlive": child.try_wait().map(|r| r.is_none()).unwrap_or(true),
+                    "effect": "unknown",
                     "startupDialogs": shared_dialogs.as_ref().and_then(|d| {
                         d.snapshots.lock().unwrap_or_else(|p| p.into_inner()).get(&pid).cloned()
                     }),
+                    "guidance": concat!(
+                        "The wait budget expired, not the process. If stillAlive is true that ",
+                        "TouchDesigner is running and has not handshaken: it may still connect. ",
+                        "Do NOT call spawn_td again -- a second launch is a second process, and ",
+                        "this one is already alive. Read the reported dialogs if any, then poll ",
+                        "fleet for this pid until bridge reads connected. Absent dialog evidence ",
+                        "does not prove there is no blocking modal."
+                    ),
                 }));
                 reap_owned_child(child, reg2, pid, started_at).await;
                 return;

@@ -1176,8 +1176,15 @@ entries:
   - code: tdmcp.spawn.wait_timeout
     layer: fleet
     message: "TD did not handshake within the wait budget"
+    # The old mitigation here said "retry with higher waitTimeoutMs". That is the
+    # double-spawn: at this point the process is usually STILL RUNNING and simply
+    # unhandshaken, so a retry starts a second TouchDesigner. The wait budget is
+    # the only thing that expired, and the child stays owned by the daemon either
+    # way, so the honest next step is to poll that pid rather than to relaunch.
     mitigation:
-      - "Check fleet for the pid; inspect dialogs; retry with higher waitTimeoutMs"
+      - "Read stillAlive on the outcome payload: true means that TouchDesigner is running and has NOT handshaken"
+      - "Do NOT call spawn_td again for this pid -- a second launch is a second process"
+      - "Read startupDialogs if present, then poll fleet for this pid until bridge reads connected"
 
   - code: tdmcp.spawn.blocked_by_dialog
     layer: fleet

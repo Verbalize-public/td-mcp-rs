@@ -99,6 +99,67 @@ async fn timeout_reply_is_followed_by_reaping_and_starting_cleanup() {
     assert!(reg.lock().await.get(pid).is_none());
 }
 
+/// Found by a live run, not by the tests above: the timeout payload used to be
+/// `{ok:false, outcome, pid, stillAlive}` and nothing else. A caller respecting
+/// it had no way to learn that the process was STILL RUNNING and unhandshaken,
+/// so the only thing preventing a second TouchDesigner was a skill card — a
+/// safety property living in documentation. The state a caller acts on has to
+/// be in the payload itself.
+#[tokio::test]
+async fn a_timeout_reply_carries_the_state_a_caller_acts_on() {
+    let (dir, child, reg, started) = fixture().await;
+    let pid = child.id();
+    let (reply, owner) = spawn_waiter(child, reg.clone(), pid, started, Duration::ZERO);
+    let value = reply.await.unwrap();
+
+    assert_eq!(
+        value["code"],
+        tdmcp_diagnostics::codes::SPAWN_WAIT_TIMEOUT,
+        "a non-handshake outcome still needs its catalog code: {value}"
+    );
+    assert_eq!(
+        value["effect"], "unknown",
+        "the launch happened and its result is not yet knowable: {value}"
+    );
+    assert_eq!(value["pid"], pid, "{value}");
+    assert_eq!(value["stillAlive"], true, "{value}");
+    let guidance = value["guidance"].as_str().unwrap_or_default();
+    assert!(
+        guidance.contains("Do NOT call spawn_td again"),
+        "the anti-double-spawn guard must be in the payload a caller reads, not only in a card: {guidance}"
+    );
+    // The still-alive case is the one that matters, so it is asserted
+    // separately from the generic text: a payload that only warns "check fleet"
+    // is what let a second TouchDesigner start.
+    assert!(
+        guidance.contains("still running") || guidance.contains("stillAlive"),
+        "the payload must connect the timeout to the process's real state: {guidance}"
+    );
+    finish(&dir, owner).await;
+}
+
+/// A vanished registry row is not a process exit. It took the same bare
+/// payload as the deadline case, and it needs the same honesty, plus the fact
+/// that the row itself is what went missing.
+#[tokio::test]
+async fn a_vanished_registry_row_says_so_rather_than_blaming_the_budget() {
+    let (dir, child, reg, started) = fixture().await;
+    let pid = child.id();
+    reg.lock().await.remove_starting(pid);
+    let (reply, owner) = spawn_waiter(child, reg, pid, started, Duration::ZERO);
+    let value = reply.await.unwrap();
+
+    assert_eq!(value["outcome"], "wait_timeout");
+    assert_eq!(value["registryRowPresent"], false, "{value}");
+    assert_eq!(value["effect"], "unknown", "{value}");
+    let guidance = value["guidance"].as_str().unwrap_or_default();
+    assert!(
+        guidance.contains("not proof the process died"),
+        "losing the row is not evidence of death and must not read as it: {guidance}"
+    );
+    finish(&dir, owner).await;
+}
+
 #[tokio::test]
 async fn disconnected_client_does_not_cancel_owned_reaper() {
     let (dir, child, reg, started) = fixture().await;
