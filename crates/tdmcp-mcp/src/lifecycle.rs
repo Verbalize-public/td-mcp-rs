@@ -359,6 +359,7 @@ pub async fn spawn_td(
         pid,
         started_at,
         Duration::from_millis(wait_timeout_ms.max(1000)),
+        exe_path,
     );
 
     match rx.await {
@@ -376,6 +377,7 @@ fn spawn_waiter(
     pid: u32,
     started_at: chrono::DateTime<chrono::Utc>,
     wait_timeout: Duration,
+    requested_exe: Option<&str>,
 ) -> (
     tokio::sync::oneshot::Receiver<Value>,
     tokio::task::JoinHandle<()>,
@@ -385,6 +387,9 @@ fn spawn_waiter(
     let (tx, rx) = tokio::sync::oneshot::channel::<Value>();
     let reg2 = registry;
     let shared_dialogs = crate::dialogs::get().cloned();
+    // Owned before the spawn: the task must be 'static, and the borrow is only
+    // read once when the reply is built.
+    let requested_exe = requested_exe.map(str::to_owned);
     let handle = tokio::spawn(async move {
         let mut child = child;
         let deadline = Instant::now() + wait_timeout;
@@ -407,6 +412,19 @@ fn spawn_waiter(
                             .as_ref()
                             .is_some_and(|spawn| spawn.started_at == started_at)
                     {
+                        // Launch provenance, proven by live run. This host has
+                        // TWO TouchDesigner installs — a free one in /opt with
+                        // no licence and a Pro-activated one inside the Wine
+                        // prefix — and the reply named neither. An acceptance
+                        // run could not tell which build it had just driven,
+                        // and neither can any caller. The RESOLVED exe is the
+                        // honest answer: it is what actually ran, not what was
+                        // requested, so a wrapper that forwards a different
+                        // build (the configured wine launcher does exactly
+                        // that) can no longer pass unnoticed. `requestedExe`
+                        // is kept beside it — null when discovery chose the
+                        // install — so a divergence stays visible instead of
+                        // being resolved away silently.
                         let payload = json!({
                             "ok": true,
                             "pid": pid,
@@ -414,7 +432,10 @@ fn spawn_waiter(
                                 "title": e.process.title,
                                 "toePath": e.process.toe_path,
                             },
-                            "startupDialogs": shared_dialogs.as_ref().and_then(|d| {
+                            "spawn": {
+                                "requestedExe": requested_exe,
+                                "resolvedExe": e.spawn.as_ref().map(|s| s.exe_path.clone()),
+                            },                            "startupDialogs": shared_dialogs.as_ref().and_then(|d| {
                                 d.snapshots.lock().unwrap_or_else(|p| p.into_inner()).get(&pid).cloned()
                             }),
                         });
