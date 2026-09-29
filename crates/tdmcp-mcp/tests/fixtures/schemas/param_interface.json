@@ -1,0 +1,243 @@
+{
+  "$defs": {
+    "DiagnosticLevel": {
+      "description": "Payload size for diagnostics (independent of structural `detailLevel`).",
+      "oneOf": [
+        {
+          "const": "summary",
+          "description": "Codes, messages, capped lints, mitigation.",
+          "type": "string"
+        },
+        {
+          "const": "detailed",
+          "description": "Plus raw traceback / full TD dumps.",
+          "type": "string"
+        }
+      ]
+    },
+    "OpPath": {
+      "description": "Operator path string passed to TD for resolution via `td.op()`.",
+      "type": "string"
+    },
+    "ParamInterfaceAction": {
+      "description": "A `param_interface` action.",
+      "oneOf": [
+        {
+          "const": "export",
+          "description": "The pages, parameters and types needed to drive a panel. The default,\nand the only action that cannot change anything.",
+          "type": "string"
+        },
+        {
+          "const": "apply",
+          "description": "Add the supplied definitions. Removes nothing.",
+          "type": "string"
+        }
+      ]
+    },
+    "ParameterDefinition": {
+      "additionalProperties": false,
+      "description": "One parameter definition, as supplied to `apply` and as returned by `export`.",
+      "properties": {
+        "default": {
+          "default": null,
+          "description": "Default value."
+        },
+        "label": {
+          "default": null,
+          "description": "Human-facing label. `None` leaves the label as the name.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "max": {
+          "default": null,
+          "description": "Maximum, for a numeric parameter.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "menuNames": {
+          "default": null,
+          "description": "Menu items, for a `menu`.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "min": {
+          "default": null,
+          "description": "Minimum, for a numeric parameter.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "name": {
+          "description": "Parameter name. Required.",
+          "type": "string"
+        },
+        "page": {
+          "default": null,
+          "description": "Page to create it on. Defaults to `Controls`, as TouchDesigner does.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "type": {
+          "$ref": "#/$defs/ParameterKind",
+          "description": "The kind. Required; `unknown` is refused by `apply`."
+        }
+      },
+      "required": [
+        "name",
+        "type"
+      ],
+      "type": "object"
+    },
+    "ParameterKind": {
+      "description": "A parameter kind, as the bridge reports and creates it.\n\nThe names are the bridge's `append*` kinds. `unknown` is a value `export`\nmay report and `apply` will refuse with a reason — it exists so a consumer\ncan see \"this type was not established\" instead of receiving a confident\nwrong one.",
+      "oneOf": [
+        {
+          "const": "float",
+          "description": "A floating-point number.",
+          "type": "string"
+        },
+        {
+          "const": "int",
+          "description": "A whole number.",
+          "type": "string"
+        },
+        {
+          "const": "toggle",
+          "description": "A boolean.",
+          "type": "string"
+        },
+        {
+          "const": "pulse",
+          "description": "A momentary button.",
+          "type": "string"
+        },
+        {
+          "const": "menu",
+          "description": "A named-string menu.",
+          "type": "string"
+        },
+        {
+          "const": "string",
+          "description": "A text string.",
+          "type": "string"
+        },
+        {
+          "const": "sequence",
+          "description": "A sequence of keys.",
+          "type": "string"
+        },
+        {
+          "const": "python",
+          "description": "An embedded Python module.",
+          "type": "string"
+        },
+        {
+          "const": "folder",
+          "description": "A folder of parameters.",
+          "type": "string"
+        },
+        {
+          "const": "op",
+          "description": "An operator path.",
+          "type": "string"
+        },
+        {
+          "const": "momentary",
+          "description": "A momentary toggle.",
+          "type": "string"
+        },
+        {
+          "const": "unknown",
+          "description": "Not established by this bridge; see the module docs.",
+          "type": "string"
+        }
+      ]
+    },
+    "Pid": {
+      "anyOf": [
+        {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "pattern": "^\\s*[0-9]+\\s*$",
+          "type": "string"
+        }
+      ],
+      "description": "OS process id — sole address for tools and queues."
+    }
+  },
+  "additionalProperties": false,
+  "description": "Args for `param_interface`.",
+  "properties": {
+    "action": {
+      "$ref": "#/$defs/ParamInterfaceAction",
+      "default": "export",
+      "description": "Export the control surface, or apply one. Defaults to `export`."
+    },
+    "contextPath": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/OpPath"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Optional context path for resolving a relative `path`."
+    },
+    "daemonId": {
+      "default": null,
+      "description": "Optional federated daemon id (omit for local / unique remote resolve).",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "definitions": {
+      "default": null,
+      "description": "Parameter definitions, for `apply`.",
+      "items": {
+        "$ref": "#/$defs/ParameterDefinition"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "diagnosticLevel": {
+      "$ref": "#/$defs/DiagnosticLevel",
+      "default": "summary",
+      "description": "Diagnostic payload size (`summary` omits raw traceback)."
+    },
+    "path": {
+      "$ref": "#/$defs/OpPath",
+      "description": "COMP whose interface is exported or extended."
+    },
+    "pid": {
+      "$ref": "#/$defs/Pid",
+      "description": "Target pid."
+    }
+  },
+  "required": [
+    "pid",
+    "path"
+  ],
+  "type": "object"
+}

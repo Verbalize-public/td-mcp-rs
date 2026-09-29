@@ -119,6 +119,8 @@ pub enum ToolName {
     /// it did. This is the other half: a source registered once and referenced
     /// by content afterwards.
     ScriptSource,
+    /// Export a COMP's control surface, or apply one additively.
+    ParamInterface,
     /// Frame-exact video recording jobs.
     Record,
     /// Live TD Python API cards / class index.
@@ -161,6 +163,7 @@ impl ToolName {
             Self::Capture => "capture",
             Self::SampleData => "sample_data",
             Self::ScriptSource => "script_source",
+            Self::ParamInterface => "param_interface",
             Self::Record => "record",
             Self::ApiHelp => "api_help",
             Self::EditorContext => "editor_context",
@@ -202,6 +205,9 @@ impl ToolName {
             }
             Self::ScriptSource => {
                 "Register a Python source once and refer to it by content afterwards. register NEVER runs the code — it returns a sourceId and the scene is untouched, because a registry that executed on register would be a remote-execution primitive. sourceId is the SHA-256 of the source itself, so a ref cannot go stale: its identity IS its bytes, and any peer can reconstruct the source from them without trusting this daemon. declare dependencies[] ({kind:op|module, target}) and they are resolved on every run: present, missing, or RETARGETED when a different node now answers to that name — a run reports that beside its result rather than refusing or hiding it. run forwards to the same execute_python entry point with the same globals and bounds, adds no global and widens no builtins, and returns effect=unknown when the script raised (it stopped, not that nothing happened) or unobserved when it returned (nothing here inspects the scene afterwards). list is a roster and never echoes source bodies; describe returns the body. delete forgets the registry, not the fact that something ran. Use execute_python directly for one-off inline control."
+            }
+            Self::ParamInterface => {
+                "Export a COMP's control surface, or apply one. inspect reports parameter VALUES; this is the interface — pages, names, types, ranges, menu items — that a builder or another tool needs to drive a panel. export (the default) changes nothing. Type names come from TD's is* predicates, not parmType: on this build parmType is null for every created parameter, so a type this bridge could not identify is reported as \"unknown\" WITH the predicates that were checked, never as a confident wrong answer. int and float are told apart (isInt/isFloat), so a count is not silently converted. apply is ADDITIVE: it adds what is missing and removes nothing, because deleting a user's controls because a payload did not list them would be a data-loss primitive. It is idempotent — applying twice creates nothing the second time. A parameter that already exists with a DIFFERENT type is SKIPPED with the reason, never converted; turning your int count into a float is not a migration you asked for, and one conflict does not abort the rest of the panel. Every step is created/unchanged/skipped/failed and the counts sum to what you requested, so ok means here is what happened. Menu items are a second step: TD refuses a menuNames keyword at creation."
             }
             Self::Record => "Record exactly frames consecutive samples from one TOP output, without audio. Starts a reset+forward-advance job; status/cancel remain available while it owns the PID. Default timeline FPS, qtrle MOV. Finalized artifact metadata is sample-table verified; read retrieves bounded base64 chunks by jobId/offset/length (works remotely), release removes the private artifact. Retains at most eight jobs per TD bridge generation.",
             Self::ApiHelp => {
@@ -253,6 +259,7 @@ impl ToolName {
         Self::Capture,
         Self::SampleData,
         Self::ScriptSource,
+        Self::ParamInterface,
         Self::Record,
         Self::ApiHelp,
         Self::EditorContext,
@@ -280,6 +287,7 @@ impl ToolName {
             "capture" => Some(Self::Capture),
             "sample_data" => Some(Self::SampleData),
             "script_source" => Some(Self::ScriptSource),
+            "param_interface" => Some(Self::ParamInterface),
             "record" => Some(Self::Record),
             "api_help" => Some(Self::ApiHelp),
             "editor_context" => Some(Self::EditorContext),
@@ -1723,6 +1731,58 @@ async fn dispatch_tool_inner(
                 // `normal`: a registered source's failure is its own, and the
                 // `debug` mode attaches frame locals from a call this tool did
                 // not make.
+                crate::tools::FormatMode::Normal,
+                params.context_path,
+            )
+        }
+        ToolName::ParamInterface => {
+            let params: crate::param_interface::ParamInterfaceParams =
+                parse_args(catalog, tool, args.clone())?;
+            if let ControlFlow::Break(v) = maybe_proxy_bridged(
+                federation,
+                registry,
+                catalog,
+                "param_interface",
+                args,
+                params.daemon_id.as_deref(),
+                params.pid,
+                session,
+            )
+            .await?
+            {
+                return Ok(v);
+            }
+            let _slot = begin_session_slot(
+                session,
+                catalog,
+                "param_interface",
+                DAEMON_SCOPE_LOCAL,
+                params.pid,
+            )?;
+            // Not classifiable from this layer: `export` cannot change anything
+            // and `apply` creates parameters, which changes the operator. An
+            // effect this layer cannot establish is `Unknown`, and the bridge's
+            // per-step reporting is what actually says what happened.
+            let outcome = enqueue_and_call(
+                registry,
+                bridge,
+                params.pid,
+                BridgeMethod::ParamInterface,
+                EffectClass::Unknown,
+                serde_json::json!({
+                    "action": params.action.as_str(),
+                    "path": params.path,
+                    "contextPath": params.context_path,
+                    "definitions": params.definitions,
+                }),
+                journal,
+            )
+            .await;
+            map_script_outcome(
+                catalog,
+                params.pid,
+                outcome,
+                params.diagnostic_level,
                 crate::tools::FormatMode::Normal,
                 params.context_path,
             )

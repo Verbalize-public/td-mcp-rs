@@ -23,6 +23,7 @@ mod outcomes;
 pub mod output_v2;
 pub mod output_views;
 pub mod palette;
+pub mod param_interface;
 
 pub mod project_install;
 pub mod project_lint;
