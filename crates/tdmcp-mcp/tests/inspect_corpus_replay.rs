@@ -406,7 +406,14 @@ fn public_inspect_fixtures_round_trip_through_the_codec() -> Result<(), Box<dyn 
         dir.display()
     );
 
-    let tally = replay(&OutputCodec::default(), &payloads, None)?;
+    // The public set is the one a release pass can always measure, because it
+    // is checked in and the private corpus is not. Passing `None` here left
+    // `TDMCP_TOKEN_DUMP` writing nothing for the public set, so
+    // `measure_tokens.py` and `measure_decision_fidelity.py` could only run
+    // against recorded payloads a contributor does not have -- which is
+    // exactly the population a reviewer cannot check, and makes both scripts
+    // unverifiable in CI.
+    let tally = replay(&OutputCodec::default(), &payloads, TokenDump::requested()?)?;
     report("public fixture", &payloads, &tally);
     Ok(())
 }

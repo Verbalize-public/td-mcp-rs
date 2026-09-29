@@ -56,6 +56,40 @@ git add claude-skills
 See [skill authoring](../skills/README.md) and
 [bootstrap packing](../scripts/pack_bootstrap_tox.md).
 
+## Release measurements
+
+Two offline measurements read the document pairs `TDMCP_TOKEN_DUMP` writes from
+`crates/tdmcp-mcp/tests/inspect_corpus_replay.rs`. They answer different
+questions and are not substitutes.
+
+```sh
+TDMCP_TOKEN_DUMP=/tmp/dump.json \
+  cargo test --offline --locked -p tdmcp-mcp --test inspect_corpus_replay
+
+.venv/bin/python scripts/measure_tokens.py /tmp/dump.json               # COST
+.venv/bin/python scripts/measure_decision_fidelity.py /tmp/dump.json   # FIDELITY
+```
+
+`measure_tokens.py` reports the saving in **tokens**, naming and proving the
+tokenizer. `measure_decision_fidelity.py` asks whether the compact document
+still answers the questions the full one answered — whether a factored-out
+default is recoverable rather than reading as absent, whether `null`/`false`/
+`0`/`""` survive, whether a per-node failure stays visible. Both refuse to
+report a number they did not earn: the first when an encoding will not prove
+itself, the second when there is no compact document, when the dump's rows
+disagree with each other, or when the codec version is not one it was written
+against.
+
+A smaller representation that increases mistakes does not ship by default, so
+the fidelity script's exit code is a **release gate**, not a report. Neither
+script measures model behaviour; both measure documents, and neither is
+evidence about what any particular model would conclude from them.
+
+The replay writes its dump for the public fixture set (`scripts/fixtures/inspect/`)
+as well as for a recorded corpus, so a reviewer without the private recorded
+payloads can still reproduce every figure. Point `TDMCP_INSPECT_CORPUS` at a
+recorded directory to repeat the same measurement over real data.
+
 ## Release and CI
 
 CI is manual on ordinary branches, with optional native Windows/macOS tests.
