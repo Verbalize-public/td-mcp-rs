@@ -191,7 +191,26 @@ pub struct BridgeSection {
     pub pong_timeout_secs: u64,
     /// Tear down after this many seconds with no inbound framed traffic.
     pub idle_dead_secs: u64,
+    /// Bytes of encoded image content admitted into an MCP result's
+    /// `content[]`. See [`DEFAULT_ADMISSION_MAX_IMAGE_BYTES`].
+    pub admission_max_image_bytes: usize,
 }
+
+/// Bytes of encoded image admitted into an MCP result's attachment list by
+/// default.
+///
+/// DERIVED from rmcp's client-side SSE reader, which refuses any single event
+/// over 16 MiB (`DEFAULT_MAX_SSE_EVENT_SIZE` in rmcp 3.0.1,
+/// `src/transport/common/client_side_sse.rs`). Base64 inflates by 4/3, so an
+/// 8 MiB image becomes ~10.7 MiB and leaves headroom for the rest of the
+/// event.
+///
+/// This is a SAFE bound, not a tuned one: it has not been frozen against a
+/// measured workload distribution, which is why it is configurable. The
+/// server cannot see the client's real limit — rmcp does not expose the cap
+/// it applies, and a non-rmcp client may have none — so an over-budget image
+/// says so in its `admission` block instead of assuming the client coped.
+pub const DEFAULT_ADMISSION_MAX_IMAGE_BYTES: usize = 8 * 1024 * 1024;
 
 impl Default for BridgeSection {
     fn default() -> Self {
@@ -203,6 +222,7 @@ impl Default for BridgeSection {
             heartbeat_interval_secs: 5,
             pong_timeout_secs: 8,
             idle_dead_secs: 20,
+            admission_max_image_bytes: DEFAULT_ADMISSION_MAX_IMAGE_BYTES,
         }
     }
 }
@@ -1162,6 +1182,31 @@ show_tray = true
         assert_eq!(cfg.server.bind_address, "127.0.0.1");
         assert_eq!(cfg.auth.mode, "none");
         assert!(cfg.auth.psk.is_empty());
+    }
+
+    #[test]
+    fn the_admission_bound_is_configurable_and_defaults_when_unset() {
+        // The default must be the derived one, not a number chosen to make a
+        // measurement look good: 8 MiB of encoded image is ~10.7 MiB of
+        // base64, which is what leaves headroom under rmcp's 16 MiB reader.
+        assert_eq!(
+            ConfigFile::default().bridge.admission_max_image_bytes,
+            DEFAULT_ADMISSION_MAX_IMAGE_BYTES
+        );
+        assert_eq!(DEFAULT_ADMISSION_MAX_IMAGE_BYTES, 8 * 1024 * 1024);
+
+        // A value that clears the base64 expansion of the 16 MiB event cap
+        // must still be honoured -- the server cannot know the client's real
+        // limit, so the operator's setting is the authority.
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join("config.toml");
+        fs::write(&path, "[bridge]\nadmission_max_image_bytes = 1048576\n").expect("write");
+        let cfg: ConfigFile =
+            toml_edit::de::from_str(&fs::read_to_string(&path).expect("read")).expect("parse");
+        assert_eq!(cfg.bridge.admission_max_image_bytes, 1_048_576);
+        // Setting one key must not disturb the rest of the section.
+        assert_eq!(cfg.bridge.port, DEFAULT_BRIDGE_PORT);
+        assert_eq!(cfg.bridge.idle_dead_secs, 20);
     }
 
     #[test]

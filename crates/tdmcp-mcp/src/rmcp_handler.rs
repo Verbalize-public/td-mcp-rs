@@ -23,6 +23,7 @@ use rmcp::service::RequestContext;
 use rmcp::{ErrorData, RoleServer, ServerHandler};
 use serde_json::Value;
 
+use crate::admission::{admission_record, admit_image, Admission, AdmissionPolicy};
 use crate::resources::{server_capabilities, SERVER_INSTRUCTIONS};
 use crate::schema::input_schema_for;
 use crate::session_registry::McpSessionRegistry;
@@ -198,7 +199,14 @@ impl ServerHandler for McpHandler {
         )
         .await
         {
-            Ok(value) => Ok(call_tool_result_from_value(&name, value).into()),
+            Ok(value) => Ok(call_tool_result_from_value(
+                &name,
+                value,
+                AdmissionPolicy {
+                    max_image_bytes: self.state.admission_max_image_bytes,
+                },
+            )
+            .into()),
             Err(ToolCallError::UnknownTool(name)) => {
                 let hint = crate::args_diag::suggest_tool(&name)
                     .map(|s| format!(" — did you mean `{s}`?"))
@@ -210,7 +218,15 @@ impl ServerHandler for McpHandler {
             }
             Err(ToolCallError::Failed(fail)) => {
                 let payload = fail.structured_content();
-                Ok(call_tool_error_result(payload, fail.image_base64, fail.image_mime_type).into())
+                Ok(call_tool_error_result(
+                    payload,
+                    fail.image_base64,
+                    fail.image_mime_type,
+                    AdmissionPolicy {
+                        max_image_bytes: self.state.admission_max_image_bytes,
+                    },
+                )
+                .into())
             }
         }
     }
@@ -305,52 +321,182 @@ fn elision_notice(omitted_bytes: usize) -> String {
 }
 
 /// Build an MCP tool result, promoting top-level `imageBase64` to an image block.
-fn call_tool_result_from_value(tool: &str, mut value: Value) -> CallToolResult {
+fn call_tool_result_from_value(
+    tool: &str,
+    mut value: Value,
+    policy: AdmissionPolicy,
+) -> CallToolResult {
     if tool == "capture" {
         if let Some(samples) = value.get_mut("samples").and_then(Value::as_array_mut) {
             let mut content = Vec::new();
+            let mut tally = ImageTally::default();
             for sample in samples {
                 let offset = sample.get("offset").cloned().unwrap_or(Value::Null);
                 if let Some(capture) = sample.get_mut("capture").and_then(Value::as_object_mut) {
-                    if let Some(Value::String(b64)) = capture.remove("imageBase64") {
+                    if let Some(Value::String(b64)) = capture.get("imageBase64").cloned() {
                         let mime = capture
                             .get("mimeType")
                             .and_then(Value::as_str)
-                            .unwrap_or("image/png");
-                        content.push(ContentBlock::text(format!(
-                            "Capture sample offset {offset}"
-                        )));
-                        content.push(ContentBlock::image(b64, mime.to_owned()));
+                            .unwrap_or("image/png")
+                            .to_owned();
+                        let label = format!("Capture sample offset {offset}");
+                        // `remove` only on admission: a withheld image must
+                        // stay in structuredContent, because that is the only
+                        // place its bytes remain once the attachment list is
+                        // skipped.
+                        let bytes = encoded_len(capture, &b64);
+                        let admitted = admit_image(policy, bytes) == Admission::Admitted;
+                        if admitted {
+                            capture.remove("imageBase64");
+                            content.push(ContentBlock::text(label));
+                            content.push(ContentBlock::image(b64, mime));
+                        } else {
+                            content.push(ContentBlock::text(withheld_label(&label, bytes)));
+                        }
+                        tally.record(bytes, admitted);
                     }
                 }
             }
             if !content.is_empty() {
+                if let Some(obj) = value.as_object_mut() {
+                    obj.insert(
+                        "admission".to_owned(),
+                        admission_record(
+                            policy,
+                            tally.generated,
+                            tally.admitted,
+                            tally.generated_bytes,
+                            tally.withheld_bytes,
+                        ),
+                    );
+                }
                 let mut result = CallToolResult::success(content);
                 result.structured_content = Some(value);
                 return text_copy_or_pointer(result);
             }
         }
-        return match try_perception_image_result(value) {
+        return match try_perception_image_result(value, policy) {
             Ok(result) => text_copy_or_pointer(result),
-            Err(value) => text_copy_or_pointer(CallToolResult::structured(value)),
+            // No image in this capture. The admission record is still added,
+            // reporting `not_applicable`: a caller that finds no `admission`
+            // key cannot tell "this capture had no image" from "this server
+            // does not report admission", and those are very different facts.
+            Err(mut value) => {
+                if let Some(obj) = value.as_object_mut() {
+                    obj.insert("admission".to_owned(), admission_record(policy, 0, 0, 0, 0));
+                }
+                text_copy_or_pointer(CallToolResult::structured(value))
+            }
         };
     }
     text_copy_or_pointer(CallToolResult::structured(value))
 }
 
+/// Running totals for the images in one result, so the `admission` record can
+/// report what the server generated and what it admitted as separate numbers.
+#[derive(Debug, Default)]
+struct ImageTally {
+    generated: usize,
+    admitted: usize,
+    generated_bytes: u64,
+    withheld_bytes: u64,
+}
+
+impl ImageTally {
+    fn record(&mut self, bytes: usize, admitted: bool) {
+        self.generated += 1;
+        self.generated_bytes += bytes as u64;
+        if admitted {
+            self.admitted += 1;
+        } else {
+            self.withheld_bytes += bytes as u64;
+        }
+    }
+}
+
+/// Encoded byte count for an image, preferring the bridge's own `bytes`.
+///
+/// `bytes` is the size of the encoded image, which is what the admission bound
+/// is expressed in and what the caller is shown. If it is missing the base64
+/// length is an over-estimate (base64 inflates by 4/3), so the record errs
+/// toward withholding — the safe direction for a bound whose job is to keep
+/// oversized attachments out of the event.
+fn encoded_len(capture: &serde_json::Map<String, Value>, b64: &str) -> usize {
+    capture
+        .get("bytes")
+        .and_then(Value::as_u64)
+        .map_or_else(|| decoded_len(b64), |bytes| bytes as usize)
+}
+
+/// Decoded length of a base64 payload, from its encoded length.
+fn decoded_len(b64: &str) -> usize {
+    b64.len() / 4 * 3
+}
+
+/// The caption that replaces a withheld image's attachment.
+///
+/// It has to say what the client is not getting and where it is instead, or a
+/// text-rendering client sees a capture with no picture and concludes the
+/// capture failed.
+fn withheld_label(label: &str, bytes: usize) -> String {
+    format!(
+        "{label}: the image was NOT attached. It is {bytes} encoded bytes, above this \
+         server's admission bound, so it was withheld from the attachment list to keep \
+         this response within transport limits. The exact bytes are unchanged in \
+         structuredContent, or re-capture with a smaller maxSize."
+    )
+}
+
 fn call_tool_error_result(
-    payload: Value,
+    mut payload: Value,
     image_base64: Option<String>,
     image_mime_type: Option<String>,
+    policy: AdmissionPolicy,
 ) -> CallToolResult {
     if let Some(b64) = image_base64.filter(|s| !s.is_empty()) {
         let mime = image_mime_type
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| "image/png".into());
-        let mut result = CallToolResult::error(vec![
-            ContentBlock::image(b64, mime),
-            ContentBlock::text(payload.to_string()),
-        ]);
+        // A refusal that carried an image is a real case: `black_frame` and
+        // `wrong_family` return the image alongside the refusal precisely so
+        // the caller can see WHY it was refused. Withholding it would remove
+        // the evidence for the refusal, so the withheld caption names it.
+        let bytes = decoded_len(&b64);
+        let admitted = admit_image(policy, bytes) == Admission::Admitted;
+        let mut tally = ImageTally::default();
+        tally.record(bytes, admitted);
+        if let Some(obj) = payload.as_object_mut() {
+            // The image arrives here as a separate argument, so on the
+            // withheld path it has to be put back into the structured payload
+            // — otherwise the bytes the caption points at do not exist.
+            if !admitted {
+                obj.insert("imageBase64".to_owned(), Value::String(b64.clone()));
+            }
+            obj.insert(
+                "admission".to_owned(),
+                admission_record(
+                    policy,
+                    tally.generated,
+                    tally.admitted,
+                    tally.generated_bytes,
+                    tally.withheld_bytes,
+                ),
+            );
+        }
+        let content = if admitted {
+            vec![
+                ContentBlock::image(b64, mime),
+                ContentBlock::text(payload.to_string()),
+            ]
+        } else {
+            vec![ContentBlock::text(format!(
+                "{payload} — the image that came with this refusal ({bytes} encoded bytes) \
+                 was NOT attached: it is above this server's admission bound, so it was \
+                 withheld from the attachment list to keep the response within transport \
+                 limits. The bytes are unchanged in structuredContent.imageBase64."
+            ))]
+        };
+        let mut result = CallToolResult::error(content);
         result.structured_content = Some(payload);
         return text_copy_or_pointer(result);
     }
@@ -358,18 +504,19 @@ fn call_tool_error_result(
 }
 
 /// Promote top-level PNG (or other) payload to an image content block.
-fn try_perception_image_result(mut value: Value) -> Result<CallToolResult, Value> {
+fn try_perception_image_result(
+    mut value: Value,
+    policy: AdmissionPolicy,
+) -> Result<CallToolResult, Value> {
     let Some(obj) = value.as_object_mut() else {
         return Err(value);
     };
-    let b64 = match obj.remove("imageBase64") {
-        Some(Value::String(s)) if !s.is_empty() => s,
-        other => {
-            if let Some(v) = other {
-                obj.insert("imageBase64".into(), v);
-            }
-            return Err(value);
-        }
+    // Read without removing: the bytes are only taken out of the structured
+    // payload when they are actually attached, so a withheld image is still
+    // recoverable from `structuredContent.imageBase64`.
+    let b64 = match obj.get("imageBase64") {
+        Some(Value::String(s)) if !s.is_empty() => s.clone(),
+        _ => return Err(value),
     };
     let mime = obj
         .get("mimeType")
@@ -382,12 +529,47 @@ fn try_perception_image_result(mut value: Value) -> Result<CallToolResult, Value
         .and_then(|v| v.as_str())
         .unwrap_or("capture")
         .to_owned();
-    let bytes = obj.get("bytes").and_then(|v| v.as_u64()).unwrap_or(0);
-    let note = format!("Captured TOP image from {path} ({bytes} bytes, {mime}).");
-    let mut result = CallToolResult::success(vec![
-        ContentBlock::image(b64, mime),
-        ContentBlock::text(note),
-    ]);
+    let bytes = obj
+        .get("bytes")
+        .and_then(Value::as_u64)
+        .unwrap_or(decoded_len(&b64) as u64);
+    // `bytes` is the size of the ENCODED image — the bridge reported the PNG
+    // length — and the admission bound is expressed in the same unit. A
+    // missing `bytes` falls back to the base64 length, which over-estimates
+    // by 4/3 and so errs toward withholding rather than toward admitting a
+    // payload nobody measured.
+    let admitted = admit_image(policy, bytes as usize) == Admission::Admitted;
+    let mut tally = ImageTally::default();
+    tally.record(bytes as usize, admitted);
+    if let Some(obj) = value.as_object_mut() {
+        if admitted {
+            obj.remove("imageBase64");
+        }
+        obj.insert(
+            "admission".to_owned(),
+            admission_record(
+                policy,
+                tally.generated,
+                tally.admitted,
+                tally.generated_bytes,
+                tally.withheld_bytes,
+            ),
+        );
+    }
+    let content = if admitted {
+        vec![
+            ContentBlock::image(b64, mime.clone()),
+            ContentBlock::text(format!(
+                "Captured TOP image from {path} ({bytes} bytes, {mime})."
+            )),
+        ]
+    } else {
+        vec![ContentBlock::text(withheld_label(
+            &format!("Captured TOP image from {path} ({bytes} bytes, {mime})"),
+            bytes as usize,
+        ))]
+    };
+    let mut result = CallToolResult::success(content);
     result.structured_content = Some(value);
     Ok(result)
 }
@@ -408,7 +590,7 @@ mod tests {
             {"offset":0,"timing":{"frame":10},"capture":{"imageBase64":"eA==","mimeType":"image/png"}},
             {"offset":3,"timing":{"frame":13},"capture":{"imageBase64":"eQ==","mimeType":"image/png"}}
         ]});
-        let result = call_tool_result_from_value("capture", value);
+        let result = call_tool_result_from_value("capture", value, AdmissionPolicy::default());
         assert_eq!(result.content.len(), 4);
         assert!(result.content[0]
             .as_text()
@@ -455,7 +637,7 @@ mod tests {
             "mimeType": "image/png",
             "imageBase64": "AAAA",
         });
-        let result = call_tool_result_from_value("capture", value);
+        let result = call_tool_result_from_value("capture", value, AdmissionPolicy::default());
         assert_eq!(result.is_error, Some(false));
         assert_eq!(result.content.len(), 2);
         let image = result.content[0].as_image().expect("image block");
@@ -471,14 +653,18 @@ mod tests {
     #[test]
     fn non_capture_stays_structured_only() {
         let value = json!({"ok": true, "node": {"path": "/project1"}});
-        let result = call_tool_result_from_value("inspect", value);
+        let result = call_tool_result_from_value("inspect", value, AdmissionPolicy::default());
         assert!(result.content.iter().all(|c| c.as_image().is_none()));
     }
 
     #[test]
     fn small_result_keeps_the_duplicate_text_block() {
         let value = json!({"ok": true, "result": 1});
-        let result = call_tool_result_from_value("execute_python", value.clone());
+        let result = call_tool_result_from_value(
+            "execute_python",
+            value.clone(),
+            AdmissionPolicy::default(),
+        );
         assert_eq!(
             result.content.len(),
             1,
@@ -498,7 +684,11 @@ mod tests {
         // "text" and make this assertion pass for the wrong reason.
         let big = "Q".repeat(DUPLICATE_TEXT_SKIP_BYTES + 1);
         let value = json!({"ok": true, "result": big});
-        let result = call_tool_result_from_value("execute_python", value.clone());
+        let result = call_tool_result_from_value(
+            "execute_python",
+            value.clone(),
+            AdmissionPolicy::default(),
+        );
         assert_eq!(
             result.content.len(),
             1,
@@ -521,7 +711,8 @@ mod tests {
     fn oversized_error_result_also_replaces_the_duplicate_text_with_a_pointer() {
         let big = "Q".repeat(DUPLICATE_TEXT_SKIP_BYTES + 1);
         let payload = json!({"ok": false, "summary": big});
-        let result = call_tool_error_result(payload.clone(), None, None);
+        let result =
+            call_tool_error_result(payload.clone(), None, None, AdmissionPolicy::default());
         let text = result.content[0].as_text().expect("text").text.clone();
         assert!(
             text.contains("structuredContent"),
@@ -546,6 +737,7 @@ mod tests {
                 "path": "/project1/out1", "bytes": 4,
                 "mimeType": "image/png", "imageBase64": "AAAA",
             }),
+            AdmissionPolicy::default(),
         );
         // The attachment is untouched and still exact.
         let images: Vec<_> = result
@@ -591,6 +783,7 @@ mod tests {
                 "ok": true, "path": "/project1/out1", "bytes": 4,
                 "mimeType": "image/png", "imageBase64": "AAAA",
             }),
+            AdmissionPolicy::default(),
         );
         let texts: Vec<&str> = result
             .content
@@ -601,5 +794,278 @@ mod tests {
             !texts.iter().any(|t| t.contains("structuredContent")),
             "a small capture must not claim anything was elided: {texts:?}"
         );
+    }
+
+    // --- admission -------------------------------------------------------
+    //
+    // The load-bearing claim of every test below: a WITHHELD image is still in
+    // `structuredContent`, byte for byte. Withholding is a decision about the
+    // attachment list, not a deletion.
+
+    /// The ordinary capture path: an admitted image is attached AND removed
+    /// from the structured payload (as it always was), and the admission record
+    /// says so.
+    #[test]
+    fn an_admitted_capture_says_admitted_in_both_halves() {
+        let result = call_tool_result_from_value(
+            "capture",
+            json!({
+                "ok": true, "path": "/project1/out1", "bytes": 12,
+                "mimeType": "image/png", "imageBase64": "AAAA",
+            }),
+            AdmissionPolicy::default(),
+        );
+        assert_eq!(result.content[0].as_image().expect("image").data, "AAAA");
+        let structured = result.structured_content.expect("structured");
+        assert!(structured.pointer("/imageBase64").is_none());
+        assert_eq!(structured["admission"]["admitted"]["verdict"], "admitted");
+        assert_eq!(structured["admission"]["generated"]["images"], 1);
+        assert_eq!(structured["admission"]["generated"]["bytes"], 12);
+        assert_eq!(
+            structured["admission"]["includedInModelInput"]["state"],
+            "unavailable"
+        );
+    }
+
+    /// The core case: over the bound, the image is NOT attached, but its bytes
+    /// are still there, and a text-only client is told what happened.
+    ///
+    /// `bytes` is set explicitly rather than left to the base64 length, so the
+    /// test exercises the reported-size path and the decision is a clean
+    /// function of a number the caller can check.
+    #[test]
+    fn a_withheld_image_keeps_its_bytes_and_says_where_they_are() {
+        let result = call_tool_result_from_value(
+            "capture",
+            json!({
+                "ok": true, "path": "/project1/out1", "bytes": 5000,
+                "mimeType": "image/png", "imageBase64": "QUJDREU=",
+            }),
+            AdmissionPolicy {
+                max_image_bytes: 1000,
+            },
+        );
+        // Not attached.
+        assert!(
+            result.content.iter().all(|b| b.as_image().is_none()),
+            "an over-budget image must not be attached: {:?}",
+            result.content
+        );
+        let structured = result.structured_content.expect("structured");
+        // Still there, unchanged.
+        assert_eq!(
+            structured.pointer("/imageBase64").and_then(Value::as_str),
+            Some("QUJDREU="),
+            "a withheld image must keep its exact bytes in structuredContent"
+        );
+        let admission = &structured["admission"];
+        assert_eq!(admission["admitted"]["verdict"], "withheld");
+        assert_eq!(admission["admitted"]["images"], 0);
+        assert_eq!(admission["admitted"]["withheldBytes"], 5000);
+        assert_eq!(admission["generated"]["bytes"], 5000);
+        // And a text-only client is told, in the same response.
+        let texts: Vec<&str> = result
+            .content
+            .iter()
+            .filter_map(|b| b.as_text().map(|t| t.text.as_str()))
+            .collect();
+        assert!(
+            texts.iter().any(|t| t.contains("NOT attached")),
+            "a text-only client must be told the picture is missing: {texts:?}"
+        );
+        assert!(
+            texts.iter().any(|t| t.contains("structuredContent")),
+            "the notice must name where the bytes are: {texts:?}"
+        );
+    }
+
+    /// `imageBase64` may be ABSENT (`bytes` reported, no base64). That is not
+    /// the same as an empty string, and it must not be turned into one.
+    #[test]
+    fn an_absent_image_is_not_an_empty_one() {
+        let result = call_tool_result_from_value(
+            "capture",
+            json!({"ok": true, "path": "/project1/out1", "bytes": 0}),
+            AdmissionPolicy::default(),
+        );
+        assert!(result.content.iter().all(|b| b.as_image().is_none()));
+        let structured = result.structured_content.expect("structured");
+        assert!(structured.pointer("/imageBase64").is_none());
+        // No images at all, so admission is not applicable rather than passed.
+        assert_eq!(
+            structured["admission"]["admitted"]["verdict"],
+            "not_applicable"
+        );
+    }
+
+    /// A per-sample batch with one admitted and one withheld image: the record
+    /// has to be `partial`, because that state is the one a single-image test
+    /// can never reach and it is the one an evaluation would get wrong.
+    #[test]
+    fn a_batch_records_partial_admission_rather_than_a_single_verdict() {
+        let result = call_tool_result_from_value(
+            "capture",
+            json!({
+                "ok": true, "jobId": "job", "samples": [
+                    {"offset":0, "capture":{"bytes":10, "imageBase64":"AAAA", "mimeType":"image/png"}},
+                    {"offset":3, "capture":{"bytes":5000, "imageBase64":"QUJDREU=", "mimeType":"image/png"}}
+                ]
+            }),
+            AdmissionPolicy {
+                max_image_bytes: 1000,
+            },
+        );
+        let images: Vec<_> = result
+            .content
+            .iter()
+            .filter(|b| b.as_image().is_some())
+            .collect();
+        assert_eq!(images.len(), 1, "only the in-budget sample attaches");
+        let structured = result.structured_content.expect("structured");
+        // The admitted one is stripped, the withheld one is not. Per sample.
+        assert!(structured
+            .pointer("/samples/0/capture/imageBase64")
+            .is_none());
+        assert_eq!(
+            structured
+                .pointer("/samples/1/capture/imageBase64")
+                .and_then(Value::as_str),
+            Some("QUJDREU=")
+        );
+        let admission = &structured["admission"];
+        assert_eq!(admission["generated"]["images"], 2);
+        assert_eq!(admission["admitted"]["images"], 1);
+        assert_eq!(admission["admitted"]["verdict"], "partial");
+        assert_eq!(admission["admitted"]["withheldBytes"], 5000);
+        // The caption order is still the sample order.
+        let texts: Vec<&str> = result
+            .content
+            .iter()
+            .filter_map(|b| b.as_text().map(|t| t.text.as_str()))
+            .collect();
+        assert!(texts[0].contains("offset 0"), "{texts:?}");
+        assert!(texts
+            .iter()
+            .any(|t| t.contains("offset 3") && t.contains("NOT attached")));
+    }
+
+    /// A refusal that carried an image: withholding must not delete the
+    /// evidence for the refusal. The image goes back into the structured
+    /// payload, because it arrived as a SEPARATE argument, not inside it.
+    #[test]
+    fn a_refusal_with_an_oversized_image_still_carries_the_image() {
+        let result = call_tool_error_result(
+            json!({"ok": false, "code": "tdmcp.perception.black_frame", "path": "/project1/out1"}),
+            Some("QUJDREU=".to_owned()),
+            Some("image/png".to_owned()),
+            AdmissionPolicy { max_image_bytes: 4 },
+        );
+        assert!(result.content.iter().all(|b| b.as_image().is_none()));
+        let structured = result.structured_content.expect("structured");
+        assert_eq!(
+            structured.pointer("/imageBase64").and_then(Value::as_str),
+            Some("QUJDREU="),
+            "the refused capture's image must survive withholding: {structured}"
+        );
+        assert_eq!(structured["code"], "tdmcp.perception.black_frame");
+        assert_eq!(structured["admission"]["admitted"]["verdict"], "withheld");
+        let texts: Vec<&str> = result
+            .content
+            .iter()
+            .filter_map(|b| b.as_text().map(|t| t.text.as_str()))
+            .collect();
+        assert!(
+            texts
+                .iter()
+                .any(|t| t.contains("black_frame") && t.contains("NOT attached")),
+            "the refusal text AND the withholding notice must both be present: {texts:?}"
+        );
+    }
+
+    /// A refusal with an in-budget image still attaches, exactly as before.
+    #[test]
+    fn a_refusal_with_an_admitted_image_is_unchanged() {
+        let result = call_tool_error_result(
+            json!({"ok": false, "code": "tdmcp.perception.wrong_family"}),
+            Some("AAAA".to_owned()),
+            Some("image/png".to_owned()),
+            AdmissionPolicy::default(),
+        );
+        assert_eq!(result.content[0].as_image().expect("image").data, "AAAA");
+        let structured = result.structured_content.expect("structured");
+        assert_eq!(structured["admission"]["admitted"]["verdict"], "admitted");
+        // The image is NOT duplicated into the structured payload on the
+        // admitted path: it was passed separately, and adding it back would
+        // double every refusal-with-image response.
+        assert!(structured.pointer("/imageBase64").is_none());
+    }
+
+    /// The bound is the bridge's REPORTED byte count, not the base64 length.
+    /// A 4-byte image in a 6-byte base64 field must still be admitted under a
+    /// 5-byte bound: measuring the wire form would withhold it and report a
+    /// limit the caller cannot check against `bytes`.
+    #[test]
+    fn the_bound_is_measured_against_the_reported_bytes() {
+        let value = json!({
+            "ok": true, "path": "/project1/out1", "bytes": 4,
+            "mimeType": "image/png", "imageBase64": "QUJDREU=",
+        });
+        let admitted = call_tool_result_from_value(
+            "capture",
+            value.clone(),
+            AdmissionPolicy { max_image_bytes: 5 },
+        );
+        assert!(
+            admitted.content.iter().any(|b| b.as_image().is_some()),
+            "4 reported bytes under a 5-byte bound must attach"
+        );
+        let withheld =
+            call_tool_result_from_value("capture", value, AdmissionPolicy { max_image_bytes: 3 });
+        assert!(
+            withheld.content.iter().all(|b| b.as_image().is_none()),
+            "4 reported bytes over a 3-byte bound must be withheld"
+        );
+    }
+
+    /// A MISSING `bytes` must not become zero. `bytes: 0` would compare equal to
+    /// anything and read as "this image is free"; the base64 length is used
+    /// instead, which over-estimates — the safe direction for a bound.
+    #[test]
+    fn a_missing_byte_count_is_measured_from_the_payload_not_treated_as_zero() {
+        let result = call_tool_result_from_value(
+            "capture",
+            json!({
+                "ok": true, "path": "/project1/out1",
+                "mimeType": "image/png", "imageBase64": "QUJDREU=",
+            }),
+            AdmissionPolicy { max_image_bytes: 3 },
+        );
+        assert!(
+            result.content.iter().all(|b| b.as_image().is_none()),
+            "an unmeasured image must not be admitted on a small bound"
+        );
+        let structured = result.structured_content.expect("structured");
+        assert_eq!(
+            structured["admission"]["generated"]["bytes"], 6,
+            "8 base64 chars decode to 8/4*3 = 6 bytes; the point is that it is \
+             not 0, and that 6 over a 3-byte bound withholds"
+        );
+    }
+
+    /// Zero is not a licence to admit everything. `with_admission` refuses the
+    /// configuration, but the decision function must be total anyway.
+    #[test]
+    fn a_zero_bound_withholds_rather_than_admitting_everything() {
+        let result = call_tool_result_from_value(
+            "capture",
+            json!({
+                "ok": true, "path": "/project1/out1", "bytes": 1,
+                "mimeType": "image/png", "imageBase64": "AA==",
+            }),
+            AdmissionPolicy { max_image_bytes: 0 },
+        );
+        assert!(result.content.iter().all(|b| b.as_image().is_none()));
+        let structured = result.structured_content.expect("structured");
+        assert_eq!(structured["admission"]["admitted"]["verdict"], "withheld");
     }
 }

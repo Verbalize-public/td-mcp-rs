@@ -7,6 +7,7 @@
 
 use include_dir::{include_dir, Dir};
 
+pub mod admission;
 mod args_diag;
 pub mod bridge_rpc;
 pub mod client_id;

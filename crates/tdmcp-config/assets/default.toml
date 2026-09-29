@@ -96,6 +96,25 @@ pong_timeout_secs = 8
 # Also forwarded to the Python bridge via handshake idleDeadSecs.
 idle_dead_secs = 20
 
+# Bytes of encoded image content admitted into an MCP tool result's
+# `content[]` (default: 8388608 = 8 MiB).
+#
+# An image is still GENERATED and still EMITTED over the wire: this bounds
+# only what is placed in the attachment list, and an over-budget image is
+# left in `structuredContent` and reported as withheld, never silently
+# dropped. Every capture result carries an `admission` block naming the
+# policy that decided it.
+#
+# DERIVED, NOT MEASURED: rmcp's client-side SSE reader refuses any single
+# event over 16 MiB (DEFAULT_MAX_SSE_EVENT_SIZE in
+# rmcp/src/transport/common/client_side_sse.rs), base64 inflates by 4/3, so
+# an 8 MiB image becomes ~10.7 MiB of base64 and stays under that cap with
+# room for the rest of the event. Raise it if your captures are larger,
+# lower it if your client is memory-constrained. The default has NOT yet
+# been frozen against a measured workload distribution, so treat it as a
+# safe bound rather than a tuned one.
+# admission_max_image_bytes = 8388608
+
 [advanced]
 # Optional overrides. Leave unset to use built-in defaults under the data dir.
 # `daemon_bin` is set automatically by `tdmcp-daemon install` and is the

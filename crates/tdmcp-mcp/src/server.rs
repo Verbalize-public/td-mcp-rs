@@ -80,6 +80,13 @@ pub struct AppState {
     /// resolved per request from the same identity claim as the receipts, so a
     /// store without an owner is never usable.
     pub evidence: Option<Arc<dyn EvidenceStore>>,
+    /// Bytes of encoded image admitted into an MCP result's `content[]`.
+    ///
+    /// Defaults to [`tdmcp_config::DEFAULT_ADMISSION_MAX_IMAGE_BYTES`] in both
+    /// constructors rather than being `Option`: a missing policy is not a
+    /// licence to admit everything, and it is not a licence to admit nothing
+    /// either. The daemon sets the operator's configured value.
+    pub admission_max_image_bytes: usize,
 }
 
 impl AppState {
@@ -100,6 +107,7 @@ impl AppState {
             federation: None,
             receipts: None,
             evidence: None,
+            admission_max_image_bytes: tdmcp_config::DEFAULT_ADMISSION_MAX_IMAGE_BYTES,
         }
     }
 
@@ -121,6 +129,7 @@ impl AppState {
             federation: None,
             receipts: None,
             evidence: None,
+            admission_max_image_bytes: tdmcp_config::DEFAULT_ADMISSION_MAX_IMAGE_BYTES,
         }
     }
 
@@ -142,6 +151,27 @@ impl AppState {
     #[must_use]
     pub fn with_evidence(mut self, evidence: Arc<dyn EvidenceStore>) -> Self {
         self.evidence = Some(evidence);
+        self
+    }
+
+    /// Set the encoded-image admission bound from configuration.
+    ///
+    /// A zero bound is refused rather than honoured: with no budget every
+    /// capture would be withheld, which reads as "captures are broken" rather
+    /// than "the configuration is wrong". The derived default is kept instead,
+    /// so the mismatch surfaces in the operator's log rather than silently in
+    /// every response.
+    #[must_use]
+    pub fn with_admission(mut self, max_image_bytes: usize) -> Self {
+        if max_image_bytes == 0 {
+            tracing::warn!(
+                requested = max_image_bytes,
+                applied = self.admission_max_image_bytes,
+                "admission_max_image_bytes of 0 would withhold every image; keeping the default"
+            );
+            return self;
+        }
+        self.admission_max_image_bytes = max_image_bytes;
         self
     }
 

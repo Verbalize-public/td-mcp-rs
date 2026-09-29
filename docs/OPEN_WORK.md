@@ -9,6 +9,14 @@ These are known constraints, not a delivery schedule.
   are capped at 64 KiB. Replies over the 32 MiB IPC budget fail without dropping
   the bridge. Recording has a bounded per-job artifact spool/read API, but
   there is no universal preview/pagination policy for arbitrary large results.
+- An image above `[bridge] admission_max_image_bytes` is **withheld from the
+  attachment list** and reported as such (`admission.admitted.verdict:
+  "withheld"`); its bytes stay in `structuredContent.imageBase64`. See
+  [Contract](CONTRACT.md#mcp-tool-result-shapes-stdio--rmcp). The server cannot
+  observe what a client's model was given, so `includedInModelInput` is always
+  `unavailable` — "the server sent an image" is not evidence that one was
+  inspected. The default bound is derived from rmcp's SSE event cap and has not
+  been frozen against a measured workload distribution.
 - Timed capture/record requires explicit TOP outputs; no audio or timed shared
   viewers. Initial recording is qtrle MOV (up to 4096×4096 / 512 MiB), tested on
   TD 2025.32460 under Wine/Linux. Native Windows/macOS and other codecs need

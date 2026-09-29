@@ -35,6 +35,7 @@ this computer across restarts.
 | HTTP/bridge listener, authentication | Restart required |
 | Tray, autostart, paths, logging, dialogs, official tools | Restart required |
 | Bridge heartbeat/pong/idle-dead settings | Restart required |
+| `bridge.admission_max_image_bytes` | Restart required |
 
 Manual edits to the file require a restart. Pending restart settings are
 compared against the running daemon's startup settings; reverting them removes
@@ -53,6 +54,13 @@ the restart requirement. A restart disconnects MCP/bridge sessions temporarily.
 - `bridge.port`: default **9861**, loopback only; the bootstrap must dial it.
 - `bridge.call_timeout_secs`: default **45**.
 - `bridge.script_timeout_secs`: default **120**.
+- `bridge.admission_max_image_bytes`: default **8388608** (8 MiB) of *encoded*
+  image. A capture image above this is withheld from the MCP attachment list
+  and reported in the result's `admission` block; its bytes stay in
+  `structuredContent.imageBase64`. `0` is refused (it would withhold every
+  image) and the default is kept. Derived from rmcp's 16 MiB client-side SSE
+  event cap — a safe bound, not a tuned one. See
+  [Contract](CONTRACT.md#mcp-tool-result-shapes-stdio--rmcp).
 - `project.template_path`: optional starter .toe; otherwise
   `{dataDir}/template.toe`. New-project creation never overwrites its target.
 - `official_tools`: optional TD/expand/collapse paths and Linux Wine overrides.

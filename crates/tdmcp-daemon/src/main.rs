@@ -1024,7 +1024,8 @@ async fn run_daemon(
     }
 
     let mut state = AppState::new_shared(registry.clone(), catalog, bridge, resource_provider)
-        .with_federation(fed_ctx);
+        .with_federation(fed_ctx)
+        .with_admission(cfg.bridge.admission_max_image_bytes);
     if let Some(receipts) = receipts.clone() {
         state = state.with_receipts(receipts);
     }

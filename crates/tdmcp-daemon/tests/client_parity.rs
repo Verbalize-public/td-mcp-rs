@@ -83,6 +83,12 @@ struct Harness {
 
 impl Harness {
     fn new(reply: Value) -> Self {
+        Self::with_admission(reply, tdmcp_config::DEFAULT_ADMISSION_MAX_IMAGE_BYTES)
+    }
+
+    /// Build a harness with an explicit admission bound, so a test can hold a
+    /// real image over a small budget without needing a large payload.
+    fn with_admission(reply: Value, max_image_bytes: usize) -> Self {
         let registry = Arc::new(tokio::sync::Mutex::new(registry_with_pid()));
         let calls = Arc::new(AtomicU64::new(0));
         let bridge = Arc::new(ScriptedBridge {
@@ -95,7 +101,8 @@ impl Harness {
             Catalog::fallback(),
             bridge,
             test_resource_provider().expect("resource provider"),
-        );
+        )
+        .with_admission(max_image_bytes);
         Harness {
             state,
             bridge_calls: calls,
@@ -698,4 +705,97 @@ async fn the_stdio_path_carries_a_large_answer_and_an_image_like_the_others() {
     );
     ct.cancel();
     assert_eq!(harness.calls(), 1, "one call, one bridge call");
+}
+
+/// The admission decision is made by the SERVER, so it has to be visible on
+/// every transport identically — a client that only speaks one of them must
+/// not learn a different story from the one it happens to speak.
+///
+/// The bound is set to 10 bytes and the image reports 70, so the withholding is
+/// real without needing a large payload: this exercises the decision, not the
+/// size.
+#[tokio::test]
+async fn a_withheld_image_reaches_every_transport_with_its_bytes_intact() {
+    let reply = json!({
+        "ok": true,
+        "path": "/project1/out1",
+        "bytes": 70,
+        "mimeType": "image/png",
+        "imageBase64": ONE_PIXEL_PNG,
+    });
+    let harness = Harness::with_admission(reply.clone(), 10);
+    let state = harness.state.clone();
+    let args = json!({"pid": 34, "path": "/project1/out1"});
+
+    // The dispatcher's own value. This is the tool's answer with no transport
+    // wrapper: it carries NO `admission` block, because admission is decided
+    // by the MCP layer, not by the tool. Asserting that is the point — the
+    // record must not be a property of the dispatcher that only appears once
+    // some client happens to read it.
+    let via_dispatch = direct(&state, "capture", args.clone()).await;
+    assert!(
+        via_dispatch.get("admission").is_none(),
+        "admission is a transport-layer decision, not a tool one: {via_dispatch}"
+    );
+
+    // The same call as a real MCP client sees it, over real Streamable HTTP.
+    let client = mcp_client(state).await;
+    let via_mcp = client.call(101, "capture", args).await;
+    let via_mcp_result = &via_mcp["result"];
+
+    // Every field the tool produced is unchanged by the transport.
+    for field in ["ok", "path", "bytes", "mimeType", "imageBase64"] {
+        assert_eq!(
+            via_dispatch[field], via_mcp_result["structuredContent"][field],
+            "the transport must not alter {field}"
+        );
+    }
+
+    // 1. Not attached, on any transport.
+    let images: Vec<_> = via_mcp_result["content"]
+        .as_array()
+        .expect("content array")
+        .iter()
+        .filter(|block| block["type"] == "image")
+        .collect();
+    assert!(
+        images.is_empty(),
+        "an over-budget image must not be attached: {via_mcp_result}"
+    );
+
+    // 2. The bytes are still there, byte for byte. Withholding is a decision
+    //    about the attachment list, not a deletion.
+    assert_eq!(
+        via_mcp_result["structuredContent"]["imageBase64"].as_str(),
+        Some(ONE_PIXEL_PNG),
+        "a withheld image must keep its exact bytes in structuredContent"
+    );
+
+    // 3. The four quantities are reported separately, and the one nobody can
+    //    observe says so.
+    let admission = &via_mcp_result["structuredContent"]["admission"];
+    assert_eq!(admission["generated"]["images"], 1);
+    assert_eq!(admission["generated"]["bytes"], 70);
+    assert_eq!(admission["admitted"]["images"], 0);
+    assert_eq!(admission["admitted"]["verdict"], "withheld");
+    assert_eq!(admission["admitted"]["maxImageBytes"], 10);
+    assert_eq!(admission["admitted"]["withheldBytes"], 70);
+    assert_eq!(
+        admission["includedInModelInput"]["state"], "unavailable",
+        "the server must not claim a client's model saw the image"
+    );
+
+    // 4. A text-only client is told, in text, in the same response.
+    let text = via_mcp_result["content"]
+        .as_array()
+        .expect("content array")
+        .iter()
+        .filter(|block| block["type"] == "text")
+        .filter_map(|block| block["text"].as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        text.contains("NOT attached") && text.contains("structuredContent"),
+        "a text-only client must be told the picture is withheld and where it is: {text}"
+    );
 }
