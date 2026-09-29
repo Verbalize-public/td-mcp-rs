@@ -259,6 +259,12 @@ def _load_bridge_package(pkg_dir: str | None) -> None:
     submodules in ``sys.modules`` (TD keeps the interpreter across dialer
     retries). Reload children deepest-first, then the package root so
     re-exports bind to the fresh callables.
+
+    A live session is carried across the reload rather than dropped — see
+    `_recover_session`. Reloading while connected is the ordinary path (every
+    bootstrap reloads), so without this the session would be forgotten
+    mid-flight and the reconnect watchdog would dial a second stream on top of
+    the first.
     """
     _timing.shutdown()
     if pkg_dir:
@@ -282,6 +288,13 @@ def _load_bridge_package(pkg_dir: str | None) -> None:
     pkg = sys.modules.get("tdmcp_bridge")
     if pkg is not None:
         importlib.reload(pkg)
+        # Re-adopt against the FRESH module globals; the reload above reset them.
+        # `getattr` because a package loaded from an older install (or a test's
+        # synthetic tree) may predate this call — an older package has no session
+        # of its own to recover, so there is nothing to carry and nothing to say.
+        recover = getattr(pkg, "_recover_session", None)
+        if recover is not None:
+            recover()
 
 
 def bootstrap(bridge_dir: str | None = None) -> dict[str, Any]:
@@ -390,6 +403,37 @@ def _debug_dat_mirror(record: dict[str, Any]) -> None:
 
 _active_stream: Any = None
 _active_thread: threading.Thread | None = None
+# Reload reuses the module object but RE-EXECUTES its body from an EMPTY dict,
+# so every name the body assigns is reset to None — including the live session.
+# A module global therefore cannot carry a value across its own reset, and
+# neither can a container the body re-creates: the dict is cleared before the
+# first statement runs, so even `if _handover is None` sees a fresh None and
+# makes a NEW empty container. Names the body only READS do survive, which is
+# why `logtap._unwrap_stale_tee` can walk an older `Tee` still on `sys.stdout`.
+#
+# So the handover travels on the WORKER THREAD, which outlives the module: the
+# stream is parked on the thread itself (`thread.tdmcp_stream`) and found again
+# by identity after a reload. Same class of bug as that logtap case — a reload
+# silently orphans state belonging to the previous generation.
+_WORKER_THREAD_NAME = "tdmcp-bridge-worker"
+
+
+def _recover_session() -> None:
+    """Re-adopt the live worker after a reload reset the session globals.
+
+    Only the one worker this bridge starts can be adopted, and only while it is
+    still alive: a dead worker is not a session, and reporting one as live is
+    the one outcome worse than forgetting a live one.
+    """
+    global _active_stream, _active_thread
+    for candidate in threading.enumerate():
+        if candidate.name != _WORKER_THREAD_NAME or not candidate.is_alive():
+            continue
+        stream = getattr(candidate, "tdmcp_stream", None)
+        if stream is not None:
+            _active_stream, _active_thread = stream, candidate
+            return
+    _active_stream, _active_thread = None, None
 
 
 def is_connected() -> bool:
@@ -461,8 +505,12 @@ def bootstrap_threaded(bridge_dir: str | None = None) -> dict[str, Any]:
             "max_call_wait_s": max_call_wait_s,
             "initial_event": ready,
         },
+        name=_WORKER_THREAD_NAME,
         daemon=True,
     )
+    # The stream travels WITH the thread, because the module that would hold it
+    # is reset by every reload (see `_recover_session`).
+    thread.tdmcp_stream = stream  # type: ignore[attr-defined]
     # Protect native Textport streams before the worker can print, including
     # an immediate read/teardown error on a just-opened connection.
     pkg.install(pkg._bridge_log_sender, on_local=pkg._debug_dat_mirror)
