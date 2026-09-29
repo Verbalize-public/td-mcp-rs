@@ -69,6 +69,12 @@ what is newly *labelled*, and what this release does not claim.
   only, so on a non-default `[bridge] port` it used to dial `9861` regardless —
   never connecting, or attaching a TouchDesigner to a *different* daemon that
   owned 9861. Found by live acceptance, not by a test.
+- fix: that port export now honours the daemon's own `TDMCP_IPC_PORT`
+  override instead of re-deriving the port from `[bridge] port` alone. A
+  daemon started with `TDMCP_IPC_PORT=…` binds that port while the config
+  still names another, so the first fix handed the child a stale port and
+  reintroduced the same wrong-daemon attachment. Proven live, and the
+  precedence is mutation-tested.
 - fix: project unpack and bridge install are fail-safe under concurrent
   writes
 - feat: set aside the file a replace is about to destroy

@@ -242,3 +242,15 @@ serving an empty list that reads as "nothing happened".
   Native Windows and macOS remain unqualified here, and the Wine path depends
   on a `wine_exe` launcher whose graphics and licensing setup is local to this
   machine.
+  machine.
+- No claim that a live TouchDesigner handshake is reproducible on demand.
+  One was measured on the build host against TouchDesigner 2025.32460 under
+  Wine, and the daemon-side facts behind it — the bound port and the port the
+  child is given — are covered by tests and by a live check. Re-running the
+  end-to-end launch on that machine later stopped succeeding for a reason
+  that is **not in this repository and has not been identified**; the Execute
+  DAT never executes on that host now, and the Wine graphics stack fails to
+  initialise. That is recorded as an open environment question, not as a
+  product claim in either direction. The behaviour when a daemon overrides the
+  bridge port through `TDMCP_IPC_PORT` is resolved by precedence that is
+  tested and was observed live.
