@@ -284,6 +284,35 @@ fn publish_template_copy(template: &Path, target: &Path) -> Result<(), CodedErro
     Ok(())
 }
 
+/// The bridge port to tell a spawned child about — minus the process-env read,
+/// so tests pass the override directly and never mutate shared env state
+/// (`std::env::set_var` is unsound in edition 2021 and racy beside other
+/// tests in the same binary).
+///
+/// Mirrors the daemon's OWN precedence — `TDMCP_IPC_PORT` overrides
+/// `[bridge] port` (`tdmcp_daemon::config::resolve_bridge_endpoint`,
+/// crates/tdmcp-daemon/src/config.rs:228) — because the child must dial the
+/// port the listener actually bound, not a re-derivation from config alone.
+/// Re-deriving from config alone would reintroduce exactly the class of bug
+/// this export fixes: a daemon started with `TDMCP_IPC_PORT=9972` binds 9972
+/// while `cfg.bridge.port` still says 9861, so the child would dial 9861.
+///
+/// A malformed or unparseable override yields `cfg.bridge.port`; the daemon
+/// would have refused to start on that value anyway, and spawning a child that
+/// is certain to fail is worse than telling it the configured value.
+fn effective_bridge_port_with(env_override: Option<&str>, cfg: &ConfigFile) -> u16 {
+    env_override
+        .map(str::trim)
+        .filter(|raw| !raw.is_empty())
+        .and_then(|raw| raw.parse::<u16>().ok())
+        .unwrap_or(cfg.bridge.port)
+}
+
+/// [`effective_bridge_port_with`] plus the process-env read.
+fn effective_bridge_port(cfg: &ConfigFile) -> u16 {
+    effective_bridge_port_with(std::env::var("TDMCP_IPC_PORT").ok().as_deref(), cfg)
+}
+
 /// Build the TouchDesigner child command: Wine-wrapped when needed, pointed at
 /// this daemon's bridge endpoint, with the project and extra args appended.
 ///
@@ -302,7 +331,7 @@ fn spawn_command(
     extra_args: &[String],
 ) -> std::process::Command {
     let mut cmd = tdmcp_projectio::wine::command_for(exe, true);
-    cmd.env("TDMCP_IPC_PORT", cfg.bridge.port.to_string());
+    cmd.env("TDMCP_IPC_PORT", effective_bridge_port(cfg).to_string());
     if let Some(pp) = project_path {
         cmd.arg(pp);
     }
@@ -663,6 +692,51 @@ mod spawn_command_tests {
         cmd.args(["-c", "printf %s \"$TDMCP_IPC_PORT\""]);
         let out = cmd.output().expect("run /bin/sh -c");
         assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "9975");
+    }
+
+    /// The env override the DAEMON itself honours must also reach the child.
+    ///
+    /// `TDMCP_IPC_PORT` overrides `[bridge] port` when the daemon binds
+    /// (`crates/tdmcp-daemon/src/config.rs:228-237`), so a daemon started as
+    /// `TDMCP_IPC_PORT=9972 …` listens on 9972 while `cfg.bridge.port` still
+    /// says 9861. Exporting the config value there would send the child back
+    /// to 9861 — the same wrong-daemon bug, reintroduced. This is the case
+    /// that was still broken after the first fix.
+    #[test]
+    fn the_daemons_env_override_reaches_the_child_and_beats_the_config_value() {
+        // The daemon bound 9972 from the environment, config says 9861.
+        assert_eq!(
+            effective_bridge_port_with(Some("9972"), &config_on(9861)),
+            9972,
+            "the child must dial the port the listener actually bound"
+        );
+        // No override: the config value is the bound port.
+        assert_eq!(effective_bridge_port_with(None, &config_on(9975)), 9975);
+        // Present but empty/whitespace: the daemon treats this as absent
+        // (`filter(|p| !p.is_empty())` at config.rs:228), so we must too.
+        assert_eq!(effective_bridge_port_with(Some(""), &config_on(9975)), 9975);
+        assert_eq!(
+            effective_bridge_port_with(Some("   "), &config_on(9975)),
+            9975
+        );
+        // Present and unparseable: the daemon would have refused to start
+        // (`parse::<u16>().with_context(..)?`), so there is no real daemon in
+        // this state; falling back to the config value beats dialing garbage.
+        assert_eq!(
+            effective_bridge_port_with(Some("not-a-port"), &config_on(9975)),
+            9975
+        );
+        // Boundaries parse as u16 and must survive, not fall back.
+        assert_eq!(effective_bridge_port_with(Some("0"), &config_on(9975)), 0);
+        assert_eq!(
+            effective_bridge_port_with(Some("65535"), &config_on(1)),
+            65535
+        );
+        // Leading/trailing whitespace is trimmed, exactly as the daemon does.
+        assert_eq!(
+            effective_bridge_port_with(Some(" 9972 "), &config_on(1)),
+            9972
+        );
     }
 
     /// Argument order is the contract Wine and TD both depend on: the project
