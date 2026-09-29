@@ -113,6 +113,12 @@ pub enum ToolName {
     /// Distinct from `capture`: capture serves an 8-bit PNG for a human to
     /// look at, and this returns the float values a comparison needs.
     SampleData,
+    /// Named Python sources: register, inspect, and run.
+    ///
+    /// `execute_python` still takes a script inline and still works exactly as
+    /// it did. This is the other half: a source registered once and referenced
+    /// by content afterwards.
+    ScriptSource,
     /// Frame-exact video recording jobs.
     Record,
     /// Live TD Python API cards / class index.
@@ -154,6 +160,7 @@ impl ToolName {
             Self::MutateNodes => "mutate_nodes",
             Self::Capture => "capture",
             Self::SampleData => "sample_data",
+            Self::ScriptSource => "script_source",
             Self::Record => "record",
             Self::ApiHelp => "api_help",
             Self::EditorContext => "editor_context",
@@ -192,6 +199,9 @@ impl ToolName {
             }
             Self::SampleData => {
                 "Exact float values from a TOP or CHOP — the tool for questions capture cannot answer. capture returns an 8-bit PNG; this returns values, so it can read 4.5, a NaN, a negative, and full float precision. pixels=[[x,y],…] reads named pixels and counts out-of-range ones rather than clamping; region={x,y,x1,y1} reads a rectangle; omit both for a whole-image SUMMARY (labelled isSummary, never to be compared as if it were the data). Coordinates are [x,y] as you name them; the array is [h,w] and the response says so. Set forceCook to read a current frame instead of whatever was last cooked. The response reports the TOP's pixelFormat and carriesHdr: a float32 array over an 8-bit texture is still clamped, and the read tells you which you got. Non-finite values come back as null with nonFinite counts, because JSON has no NaN."
+            }
+            Self::ScriptSource => {
+                "Register a Python source once and refer to it by content afterwards. register NEVER runs the code — it returns a sourceId and the scene is untouched, because a registry that executed on register would be a remote-execution primitive. sourceId is the SHA-256 of the source itself, so a ref cannot go stale: its identity IS its bytes, and any peer can reconstruct the source from them without trusting this daemon. declare dependencies[] ({kind:op|module, target}) and they are resolved on every run: present, missing, or RETARGETED when a different node now answers to that name — a run reports that beside its result rather than refusing or hiding it. run forwards to the same execute_python entry point with the same globals and bounds, adds no global and widens no builtins, and returns effect=unknown when the script raised (it stopped, not that nothing happened) or unobserved when it returned (nothing here inspects the scene afterwards). list is a roster and never echoes source bodies; describe returns the body. delete forgets the registry, not the fact that something ran. Use execute_python directly for one-off inline control."
             }
             Self::Record => "Record exactly frames consecutive samples from one TOP output, without audio. Starts a reset+forward-advance job; status/cancel remain available while it owns the PID. Default timeline FPS, qtrle MOV. Finalized artifact metadata is sample-table verified; read retrieves bounded base64 chunks by jobId/offset/length (works remotely), release removes the private artifact. Retains at most eight jobs per TD bridge generation.",
             Self::ApiHelp => {
@@ -242,6 +252,7 @@ impl ToolName {
         Self::MutateNodes,
         Self::Capture,
         Self::SampleData,
+        Self::ScriptSource,
         Self::Record,
         Self::ApiHelp,
         Self::EditorContext,
@@ -268,6 +279,7 @@ impl ToolName {
             "mutate_nodes" => Some(Self::MutateNodes),
             "capture" => Some(Self::Capture),
             "sample_data" => Some(Self::SampleData),
+            "script_source" => Some(Self::ScriptSource),
             "record" => Some(Self::Record),
             "api_help" => Some(Self::ApiHelp),
             "editor_context" => Some(Self::EditorContext),
@@ -1643,6 +1655,76 @@ async fn dispatch_tool_inner(
                 params.pid,
                 outcome,
                 params.diagnostic_level,
+            )
+        }
+        ToolName::ScriptSource => {
+            let params: crate::script_source::ScriptSourceParams =
+                parse_args(catalog, tool, args.clone())?;
+            if let ControlFlow::Break(v) = maybe_proxy_bridged(
+                federation,
+                registry,
+                catalog,
+                "script_source",
+                args,
+                params.daemon_id.as_deref(),
+                params.pid,
+                session,
+            )
+            .await?
+            {
+                return Ok(v);
+            }
+            // A session slot is taken for the whole tool, including the actions
+            // that cannot run anything. The pid queue is what keeps a `run`
+            // exclusive against other bridged work, and a registered source
+            // must not be able to acquire one.
+            let _slot = begin_session_slot(
+                session,
+                catalog,
+                "script_source",
+                DAEMON_SCOPE_LOCAL,
+                params.pid,
+            )?;
+            let outcome = enqueue_and_call(
+                registry,
+                bridge,
+                params.pid,
+                BridgeMethod::ScriptSource,
+                // Unclassified on purpose. Most actions (register, list,
+                // describe, check, delete) cannot change the scene at all, and
+                // `run` can change anything -- so this class is not knowable
+                // here without guessing, and an effect nobody established is
+                // what `Unknown` is for.
+                EffectClass::Unknown,
+                serde_json::json!({
+                    "action": params.action.as_str(),
+                    "source": params.source,
+                    "name": params.name,
+                    "dependencies": params.dependencies.as_ref().map(|deps| {
+                        deps.iter()
+                            .map(|dep| serde_json::json!({
+                                "kind": dep.kind(),
+                                "target": dep.target(),
+                            }))
+                            .collect::<Vec<_>>()
+                    }),
+                    "sourceId": params.source_id,
+                    "contextPath": params.context_path,
+                    "includeLogs": params.include_logs,
+                }),
+                journal,
+            )
+            .await;
+            map_script_outcome(
+                catalog,
+                params.pid,
+                outcome,
+                params.diagnostic_level,
+                // `normal`: a registered source's failure is its own, and the
+                // `debug` mode attaches frame locals from a call this tool did
+                // not make.
+                crate::tools::FormatMode::Normal,
+                params.context_path,
             )
         }
         ToolName::Record => {

@@ -1,0 +1,184 @@
+{
+  "$defs": {
+    "DiagnosticLevel": {
+      "description": "Payload size for diagnostics (independent of structural `detailLevel`).",
+      "oneOf": [
+        {
+          "const": "summary",
+          "description": "Codes, messages, capped lints, mitigation.",
+          "type": "string"
+        },
+        {
+          "const": "detailed",
+          "description": "Plus raw traceback / full TD dumps.",
+          "type": "string"
+        }
+      ]
+    },
+    "OpPath": {
+      "description": "Operator path string passed to TD for resolution via `td.op()`.",
+      "type": "string"
+    },
+    "Pid": {
+      "anyOf": [
+        {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "pattern": "^\\s*[0-9]+\\s*$",
+          "type": "string"
+        }
+      ],
+      "description": "OS process id — sole address for tools and queues."
+    },
+    "ScriptDependency": {
+      "anyOf": [
+        {
+          "description": "Shorthand: an OP path.",
+          "type": "string"
+        },
+        {
+          "description": "Explicit kind and target.",
+          "properties": {
+            "kind": {
+              "default": null,
+              "description": "`op` (default) or `module`.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "target": {
+              "description": "The path or module name.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "target"
+          ],
+          "type": "object"
+        }
+      ],
+      "description": "A declared dependency on something outside the script.\n\nA bare string is shorthand for an OP path, which is the common case and what\nthe bridge accepts. Two kinds are recognised, `op` and `module`; a wider\nvocabulary would mean inventing dependency semantics this tool has no basis\nfor."
+    },
+    "ScriptSourceAction": {
+      "description": "A `script_source` action.",
+      "oneOf": [
+        {
+          "const": "register",
+          "description": "Store a source and return an immutable ref. **Never executes it.**",
+          "type": "string"
+        },
+        {
+          "const": "describe",
+          "description": "Return one source, including its body.",
+          "type": "string"
+        },
+        {
+          "const": "list",
+          "description": "The roster of registered sources, without their bodies.",
+          "type": "string"
+        },
+        {
+          "const": "delete",
+          "description": "Forget a source in the registry.",
+          "type": "string"
+        },
+        {
+          "const": "run",
+          "description": "Execute a registered source through the inline `execute_python` path.",
+          "type": "string"
+        },
+        {
+          "const": "check",
+          "description": "Resolve a source's declared dependencies and report staleness.",
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "additionalProperties": false,
+  "description": "Args for `script_source`.",
+  "properties": {
+    "action": {
+      "$ref": "#/$defs/ScriptSourceAction",
+      "default": "register",
+      "description": "What to do. Defaults to `register`, the only non-executing default."
+    },
+    "contextPath": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/OpPath"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Optional context path, forwarded to the run exactly as `execute_python`\ntakes it."
+    },
+    "daemonId": {
+      "default": null,
+      "description": "Optional federated daemon id (omit for local / unique remote resolve).",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "dependencies": {
+      "default": null,
+      "description": "What the source needs, resolved and reported on every run.",
+      "items": {
+        "$ref": "#/$defs/ScriptDependency"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "diagnosticLevel": {
+      "$ref": "#/$defs/DiagnosticLevel",
+      "default": "summary",
+      "description": "Diagnostic payload size (`summary` omits raw traceback)."
+    },
+    "includeLogs": {
+      "default": true,
+      "description": "When true (default), capture stdout/stderr during `run`.",
+      "type": "boolean"
+    },
+    "name": {
+      "default": null,
+      "description": "Optional human name, recorded once and not part of the ref's identity.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "pid": {
+      "$ref": "#/$defs/Pid",
+      "description": "Target pid."
+    },
+    "source": {
+      "default": null,
+      "description": "Source text, for `register`.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "sourceId": {
+      "default": null,
+      "description": "The content address returned by `register`. Required by every other\naction.",
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "pid"
+  ],
+  "type": "object"
+}

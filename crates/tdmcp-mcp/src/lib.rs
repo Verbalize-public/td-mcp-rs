@@ -33,6 +33,7 @@ pub mod resources;
 mod rmcp_handler;
 pub mod sample_data;
 mod schema;
+pub mod script_source;
 mod server;
 mod session_registry;
 pub mod stdio_proxy;
