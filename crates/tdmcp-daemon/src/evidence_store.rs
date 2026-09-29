@@ -2883,6 +2883,418 @@ mod tests {
         output
     }
 
+    /// Counts the bytes the in-memory backend is actually holding. The ledger
+    /// owed "memory-mode physical reclamation", and `remove_unreferenced`
+    /// looked like it did the job — but reading that code proves nothing
+    /// about whether a release actually returns the memory. A claim like
+    /// "the hash map is retained against `referenced`" is exactly the kind
+    /// of claim that is true of the code and false of the running store, so
+    /// the observable is the store's own byte total.
+    fn memory_bytes(store: &MemoryEvidenceStore) -> usize {
+        store
+            .inner
+            .blobs
+            .values
+            .lock()
+            .unwrap()
+            .values()
+            .map(Vec::len)
+            .sum()
+    }
+
+    fn memory_blob_count(store: &MemoryEvidenceStore) -> usize {
+        store.inner.blobs.values.lock().unwrap().len()
+    }
+
+    #[test]
+    fn memory_mode_physically_returns_bytes_on_release_not_just_rows() {
+        let store = MemoryEvidenceStore::new(config()).unwrap();
+        let alice = owner("alice");
+        let record =
+            upload_single_chunk(&store, &alice, vec![("payload", PartKind::Binary, b"by")]);
+        let held = memory_bytes(&store);
+        assert!(held > 0, "a committed upload must hold its bytes");
+
+        store.release(&alice, &record.evidence_id).unwrap();
+
+        // Not "the row says released" — the bytes themselves. A store that
+        // kept unreferenced payloads would satisfy every metadata assertion
+        // while leaking every byte a client ever uploaded.
+        assert_eq!(
+            memory_bytes(&store),
+            0,
+            "release must physically reclaim the payload, not just mark the row: \
+             {held} bytes were still held"
+        );
+        assert_eq!(memory_blob_count(&store), 0, "no blob may outlive its row");
+
+        // And the reclaimed evidence is genuinely gone, not merely unreadable
+        // by accident: the record still names a real identifier.
+        assert!(
+            record.evidence_id.as_str().len() > 8,
+            "a release that only worked on a synthetic id proves nothing: {}",
+            record.evidence_id.as_str()
+        );
+    }
+
+    #[test]
+    fn memory_mode_keeps_bytes_a_live_observation_still_references() {
+        let store = MemoryEvidenceStore::new(config()).unwrap();
+        let alice = owner("alice");
+        let released =
+            upload_single_chunk(&store, &alice, vec![("payload", PartKind::Binary, b"d00")]);
+        let kept = upload_single_chunk(&store, &alice, vec![("payload", PartKind::Binary, b"k33")]);
+        assert_eq!(
+            memory_blob_count(&store),
+            2,
+            "two distinct payloads, two blobs"
+        );
+
+        store.release(&alice, &released.evidence_id).unwrap();
+
+        // Reclaim is by reference, not by observation: the surviving bytes are
+        // the LIVE payload's, and the released one's must be gone. Asserting
+        // the exact total is what distinguishes the two — an implementation
+        // that dropped both, or kept both, passes a weaker check.
+        assert_eq!(
+            memory_bytes(&store),
+            b"k33".len(),
+            "only the released observation's bytes may be reclaimed: {}",
+            memory_bytes(&store)
+        );
+        assert_eq!(
+            read_all(
+                &store,
+                &alice,
+                &kept.evidence_id,
+                "payload",
+                ReadEncoding::Base64,
+                8
+            ),
+            b"k33",
+            "releasing one observation must not disturb another"
+        );
+        assert_eq!(
+            store.inspect(&alice, &released.evidence_id).unwrap_err(),
+            EvidenceError::Released,
+            "a released observation must read as released, not as missing: the \
+             distinction is what tells a caller its data is gone on purpose"
+        );
+    }
+
+    /// Deduplication means two observations can share one blob. Reclaim by
+    /// reference count is the only correct rule: dropping the hash because
+    /// ONE row was released would corrupt the other.
+    #[test]
+    fn memory_mode_reclaims_a_shared_blob_only_when_its_last_holder_releases() {
+        let store = MemoryEvidenceStore::new(config()).unwrap();
+        let alice = owner("alice");
+        let bytes = b"shrd";
+        let first = upload_single_chunk(&store, &alice, vec![("payload", PartKind::Binary, bytes)]);
+        let second =
+            upload_single_chunk(&store, &alice, vec![("payload", PartKind::Binary, bytes)]);
+        assert_eq!(
+            memory_blob_count(&store),
+            1,
+            "identical content must be stored once, or the store is wasting every \
+             duplicate upload"
+        );
+        assert_eq!(memory_bytes(&store), bytes.len());
+
+        store.release(&alice, &first.evidence_id).unwrap();
+        assert_eq!(
+            memory_blob_count(&store),
+            1,
+            "the second observation still references this blob"
+        );
+        assert_eq!(
+            read_all(
+                &store,
+                &alice,
+                &second.evidence_id,
+                "payload",
+                ReadEncoding::Base64,
+                8
+            ),
+            bytes,
+            "a shared blob must survive the release of one of its holders"
+        );
+
+        store.release(&alice, &second.evidence_id).unwrap();
+        assert_eq!(
+            memory_blob_count(&store),
+            0,
+            "the last holder released, so the bytes must actually go"
+        );
+    }
+
+    /// The ledger owed "cross-instance GC/lease". The store already refuses a
+    /// second writer through a lock (see
+    /// `a_second_writer_is_refused_instead_of_racing_reconciliation`), so what
+    /// was still unproven is the half that matters: a SECOND PROCESS on the
+    /// same root must be refused AND the refusal must leave the live instance
+    /// serving its own committed evidence. A lock that rejected the second
+    /// writer but had already run reconciliation against its rows would still
+    /// be a corruption path — two processes each expiring and reclaiming the
+    /// other's rows is exactly what the lock exists to prevent.
+    #[test]
+    fn a_refused_second_writer_leaves_the_live_one_serving_its_committed_evidence() {
+        let directory = tempfile::tempdir().unwrap();
+        let first = SqliteEvidenceStore::open(directory.path(), config()).unwrap();
+        let alice = owner("alice");
+        let record = upload(&first, &alice, vec![("p", PartKind::Binary, b"h01d")]);
+        let held = directory.path().join("blobs");
+        assert!(
+            held.exists(),
+            "the disk backend must have materialised blobs"
+        );
+
+        // `SqliteEvidenceStore` has no `Debug`, so `unwrap_err()` will not
+        // compile here. `assert!(matches!(...))` alone cannot report WHICH arm
+        // it took, and a bare `panic!` is rejected by the crate's
+        // `-D clippy::panic`. Encoding the outcome as a bool and asserting on
+        // it keeps the message and stays inside the crate's lints.
+        let (conflict, second) = match SqliteEvidenceStore::open(directory.path(), config()) {
+            // A fabricated error so the message below can name what came back
+            // if the open unexpectedly SUCCEEDED. `Conflict` renders nothing
+            // useful, and the Ok arm must still be a well-typed `EvidenceError`.
+            Ok(_) => (
+                false,
+                EvidenceError::Backend("a second writer was admitted".to_owned()),
+            ),
+            Err(error) => (matches!(error, EvidenceError::Conflict), error),
+        };
+        assert!(
+            conflict,
+            "a second writer must be refused, not allowed to expire the first \
+             writer's rows: {second:?}"
+        );
+
+        // The refusal must not have damaged the live instance: the first
+        // store still answers for the evidence it committed.
+        assert_eq!(
+            read_all(
+                &first,
+                &alice,
+                &record.evidence_id,
+                "p",
+                ReadEncoding::Base64,
+                8
+            ),
+            b"h01d",
+            "a refused second writer must leave the first writer intact"
+        );
+        assert_eq!(
+            first
+                .inspect(&alice, &record.evidence_id)
+                .unwrap()
+                .evidence_id,
+            record.evidence_id,
+            "the live instance must still see its own committed record"
+        );
+    }
+
+    /// TTL expiry is the other cross-instance reclaim path: an instance that
+    /// stops polling must not pin bytes forever, and an instance that comes
+    /// back must not resurrect what another already reclaimed.
+    ///
+    /// The first version of this test set `tombstone_ttl` to 1ms and slept. That
+    /// expires nothing: `tombstone_ttl` bounds how long a TERMINAL row is kept
+    /// so a caller can still read a real error, while the lease that actually
+    /// decides when evidence is reclaimable comes from the reservation's `ttl`.
+    /// So the row was still live and the assertion failed on a premise that was
+    /// never true. The lease is set on the reservation, and the tombstone window
+    /// is left long enough that a reclaimed row still reads as `Expired`.
+    #[test]
+    fn expired_rows_are_reclaimed_and_never_resurrected_by_a_later_read() {
+        let limits = config();
+        let directory = tempfile::tempdir().unwrap();
+        let alice = owner("alice");
+        let hash = sha256_hex(b"t7");
+        let record = {
+            let store = SqliteEvidenceStore::open(directory.path(), limits.clone()).unwrap();
+            let blob = store.blob_path(&hash);
+            let reservation = store
+                .reserve(
+                    &alice,
+                    ReserveObservation {
+                        ttl: Duration::from_millis(30),
+                        ..reserve_request(vec![manifest("p", PartKind::Binary, b"t7")])
+                    },
+                )
+                .unwrap();
+            store
+                .append_chunk(
+                    &alice,
+                    AppendChunk {
+                        upload_id: &reservation.upload_id,
+                        part: "p",
+                        offset: 0,
+                        bytes: b"t7",
+                    },
+                )
+                .unwrap();
+            store
+                .finalize_part(&alice, &reservation.upload_id, "p")
+                .unwrap();
+            let record = store.commit(&alice, &reservation.upload_id).unwrap();
+            assert!(
+                blob.exists(),
+                "precondition: {} must be materialised while the row is live",
+                blob.display()
+            );
+            assert_eq!(
+                store
+                    .inspect(&alice, &record.evidence_id)
+                    .unwrap()
+                    .evidence_id,
+                record.evidence_id
+            );
+            // Outlive the lease, then drop the instance entirely: nothing polls
+            // the old one, so the next instance is the only place reclamation
+            // can happen. That is what makes this cross-instance rather than
+            // just a timer firing under the writer that created it.
+            thread::sleep(Duration::from_millis(120));
+            record
+        };
+
+        let reopened = SqliteEvidenceStore::open(directory.path(), limits).unwrap();
+        assert!(
+            !reopened.blob_path(&hash).exists(),
+            "an expired row's bytes must be gone after the next instance opens"
+        );
+        assert_eq!(
+            reopened.inspect(&alice, &record.evidence_id).ok(),
+            None,
+            "a reclaimed id must not be resurrected into a readable record"
+        );
+        assert_eq!(
+            reopened
+                .inspect(&alice, &EvidenceId::parse(hex_id()).unwrap())
+                .ok(),
+            None,
+            "an id that was never committed must stay absent"
+        );
+    }
+
+    /// Disk-full is not injectable through `FailurePoint` — those are
+    /// cooperative hooks, and a real ENOSPC is an `io_error` from
+    /// `write_all`. The honest test drives the actual failure mode the store
+    /// must survive: a truncated staged write. A half-written blob that got
+    /// published would be a silently corrupt evidence artifact.
+    ///
+    /// The corruption has to hit a blob that REALLY exists. The first version
+    /// of this test wrote to `sha256(whole payload)`, which is not a stored
+    /// name: `upload` splits a part into 3-byte chunks, so the blobs on disk
+    /// are `sha256` of each CHUNK. It therefore created a file no read path
+    /// consults, the read returned the correct bytes, and the test failed on
+    /// a premise that was never true — the store was serving a blob this test
+    /// had not damaged at all.
+    #[cfg(unix)]
+    #[test]
+    fn a_truncated_blob_on_disk_is_refused_rather_than_served_as_evidence() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = SqliteEvidenceStore::open(directory.path(), config()).unwrap();
+        let alice = owner("alice");
+        // One chunk, so exactly one blob, and its name is knowable.
+        let bytes = b"tunc";
+        let record = upload_single_chunk(&store, &alice, vec![("p", PartKind::Binary, bytes)]);
+        let hash = sha256_hex(bytes);
+        let blob = store.blob_path(&hash);
+        assert!(
+            blob.exists(),
+            "precondition: the upload must have materialised {} — without \
+             this the test would corrupt a file no read path ever consults",
+            blob.display()
+        );
+
+        // Simulate the ENOSPC aftermath: the blob survived the rename but is
+        // short. This is the state a crash mid-write would leave behind.
+        fs::write(&blob, &bytes[..bytes.len() / 2]).unwrap();
+        assert_eq!(
+            fs::metadata(&blob).unwrap().len(),
+            (bytes.len() / 2) as u64,
+            "precondition: the blob on disk really is short now"
+        );
+
+        // Read the raw page rather than the `read_all` helper: the helper
+        // unwraps, so a store that correctly REFUSED a corrupt blob would take
+        // the test down with a panic instead of recording the refusal. The
+        // assertion has to be able to see the error.
+        let page = store.read(
+            &alice,
+            ReadRequest {
+                evidence_id: record.evidence_id.clone(),
+                part: "p".to_owned(),
+                cursor: None,
+                max_bytes: 8,
+                encoding: ReadEncoding::Base64,
+            },
+        );
+        match page {
+            Err(error) => assert!(
+                matches!(error, EvidenceError::Corrupt),
+                "a short blob must be refused as corrupt, not reported as some \
+                 other condition a caller would retry around: {error:?}"
+            ),
+            Ok(page) => {
+                let served = match page.content {
+                    PageContent::Utf8(text) => text.into_bytes(),
+                    PageContent::Base64(value) => BASE64_STANDARD.decode(value).unwrap(),
+                };
+                assert_ne!(
+                    served, bytes,
+                    "a short blob must never be served as the committed content"
+                );
+            }
+        }
+    }
+
+    fn hex_id() -> String {
+        "a".repeat(32)
+    }
+
+    /// Uploads each part as ONE chunk. The shared `upload` helper deliberately
+    /// splits into 3-byte chunks to exercise the chunked path, which means a
+    /// single part there is several blobs — so any claim about how many blobs
+    /// an observation holds has to be made against this instead. Guessing
+    /// "one observation, one blob" is what made the first versions of these
+    /// tests wrong.
+    /// `append_chunk` is bounded by `max_chunk_bytes` (5 in the shared test
+    /// config), so a one-chunk upload still has to fit a 5-byte transfer.
+    /// A payload longer than that is refused by design — which is the store
+    /// being correct, and the tests below therefore use short byte strings.
+    fn upload_single_chunk(
+        store: &dyn EvidenceStore,
+        principal: &OwnerId,
+        parts: Vec<(&str, PartKind, &[u8])>,
+    ) -> EvidenceRecord {
+        let manifests = parts
+            .iter()
+            .map(|(name, kind, bytes)| manifest(name, *kind, bytes))
+            .collect();
+        let reservation = store
+            .reserve(principal, reserve_request(manifests))
+            .unwrap();
+        for (name, _, bytes) in parts {
+            store
+                .append_chunk(
+                    principal,
+                    AppendChunk {
+                        upload_id: &reservation.upload_id,
+                        part: name,
+                        offset: 0,
+                        bytes,
+                    },
+                )
+                .unwrap();
+            store
+                .finalize_part(principal, &reservation.upload_id, name)
+                .unwrap();
+        }
+        store.commit(principal, &reservation.upload_id).unwrap()
+    }
+
     #[test]
     fn memory_round_trip_preserves_unicode_binary_metadata_and_layout() {
         let store = MemoryEvidenceStore::new(config()).unwrap();
