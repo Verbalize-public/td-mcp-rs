@@ -132,6 +132,14 @@ pub struct ParameterDefinition {
     /// Menu items, for a `menu`.
     #[serde(default)]
     pub menu_names: Option<Vec<String>>,
+    /// Expression body, for a `python` parameter.
+    ///
+    /// This is the parameter's body, so a round trip that drops it yields a
+    /// callback that exists and does nothing. Measured on TouchDesigner
+    /// 2025.32460: assigning `expr` after creation is accepted, while an
+    /// `expr=` keyword at creation is refused.
+    #[serde(default)]
+    pub expr: Option<String>,
 }
 
 /// Args for `param_interface`.
@@ -283,6 +291,32 @@ mod tests {
             Some(vec!["a".to_owned(), "b".to_owned()])
         );
         assert_eq!(definition.label.as_deref(), Some("Mode"));
+    }
+
+    #[test]
+    fn a_python_expression_travels_by_its_wire_name() {
+        // A round trip that dropped it would produce a callback that exists and
+        // does nothing, so the body is part of the definition, not an extra.
+        let params = parse(json!({
+            "pid": 1, "path": "/p", "action": "apply",
+            "definitions": [{"name": "Callback", "type": "python", "expr": "print('hi')"}]
+        }));
+        let definition = params.definitions.expect("definitions")[0].clone();
+        assert_eq!(definition.expr.as_deref(), Some("print('hi')"));
+        assert_eq!(definition.kind, ParameterKind::Python);
+    }
+
+    #[test]
+    fn an_expr_on_a_non_python_parameter_is_still_carried() {
+        // Not refused here on purpose: the bridge owns the applicability
+        // question, and a type-conditional refusal here would be a second rule
+        // to keep in step with the first.
+        let params = parse(json!({
+            "pid": 1, "path": "/p", "action": "apply",
+            "definitions": [{"name": "Speed", "type": "float", "expr": "1"}]
+        }));
+        let definition = params.definitions.expect("definitions")[0].clone();
+        assert_eq!(definition.expr.as_deref(), Some("1"));
     }
 
     #[test]

@@ -310,6 +310,7 @@ def _validate_definition(definition: Any) -> tuple[dict[str, Any] | None, str | 
             "min": definition.get("min"),
             "max": definition.get("max"),
             "menuNames": definition.get("menuNames"),
+            "expr": definition.get("expr"),
         },
         None,
     )
@@ -544,6 +545,20 @@ def apply_interface(comp: Any, path: str, definitions: Any) -> dict[str, Any]:
             except Exception as exc:  # noqa: BLE001
                 step["defaultApplied"] = False
                 step["defaultError"] = f"{type(exc).__name__}: {exc}"
+        # A python parameter's expression is its BODY, so a round trip that drops
+        # it yields a callback that exists and does nothing.
+        #
+        # MEASURED: `par.expr = "..."` IS accepted on a created appendPython
+        # parameter and reads back (wrapped in a one-element tuple by TD), while
+        # an `expr=` keyword at creation is refused ("Call contains unexpected
+        # keywords"). So it is a second step, like a menu's items.
+        if spec["type"] == "python" and spec.get("expr"):
+            try:
+                par.expr = _text(spec["expr"], 8192)
+                step["exprApplied"] = True
+            except Exception as exc:  # noqa: BLE001
+                step["exprApplied"] = False
+                step["exprError"] = f"{type(exc).__name__}: {exc}"
         for bound in ("min", "max"):
             if spec[bound] is not None:
                 try:

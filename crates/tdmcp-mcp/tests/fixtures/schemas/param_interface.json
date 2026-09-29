@@ -42,6 +42,14 @@
           "default": null,
           "description": "Default value."
         },
+        "expr": {
+          "default": null,
+          "description": "Expression body, for a `python` parameter.\n\nThis is the parameter's body, so a round trip that drops it yields a\ncallback that exists and does nothing. Measured on TouchDesigner\n2025.32460: assigning `expr` after creation is accepted, while an\n`expr=` keyword at creation is refused.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "label": {
           "default": null,
           "description": "Human-facing label. `None` leaves the label as the name.",

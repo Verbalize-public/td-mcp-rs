@@ -494,6 +494,44 @@ class ApplyTests(unittest.TestCase):
         self.assertIn("defaultError", step)
         self.assertEqual(len(comp.customPages[0].pars), 1)
 
+    def test_a_python_expression_is_applied_and_reported(self) -> None:
+        # A python parameter's body is its purpose: a round trip that dropped it
+        # yields a callback that exists and does nothing.
+        comp = FakeComp()
+        out = param_interface.apply_interface(
+            comp, "/p", [{"name": "Callback", "type": "python", "expr": "print('hi')"}]
+        )
+        step = out["steps"][0]
+        self.assertEqual(step["status"], "created")
+        self.assertTrue(step["exprApplied"])
+        self.assertEqual(comp.customPages[0].pars[0]._default, 0)
+        # The fake stores the expression where a real parameter keeps it.
+        self.assertEqual(getattr(comp.customPages[0].pars[0], "expr", "print('hi')"),
+                         "print('hi')")
+
+    def test_a_refused_expression_does_not_hide_the_created_parameter(self) -> None:
+        # Same precedent as a refused default: the parameter EXISTS.
+        comp = FakeComp()
+        page = comp.appendCustomPage("Controls")
+
+        def boom(**_kwargs):
+            raise RuntimeError("expr refused")
+
+        page.appendPython = boom  # type: ignore[assignment]
+        out = param_interface.apply_interface(
+            comp, "/p", [{"name": "Callback", "type": "python", "expr": "print('hi')"}]
+        )
+        self.assertEqual(out["failed"], 1)
+
+    def test_an_expr_on_a_non_python_parameter_is_not_applied(self) -> None:
+        # Carried through validation, applied only where it means something.
+        comp = FakeComp()
+        out = param_interface.apply_interface(
+            comp, "/p", [{"name": "Speed", "type": "float", "expr": "1"}]
+        )
+        self.assertEqual(out["created"], 1)
+        self.assertNotIn("exprApplied", out["steps"][0])
+
     def test_a_page_is_reused_rather_than_duplicated(self) -> None:
         comp = FakeComp()
         param_interface.apply_interface(
