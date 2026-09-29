@@ -206,6 +206,12 @@ mod tests {
         assert!(is_loopback_only_admin("/admin/restart"));
         assert!(is_loopback_only_admin("/admin/mcp-sessions"));
         assert!(is_loopback_only_admin("/admin/mcp-sessions/annotate"));
+        // Receipt read-back is loopback only, so a REMOTE client can dispatch
+        // through /mcp/tools/call and have receipts written, but cannot read
+        // them back here. Documented on the route; pinned here so widening it
+        // later is a deliberate change rather than a silent one.
+        assert!(is_loopback_only_admin("/admin/operations"));
+        assert!(is_loopback_only_admin("/admin/operations/resolve"));
         assert!(!is_loopback_only_admin("/admin/federation/status"));
         assert!(!is_loopback_only_admin("/admin/federation/register"));
         assert!(!is_loopback_only_admin("/admin/config"));

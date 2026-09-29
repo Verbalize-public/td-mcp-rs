@@ -459,6 +459,20 @@ const OPERATIONS_PAGE_LIMIT: u64 = 64;
 /// so a client can only ever see its own dispatches. `unresolved` is broken out
 /// because that is the question a client actually has after a restart: which of
 /// my operations ran without anyone observing the result?
+///
+/// # Known limitation: loopback only
+///
+/// This route lives under `/admin/`, which `is_loopback_only_admin` keeps off
+/// remote peers. A *remote* MCP client (federation, or a non-loopback bind) can
+/// therefore dispatch through `/mcp/tools/call` and have its receipts written,
+/// but cannot read them back here. The PSK authenticates the credential realm
+/// but does not make a remote peer local, so the loopback guard is the binding
+/// constraint, not authentication.
+///
+/// Closing that needs a read path on the client-facing `/mcp/` surface, which
+/// means the receipt read model has to move out of the daemon crate so
+/// `tdmcp-mcp` can serve it. That is deliberately not done here: a half-wired
+/// public route would be worse than a documented gap.
 async fn admin_operations(
     State(state): State<AdminState>,
     headers: axum::http::HeaderMap,
