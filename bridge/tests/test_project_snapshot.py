@@ -328,7 +328,12 @@ class UnsavedStateTests(unittest.TestCase):
         # would read as "nothing unsaved" -- the opposite of what is known.
         report = snap._component_unsaved(SimpleNamespace(), "/p")
         self.assertNotIn("modifiedCount", report)
-        self.assertIn("no per-component dirty flag", report["explanation"])
+        # MEASURED: COMP.dirty EXISTS and never flips, so the reason is "it
+        # cannot move", not "there is no such flag". A flag that always reads
+        # False is worse than none, because it looks like an answer.
+        self.assertIn("never changes value", report["reason"])
+        self.assertIn("always False", report["explanation"])
+        self.assertIn("would look like an answer", report["explanation"])
 
 
 class HandlerTests(TempDirCase):

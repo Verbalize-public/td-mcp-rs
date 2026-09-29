@@ -179,23 +179,35 @@ def _project_unsaved() -> dict[str, Any]:
 def _component_unsaved(node: Any, path: str) -> dict[str, Any]:
     """Unsaved state for a COMPONENT receipt.
 
-    Deliberately reports `available: false`. TouchDesigner's Python surface
-    exposes no per-operator dirty flag -- measured: `isModified` reads None on
-    every child of root, and `td.root.dirty` is a single whole-tree bool with
-    nothing per component.
+    Reports `available: false` with a precise reason, which took two
+    measurements to get right:
 
-    An earlier version put the PROJECT's modified paths here, which was wrong
-    twice over: a component save does not save the project, so those paths
-    describe something this call never touched; and an empty list would have
-    read as "nothing is unsaved", which is the opposite of what is known.
+    * `COMP.dirty` EXISTS and is a plain bool -- not a method, and not missing.
+    * It never flips. Measured on 2025.32460: it read False on a fresh COMP and
+      stayed False after adding a page, adding a parameter, setting that
+      parameter's value, and saving. A flag that always reads False is worse
+      than no flag, because it looks like an answer.
+
+    So the flag cannot answer the question, and saying `available: false` with
+    the reason is the honest report. The project-level `modified` list DOES
+    name this component, but that is the PROJECT's unsaved state and a
+    component save does not save the project -- an earlier version reported
+    those paths here, which described something this call never touched. An
+    empty list would have read as "nothing is unsaved", the opposite of what
+    is known.
     """
     return {
         "available": False,
         "scope": "component",
+        "reason": "the COMP.dirty flag never changes value on this build",
         "explanation": (
-            "TouchDesigner exposes no per-component dirty flag, so this receipt "
-            "says nothing about whether this component has unsaved changes; "
-            "the project's own modified paths are reported by action=project"
+            "TouchDesigner's per-component dirty flag is always False, so this "
+            "receipt says nothing about whether this component has unsaved "
+            "changes; a flag that cannot move would look like an answer. The "
+            "project's own modified paths are reported by action=project, and "
+            "they do name this component -- but a component save does not save "
+            "the project, so those paths describe something this call never "
+            "touched."
         ),
     }
 
