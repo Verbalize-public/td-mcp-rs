@@ -25,6 +25,8 @@
 #![allow(clippy::panic, reason = "test assertions may panic")]
 
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use axum::routing::{get, post};
@@ -39,41 +41,49 @@ const STALL: Duration = Duration::from_secs(30);
 
 /// A minimal JSON-RPC endpoint: enough to initialize and to accept one call —
 /// and the call takes [`STALL`], which is the shape of a launch still coming up.
-async fn spawn_stalling_daemon() -> (String, String) {
+async fn spawn_stalling_daemon() -> (String, String, Arc<AtomicU64>) {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind");
     let addr: SocketAddr = listener.local_addr().expect("local addr");
 
+    let calls = Arc::new(AtomicU64::new(0));
+    let counted = calls.clone();
     let router = Router::new()
         .route("/mcp/health", get(|| async { Json(json!({"ok": true})) }))
         .route(
             "/mcp/rpc",
-            post(|body: String| async move {
-                let request: Value = serde_json::from_str(&body).unwrap_or(Value::Null);
-                let Some(id) = request.get("id").cloned() else {
-                    // A notification expects no body.
-                    return Json(Value::Null);
-                };
-                let method = request
-                    .get("method")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_owned();
-                let result = match method.as_str() {
-                    "initialize" => json!({
-                        "protocolVersion": "2025-06-18",
-                        "capabilities": {"tools": {}},
-                        "serverInfo": {"name": "launch-budget-stub", "version": "1"},
-                    }),
-                    "tools/call" => {
-                        // The launch is still coming up.
-                        tokio::time::sleep(STALL).await;
-                        json!({"content": [{"type": "text", "text": "{}"}], "isError": false})
-                    }
-                    _ => json!({}),
-                };
-                Json(json!({"jsonrpc": "2.0", "id": id, "result": result}))
+            post(move |body: String| {
+                let counted = counted.clone();
+                async move {
+                    let request: Value = serde_json::from_str(&body).unwrap_or(Value::Null);
+                    let Some(id) = request.get("id").cloned() else {
+                        // A notification expects no body.
+                        return Json(Value::Null);
+                    };
+                    let method = request
+                        .get("method")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_owned();
+                    let result = match method.as_str() {
+                        "initialize" => json!({
+                            "protocolVersion": "2025-06-18",
+                            "capabilities": {"tools": {}},
+                            "serverInfo": {"name": "launch-budget-stub", "version": "1"},
+                        }),
+                        "tools/call" => {
+                            // The launch is still coming up. Counted, so a
+                            // re-sent launch shows up as a second call rather
+                            // than only a slower answer.
+                            counted.fetch_add(1, Ordering::SeqCst);
+                            tokio::time::sleep(STALL).await;
+                            json!({"content": [{"type": "text", "text": "{}"}], "isError": false})
+                        }
+                        _ => json!({}),
+                    };
+                    Json(json!({"jsonrpc": "2.0", "id": id, "result": result}))
+                }
             }),
         );
 
@@ -81,7 +91,11 @@ async fn spawn_stalling_daemon() -> (String, String) {
         let _ = axum::serve(listener, router).await;
     });
     tokio::task::yield_now().await;
-    (format!("http://{addr}/mcp/rpc"), format!("http://{addr}"))
+    (
+        format!("http://{addr}/mcp/rpc"),
+        format!("http://{addr}"),
+        calls,
+    )
 }
 
 fn launch_config(margin: Duration, max: Duration) -> ReconnectConfig {
@@ -161,7 +175,7 @@ async fn a_launch_that_outlives_the_proxy_deadline_is_reported_as_a_launch_timeo
     // Under the old behaviour this was cut at the 105s read-class ceiling and
     // reported as a stalled link.
     let cfg = launch_config(Duration::from_millis(50), Duration::from_millis(200));
-    let (url, _admin) = spawn_stalling_daemon().await;
+    let (url, _admin, _calls) = spawn_stalling_daemon().await;
     let response = call_through_proxy(
         &url,
         cfg,
@@ -201,7 +215,7 @@ async fn a_cut_launch_leaves_the_link_healthy() {
     // overrun, and `heal` calls `mark_unhealthy`, so a slow launch used to
     // actively degrade a connection that was working fine.
     let cfg = launch_config(Duration::from_millis(50), Duration::from_millis(200));
-    let (url, admin) = spawn_stalling_daemon().await;
+    let (url, admin, _calls) = spawn_stalling_daemon().await;
     call_through_proxy(
         &url,
         cfg,
@@ -229,7 +243,7 @@ async fn a_requested_wait_the_proxy_would_have_ignored_now_survives() {
     // configured launch_max is 200ms, so the call is cut at the max rather than
     // at some unrelated class ceiling.
     let cfg = launch_config(Duration::from_millis(50), Duration::from_millis(200));
-    let (url, _admin) = spawn_stalling_daemon().await;
+    let (url, _admin, _calls) = spawn_stalling_daemon().await;
     let response = call_through_proxy(
         &url,
         cfg,
@@ -241,4 +255,85 @@ async fn a_requested_wait_the_proxy_would_have_ignored_now_survives() {
     assert_eq!(data["requestedWaitMs"], 200, "{response}");
     // 200 requested + 50 head-room, capped at launch_max=200.
     assert_eq!(data["budgetMs"], 200, "{response}");
+}
+
+#[tokio::test]
+async fn a_late_success_is_still_reported_and_the_launch_is_not_re_sent() {
+    // "Late success": the daemon answers AFTER the proxy has given up. The
+    // launch was real, so the answer arriving late must not change what the
+    // caller was told — and, critically, must not trigger a second launch.
+    //
+    // The counter makes that measurable: exactly one tools/call, ever.
+    let cfg = launch_config(Duration::from_millis(50), Duration::from_millis(200));
+    let (url, _admin, calls) = spawn_stalling_daemon().await;
+    let response = call_through_proxy(
+        &url,
+        cfg,
+        "spawn_td",
+        json!({"exePath": "/opt/td/TouchDesigner", "waitTimeoutMs": 100}),
+    )
+    .await;
+    assert_eq!(
+        response["error"]["data"]["code"],
+        codes::SPAWN_WAIT_TIMEOUT,
+        "a late answer must not rewrite a timeout into a success: {response}"
+    );
+
+    // The stub answers at 30s, long after the 150ms proxy deadline. Wait past
+    // it and confirm the proxy did not treat the late arrival as a reason to
+    // send the launch again.
+    tokio::time::sleep(Duration::from_secs(32)).await;
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "exactly one launch may ever be dispatched; a retry here is the double-spawn"
+    );
+}
+
+#[tokio::test]
+async fn concurrent_launches_are_budgeted_independently() {
+    // Concurrency: several launches in flight at once must not share one
+    // budget, and must not be collapsed into a single dispatch. Each caller
+    // gets its own deadline and its own call.
+    let cfg = launch_config(Duration::from_millis(50), Duration::from_millis(200));
+    let (url, _admin, calls) = spawn_stalling_daemon().await;
+    let cfg = Arc::new(cfg);
+
+    let mut handles = Vec::new();
+    for index in 0..3 {
+        let url = url.clone();
+        let cfg = cfg.clone();
+        handles.push(tokio::spawn(async move {
+            call_through_proxy(
+                &url,
+                (*cfg).clone(),
+                "spawn_td",
+                json!({"exePath": "/opt/td/TouchDesigner", "waitTimeoutMs": 100 + index}),
+            )
+            .await
+        }));
+    }
+    let responses = futures::future::join_all(handles).await;
+
+    for (index, joined) in responses.iter().enumerate() {
+        let response = joined.as_ref().expect("task joined").clone();
+        let data = &response["error"]["data"];
+        assert_eq!(
+            data["code"],
+            codes::SPAWN_WAIT_TIMEOUT,
+            "concurrent launch {index}: {response}"
+        );
+        // Each caller sees ITS OWN requested wait echoed back, which is what
+        // proves the budgets were not shared.
+        assert_eq!(
+            data["requestedWaitMs"],
+            100 + index as u64,
+            "concurrent launch {index} saw another caller's budget: {response}"
+        );
+    }
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        3,
+        "three launches in, three dispatches out — never fewer, never more"
+    );
 }
