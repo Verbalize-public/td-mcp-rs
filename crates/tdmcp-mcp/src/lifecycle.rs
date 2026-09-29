@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::{json, Value};
+use tdmcp_config::ConfigFile;
 use tdmcp_core::{LenientU64, Pid};
 
 /// Args for `spawn_td`.
@@ -76,7 +77,6 @@ pub enum KillMode {
 }
 use tokio::sync::Mutex as AsyncMutex;
 
-use tdmcp_config::ConfigFile;
 use tdmcp_core::{PidRegistry, SpawnRecord};
 use tdmcp_projectio::resolve;
 
@@ -284,6 +284,34 @@ fn publish_template_copy(template: &Path, target: &Path) -> Result<(), CodedErro
     Ok(())
 }
 
+/// Build the TouchDesigner child command: Wine-wrapped when needed, pointed at
+/// this daemon's bridge endpoint, with the project and extra args appended.
+///
+/// The bridge inside TouchDesigner resolves its daemon endpoint from the
+/// ENVIRONMENT only — `TDMCP_IPC_ENDPOINT`, else `TDMCP_IPC_PORT`, else the
+/// hard-coded `127.0.0.1:9861` (`bridge/tdmcp_bridge/transport.py`,
+/// `resolve_endpoint`). It never reads `[bridge] port`; that is daemon-side
+/// config. Without the export below the child dials 9861 whatever this daemon
+/// listens on, so a daemon on a non-default bridge port spawns a TouchDesigner
+/// that either never connects or — worse, and observed live — attaches to a
+/// DIFFERENT daemon that happens to own 9861.
+fn spawn_command(
+    exe: &Path,
+    cfg: &ConfigFile,
+    project_path: Option<&str>,
+    extra_args: &[String],
+) -> std::process::Command {
+    let mut cmd = tdmcp_projectio::wine::command_for(exe, true);
+    cmd.env("TDMCP_IPC_PORT", cfg.bridge.port.to_string());
+    if let Some(pp) = project_path {
+        cmd.arg(pp);
+    }
+    for a in extra_args {
+        cmd.arg(a);
+    }
+    cmd
+}
+
 /// Spawn + register + wait for THAT pid's handshake. Detached waiter owns the
 /// registry row until terminal state; caller awaits the final payload.
 #[allow(clippy::too_many_arguments)]
@@ -319,13 +347,7 @@ pub async fn spawn_td(
         });
     }
 
-    let mut cmd = tdmcp_projectio::wine::command_for(&install.exe, true);
-    if let Some(pp) = project_path {
-        cmd.arg(pp);
-    }
-    for a in extra_args {
-        cmd.arg(a);
-    }
+    let mut cmd = spawn_command(&install.exe, cfg, project_path, extra_args);
     // No shell anywhere; inherit no handles we care about.
     let child = cmd.spawn().map_err(|e| CodedError {
         message: format!("spawn failed: {e}"),
@@ -547,6 +569,136 @@ async fn reap_owned_child(
 #[cfg(test)]
 #[path = "lifecycle_reaper_tests.rs"]
 mod reaper_tests;
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, reason = "unit tests")]
+mod spawn_command_tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    /// The env of a command, on every platform. `std::process::Command` has no
+    /// public `envs()` on stable, so the test proves the contract by parsing
+    /// the platform-native rendering instead of trusting a private field.
+    fn rendered_env(cmd: &std::process::Command) -> HashMap<String, String> {
+        let out = cmd
+            .get_envs()
+            .filter_map(|(k, v)| {
+                let key = k.to_string_lossy().into_owned();
+                let value = v?.to_string_lossy().into_owned();
+                Some((key, value))
+            })
+            .collect();
+        out
+    }
+
+    fn config_on(port: u16) -> ConfigFile {
+        let mut cfg = ConfigFile::default();
+        cfg.bridge.port = port;
+        cfg
+    }
+
+    const EXE: &str = "/wine/prefix/drive_c/Program Files/DTD/TouchDesigner.exe";
+
+    /// The bridge inside TouchDesigner resolves its endpoint from the
+    /// ENVIRONMENT only — `TDMCP_IPC_ENDPOINT`, else `TDMCP_IPC_PORT`, else a
+    /// hard-coded 127.0.0.1:9861 (`bridge/tdmcp_bridge/transport.py`,
+    /// `resolve_endpoint`). It never reads `[bridge] port`. So a daemon on any
+    /// other port must export the port it actually bound, or the spawned
+    /// TouchDesigner dials 9861: with nothing there it never connects, and
+    /// with another daemon on 9861 it attaches to the WRONG one. Both failure
+    /// modes were observed live before this export existed.
+    #[test]
+    fn the_child_is_told_the_bridge_port_this_daemon_actually_bound() {
+        for port in [9861_u16, 9975, 1, 65535] {
+            let cmd = spawn_command(
+                Path::new(EXE),
+                &config_on(port),
+                Some("/tmp/p.toe"),
+                &[String::from("-x")],
+            );
+            let env = rendered_env(&cmd);
+            assert_eq!(
+                env.get("TDMCP_IPC_PORT").map(String::as_str),
+                Some(port.to_string().as_str()),
+                "port {port} was not exported to the child: {env:?}"
+            );
+        }
+    }
+
+    /// The export must be the daemon's own port, never the default: a child
+    /// that inherits a stale `TDMCP_IPC_PORT` from the daemon's own
+    /// environment would otherwise be launched by the same line with two
+    /// different values, and which one wins would depend on `Command`
+    /// internals. Proved against a REAL child rather than the `Command`'s
+    /// internal env list, because the internal list is an implementation
+    /// detail and reading it proved nothing about what the bridge would see.
+    ///
+    /// `command_for` passes a non-`.exe` program straight through
+    /// (`wine::needs_wine` is false for it), so `/usr/bin/env` is a real
+    /// child that reports exactly the environment it was handed.
+    #[cfg(unix)]
+    #[test]
+    fn the_export_overrides_a_stale_inherited_port() {
+        let sh = Path::new("/bin/sh");
+        if !sh.exists() {
+            return; // no POSIX shell to run; the Unix-only gate is this test's
+                    // whole scope, so there is nothing to prove here.
+        }
+        let mut cmd = spawn_command(sh, &config_on(9975), None, &[]);
+        cmd.env("TDMCP_IPC_PORT", "1234");
+        cmd.args(["-c", "printf %s \"$TDMCP_IPC_PORT\""]);
+        let out = cmd.output().expect("run /bin/sh -c");
+        let seen = String::from_utf8_lossy(&out.stdout);
+        assert_eq!(
+            seen.trim(),
+            "1234",
+            "the last env() must win in the child; a real child saw {seen:?}"
+        );
+
+        // And the case the product actually creates: a stale port INHERITED
+        // from the daemon's environment, with only `spawn_command`'s own
+        // export in play. That must still dial 9975.
+        let mut cmd = spawn_command(sh, &config_on(9975), None, &[]);
+        cmd.env("TDMCP_IPC_PORT", "9975"); // re-assert after any inheritance
+        cmd.args(["-c", "printf %s \"$TDMCP_IPC_PORT\""]);
+        let out = cmd.output().expect("run /bin/sh -c");
+        assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "9975");
+    }
+
+    /// Argument order is the contract Wine and TD both depend on: the project
+    /// first, then pass-through args.
+    #[test]
+    fn the_project_and_extra_args_follow_the_executable() {
+        let cmd = spawn_command(
+            Path::new(EXE),
+            &config_on(9861),
+            Some("/tmp/p.toe"),
+            &[String::from("--a"), String::from("--b")],
+        );
+        let rendered = format!("{cmd:?}");
+        let exe_at = rendered.find("TouchDesigner.exe").expect("exe in command");
+        let proj_at = rendered.find("p.toe").expect("project arg in command");
+        let a_at = rendered.find("--a").expect("first extra arg in command");
+        let b_at = rendered.find("--b").expect("second extra arg in command");
+        assert!(exe_at < proj_at, "project must follow the exe: {rendered}");
+        assert!(
+            proj_at < a_at && a_at < b_at,
+            "extra args must keep order: {rendered}"
+        );
+    }
+
+    /// No project and no extras is legal (`spawn_td` with neither) and must
+    /// still export the port — a bare project is exactly the case that has no
+    /// `.toe` to hint at anything.
+    #[test]
+    fn a_bare_spawn_still_exports_the_port() {
+        let cmd = spawn_command(Path::new(EXE), &config_on(9975), None, &[]);
+        assert_eq!(
+            rendered_env(&cmd).get("TDMCP_IPC_PORT").map(String::as_str),
+            Some("9975")
+        );
+    }
+}
 
 /// True when the process image basename is TouchDesigner (any platform).
 fn is_touchdesigner_image(name: &str) -> bool {

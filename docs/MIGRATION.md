@@ -235,13 +235,10 @@ serving an empty list that reads as "nothing happened".
 - The admission default is frozen as "does not withhold a capture anyone has
   taken" — a floor on nine measured PNG captures, not a tuned value for HDR,
   EXR or photographic content.
-- **No live TouchDesigner handshake was completed on the build host.** The
-  official-tool half of the project-I/O acceptance ran and passed — unpack,
-  pack, lint and a byte-identical unpack/pack/unpack round trip on a debug
-  binary in an isolated data directory — and a real TouchDesigner child was
-  spawned and reaped with no leaked process. But TouchDesigner under Wine on a
-  headless session does not run the project's Execute DAT callbacks, so the
-  bridge never connected and no end-to-end tool call was driven through a live
-  TouchDesigner. The daemon-side, proxy-side and process-ownership behaviour is
-  covered by tests that need no TouchDesigner; the child-side handshake timing
-  is **unmeasured**, not assumed to work.
+- TouchDesigner under Wine is **not** a qualification target. The live
+  acceptance on the build host ran against TouchDesigner 2025.32460 under Wine
+  and passed — handshake, inspect, create, guarded write, capture and graceful
+  kill — but that is a convenience for the tests, not a support statement.
+  Native Windows and macOS remain unqualified here, and the Wine path depends
+  on a `wine_exe` launcher whose graphics and licensing setup is local to this
+  machine.

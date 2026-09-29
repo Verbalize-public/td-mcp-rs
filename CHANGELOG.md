@@ -64,6 +64,11 @@ what is newly *labelled*, and what this release does not claim.
 - fix: `spawn_td` reports which build actually ran, and a wait timeout says
   the process is still running
 - fix: a spawned TouchDesigner's ownership is kept until it exits
+- fix: `spawn_td` tells the child which bridge port the daemon actually bound.
+  The bridge inside TouchDesigner resolves its daemon from the environment
+  only, so on a non-default `[bridge] port` it used to dial `9861` regardless —
+  never connecting, or attaching a TouchDesigner to a *different* daemon that
+  owned 9861. Found by live acceptance, not by a test.
 - fix: project unpack and bridge install are fail-safe under concurrent
   writes
 - feat: set aside the file a replace is about to destroy
@@ -126,9 +131,11 @@ what is newly *labelled*, and what this release does not claim.
 ### Not claimed
 
 No model token A/B significance, no agent task-acceptance measurement, no
-native Windows or macOS qualification from a Linux host, no live TouchDesigner
-handshake (Wine's Execute DAT callbacks do not run on a headless session, so
-the child-side timing is unmeasured), and **unsigned installers**.
+native Windows or macOS qualification from a Linux host, and **unsigned
+installers**. TouchDesigner under Wine was exercised live on the build host
+(handshake, inspect, create, guarded write, capture, graceful kill) and passes,
+but that is a test convenience, not a support statement — the Wine path needs
+a local launcher whose graphics and licensing setup is machine-specific.
 `docs/MIGRATION.md` states the same list in full, and
 `scripts/scorecard_report.py` prints it alongside the four measured cards.
 
