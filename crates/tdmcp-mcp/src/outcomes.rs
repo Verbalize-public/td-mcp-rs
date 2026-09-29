@@ -442,6 +442,50 @@ pub fn map_editor_context_outcome(
     }
 }
 
+/// Map a `sample_data` outcome.
+///
+/// A refusal from the bridge is passed through with its own code rather than
+/// collapsed into a generic failure, because the refusals are specific and
+/// actionable: an out-of-bounds region, a non-float pixel format, a build with
+/// no `numpyArray`. A caller that cannot tell those apart will retry the same
+/// call.
+pub fn map_sample_data_outcome(
+    catalog: &Catalog,
+    pid: Pid,
+    outcome: BridgeOutcome,
+    _diagnostic_level: DiagnosticLevel,
+) -> Result<Value, ToolCallError> {
+    let span = span("sample_data", None);
+    match outcome {
+        BridgeOutcome::Ok(value) => {
+            let env = BridgeResultEnvelope::from_value(&value);
+            if env.is_error() {
+                // The bridge owns the diagnosis here: it knows whether a read
+                // was refused for a reason a caller can act on.
+                let code = match env.code.as_deref() {
+                    Some(code) if catalog.contains(code) => code.to_owned(),
+                    _ => codes::BRIDGE_RESPONSE_INVALID.to_owned(),
+                };
+                let item = build_diag(
+                    catalog,
+                    &code,
+                    span,
+                    Some(env.message_or("sample_data failed")),
+                    ctx(pid, None, None),
+                    DiagnosticLayer::Perception,
+                );
+                Err(failed_one(item))
+            } else {
+                // The bridge's exact values, unmodified. This tool is the one
+                // place where reshaping the payload would corrupt the data.
+                Ok(value)
+            }
+        }
+        BridgeOutcome::QueueBusy => Err(queue_busy(catalog, "sample_data", pid)),
+        BridgeOutcome::Transport(err) => Err(transport(catalog, "sample_data", pid, err)),
+    }
+}
+
 /// Map an `api_help` outcome.
 pub fn map_api_help_outcome(
     catalog: &Catalog,

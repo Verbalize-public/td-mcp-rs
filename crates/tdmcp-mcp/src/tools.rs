@@ -108,6 +108,11 @@ pub enum ToolName {
     MutateNodes,
     /// Perception capture.
     Capture,
+    /// Exact numerical reads from a TOP or CHOP.
+    ///
+    /// Distinct from `capture`: capture serves an 8-bit PNG for a human to
+    /// look at, and this returns the float values a comparison needs.
+    SampleData,
     /// Frame-exact video recording jobs.
     Record,
     /// Live TD Python API cards / class index.
@@ -148,6 +153,7 @@ impl ToolName {
             Self::Inspect => "inspect",
             Self::MutateNodes => "mutate_nodes",
             Self::Capture => "capture",
+            Self::SampleData => "sample_data",
             Self::Record => "record",
             Self::ApiHelp => "api_help",
             Self::EditorContext => "editor_context",
@@ -183,6 +189,9 @@ impl ToolName {
             }
             Self::Capture => {
                 "Perception capture. top=native TOP PNG; preview=any family via shared bridge OP Viewer TOP; chop_data=CHOP JSON; auto selects by family. maxSize defaults to 512, hard cap 1536px. Optional timing starts a reset+sequential-forward TOP capture job; poll action=status with jobId, or cancel. sampleFrames/repeat/stepFrames select offsets after explicit reset initialization; inspect pairs structural reads with each sample. The job owns this PID until cleanup; plain capture remains immediate."
+            }
+            Self::SampleData => {
+                "Exact float values from a TOP or CHOP — the tool for questions capture cannot answer. capture returns an 8-bit PNG; this returns values, so it can read 4.5, a NaN, a negative, and full float precision. pixels=[[x,y],…] reads named pixels and counts out-of-range ones rather than clamping; region={x,y,x1,y1} reads a rectangle; omit both for a whole-image SUMMARY (labelled isSummary, never to be compared as if it were the data). Coordinates are [x,y] as you name them; the array is [h,w] and the response says so. Set forceCook to read a current frame instead of whatever was last cooked. The response reports the TOP's pixelFormat and carriesHdr: a float32 array over an 8-bit texture is still clamped, and the read tells you which you got. Non-finite values come back as null with nonFinite counts, because JSON has no NaN."
             }
             Self::Record => "Record exactly frames consecutive samples from one TOP output, without audio. Starts a reset+forward-advance job; status/cancel remain available while it owns the PID. Default timeline FPS, qtrle MOV. Finalized artifact metadata is sample-table verified; read retrieves bounded base64 chunks by jobId/offset/length (works remotely), release removes the private artifact. Retains at most eight jobs per TD bridge generation.",
             Self::ApiHelp => {
@@ -232,6 +241,7 @@ impl ToolName {
         Self::Inspect,
         Self::MutateNodes,
         Self::Capture,
+        Self::SampleData,
         Self::Record,
         Self::ApiHelp,
         Self::EditorContext,
@@ -257,6 +267,7 @@ impl ToolName {
             "inspect" => Some(Self::Inspect),
             "mutate_nodes" => Some(Self::MutateNodes),
             "capture" => Some(Self::Capture),
+            "sample_data" => Some(Self::SampleData),
             "record" => Some(Self::Record),
             "api_help" => Some(Self::ApiHelp),
             "editor_context" => Some(Self::EditorContext),
@@ -1576,6 +1587,56 @@ async fn dispatch_tool_inner(
                 params.pid,
                 params.path.unwrap_or_else(|| OpPath::from("")),
                 params.context_path,
+                outcome,
+                params.diagnostic_level,
+            )
+        }
+        ToolName::SampleData => {
+            let params: crate::sample_data::SampleDataParams =
+                parse_args(catalog, tool, args.clone())?;
+            if let ControlFlow::Break(v) = maybe_proxy_bridged(
+                federation,
+                registry,
+                catalog,
+                "sample_data",
+                args,
+                params.daemon_id.as_deref(),
+                params.pid,
+                session,
+            )
+            .await?
+            {
+                return Ok(v);
+            }
+            let _slot = begin_session_slot(
+                session,
+                catalog,
+                "sample_data",
+                DAEMON_SCOPE_LOCAL,
+                params.pid,
+            )?;
+            let outcome = enqueue_and_call(
+                registry,
+                bridge,
+                params.pid,
+                BridgeMethod::SampleData,
+                // A read. It cannot change the scene, so its receipt effect is
+                // `not_applicable` rather than unknown -- even a forced cook
+                // advances TD's cook, not the network, and nothing here writes.
+                EffectClass::Read,
+                serde_json::json!({
+                    "path": params.path,
+                    "pixels": params.pixels,
+                    "region": params.region,
+                    "forceCook": params.force_cook,
+                    "readMethod": params.read_method,
+                }),
+                journal,
+            )
+            .await;
+            crate::outcomes::map_sample_data_outcome(
+                catalog,
+                params.pid,
                 outcome,
                 params.diagnostic_level,
             )

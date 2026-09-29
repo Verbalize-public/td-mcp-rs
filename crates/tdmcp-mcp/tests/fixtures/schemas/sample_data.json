@@ -1,0 +1,160 @@
+{
+  "$defs": {
+    "DiagnosticLevel": {
+      "description": "Payload size for diagnostics (independent of structural `detailLevel`).",
+      "oneOf": [
+        {
+          "const": "summary",
+          "description": "Codes, messages, capped lints, mitigation.",
+          "type": "string"
+        },
+        {
+          "const": "detailed",
+          "description": "Plus raw traceback / full TD dumps.",
+          "type": "string"
+        }
+      ]
+    },
+    "Pid": {
+      "anyOf": [
+        {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "pattern": "^\\s*[0-9]+\\s*$",
+          "type": "string"
+        }
+      ],
+      "description": "OS process id — sole address for tools and queues."
+    },
+    "ReadMethod": {
+      "description": "How a CHOP's samples are read.",
+      "oneOf": [
+        {
+          "const": "indexed",
+          "description": "Per-channel indexer (`chan[sample]`), the path that was measured.\n\nThe default on purpose: a CHOP's `numpyArray` axis order was not\nmeasured, and guessing `[samples, chans]` would silently transpose\nevery channel.",
+          "type": "string"
+        },
+        {
+          "const": "numpyArray",
+          "description": "`numpyArray()` in one call, with the array shape reported alongside.\n\nOpt-in because the response carries `axisOrderVerified: false`.",
+          "type": "string"
+        }
+      ]
+    },
+    "SampleRegion": {
+      "additionalProperties": false,
+      "description": "A pixel rectangle, inclusive of the origin and exclusive of the far edge.",
+      "properties": {
+        "x": {
+          "description": "Left edge in pixels (the `x` a caller names).",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "x1": {
+          "description": "Right edge, exclusive.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "y": {
+          "description": "Top edge in pixels (the `y` a caller names).",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "y1": {
+          "description": "Bottom edge, exclusive.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "x1",
+        "y1"
+      ],
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Args for `sample_data`.",
+  "properties": {
+    "daemonId": {
+      "default": null,
+      "description": "Optional federated daemon id (omit for local / unique remote resolve).",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "diagnosticLevel": {
+      "$ref": "#/$defs/DiagnosticLevel",
+      "default": "summary",
+      "description": "Diagnostic payload size (`summary` omits raw traceback)."
+    },
+    "forceCook": {
+      "default": false,
+      "description": "Cook the operator before reading.\n\nNeeded for a current read: without it a TOP may still hold the previous\nframe, and the response says so in `cook.forced` either way.",
+      "type": "boolean"
+    },
+    "path": {
+      "description": "Operator to read. TOPs and CHOPs are supported exactly; anything else\nis refused by name rather than approximated.",
+      "type": "string"
+    },
+    "pid": {
+      "$ref": "#/$defs/Pid",
+      "description": "Target pid."
+    },
+    "pixels": {
+      "default": null,
+      "description": "Exact values at these `[x, y]` pixels.\n\nOut-of-range and malformed entries are counted in `outOfRange` rather\nthan clamped, because a clamped answer to a bad coordinate is a\ndifferent observation than the caller asked for.",
+      "items": {
+        "items": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "type": "array"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "readMethod": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ReadMethod"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "How a CHOP's samples are read. Ignored for a TOP."
+    },
+    "region": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SampleRegion"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Exact values over a rectangle.\n\nMutually exclusive with `pixels` in practice; when both are present the\nregion wins, and the response reports which mode it used."
+    }
+  },
+  "required": [
+    "pid",
+    "path"
+  ],
+  "type": "object"
+}

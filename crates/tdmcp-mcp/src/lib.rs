@@ -31,6 +31,7 @@ pub mod project_unpack;
 pub mod receipts;
 pub mod resources;
 mod rmcp_handler;
+pub mod sample_data;
 mod schema;
 mod server;
 mod session_registry;

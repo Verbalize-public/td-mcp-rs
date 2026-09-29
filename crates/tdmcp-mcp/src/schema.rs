@@ -25,6 +25,7 @@ pub fn input_schema_for(tool: ToolName) -> JsonObject {
         ToolName::Fleet => schema_value::<FleetParams>(),
         ToolName::ExecutePython => schema_value::<ExecutePythonParams>(),
         ToolName::Capture => schema_value::<CaptureParams>(),
+        ToolName::SampleData => schema_value::<crate::sample_data::SampleDataParams>(),
         ToolName::Record => schema_value::<crate::timing::RecordParams>(),
         ToolName::Inspect => schema_value::<InspectParams>(),
         ToolName::MutateNodes => schema_value::<MutateNodesParams>(),
