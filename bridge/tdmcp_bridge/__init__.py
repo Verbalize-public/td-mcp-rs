@@ -403,6 +403,11 @@ def _debug_dat_mirror(record: dict[str, Any]) -> None:
 
 _active_stream: Any = None
 _active_thread: threading.Thread | None = None
+# A worker whose teardown outlived the bounded join in `disconnect()`. Kept
+# separately from `_active_thread` because it is NOT a session: nothing may
+# write to its stream or join it as if it were live. It exists only so the
+# next bootstrap can wait for it instead of racing it.
+_shutting_down_thread: threading.Thread | None = None
 # Reload reuses the module object but RE-EXECUTES its body from an EMPTY dict,
 # so every name the body assigns is reset to None — including the live session.
 # A module global therefore cannot carry a value across its own reset, and
@@ -425,9 +430,16 @@ def _recover_session() -> None:
     still alive: a dead worker is not a session, and reporting one as live is
     the one outcome worse than forgetting a live one.
     """
-    global _active_stream, _active_thread
+    global _active_stream, _active_thread, _shutting_down_thread
     for candidate in threading.enumerate():
         if candidate.name != _WORKER_THREAD_NAME or not candidate.is_alive():
+            continue
+        if getattr(candidate, "tdmcp_shutting_down", False):
+            # Marked by `disconnect` when its join timed out. It still carries
+            # the stream attribute, so without this marker the loop below would
+            # adopt a worker that is leaving as if it were arriving. Not a
+            # session, and nothing may be written to its stream.
+            _shutting_down_thread = candidate
             continue
         stream = getattr(candidate, "tdmcp_stream", None)
         if stream is not None:
@@ -440,6 +452,43 @@ def is_connected() -> bool:
     """True while the IPC worker thread is alive after a successful bootstrap."""
     return _active_thread is not None and _active_thread.is_alive()
 
+
+def is_shutting_down() -> bool:
+    """True while a disconnected worker is still finishing its teardown.
+
+    `disconnect()` bounds the worker's join at 2 s and then closes the stream
+    out from under it (see its docstring), so the teardown can still be in
+    flight when it returns `True`. `is_connected()` correctly reports `False`
+    then — the session really is gone from the caller's point of view — but
+    "gone" and "the previous worker is still draining its socket" are different
+    facts, and every caller that sees `False` treats it as licence to dial a
+    replacement. Collapsing the two makes the new worker race the old one on
+    the same port, which is what a superseded session looks like from the
+    daemon's side.
+
+    Reported as its own question so a caller can tell the two apart instead of
+    inferring one from the other.
+    """
+    return _shutting_down_thread is not None and _shutting_down_thread.is_alive()
+
+
+def _await_shutdown(timeout_s: float = 2.0) -> bool:
+    """Wait for a teardown that outlived its join, if one is in flight.
+
+    Returns True when nothing is in flight. Called by `bootstrap_threaded`
+    before it dials, so a replacement session is never started on top of a
+    worker that has not finished leaving.
+    """
+    global _shutting_down_thread
+    thread = _shutting_down_thread
+    if thread is None or not thread.is_alive():
+        _shutting_down_thread = None
+        return True
+    thread.join(timeout=timeout_s)
+    if thread.is_alive():
+        return False
+    _shutting_down_thread = None
+    return True
 
 def bootstrap_threaded(bridge_dir: str | None = None) -> dict[str, Any]:
     """Non-blocking variant of [`bootstrap`] for a live TD session.
@@ -466,6 +515,17 @@ def bootstrap_threaded(bridge_dir: str | None = None) -> dict[str, Any]:
     _state.require_main_thread()
     if _active_stream is not None or _active_thread is not None:
         disconnect()
+    # A previous teardown may have outlived its join (see `disconnect`).
+    # Wait for it here: the replacement dials the same port, and starting it
+    # while the old worker still holds the socket is what a superseded
+    # session looks like from the daemon. A second bounded wait is the last
+    # resort — after that the new session wins, and the old worker is
+    # abandoned rather than allowed to block a reconnect forever.
+    if not _await_shutdown():
+        sys.stderr.write(
+            "tdmcp_bridge: previous worker still exiting after a second wait; "
+            "starting a new session and abandoning the old worker\n"
+        )
     # Refresh before handshake — dialer retries share one TD interpreter.
     # Without this, a fixed identity.py on disk stays invisible while the
     # stale ``tdmcp_bridge.identity`` module remains in ``sys.modules``.
@@ -536,7 +596,7 @@ def disconnect() -> bool:
     main thread. So: unblock the worker's pending read first
     ([`_TcpStream.cancel_pending_io`] → ``shutdown``), join it, *then* close.
     """
-    global _active_stream, _active_thread
+    global _active_stream, _active_thread, _shutting_down_thread
     _state.require_main_thread()
     _timing.shutdown()
     if _active_stream is None:
@@ -555,6 +615,15 @@ def disconnect() -> bool:
 
     if thread is not None:
         thread.join(timeout=2.0)
+        if thread.is_alive():
+            # The join timed out. The worker is still draining the socket we
+            # are about to close, so remember it: a bootstrap that starts now
+            # would put a second worker on the port the first still holds.
+            # `is_connected()` is already False and must stay that way. The
+            # marker travels on the thread so a reload can tell this worker
+            # from a live one (it still carries the stream attribute).
+            thread.tdmcp_shutting_down = True  # type: ignore[attr-defined]
+            _shutting_down_thread = thread
 
     try:
         stream.close()
