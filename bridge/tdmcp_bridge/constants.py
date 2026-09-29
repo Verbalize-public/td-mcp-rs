@@ -31,6 +31,7 @@ BRIDGE_METHODS: tuple[str, ...] = (
     "script_source",
     "param_interface",
     "project_snapshot",
+    "compare_nodes",
     "record",
     "inspect",
     "mutate_nodes",
@@ -109,6 +110,12 @@ SAMPLE_MAX_POINT_SAMPLES = 4096
 SAMPLE_MAX_REGION_PIXELS = 262144
 SAMPLE_DATA_MAX_CHANNELS = 64
 SAMPLE_DATA_MAX_SCALARS = 32768
+
+# compare_nodes: a projection is paths x fields, and every pair is read fresh on
+# both sides. The caps keep a guarded write from re-reading an entire project
+# in one call, which would make the pre-write check slower than the write.
+COMPARE_MAX_NODES = 256
+COMPARE_MAX_FIELDS = 64
 
 _LOGS_RETURN_MAX = 128 * 1024
 _DEBUG_DAT_RING_MAX = 256 * 1024

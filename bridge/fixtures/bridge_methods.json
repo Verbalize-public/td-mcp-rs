@@ -1,1 +1,1 @@
-["execute_python", "capture", "sample_data", "script_source", "param_interface", "project_snapshot", "record", "inspect", "mutate_nodes", "api_help", "editor_context", "palette_probe", "ping"]
+["api_help", "capture", "editor_context", "execute_python", "inspect", "mutate_nodes", "palette_probe", "param_interface", "ping", "project_snapshot", "compare_nodes", "record", "sample_data", "script_source"]

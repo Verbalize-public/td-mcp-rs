@@ -492,6 +492,83 @@ class _TdMutateContext(MutateContext):
         return list(copy_fn(ops) or [])
 
 
+def _precondition_mismatch(
+    ctx: "MutateContext",
+    path: str,
+    expect: dict[str, Any],
+    context_path: str | None,
+) -> dict[str, Any] | None:
+    """Check a step's ``expect`` block against a FRESH read, right now.
+
+    Three properties this deliberately does not have:
+
+    * **No whole-scene atomicity.** The check reads this step's own fields
+      immediately before this step. A callback or a user can change a field
+      between the read and the write, so a satisfied guard narrows the window
+      rather than closing it. The pass result says so.
+    * **No exactly-once.** If the write fails after the guard passes, the
+      outcome is unknown and the caller must re-read rather than assume.
+    * **No cache shortcut.** The read happens here, every time, even when the
+      caller has a baseline saying nothing changed. A daemon counter tracks
+      dispatches, not effects, so it cannot stand in for a read.
+
+    Presence-aware by construction: ``null``, ``false``, ``0``, ``""`` and an
+    absent field are five different expectations. A guard that treated ``null``
+    and absent as the same would pass a write that clobbers a value the caller
+    never saw.
+    """
+    from .compare import _read_field, _wrap, strict_eq
+
+    expected_fields = expect.get("fields")
+    if not isinstance(expected_fields, dict) or not expected_fields:
+        return None
+    node = ctx.resolve(_absolutize_path(path, context_path))
+    if node is None or not getattr(node, "valid", True):
+        return {
+            "ok": False,
+            "code": "tdmcp.mutate.precondition_unreadable",
+            "message": (
+                f"precondition could not be checked for {path}: the node does not "
+                "resolve. Refusing the write rather than skipping the guard."
+            ),
+            "path": path,
+            "readable": False,
+        }
+    for field, want in expected_fields.items():
+        got = _wrap(_read_field(node, str(field)))
+        if not got.get("present"):
+            return {
+                "ok": False,
+                "code": "tdmcp.mutate.precondition_failed",
+                "message": (
+                    f"precondition failed for {path}: {field} is not readable, so "
+                    "the guard cannot confirm it. Refusing rather than writing "
+                    "over a value that could not be observed."
+                ),
+                "path": path,
+                "field": field,
+                "readable": False,
+                "expected": {"present": True, "value": want},
+                "observed": got,
+            }
+        if not strict_eq(got.get("value"), want):
+            return {
+                "ok": False,
+                "code": "tdmcp.mutate.precondition_failed",
+                "message": (
+                    f"precondition failed for {path}: {field} is "
+                    f"{got.get('value')!r}, expected {want!r}. Re-read the scene to "
+                    "see the current value before writing."
+                ),
+                "path": path,
+                "field": field,
+                "readable": True,
+                "expected": {"present": True, "value": want},
+                "observed": got,
+            }
+    return None
+
+
 def apply_step(
     ctx: MutateContext,
     step: dict[str, Any],
@@ -502,9 +579,31 @@ def apply_step(
     """Apply one mutate step. Pure seam — no ``td`` import.
 
     Returns a per-step result dict: ``{ok, path?, code?, message?, …}``.
+
+    When the step carries ``expect``, the precondition is rechecked against a
+    fresh read immediately before the write, and a mismatch refuses the step.
+    Two consequences are reported rather than implied:
+
+    * The guard narrows the race; it does not close it. A field can still
+      change between the recheck and the write, so a guarded write is not
+      atomic and not a scene-wide lock.
+    * If the write fails after the guard passed, the effect is unknown. The
+      caller must re-read; nothing here retries, because a retried write on an
+      unknown effect is how one intent becomes two mutations.
     """
     op = step.get("op") or ""
     try:
+        expect = step.get("expect")
+        if isinstance(expect, dict) and expect.get("fields"):
+            # `create` has no prior state to check, and `delete`'s meaningful
+            # precondition is the node existing (which _step_delete checks).
+            if op not in ("create", "place"):
+                target = step.get("path") or step.get("dst") or ""
+                mismatch = _precondition_mismatch(
+                    ctx, str(target), expect, context_path
+                )
+                if mismatch is not None:
+                    return mismatch
         if op == "create":
             return _step_create(ctx, step, context_path, detail_level)
         if op == "set":

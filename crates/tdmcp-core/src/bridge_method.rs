@@ -19,6 +19,12 @@ pub enum BridgeMethod {
     ParamInterface,
     /// Save a project or a component, with a receipt naming what was written.
     ProjectSnapshot,
+    /// Exact deltas between a retained baseline and a fresh read.
+    ///
+    /// Separate from [`Self::Inspect`] because a diff needs a retained
+    /// baseline and a *fresh* re-read to mean anything: an inspect result
+    /// carries no proof of when it was observed.
+    CompareNodes,
     /// Named Python sources: register, inspect, and run.
     ///
     /// Shares the inline execution path with [`Self::ExecutePython`], so a
@@ -56,6 +62,7 @@ impl BridgeMethod {
             Self::ScriptSource => "script_source",
             Self::ParamInterface => "param_interface",
             Self::ProjectSnapshot => "project_snapshot",
+            Self::CompareNodes => "compare_nodes",
             Self::Record => "record",
             Self::Inspect => "inspect",
             Self::MutateNodes => "mutate_nodes",
@@ -76,6 +83,7 @@ impl BridgeMethod {
             Self::ScriptSource => "ScriptSource",
             Self::ParamInterface => "ParamInterface",
             Self::ProjectSnapshot => "ProjectSnapshot",
+            Self::CompareNodes => "CompareNodes",
             Self::Record => "Record",
             Self::Inspect => "Inspect",
             Self::MutateNodes => "Mutate",
@@ -94,6 +102,7 @@ impl BridgeMethod {
         Self::ScriptSource,
         Self::ParamInterface,
         Self::ProjectSnapshot,
+        Self::CompareNodes,
         Self::Record,
         Self::Inspect,
         Self::MutateNodes,
@@ -112,6 +121,7 @@ impl BridgeMethod {
             "script_source" => Some(Self::ScriptSource),
             "param_interface" => Some(Self::ParamInterface),
             "project_snapshot" => Some(Self::ProjectSnapshot),
+            "compare_nodes" => Some(Self::CompareNodes),
             "record" => Some(Self::Record),
             "inspect" => Some(Self::Inspect),
             "mutate_nodes" => Some(Self::MutateNodes),
