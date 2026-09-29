@@ -225,6 +225,39 @@ pub trait OperationJournal: Send + Sync {
         detail: Option<&str>,
     ) -> Result<(), EvidenceError>;
 
+    /// Record that the caller's wait ended while the work may still be running.
+    ///
+    /// This is deliberately not [`Self::finish`] and deliberately not a
+    /// terminal state. A timeout, a disconnect, or a cancelled caller are three
+    /// different events, and none of them establishes that the work stopped:
+    /// the call may still be running inside TouchDesigner. Recording this as
+    /// `failed` would claim the work did not happen, and recording it as
+    /// `completed` would claim more than anybody observed. The receipt stays
+    /// unsettled so a later [`Self::recover_uncertain`] reports it as unknown
+    /// rather than quietly forgetting it.
+    ///
+    /// The effect is always [`EffectState::Unknown`] and is not a parameter,
+    /// so no caller can turn a lost result into a known one by accident.
+    fn mark_wait_expired(
+        &self,
+        owner: &OwnerId,
+        id: &str,
+        detail: &str,
+    ) -> Result<(), EvidenceError>;
+
+    /// Record that the work was never handed to the executor.
+    ///
+    /// This is a distinct transition from [`Self::finish`] because the receipt
+    /// is still *admitted* here, not *dispatched*. Without it, a send that
+    /// fails — the target is not running, the bridge is down — would leave a row
+    /// that is never settled and never pruned, and since unsettled rows hold an
+    /// in-flight slot, a client whose TouchDesigner is closed would eventually
+    /// be refused by its own quota with no way to recover. "Nothing was sent" is
+    /// a real answer and the caller's next attempt is the first dispatch.
+    ///
+    /// The effect is always [`EffectState::PreventedBeforeDispatch`].
+    fn mark_not_sent(&self, owner: &OwnerId, id: &str, detail: &str) -> Result<(), EvidenceError>;
+
     /// Read one receipt owned by `owner`.
     fn get(&self, owner: &OwnerId, id: &str) -> Result<Option<OperationReceipt>, EvidenceError>;
 
@@ -568,6 +601,57 @@ impl OperationJournal for SqliteOperationJournal {
                 expected: ReceiptState::Dispatched,
                 next: state,
                 effect,
+                detail,
+                retention: self.config.retention,
+                owner,
+                id,
+            },
+        )
+    }
+
+    fn mark_wait_expired(
+        &self,
+        owner: &OwnerId,
+        id: &str,
+        detail: &str,
+    ) -> Result<(), EvidenceError> {
+        let detail = self.bound_detail(Some(detail))?;
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| EvidenceError::Conflict)?;
+        // `wait_expired` is not terminal, so `transition` leaves `expires_at_ms`
+        // NULL: the receipt keeps counting against the in-flight bound until a
+        // restart settles it, which is what stops a wall of abandoned waits from
+        // being admitted forever.
+        transition(
+            &connection,
+            Transition {
+                expected: ReceiptState::Dispatched,
+                next: ReceiptState::WaitExpired,
+                effect: EffectState::Unknown,
+                detail,
+                retention: self.config.retention,
+                owner,
+                id,
+            },
+        )
+    }
+
+    fn mark_not_sent(&self, owner: &OwnerId, id: &str, detail: &str) -> Result<(), EvidenceError> {
+        let detail = self.bound_detail(Some(detail))?;
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| EvidenceError::Conflict)?;
+        // Expected is `admitted`, not `dispatched`: reaching this transition is
+        // itself the claim that nothing was sent.
+        transition(
+            &connection,
+            Transition {
+                expected: ReceiptState::Admitted,
+                next: ReceiptState::Cancelled,
+                effect: EffectState::PreventedBeforeDispatch,
                 detail,
                 retention: self.config.retention,
                 owner,
@@ -955,6 +1039,59 @@ impl OperationJournal for MemoryOperationJournal {
         }
         receipt.updated_at_ms = now;
         receipt.expires_at_ms = Some(now + retention_ms(self.config.retention));
+        Ok(())
+    }
+
+    fn mark_wait_expired(
+        &self,
+        owner: &OwnerId,
+        id: &str,
+        detail: &str,
+    ) -> Result<(), EvidenceError> {
+        if u64::try_from(detail.len()).unwrap_or(u64::MAX) > self.config.max_detail_bytes {
+            return Err(EvidenceError::QuotaExceeded(
+                "operation receipt detail exceeds the configured bound".to_owned(),
+            ));
+        }
+        let mut receipts = self.receipts.lock().map_err(|_| EvidenceError::Conflict)?;
+        let receipt = receipts
+            .get_mut(id)
+            .filter(|receipt| receipt.owner == owner.as_str())
+            .ok_or(EvidenceError::NotFound)?;
+        if receipt.state != ReceiptState::Dispatched {
+            return Err(EvidenceError::Conflict);
+        }
+        receipt.state = ReceiptState::WaitExpired;
+        // Never anything but Unknown: the effect is not a parameter here.
+        receipt.effect = EffectState::Unknown;
+        receipt.detail = Some(detail.to_owned());
+        receipt.updated_at_ms = now_ms();
+        // No expiry: an unsettled receipt keeps counting against the in-flight
+        // bound until recovery settles it.
+        receipt.expires_at_ms = None;
+        Ok(())
+    }
+
+    fn mark_not_sent(&self, owner: &OwnerId, id: &str, detail: &str) -> Result<(), EvidenceError> {
+        if u64::try_from(detail.len()).unwrap_or(u64::MAX) > self.config.max_detail_bytes {
+            return Err(EvidenceError::QuotaExceeded(
+                "operation receipt detail exceeds the configured bound".to_owned(),
+            ));
+        }
+        let mut receipts = self.receipts.lock().map_err(|_| EvidenceError::Conflict)?;
+        let receipt = receipts
+            .get_mut(id)
+            .filter(|receipt| receipt.owner == owner.as_str())
+            .ok_or(EvidenceError::NotFound)?;
+        // Still admitted: reaching here is what establishes that nothing was sent.
+        if receipt.state != ReceiptState::Admitted {
+            return Err(EvidenceError::Conflict);
+        }
+        receipt.state = ReceiptState::Cancelled;
+        receipt.effect = EffectState::PreventedBeforeDispatch;
+        receipt.detail = Some(detail.to_owned());
+        receipt.updated_at_ms = now_ms();
+        receipt.expires_at_ms = Some(now_ms() + retention_ms(self.config.retention));
         Ok(())
     }
 
@@ -1754,5 +1891,189 @@ mod tests {
         assert_eq!(receipt.effect, EffectState::PreventedBeforeDispatch);
         assert_eq!(receipt.detail.as_deref(), Some("note"));
         assert_eq!(receipt.outcome().state, OperationState::Cancelled);
+    }
+
+    /// Both backends must expose the same wait-expiry semantics, so the adapter
+    /// that picks a backend does not change what a lost result means.
+    fn wait_expiry_contract(journal: &dyn OperationJournal) {
+        let id = journal.admit(&alice(), "mutate_nodes", None).unwrap();
+        journal.mark_dispatched(&alice(), &id).unwrap();
+        journal
+            .mark_wait_expired(&alice(), &id, "caller timed out")
+            .unwrap();
+        let receipt = journal.get(&alice(), &id).unwrap().unwrap();
+        assert_eq!(receipt.state, ReceiptState::WaitExpired);
+        assert_eq!(receipt.effect, EffectState::Unknown);
+        assert_eq!(receipt.detail.as_deref(), Some("caller timed out"));
+        // Not terminal: the receipt stays unsettled and recoverable.
+        assert!(!receipt.state.is_terminal());
+        assert_eq!(receipt.expires_at_ms, None);
+        assert_eq!(receipt.outcome().state, OperationState::WaitExpired);
+    }
+
+    #[test]
+    fn an_expired_wait_is_never_recorded_as_observed() {
+        wait_expiry_contract(&memory());
+    }
+
+    #[test]
+    fn a_sqlite_backed_expired_wait_matches_the_memory_one() {
+        wait_expiry_contract(&SqliteOperationJournal::open_memory(config()).unwrap());
+    }
+
+    #[test]
+    fn a_restart_turns_an_expired_wait_into_an_unknown_effect_rather_than_replaying_it() {
+        let root = temp_root("wait-expiry-restart");
+        let id = {
+            let journal = SqliteOperationJournal::open(&root, config()).unwrap();
+            let id = journal.admit(&alice(), "mutate_nodes", None).unwrap();
+            journal.mark_dispatched(&alice(), &id).unwrap();
+            journal
+                .mark_wait_expired(&alice(), &id, "caller timed out")
+                .unwrap();
+            id
+        };
+        // A restart is where the distinction matters: the daemon no longer knows
+        // whether the mutation landed, and the only honest record says so.
+        // Recovery already ran inside `open`, so the settled state is read
+        // rather than re-requested.
+        let reopened = SqliteOperationJournal::open(&root, config()).unwrap();
+        let receipt = reopened.get(&alice(), &id).unwrap().unwrap();
+        assert_eq!(receipt.state, ReceiptState::UnknownEffect);
+        assert_eq!(receipt.effect, EffectState::Unknown);
+        // The detail written at expiry is preserved through recovery.
+        assert_eq!(receipt.detail.as_deref(), Some("caller timed out"));
+        // And it is still not replayed: recovery is idempotent, so a second
+        // pass has nothing left to settle.
+        assert!(reopened.recover_uncertain().unwrap().is_empty());
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn an_expired_wait_still_counts_as_unsettled_so_abandons_cannot_be_unbounded() {
+        let mut bounded = config();
+        bounded.max_in_flight_per_owner = 1;
+        bounded.max_in_flight_total = 1;
+        let journal = SqliteOperationJournal::open_memory(bounded).unwrap();
+        let id = journal.admit(&alice(), "mutate_nodes", None).unwrap();
+        journal.mark_dispatched(&alice(), &id).unwrap();
+        journal.mark_wait_expired(&alice(), &id, "gave up").unwrap();
+        // The receipt is not terminal and must not be pruned away by age, so the
+        // next admission is refused rather than silently exceeding the bound.
+        let second = journal.admit(&alice(), "mutate_nodes", None);
+        assert!(
+            matches!(second, Err(EvidenceError::QuotaExceeded(_))),
+            "expected QuotaExceeded, got {second:?}"
+        );
+    }
+
+    #[test]
+    fn an_expired_wait_cannot_be_rewritten_as_a_known_outcome() {
+        let journal = memory();
+        let id = journal.admit(&alice(), "mutate_nodes", None).unwrap();
+        journal.mark_dispatched(&alice(), &id).unwrap();
+        journal.mark_wait_expired(&alice(), &id, "gave up").unwrap();
+        // Only `finish` from `dispatched` is allowed, so a caller that lost the
+        // result cannot later come back and claim the work completed.
+        let rewrite = journal.finish(
+            &alice(),
+            &id,
+            ReceiptState::Completed,
+            EffectState::Applied,
+            None,
+        );
+        assert!(
+            matches!(rewrite, Err(EvidenceError::Conflict)),
+            "expected Conflict, got {rewrite:?}"
+        );
+    }
+
+    #[test]
+    fn an_expired_wait_cannot_be_rewritten_by_another_owner() {
+        let journal = memory();
+        let id = journal.admit(&alice(), "mutate_nodes", None).unwrap();
+        journal.mark_dispatched(&alice(), &id).unwrap();
+        let foreign = journal.mark_wait_expired(&bob(), &id, "gave up");
+        assert!(
+            matches!(foreign, Err(EvidenceError::NotFound)),
+            "expected NotFound, got {foreign:?}"
+        );
+    }
+
+    /// Both backends must agree that "nothing was sent" is a settled, terminal
+    /// answer, so the adapter's choice of backend cannot change it.
+    fn not_sent_contract(journal: &dyn OperationJournal) {
+        let id = journal.admit(&alice(), "mutate_nodes", None).unwrap();
+        journal
+            .mark_not_sent(&alice(), &id, "no connected bridge")
+            .unwrap();
+        let receipt = journal.get(&alice(), &id).unwrap().unwrap();
+        assert_eq!(receipt.state, ReceiptState::Cancelled);
+        assert_eq!(receipt.effect, EffectState::PreventedBeforeDispatch);
+        assert!(receipt.state.is_terminal());
+        assert_eq!(receipt.outcome().state, OperationState::Cancelled);
+        // Settled means it holds no in-flight slot, so a client whose TD is down
+        // can retry instead of being refused by its own quota.
+        assert!(receipt.expires_at_ms.is_some());
+    }
+
+    #[test]
+    fn a_send_that_never_left_the_daemon_is_settled_rather_than_left_admitted() {
+        not_sent_contract(&memory());
+    }
+
+    #[test]
+    fn a_sqlite_backed_not_sent_matches_the_memory_one() {
+        not_sent_contract(&SqliteOperationJournal::open_memory(config()).unwrap());
+    }
+
+    #[test]
+    fn repeated_failed_sends_cannot_exhaust_an_owner_quota() {
+        // The regression this guards: a target that is not running produces a
+        // "nothing was sent" outcome on every call. If those receipts were left
+        // unsettled they would hold in-flight slots forever, and a client
+        // waiting for TouchDesigner to start would be permanently refused.
+        let mut bounded = config();
+        bounded.max_in_flight_per_owner = 2;
+        bounded.max_in_flight_total = 2;
+        let journal = SqliteOperationJournal::open_memory(bounded).unwrap();
+        for _ in 0..8 {
+            let id = journal.admit(&alice(), "mutate_nodes", None).unwrap();
+            journal
+                .mark_not_sent(&alice(), &id, "td is not running")
+                .unwrap();
+        }
+        // A real dispatch is still admitted afterwards.
+        let id = journal.admit(&alice(), "mutate_nodes", None).unwrap();
+        assert!(!id.is_empty());
+    }
+
+    #[test]
+    fn a_dispatched_receipt_cannot_be_rewritten_as_never_sent() {
+        let journal = memory();
+        let id = journal.admit(&alice(), "mutate_nodes", None).unwrap();
+        journal.mark_dispatched(&alice(), &id).unwrap();
+        // Claiming "nothing was sent" after the work reached the executor would
+        // erase the one fact the caller needs.
+        let rewrite = journal.mark_not_sent(&alice(), &id, "queue busy");
+        assert!(
+            matches!(rewrite, Err(EvidenceError::Conflict)),
+            "expected Conflict, got {rewrite:?}"
+        );
+        assert_eq!(
+            journal.get(&alice(), &id).unwrap().unwrap().state,
+            ReceiptState::Dispatched
+        );
+    }
+
+    #[test]
+    fn a_not_sent_receipt_cannot_be_rewritten_by_another_owner() {
+        let journal = memory();
+        let id = journal.admit(&alice(), "mutate_nodes", None).unwrap();
+        let foreign = journal.mark_not_sent(&bob(), &id, "td is not running");
+        assert!(
+            matches!(foreign, Err(EvidenceError::NotFound)),
+            "expected NotFound, got {foreign:?}"
+        );
     }
 }
