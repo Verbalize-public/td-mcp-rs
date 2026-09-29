@@ -145,15 +145,34 @@ class SourceRegistry:
                 # Same bytes. Report the ORIGINAL registration rather than
                 # moving its clock or its declared dependencies underneath a
                 # caller who is already holding this ref.
-                return {
+                #
+                # But silence about a DIFFERENT `dependencies` would be a false
+                # all-clear: the caller declared dependencies, got a ref back,
+                # and a later `check` would report `stale: false` for a source
+                # that was never checked against anything. So a differing
+                # declaration is reported as not applied, with the dependency
+                # list that IS in force.
+                retained = existing["dependencies"]
+                differs = deps != retained
+                out: dict[str, Any] = {
                     "ok": True,
                     "sourceId": source_id,
                     "alreadyRegistered": True,
                     "registeredAt": existing["registeredAt"],
                     "byteLength": existing["byteLength"],
-                    "dependencies": existing["dependencies"],
+                    "dependencies": retained,
+                    "dependenciesApplied": not differs,
                     "executed": False,
                 }
+                if differs:
+                    out["declaredDependencies"] = deps
+                    out["note"] = (
+                        "these bytes were already registered, so the ORIGINAL "
+                        "registration is in force and the dependencies you just "
+                        "declared were NOT applied; a check on this source "
+                        "resolves only the ones listed under `dependencies`"
+                    )
+                return out
             if len(self._sources) >= SCRIPT_SOURCE_MAX_SOURCES:
                 return _err(
                     "tdmcp.script.source_limit",
@@ -176,6 +195,10 @@ class SourceRegistry:
             "registeredAt": now,
             "byteLength": record["byteLength"],
             "dependencies": deps,
+            # Always present on both registration paths, so a caller can read it
+            # unconditionally: a fresh registration applied exactly what was
+            # declared, and a repeat either agrees or says it did not.
+            "dependenciesApplied": True,
             # Stated rather than implied: this call did not run the code.
             "executed": False,
         }
@@ -260,7 +283,23 @@ class SourceRegistry:
                     found = False
                 entry["status"] = "present" if found else "missing"
             else:
-                node = resolve_op(dep["target"], None)
+                # Measured on 2025.32460: `td.op()` RETURNS None for a path that
+                # does not exist, it does not raise. So the None check below is
+                # the load-bearing one.
+                #
+                # The guard is still worth having, but for a narrower and
+                # honest reason: `resolve_op` reaches through a monkeypatchable
+                # package hook, so a caller-supplied replacement may raise. A
+                # dependency check that raised instead of reporting would leave
+                # the caller with no answer at all about the thing it asked.
+                try:
+                    node = resolve_op(dep["target"], None)
+                except Exception as exc:  # noqa: BLE001
+                    node = None
+                    # Recorded rather than swallowed: a resolver that raises is a
+                    # different fact from one that answers "no such node", and
+                    # the reason is often the interesting part.
+                    entry["resolverError"] = f"{type(exc).__name__}: {exc}"[:200]
                 if node is None or not getattr(node, "valid", False):
                     entry["status"] = "missing"
                 else:

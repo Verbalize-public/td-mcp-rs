@@ -70,6 +70,39 @@ class RegistrationTests(unittest.TestCase):
         # The name recorded first is kept; the ref names content, not metadata.
         self.assertEqual(store.describe(first["sourceId"])["source"]["name"], "original")
 
+    def test_reregistering_with_different_dependencies_says_they_were_not_applied(self) -> None:
+        # A false all-clear. Found by the live run: registering the SAME bytes
+        # again with a dependency list kept the original, so a later `check`
+        # reported `stale: false` for a source the caller had just declared a
+        # dependency for -- an all-clear on a source that was never checked
+        # against anything.
+        store = fresh_registry()
+        first = store.register("result = 1")
+        self.assertEqual(first["dependencies"], [])
+        self.assertTrue(first["dependenciesApplied"])
+
+        again = store.register("result = 1", dependencies=["/project1/thing"])
+        self.assertTrue(again["alreadyRegistered"])
+        self.assertFalse(
+            again["dependenciesApplied"],
+            "a differing dependency list was silently not applied",
+        )
+        # What is in force is reported, alongside what was asked for.
+        self.assertEqual(again["dependencies"], [])
+        self.assertEqual(
+            again["declaredDependencies"], [{"kind": "op", "target": "/project1/thing"}]
+        )
+        self.assertIn("NOT applied", again["note"])
+
+    def test_reregistering_the_same_dependencies_raises_no_alarm(self) -> None:
+        store = fresh_registry()
+        deps = [{"kind": "op", "target": "/project1/thing"}]
+        store.register("result = 1", dependencies=deps)
+        again = store.register("result = 1", dependencies=["/project1/thing"])
+        self.assertTrue(again["dependenciesApplied"])
+        self.assertNotIn("note", again)
+        self.assertEqual(again["dependencies"], deps)
+
     def test_the_registry_cap_is_a_limit_not_a_policy(self) -> None:
         store = fresh_registry()
         # Patched where it is USED: `from .constants import X` binds the value
@@ -160,6 +193,44 @@ class DependencyTests(unittest.TestCase):
         with mock.patch.object(script_source, "resolve_op", return_value=None):
             deps = store.check_dependencies(source_id)
         self.assertEqual(deps[0]["status"], "missing")
+
+    def test_a_raising_resolver_is_reported_missing_not_propagated(self) -> None:
+        # MEASURED: `td.op(path)` RAISES for a path that does not exist; it does
+        # not return None. The tests above mock the resolver to return None, so
+        # without this case the most likely real dependency state -- declaring an
+        # OP before creating it -- would have raised out of `check` instead of
+        # being reported.
+        store = fresh_registry()
+        source_id = store.register("result = 1", dependencies=["/project1/gone"])["sourceId"]
+
+        def boom(_path, _ctx):
+            raise RuntimeError("not found")
+
+        with mock.patch.object(script_source, "resolve_op", side_effect=boom):
+            deps = store.check_dependencies(source_id)
+        self.assertEqual(deps[0]["status"], "missing")
+        # The resolver's own reason is recorded: a resolver that raises is a
+        # different fact from one that answers "no such node".
+        self.assertIn("RuntimeError", deps[0]["resolverError"])
+
+    def test_a_check_with_a_raising_resolver_still_returns_a_receipt(self) -> None:
+        # The same case through the handler: a `check` must answer with a
+        # staleness report, not raise, because raising would leave the caller
+        # with no answer at all about the thing it asked.
+        store = fresh_registry()
+        source_id = store.register("result = 1", dependencies=["/project1/gone"])["sourceId"]
+
+        def boom(*_args):
+            raise RuntimeError("not found")
+
+        with mock.patch.object(script_source, "registry", return_value=store):
+            with mock.patch.object(script_source, "resolve_op", side_effect=boom):
+                out = script_source.handle_script_source(
+                    {"action": "check", "sourceId": source_id}
+                )
+        self.assertTrue(out["ok"])
+        self.assertTrue(out["stale"])
+        self.assertEqual(len(out["missing"]), 1)
 
     def test_a_dependency_that_moved_is_reported_retargeted_not_satisfied(self) -> None:
         # "Something is at a path with that name" and "the thing I meant" are
