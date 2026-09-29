@@ -48,6 +48,13 @@ pub const DEFAULT_PROXY_CALL_TIMEOUT_MS: u64 = 105_000;
 pub const DEFAULT_PROXY_SCRIPT_TIMEOUT_MS: u64 = 180_000;
 /// Default ceiling for `tools/list` (cheap; fail fast on a wedged session).
 pub const DEFAULT_PROXY_LIST_TIMEOUT_MS: u64 = 30_000;
+/// Head-room over a caller's requested launch wait, so a launch that is still
+/// legitimately starting is not cut the moment it hands back.
+pub const DEFAULT_PROXY_LAUNCH_MARGIN_MS: u64 = 15_000;
+/// Absolute ceiling for a launch, whatever the caller asked for.
+pub const DEFAULT_PROXY_LAUNCH_MAX_MS: u64 = 10 * 60_000;
+/// `spawn_td`'s own documented default for `waitTimeoutMs`.
+pub const DEFAULT_SPAWN_WAIT_MS: u64 = 60_000;
 /// Health GET budget (mirrors `ensure::health_ok`).
 const HEALTH_TIMEOUT: Duration = Duration::from_millis(800);
 /// Fresh `serve()` handshake budget.
@@ -83,6 +90,10 @@ pub struct ReconnectConfig {
     pub script_timeout: Duration,
     /// Wall-clock ceiling for `tools/list`.
     pub list_timeout: Duration,
+    /// Head-room over a caller's requested launch wait.
+    pub launch_margin: Duration,
+    /// Absolute ceiling for a launch, whatever the caller asked for.
+    pub launch_max: Duration,
 }
 
 impl Default for ReconnectConfig {
@@ -96,6 +107,8 @@ impl Default for ReconnectConfig {
             call_timeout: Duration::from_millis(DEFAULT_PROXY_CALL_TIMEOUT_MS),
             script_timeout: Duration::from_millis(DEFAULT_PROXY_SCRIPT_TIMEOUT_MS),
             list_timeout: Duration::from_millis(DEFAULT_PROXY_LIST_TIMEOUT_MS),
+            launch_margin: Duration::from_millis(DEFAULT_PROXY_LAUNCH_MARGIN_MS),
+            launch_max: Duration::from_millis(DEFAULT_PROXY_LAUNCH_MAX_MS),
         }
     }
 }
@@ -169,6 +182,11 @@ impl ReconnectConfig {
                 defaults.list_timeout,
                 "TDMCP_PROXY_LIST_TIMEOUT_MS",
             ),
+            // Deliberately not env-tunable. This ceiling exists so a caller's
+            // own `waitTimeoutMs` is honoured; a second knob to mis-set it
+            // would reintroduce the very mismatch this fixes.
+            launch_margin: defaults.launch_margin,
+            launch_max: defaults.launch_max,
         }
     }
 
@@ -182,6 +200,33 @@ impl ReconnectConfig {
         } else {
             self.call_timeout
         }
+    }
+
+    /// The effective deadline for a forwarded `spawn_td`.
+    ///
+    /// A launch is not a tool class. `execute_python` taking 180s is a script
+    /// being slow; a spawn taking 180s is a Windows launcher still coming up.
+    /// Those are different facts, and folding them into one ceiling is what
+    /// made the documented mitigation for `tdmcp.spawn.wait_timeout` — "retry
+    /// with higher waitTimeoutMs" — impossible to follow: under the 105s
+    /// read-class ceiling, a caller asking for 200s was cut at 105s and had no
+    /// way to ask for more.
+    ///
+    /// So the ceiling is derived from the caller's OWN `waitTimeoutMs` plus
+    /// head-room, bounded at both ends. A caller cannot demand an unbounded
+    /// wait, and a missing or unparseable value falls back to the spawn
+    /// default rather than to the shorter read-class ceiling.
+    #[must_use]
+    pub fn launch_budget(&self, requested_wait: Option<Duration>) -> Duration {
+        let requested = requested_wait.unwrap_or(Duration::from_millis(DEFAULT_SPAWN_WAIT_MS));
+        // No floor. `requested + margin` already exceeds the wait the tool
+        // itself will observe, by construction, and an absent request resolves
+        // to DEFAULT_SPAWN_WAIT_MS first. An earlier version floored this at
+        // `call_timeout`, which let an operator raising the READ ceiling
+        // silently widen a LAUNCH ceiling -- two unrelated knobs, one answer.
+        requested
+            .saturating_add(self.launch_margin)
+            .min(self.launch_max)
     }
 }
 
@@ -937,6 +982,66 @@ mod tests {
         assert_eq!(cfg.tool_call_budget("inspect"), cfg.call_timeout);
         assert_eq!(cfg.tool_call_budget("execute_python"), cfg.script_timeout);
         assert_eq!(cfg.tool_call_budget("mutate_nodes"), cfg.script_timeout);
+    }
+
+    #[test]
+    fn a_launch_ceiling_follows_the_callers_own_wait_not_a_tool_class() {
+        // B3's defect: a launch is not a tool class. Under the 105s read-class
+        // ceiling a caller asking for 200s was cut at 105s with no way to ask
+        // for more, which makes the catalog's own mitigation for
+        // tdmcp.spawn.wait_timeout impossible to follow.
+        let cfg = ReconnectConfig::default();
+        let asked_for_200 = cfg.launch_budget(Some(Duration::from_millis(200_000)));
+        assert!(
+            asked_for_200 > cfg.call_timeout,
+            "a 200s requested wait must not be cut at the {}ms read ceiling",
+            cfg.call_timeout.as_millis()
+        );
+        assert_eq!(
+            asked_for_200,
+            Duration::from_millis(200_000) + cfg.launch_margin
+        );
+    }
+
+    #[test]
+    fn a_launch_ceiling_is_bounded_at_both_ends() {
+        let cfg = ReconnectConfig::default();
+        // A caller cannot demand an unbounded wait.
+        let absurd = cfg.launch_budget(Some(Duration::from_millis(24 * 60 * 60_000)));
+        assert_eq!(absurd, cfg.launch_max);
+        // And a tiny or missing request still gets real head-room rather than
+        // being cut below the caller's own wait.
+        let tiny = cfg.launch_budget(Some(Duration::from_millis(1_000)));
+        assert_eq!(tiny, Duration::from_millis(1_000) + cfg.launch_margin);
+        // Still above the tool's own 1s wait, which is the whole property: the
+        // ceiling must never be the thing that ends a launch early.
+        assert!(tiny > Duration::from_millis(1_000));
+        let absent = cfg.launch_budget(None);
+        assert_eq!(
+            absent,
+            Duration::from_millis(DEFAULT_SPAWN_WAIT_MS) + cfg.launch_margin
+        );
+    }
+
+    #[test]
+    fn the_launch_ceiling_is_not_a_second_thing_to_misconfigure() {
+        // No env knob, deliberately: this exists so the caller's wait is
+        // honoured, and a second setting to get wrong would reintroduce the
+        // mismatch it fixes.
+        let cfg = ReconnectConfig::from_env_vars(
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some("999999"),
+            Some("888888"),
+            Some("777"),
+        );
+        // Even with every proxy knob overridden, the launch ceiling still
+        // follows the request rather than any of them.
+        let asked = cfg.launch_budget(Some(Duration::from_millis(240_000)));
+        assert_eq!(asked, Duration::from_millis(240_000) + cfg.launch_margin);
     }
 
     #[test]

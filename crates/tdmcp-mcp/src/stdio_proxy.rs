@@ -313,7 +313,7 @@ impl ServerHandler for StdioProxy {
         _context: RequestContext<RoleServer>,
     ) -> Result<CallToolResponse, ErrorData> {
         let link = self.ensure_link().await?;
-        let budget = link.config().tool_call_budget(&request.name);
+        let budget = budget_for(link.config(), &request);
         let mut response = self
             .forward_bounded(&link, budget, |peer| async move {
                 peer.call_tool_once(request).await
@@ -326,6 +326,36 @@ impl ServerHandler for StdioProxy {
         }
         Ok(response)
     }
+}
+
+/// The forwarding ceiling for one call.
+///
+/// A launch is deliberately NOT classified as a tool class. `spawn_td` carries
+/// its own `waitTimeoutMs`, which is a request about a HANDSHAKE, and under the
+/// 105s read-class ceiling a caller asking for 200s was cut at 105s with no way
+/// to ask for more — which makes the catalog's own mitigation for
+/// `tdmcp.spawn.wait_timeout` ("retry with higher waitTimeoutMs")
+/// impossible to follow. The value is read from the request arguments here so
+/// the ceiling is derived from what the caller actually asked for.
+fn budget_for(cfg: &ReconnectConfig, request: &CallToolRequestParams) -> Duration {
+    if request.name.as_ref() != "spawn_td" {
+        return cfg.tool_call_budget(request.name.as_ref());
+    }
+    let requested = request
+        .arguments
+        .as_ref()
+        .and_then(|args| args.get("waitTimeoutMs"))
+        .and_then(|raw| {
+            // A string is accepted because this is a JSON-RPC boundary and
+            // clients do send numbers as strings; an unparseable value must not
+            // become an unbounded wait.
+            raw.as_u64().or_else(|| {
+                raw.as_str()
+                    .and_then(|text| text.trim().parse::<u64>().ok())
+            })
+        })
+        .map(Duration::from_millis);
+    cfg.launch_budget(requested)
 }
 
 fn tool_from_descriptor(d: crate::tools::ToolDescriptor) -> Tool {
@@ -656,6 +686,99 @@ async fn run_proxy_log_flusher(admin_base: String, mut rx: mpsc::Receiver<ProxyL
 )]
 mod tests {
     use super::*;
+    use rmcp::model::JsonObject;
+
+    /// A `spawn_td` request, optionally carrying `waitTimeoutMs`.
+    fn spawn_request(wait: Option<serde_json::Value>) -> CallToolRequestParams {
+        let mut arguments: JsonObject = JsonObject::new();
+        arguments.insert("pid".to_owned(), serde_json::json!(1));
+        arguments.insert(
+            "exePath".to_owned(),
+            serde_json::json!("/opt/td/TouchDesigner"),
+        );
+        if let Some(wait) = wait {
+            arguments.insert("waitTimeoutMs".to_owned(), wait);
+        }
+        CallToolRequestParams::new("spawn_td").with_arguments(arguments)
+    }
+
+    #[test]
+    fn a_spawn_is_budgeted_by_its_own_wait_not_the_read_ceiling() {
+        // B3's defect, at the place it bites: a caller asking for 200s used to
+        // be cut at the 105s read-class ceiling, so the catalog's mitigation for
+        // tdmcp.spawn.wait_timeout ("retry with higher waitTimeoutMs") could not
+        // be followed.
+        let cfg = ReconnectConfig::default();
+        let budget = budget_for(&cfg, &spawn_request(Some(serde_json::json!(200_000))));
+        assert!(
+            budget > cfg.call_timeout,
+            "200s asked, {:?} allowed",
+            budget
+        );
+        assert_eq!(budget, Duration::from_millis(200_000) + cfg.launch_margin);
+    }
+
+    #[test]
+    fn a_spawn_with_no_wait_uses_the_spawn_default() {
+        let cfg = ReconnectConfig::default();
+        let budget = budget_for(&cfg, &spawn_request(None));
+        assert_eq!(
+            budget,
+            Duration::from_millis(crate::daemon_link::DEFAULT_SPAWN_WAIT_MS) + cfg.launch_margin
+        );
+    }
+
+    #[test]
+    fn a_wait_sent_as_a_string_is_honoured() {
+        // A JSON-RPC boundary: clients do send numbers as strings, and
+        // refusing that would reintroduce an unfixable 105s cut.
+        let cfg = ReconnectConfig::default();
+        let budget = budget_for(&cfg, &spawn_request(Some(serde_json::json!("200000"))));
+        assert_eq!(budget, Duration::from_millis(200_000) + cfg.launch_margin);
+    }
+
+    #[test]
+    fn an_unparseable_wait_falls_back_rather_than_becoming_unbounded() {
+        let cfg = ReconnectConfig::default();
+        for bad in [
+            serde_json::json!("soon"),
+            serde_json::json!({}),
+            serde_json::json!(-1),
+        ] {
+            let budget = budget_for(&cfg, &spawn_request(Some(bad.clone())));
+            assert_eq!(
+                budget,
+                Duration::from_millis(crate::daemon_link::DEFAULT_SPAWN_WAIT_MS)
+                    + cfg.launch_margin,
+                "{bad} must not become an unbounded wait"
+            );
+        }
+    }
+
+    #[test]
+    fn every_other_tool_keeps_its_class_ceiling() {
+        // The change must be confined to the launch: a read must not have
+        // quietly become a long wait.
+        let cfg = ReconnectConfig::default();
+        for name in [
+            "inspect",
+            "execute_python",
+            "mutate_nodes",
+            "palette_probe",
+            "fleet",
+        ] {
+            let request =
+                CallToolRequestParams::new(name).with_arguments(JsonObject::from_iter([(
+                    "pid".to_owned(),
+                    serde_json::json!(1),
+                )]));
+            assert_eq!(
+                budget_for(&cfg, &request),
+                cfg.tool_call_budget(name),
+                "{name} must keep its class ceiling"
+            );
+        }
+    }
 
     #[test]
     fn admin_base_strips_mcp_rpc() {
