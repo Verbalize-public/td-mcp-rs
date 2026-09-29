@@ -2050,6 +2050,17 @@ fn expire_rows(
 }
 
 impl DiskBlobs {
+    /// Opens the on-disk evidence root, refusing rather than repairing.
+    ///
+    /// Order matters here and was itself a defect: `create_private_directory`
+    /// used to chmod an existing root back to 0700 and return `Ok`, which made
+    /// the `verify_private_directory` call that followed unable to fail for
+    /// the root — it was reading back the value just written over it. A root
+    /// that somebody had made world-readable was therefore "fixed" silently and
+    /// opened, even though its committed evidence may already have been read.
+    /// Creation now verifies instead of rewriting, so the explicit
+    /// `verify_private_directory` calls below only cover the *canonicalised*
+    /// root, which is a genuinely different path than the one just created.
     #[cfg(not(windows))]
     fn open(root: &Path) -> Result<Self, EvidenceError> {
         reject_symlink_components(root)?;
@@ -2061,6 +2072,8 @@ impl DiskBlobs {
                 "evidence root must be a real directory".to_owned(),
             ));
         }
+        // Re-check after canonicalisation: creation verified the path as given,
+        // and this is the resolved path everything else is derived from.
         verify_private_directory(&root)?;
         let lock_path = root.join(".writer.lock");
         let writer_lock = open_private_regular_file(&lock_path)?;
@@ -2600,6 +2613,26 @@ fn reject_symlink_components(path: &Path) -> Result<(), EvidenceError> {
     Ok(())
 }
 
+/// Creates a private directory, or confirms an existing one already is.
+///
+/// The two cases must stay distinguishable. The previous version folded them:
+/// on `AlreadyExists` it simply chmod'd the mode back to 0700 and returned
+/// `Ok`. That silently *repaired* a directory somebody had loosened, and it
+/// made the `verify_private_directory` call that follows unreachable for the
+/// root — the check could never fail, because the value it read had just been
+/// overwritten with the value it was checking for. A store that resets a
+/// world-readable directory to 0700 and opens anyway says nothing: the evidence
+/// may already have been read, and a store that reports "private" while the
+/// bytes were exposed cannot mean it.
+///
+/// A pre-existing directory is therefore verified, not rewritten, with one
+/// exception: an EMPTY directory is adopted, because adopting one is what
+/// "create" means for a caller who pointed the store at a path it had not made
+/// yet, and there is nothing there to have been read. That exception is exactly
+/// as narrow as it sounds — a non-empty directory that is not owner-private is
+/// refused, because its contents may be a previous store whose evidence was
+/// exposed. Repair is left to whoever owns the directory, who can decide
+/// whether those contents are still safe to keep.
 #[cfg(unix)]
 fn create_private_directory(path: &Path) -> Result<(), EvidenceError> {
     use std::os::unix::fs::DirBuilderExt;
@@ -2608,11 +2641,30 @@ fn create_private_directory(path: &Path) -> Result<(), EvidenceError> {
     match builder.create(path) {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-            fs::set_permissions(path, std::os::unix::fs::PermissionsExt::from_mode(0o700))
-                .map_err(io_error)
+            if is_empty_directory(path)? {
+                // Nothing here has ever been readable-but-valuable, so
+                // adopting it is safe; tighten it to the mode a fresh
+                // directory would have had.
+                use std::os::unix::fs::PermissionsExt;
+                fs::set_permissions(path, fs::Permissions::from_mode(0o700)).map_err(io_error)
+            } else {
+                verify_private_directory(path)
+            }
         }
         Err(error) => Err(io_error(error)),
     }
+}
+
+/// True only for a real, empty directory. A path that cannot be read as one is
+/// reported as `false`, so the caller falls through to the strict check and
+/// gets a real diagnostic instead of a silent adoption.
+#[cfg(unix)]
+fn is_empty_directory(path: &Path) -> Result<bool, EvidenceError> {
+    let entries = match fs::read_dir(path) {
+        Ok(entries) => entries,
+        Err(_) => return Ok(false),
+    };
+    Ok(entries.count() == 0)
 }
 
 #[cfg(unix)]
@@ -4091,6 +4143,78 @@ mod tests {
             store.inner.blobs.resolve_export_journal(&journal),
             Err(EvidenceError::CommitUncertain(_))
         ));
+    }
+
+    /// The unix analogue of the Windows ACL gap. Disk mode already fails CLOSED
+    /// on Windows with `UnsupportedPlatform`, which is honest: it cannot create
+    /// or verify a private Windows ACL, so it refuses rather than pretending to
+    /// have checked one. Unix can do the real check, and nothing proved it did.
+    ///
+    /// A store created with mode 0700 stays private, so a later restart has
+    /// nothing to catch. Loosening the mode — or swapping the directory for a
+    /// symlink — after the store has been closed models the two ways a root can
+    /// stop being trustworthy: another local user can now read committed
+    /// evidence, or the path now points somewhere else entirely. Both must be
+    /// refused on the next open rather than silently accepted, because an
+    /// evidence store that resumes on a loosened root is serving other people's
+    /// data with no record that it stopped being private.
+    #[cfg(unix)]
+    #[test]
+    fn sqlite_refuses_a_store_root_that_stopped_being_private() {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+
+        let directory = tempfile::tempdir().unwrap();
+        let alice = owner("alice");
+        {
+            let store = SqliteEvidenceStore::open(directory.path(), config()).unwrap();
+            let record = upload(&store, &alice, vec![("p", PartKind::Binary, b"sec")]);
+            assert_eq!(
+                store
+                    .inspect(&alice, &record.evidence_id)
+                    .unwrap()
+                    .evidence_id,
+                record.evidence_id
+            );
+        }
+
+        // Loosened mode: readable by group and other.
+        let mode = fs::metadata(directory.path()).unwrap().permissions().mode();
+        fs::set_permissions(directory.path(), fs::Permissions::from_mode(mode | 0o077)).unwrap();
+        assert!(
+            matches!(
+                SqliteEvidenceStore::open(directory.path(), config()),
+                Err(EvidenceError::Io(_))
+            ),
+            "a world-readable evidence root must be refused, not resumed: the \
+             store holds other people's measurements and 0700 is the only thing \
+             keeping them private"
+        );
+        // The refusal is specifically about privacy, not a generic failure.
+        let message = match SqliteEvidenceStore::open(directory.path(), config()) {
+            Err(EvidenceError::Io(message)) => message,
+            _ => String::new(),
+        };
+        assert!(
+            message.contains("owner-private"),
+            "the refusal must name the privacy violation, not blame the schema \
+             or the path: {message:?}"
+        );
+
+        // Symlinked root: the path now resolves somewhere else. Restoring the
+        // private mode on the real directory lets the second half run, so the
+        // two checks cannot pass off one another's setup.
+        fs::set_permissions(directory.path(), fs::Permissions::from_mode(mode)).unwrap();
+        let elsewhere = tempfile::tempdir().unwrap();
+        let linked = elsewhere.path().join("linked-root");
+        symlink(directory.path(), &linked).unwrap();
+        assert!(
+            matches!(
+                SqliteEvidenceStore::open(&linked, config()),
+                Err(EvidenceError::InvalidInput(_))
+            ),
+            "a symlinked store root must be refused: canonicalising it would let \
+             any process redirect an evidence store to a directory of its choosing"
+        );
     }
 
     #[cfg(unix)]
