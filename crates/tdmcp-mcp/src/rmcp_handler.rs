@@ -240,29 +240,68 @@ fn tool_from_descriptor(d: crate::tools::ToolDescriptor) -> Tool {
     Tool::new(d.name.clone(), d.description, schema)
 }
 
-/// Above this serialized size, drop the redundant `content[].text` copy of
-/// `structuredContent` that `CallToolResult::structured` /
-/// `structured_error` always attach (`content.to_string()` duplicated
-/// verbatim into a text block). Free for small results — some MCP clients
-/// only render `content[]`, not `structuredContent` — but for large ones it
-/// doubles wire size and eats directly into rmcp's fixed 16 MiB SSE event
+/// Above this serialized size, the redundant `content[].text` copy of
+/// `structuredContent` that `CallToolResult::structured` / `structured_error`
+/// always attach (`content.to_string()` duplicated verbatim into a text block)
+/// is replaced by a pointer instead. Free for small results — some MCP clients
+/// only render `content[]`, not `structuredContent` — but for large ones the
+/// copy doubles wire size and eats directly into rmcp's fixed 16 MiB SSE event
 /// cap.
 const DUPLICATE_TEXT_SKIP_BYTES: usize = 256 * 1024;
 
-/// Drop the duplicate `content[0]` text block when it's just a large
-/// restatement of `structured_content`. Leaves image/error content (any
-/// result with more than one content block, or none) untouched.
-fn drop_duplicate_text_if_large(mut result: CallToolResult) -> CallToolResult {
-    let oversized = match result.content.as_slice() {
-        [only] => only
-            .as_text()
-            .is_some_and(|t| t.text.len() > DUPLICATE_TEXT_SKIP_BYTES),
-        _ => false,
+/// Make sure a client that renders only `content[]` is never handed less than
+/// the data, and never handed it twice.
+///
+/// Above [`DUPLICATE_TEXT_SKIP_BYTES`] a verbatim text copy of
+/// `structured_content` is a liability: it doubles wire size and eats directly
+/// into rmcp's fixed 16 MiB SSE event cap. So the copy is dropped — but it is
+/// REPLACED by a short pointer, never by an empty content array, because an
+/// empty array is a silent substitution. A client that only renders `content[]`
+/// is the very reason the copy exists; leaving it with nothing lets it read
+/// "this call returned nothing".
+///
+/// The tricky part is that "has a text block" is the wrong test. The image
+/// paths attach a one-line note beside the attachment, which is a text block
+/// carrying no data at all. What matters is whether any text block is a full
+/// rendering of `structured_content`, so that is what is measured.
+fn text_copy_or_pointer(mut result: CallToolResult) -> CallToolResult {
+    let Some(structured) = result.structured_content.as_ref() else {
+        return result;
     };
-    if oversized {
-        result.content.clear();
+    let rendered = structured.to_string();
+    if rendered.len() <= DUPLICATE_TEXT_SKIP_BYTES {
+        return result;
+    }
+    // A rendering of the same value cannot be shorter than the value, so this
+    // finds the verbatim copy and not a one-line caption beside an image.
+    let copy = result.content.iter().position(|block| {
+        block
+            .as_text()
+            .is_some_and(|t| t.text.len() >= rendered.len())
+    });
+    let pointer = ContentBlock::text(elision_notice(rendered.len()));
+    if let Some(index) = copy {
+        // The copy is the liability: replace it, keep everything else.
+        result.content[index] = pointer;
+    } else {
+        // No copy was made — the image paths deliberately never make one — so
+        // append the pointer rather than leaving a text-only client with an
+        // attachment and a caption, and no indication the rest exists.
+        result.content.push(pointer);
     }
     result
+}
+
+/// What a client sees in place of a text copy that was too large to repeat.
+fn elision_notice(omitted_bytes: usize) -> String {
+    format!(
+        "This answer is {omitted_bytes} bytes of text and is not repeated here: it is \
+         carried in this result's structuredContent field, unmodified. The text copy is \
+         omitted above {DUPLICATE_TEXT_SKIP_BYTES} bytes because the transport cannot \
+         carry the same value twice. If your client does not read structuredContent, \
+         request a narrower view of the same query, or retain this observation (output \
+         .retain) and read it back in pages."
+    )
 }
 
 /// Build an MCP tool result, promoting top-level `imageBase64` to an image block.
@@ -288,15 +327,15 @@ fn call_tool_result_from_value(tool: &str, mut value: Value) -> CallToolResult {
             if !content.is_empty() {
                 let mut result = CallToolResult::success(content);
                 result.structured_content = Some(value);
-                return result;
+                return text_copy_or_pointer(result);
             }
         }
         return match try_perception_image_result(value) {
-            Ok(result) => result,
-            Err(value) => drop_duplicate_text_if_large(CallToolResult::structured(value)),
+            Ok(result) => text_copy_or_pointer(result),
+            Err(value) => text_copy_or_pointer(CallToolResult::structured(value)),
         };
     }
-    drop_duplicate_text_if_large(CallToolResult::structured(value))
+    text_copy_or_pointer(CallToolResult::structured(value))
 }
 
 fn call_tool_error_result(
@@ -313,9 +352,9 @@ fn call_tool_error_result(
             ContentBlock::text(payload.to_string()),
         ]);
         result.structured_content = Some(payload);
-        return result;
+        return text_copy_or_pointer(result);
     }
-    drop_duplicate_text_if_large(CallToolResult::structured_error(payload))
+    text_copy_or_pointer(CallToolResult::structured_error(payload))
 }
 
 /// Promote top-level PNG (or other) payload to an image content block.
@@ -453,23 +492,114 @@ mod tests {
     }
 
     #[test]
-    fn oversized_result_drops_the_duplicate_text_block_but_keeps_structured() {
-        let big = "x".repeat(DUPLICATE_TEXT_SKIP_BYTES + 1);
+    fn oversized_result_replaces_the_duplicate_text_with_a_pointer() {
+        // `Q` cannot appear in the notice text, so "does the pointer contain
+        // the payload" is answerable. A filler like `x` would match the `x` in
+        // "text" and make this assertion pass for the wrong reason.
+        let big = "Q".repeat(DUPLICATE_TEXT_SKIP_BYTES + 1);
         let value = json!({"ok": true, "result": big});
         let result = call_tool_result_from_value("execute_python", value.clone());
-        assert!(
-            result.content.is_empty(),
-            "oversized results must not duplicate the payload into content[]"
+        assert_eq!(
+            result.content.len(),
+            1,
+            "the client must be told where the payload went, not left with nothing"
         );
+        let text = result.content[0].as_text().expect("text").text.clone();
+        assert!(
+            text.len() < DUPLICATE_TEXT_SKIP_BYTES,
+            "the pointer must not restate the payload"
+        );
+        assert!(
+            text.contains("structuredContent"),
+            "the pointer names no field"
+        );
+        assert!(!text.contains('Q'), "the pointer repeats the omitted bytes");
         assert_eq!(result.structured_content, Some(value));
     }
 
     #[test]
-    fn oversized_error_result_also_drops_the_duplicate_text_block() {
-        let big = "x".repeat(DUPLICATE_TEXT_SKIP_BYTES + 1);
+    fn oversized_error_result_also_replaces_the_duplicate_text_with_a_pointer() {
+        let big = "Q".repeat(DUPLICATE_TEXT_SKIP_BYTES + 1);
         let payload = json!({"ok": false, "summary": big});
         let result = call_tool_error_result(payload.clone(), None, None);
-        assert!(result.content.is_empty());
+        let text = result.content[0].as_text().expect("text").text.clone();
+        assert!(
+            text.contains("structuredContent"),
+            "a refusal left a text-only client with no pointer: {text}"
+        );
         assert_eq!(result.structured_content, Some(payload));
+    }
+
+    /// A large answer that also carries an image is the case the previous
+    /// "exactly one text block" rule could not see: the image path attaches an
+    /// attachment plus a one-line caption, so no block looks like a duplicate
+    /// and the text copy is never made. A text-only client then receives an
+    /// image and a caption, and nothing at all saying the rest of the answer
+    /// exists.
+    #[test]
+    fn a_large_answer_with_an_image_still_points_a_text_only_client_at_the_data() {
+        let big = "Q".repeat(DUPLICATE_TEXT_SKIP_BYTES + 1);
+        let result = call_tool_result_from_value(
+            "capture",
+            json!({
+                "ok": true, "blob": big,
+                "path": "/project1/out1", "bytes": 4,
+                "mimeType": "image/png", "imageBase64": "AAAA",
+            }),
+        );
+        // The attachment is untouched and still exact.
+        let images: Vec<_> = result
+            .content
+            .iter()
+            .filter(|b| b.as_image().is_some())
+            .collect();
+        assert_eq!(images.len(), 1, "the image must survive: {result:?}");
+        assert_eq!(images[0].as_image().expect("image").data, "AAAA");
+        // And the pointer is present without the payload.
+        let texts: Vec<&str> = result
+            .content
+            .iter()
+            .filter_map(|b| b.as_text().map(|t| t.text.as_str()))
+            .collect();
+        assert!(
+            texts.iter().any(|t| t.contains("structuredContent")),
+            "a text-only client got no pointer beside the image: {texts:?}"
+        );
+        assert!(
+            !texts.iter().any(|t| t.contains('Q')),
+            "the pointer restates the payload"
+        );
+        assert_eq!(
+            result
+                .structured_content
+                .as_ref()
+                .and_then(|v| v["blob"].as_str())
+                .map(str::len),
+            Some(DUPLICATE_TEXT_SKIP_BYTES + 1),
+            "the data itself must be untouched"
+        );
+    }
+
+    /// A SMALL answer with an image is the case where adding a pointer would be
+    /// wrong: there is nothing to point at, and a note about elision that is
+    /// not happening is noise on every small capture.
+    #[test]
+    fn a_small_answer_with_an_image_gets_no_pointless_pointer() {
+        let result = call_tool_result_from_value(
+            "capture",
+            json!({
+                "ok": true, "path": "/project1/out1", "bytes": 4,
+                "mimeType": "image/png", "imageBase64": "AAAA",
+            }),
+        );
+        let texts: Vec<&str> = result
+            .content
+            .iter()
+            .filter_map(|b| b.as_text().map(|t| t.text.as_str()))
+            .collect();
+        assert!(
+            !texts.iter().any(|t| t.contains("structuredContent")),
+            "a small capture must not claim anything was elided: {texts:?}"
+        );
     }
 }

@@ -275,6 +275,8 @@ Failures (all bridge-backed tools): `{ ok: false, summary, items, … }` via dia
 
 **Transport note:** Streamable HTTP JSON fallback (`/mcp/tools/call`) still wraps success as `{ ok: true, data: <above> }`; stdio/rmcp does not. Failures are not double-wrapped.
 
+**The text copy above 256 KiB (stdio/rmcp only).** For results whose `structuredContent` serializes to more than 256 KiB, the transport does not repeat that value verbatim into `content[].text`: doing so doubles wire size and eats directly into the SSE event cap. It is **replaced by a short pointer**, never by an empty content array. A client that renders only `content[]` — the reason the copy exists — therefore gets the whole answer in `structuredContent` and a text block saying so, rather than silence it could read as "this call returned nothing". The same applies to an answer that carries an image or an image-bearing refusal: the attachment is always the exact bytes the bridge produced, and the pointer is added beside it, never in place of it. The elision is a *copy* decision only — `structuredContent` is always complete and untruncated. To avoid the situation rather than work around it, ask for a narrower view of the same query, or retain the observation (`output.retain`) and read it back in pages.
+
 ### `fleet` / `include`
 
 
