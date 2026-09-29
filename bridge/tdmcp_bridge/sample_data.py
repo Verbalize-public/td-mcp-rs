@@ -54,6 +54,7 @@ from .paths import resolve_op
 # a point lookup to be meaningful at all.
 _TOP_FAMILIES = ("TOP",)
 _CHOP_FAMILIES = ("CHOP",)
+_SOP_FAMILIES = ("SOP",)
 
 
 def _op_family(node: Any) -> str | None:
@@ -623,8 +624,281 @@ def _sample_chop(
     }
 
 
+def _sop_points(node: Any) -> Any:
+    """The exact point roster, or `None` when this build does not expose it.
+
+    MEASURED on 2025.32460: `node.points` is an ATTRIBUTE holding a `td.Points`
+    sequence, not a method -- calling it raises `TypeError: 'td.Points' object is
+    not callable`. `len(pts)` and `pts[i]` both work, and each row is a
+    `td.Point` with exact float `.x` / `.y` / `.z`.
+
+    There is no `point(i)`, `getPoint(i)` or `getPoints()` on this build, and the
+    SOP itself is not subscriptable, so the attribute is the only exact path.
+    """
+    points = getattr(node, "points", None)
+    if points is None:
+        return None
+    if callable(points):
+        # Tolerated in case a build exposes it as a method instead. Measured
+        # behaviour is the attribute; this is not a guess about the layout.
+        try:
+            points = points()
+        except Exception:  # noqa: BLE001
+            return None
+    return points
+
+
+def _sample_sop(
+    node: Any, path: str, params: dict[str, Any]
+) -> dict[str, Any]:
+    """Read a SOP: exact point positions, or a derived summary.
+
+    A SOP has no image, so pixels and regions do not apply. What it has is a
+    point roster, and those points carry exact float coordinates -- a geometry
+    question ("what is vertex 17's position") is answered here exactly rather
+    than from a render.
+    """
+    # `pixels` and `region` are image coordinates and mean nothing here. Silently
+    # ignoring them would answer a summary to a caller who asked for a value --
+    # the cheaper wrong answer, with nothing in the response to say so. So the
+    # mismatch is refused, and it is refused BEFORE the cook so a call that
+    # cannot be served causes no side effect.
+    for inapplicable in ("pixels", "region"):
+        if params.get(inapplicable) is not None:
+            return _err(
+                "tdmcp.sample.wrong_coordinates",
+                f"`{inapplicable}` addresses image pixels, which a SOP has no "
+                "concept of; use `point` or `points` for a point roster",
+                path=path,
+                family="SOP",
+                rejectedField=inapplicable,
+            )
+
+    forced = bool(params.get("forceCook"))
+    if forced:
+        try:
+            node.cook(force=True)
+        except Exception as exc:  # noqa: BLE001
+            return _err("tdmcp.sample.cook_failed", f"forced cook failed: {exc}", path=path)
+
+    points = _sop_points(node)
+    if points is None:
+        return _err(
+            "tdmcp.sample.unsupported",
+            "this build does not expose an exact point roster on this SOP; "
+            "there is no other exact read path, and save() would serialise a "
+            "format rather than return the values",
+            path=path,
+        )
+    try:
+        count = len(points)
+    except Exception as exc:  # noqa: BLE001
+        return _err("tdmcp.sample.read_failed", f"point roster is not sized: {exc}", path=path)
+
+    base: dict[str, Any] = {
+        "ok": True,
+        "path": getattr(node, "path", path),
+        "family": "SOP",
+        "arrayOrder": "point_major_xyz",
+        "pointCount": count,
+        "cook": _cook_state(node, forced),
+    }
+
+    index_arg = params.get("point")
+    if index_arg is not None:
+        return _sop_points_at(node, points, base, path, index_arg)
+    if params.get("points") is not None:
+        return _sop_selected_points(node, points, base, path, params)
+    return _sop_summary(points, base, path)
+
+
+def _strict_index(value: Any) -> int | None:
+    """Parse a point index, or `None` when it is not a whole number.
+
+    `int(1.5)` is `1`, so a fractional index would silently select a different
+    point than the caller asked for and report it as the one they named. A bool
+    is refused for the same reason: `int(True)` is `1`.
+    """
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value) if value.is_integer() else None
+    if isinstance(value, str):
+        try:
+            parsed = float(value)
+        except ValueError:
+            return None
+        return int(parsed) if parsed.is_integer() else None
+    return None
+
+
+def _read_point(row: Any) -> dict[str, Any] | None:
+    """One point's exact position, or `None` if it cannot be read.
+
+    `row.index` is a scalar int on this build, NOT an iterable, so it is read
+    on its own rather than through the same tuple handling as the coordinates.
+    """
+    try:
+        out: dict[str, Any] = {
+            "x": float(row.x),
+            "y": float(row.y),
+            "z": float(row.z),
+        }
+    except Exception:  # noqa: BLE001
+        return None
+    index = getattr(row, "index", None)
+    if isinstance(index, (list, tuple)):
+        out["index"] = [int(v) for v in index]
+    elif index is not None:
+        try:
+            out["index"] = int(index)
+        except Exception:  # noqa: BLE001
+            pass
+    return out
+
+
+def _sop_points_at(
+    node: Any, points: Any, base: dict[str, Any], path: str, index_arg: Any
+) -> dict[str, Any]:
+    """Exact positions at explicitly named point indices."""
+    index = _strict_index(index_arg)
+    if index is None:
+        return _err(
+            "tdmcp.sample.bad_point",
+            f"point must be a whole-number index, got {index_arg!r}",
+            path=path,
+        )
+    count = base["pointCount"]
+    if not (0 <= index < count):
+        return _err(
+            "tdmcp.sample.bad_point",
+            f"point index {index} is outside the {count}-point roster",
+            path=path,
+            pointCount=count,
+        )
+    row = _read_point(points[index])
+    if row is None:
+        return _err(
+            "tdmcp.sample.read_failed",
+            f"point {index} could not be read",
+            path=path,
+        )
+    row["index"] = index
+    base.update({"mode": "exact_point", "point": row})
+    return base
+
+
+def _sop_selected_points(
+    node: Any, points: Any, base: dict[str, Any], path: str, params: dict[str, Any]
+) -> dict[str, Any]:
+    """Exact positions at a list of point indices."""
+    requested = params.get("points") or []
+    if len(requested) > SAMPLE_MAX_POINT_SAMPLES:
+        return _err(
+            "tdmcp.sample.too_many_points",
+            f"{len(requested)} points requested, cap is {SAMPLE_MAX_POINT_SAMPLES}",
+            path=path,
+        )
+    count = base["pointCount"]
+    out: list[dict[str, Any]] = []
+    out_of_range = 0
+    unreadable = 0
+    for raw in requested:
+        index = _strict_index(raw)
+        if index is None or not (0 <= index < count):
+            out_of_range += 1
+            continue
+        row = _read_point(points[index])
+        if row is None:
+            unreadable += 1
+            continue
+        row["index"] = index
+        out.append(row)
+    base.update(
+        {
+            "mode": "exact_points",
+            "requested": len(requested),
+            "returned": len(out),
+            "outOfRange": out_of_range,
+            "unreadable": unreadable,
+            "points": out,
+            "nonFinite": {"nan": 0, "inf": 0},
+        }
+    )
+    return base
+
+
+def _sop_summary(points: Any, base: dict[str, Any], path: str) -> dict[str, Any]:
+    """Derived bounds over the point roster, clearly labelled as a summary.
+
+    Per-axis min/max/mean rather than a single figure: a geometry summary that
+    collapsed the three axes into one number would hide exactly the anisotropy
+    a caller is usually asking about.
+    """
+    count = base["pointCount"]
+    if count == 0:
+        base.update(
+            {
+                "mode": "summary",
+                "isSummary": True,
+                "explanation": "the roster is empty; there is nothing to summarise",
+            }
+        )
+        return base
+
+    axes = {"x": [], "y": [], "z": []}
+    unreadable = 0
+    nan_count = 0
+    inf_count = 0
+    for index in range(count):
+        row = _read_point(points[index])
+        if row is None:
+            unreadable += 1
+            continue
+        for axis in axes:
+            value = row[axis]
+            if math.isnan(value):
+                nan_count += 1
+                axes[axis].append(None)
+            elif math.isinf(value):
+                inf_count += 1
+                axes[axis].append(None)
+            else:
+                axes[axis].append(value)
+
+    bounds: dict[str, Any] = {}
+    for axis, values in axes.items():
+        finite = [v for v in values if v is not None]
+        if not finite:
+            bounds[axis] = {"min": None, "max": None, "mean": None}
+            continue
+        bounds[axis] = {
+            "min": min(finite),
+            "max": max(finite),
+            "mean": sum(finite) / len(finite),
+        }
+
+    base.update(
+        {
+            "mode": "summary",
+            "isSummary": True,
+            "bounds": bounds,
+            "readPoints": count - unreadable,
+            "unreadable": unreadable,
+            "nonFinite": {"nan": nan_count, "inf": inf_count},
+            "explanation": (
+                "derived bounds over the point roster, not the roster itself; "
+                "use mode 'exact_point' or 'exact_points' for values"
+            ),
+        }
+    )
+    return base
+
+
 def handle_sample_data(params: dict[str, Any]) -> dict[str, Any]:
-    """Exact numerical sampling of a TOP or CHOP.
+    """Exact numerical sampling of a TOP, CHOP or SOP.
 
     Request shape:
       path       operator path (required)
@@ -633,6 +907,8 @@ def handle_sample_data(params: dict[str, Any]) -> dict[str, Any]:
       (neither)  -> derived summary over the whole image
       forceCook  cook before reading, when the caller needs current data
       readMethod CHOP only: "numpyArray" (default) or "indexed"
+      point      SOP only: one point index (pixels/region do not apply)
+      points     SOP only: several point indices
 
     Coordinates are `[x, y]` as a caller names them and are stored `[h, w]` as
     numpy addresses them; the swap is explicit in `_resolve_pixel`.
@@ -647,9 +923,18 @@ def handle_sample_data(params: dict[str, Any]) -> dict[str, Any]:
         return _sample_top(node, path, params)
     if family in _CHOP_FAMILIES:
         return _sample_chop(node, path, params)
+    if family in _SOP_FAMILIES:
+        return _sample_sop(node, path, params)
     return _err(
         "tdmcp.sample.unsupported_family",
-        f"exact sampling supports TOP and CHOP; resolved family is {family!r}",
+        f"exact sampling supports TOP, CHOP and SOP; resolved family is {family!r}",
         path=getattr(node, "path", path),
         family=family,
+        # Recorded so a refusal reads as a measurement rather than an
+        # oversight. Both were checked on 2025.32460: no `*POT` classes exist
+        # at all, and none of the 95 `*POP` classes exposes a channel, sample
+        # or numpy accessor -- they are particle systems, not a numeric family.
+        measuredUnsupported=(
+            ["POP", "POT"] if family in ("POP", "POT") else None
+        ),
     )

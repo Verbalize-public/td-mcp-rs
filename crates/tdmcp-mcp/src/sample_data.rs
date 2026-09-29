@@ -62,11 +62,24 @@ pub struct SampleDataParams {
     /// Optional federated daemon id (omit for local / unique remote resolve).
     #[serde(default)]
     pub daemon_id: Option<String>,
+    /// Exact position of one point, by index. For a SOP only.
+    ///
+    /// Typed `u32` so a fractional or negative index is refused by the type
+    /// rather than truncated: `int(1.5)` is `1`, which would answer with a
+    /// different point than the caller named.
+    #[serde(default)]
+    pub point: Option<u32>,
+    /// Exact positions at these point indices. For a SOP only.
+    #[serde(default)]
+    pub points: Option<Vec<u32>>,
     /// Exact values at these `[x, y]` pixels.
     ///
-    /// Out-of-range and malformed entries are counted in `outOfRange` rather
-    /// than clamped, because a clamped answer to a bad coordinate is a
-    /// different observation than the caller asked for.
+    /// Out-of-range entries are counted in `outOfRange` rather than clamped,
+    /// because a clamped answer to a bad coordinate is a different observation
+    /// than the caller asked for.
+    ///
+    /// Image coordinates only. Passing this for a SOP is REFUSED rather than
+    /// ignored, so it cannot silently degrade to a point summary.
     #[serde(default)]
     pub pixels: Option<Vec<Vec<u32>>>,
     /// Exact values over a rectangle.
@@ -134,6 +147,33 @@ mod tests {
             json!({"pid": 1, "path": "/p", "pixel": [[0, 0]]}),
             json!({"pid": 1, "path": "/p", "region": {"x": 0, "y": 0, "x2": 2, "y2": 2}}),
             json!({"pid": 1, "path": "/p", "forcecook": true}),
+        ] {
+            assert!(
+                serde_json::from_value::<SampleDataParams>(bad.clone()).is_err(),
+                "expected {bad} to be refused"
+            );
+        }
+    }
+
+    #[test]
+    fn a_sop_point_read_is_reachable_through_the_tool() {
+        // Without these fields the bridge's SOP support would be unreachable
+        // from any caller, which would make it untested in practice.
+        let params = parse(json!({"pid": 1, "path": "/project1/geo", "point": 0}));
+        assert_eq!(params.point, Some(0));
+        assert!(params.points.is_none());
+        assert!(params.pixels.is_none());
+        let many = parse(json!({"pid": 1, "path": "/project1/geo", "points": [0, 5]}));
+        assert_eq!(many.points.expect("points"), vec![0, 5]);
+    }
+
+    #[test]
+    fn a_point_index_must_be_a_whole_number() {
+        // Refused by the type rather than truncated by int().
+        for bad in [
+            json!({"pid": 1, "path": "/p", "point": 1.5}),
+            json!({"pid": 1, "path": "/p", "point": -1}),
+            json!({"pid": 1, "path": "/p", "points": [0, 1.5]}),
         ] {
             assert!(
                 serde_json::from_value::<SampleDataParams>(bad.clone()).is_err(),

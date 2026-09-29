@@ -1628,6 +1628,10 @@ async fn dispatch_tool_inner(
                     "path": params.path,
                     "pixels": params.pixels,
                     "region": params.region,
+                    // The SOP arm. Without these the bridge's exact point read
+                    // would be unreachable from a tool call.
+                    "point": params.point,
+                    "points": params.points,
                     "forceCook": params.force_cook,
                     "readMethod": params.read_method,
                 }),

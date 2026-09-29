@@ -587,6 +587,213 @@ class DispatchTests(unittest.TestCase):
         self.assertEqual(out["family"], "CHOP")
         self.assertEqual(out["mode"], "exact_samples")
 
+class FakePoint:
+    """A `td.Point` stand-in: exact float coordinates and a SCALAR index.
+
+    Measured: `row.index` is an int, not an iterable, so the bridge reads it
+    separately from the coordinate triple.
+    """
+
+    def __init__(self, x: float, y: float, z: float, index: int) -> None:
+        self.x = x
+        self.y = y
+        self.z = z
+        self.index = index
+
+
+class FakeSop(SimpleNamespace):
+    """A SOP double whose `points` is an ATTRIBUTE, as measured.
+
+    Calling `node.points()` raises `TypeError: 'td.Points' object is not
+    callable`, and the SOP itself is not subscriptable, so neither fallback can
+    paper over getting this wrong.
+    """
+
+
+def fake_sop(
+    coords: list[tuple[float, float, float]] | None = None,
+    *,
+    family: str = "SOP",
+    path: str = "/project1/probe/geo",
+    expose_points: bool = True,
+    cook_error: Exception | None = None,
+) -> FakeSop:
+    if coords is None:
+        # A 2x2x2 cube's corners, the shape a boxSOP actually reports.
+        coords = [
+            (x, y, z)
+            for x in (-0.5, 0.5)
+            for y in (-0.5, 0.5)
+            for z in (-0.5, 0.5)
+        ]
+
+    def cook(force: bool = False) -> None:
+        if cook_error is not None:
+            raise cook_error
+
+    node = FakeSop(
+        family=family,
+        path=path,
+        name="geo",
+        valid=True,
+        cook=cook,
+        cookedThisFrame=1,
+        cookedPreviousFrame=1,
+        cookFrame=1,
+    )
+    if expose_points:
+        node.points = [FakePoint(*c, i) for i, c in enumerate(coords)]
+    return node
+
+
+class SopTests(unittest.TestCase):
+    def test_a_named_point_reads_exact_coordinates(self) -> None:
+        out = sample_data._sample_sop(fake_sop(), "/p", {"point": 0})
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["mode"], "exact_point")
+        self.assertEqual(out["family"], "SOP")
+        self.assertEqual(out["pointCount"], 8)
+        self.assertEqual(out["point"]["x"], -0.5)
+        self.assertEqual(out["point"]["index"], 0)
+
+    def test_point_order_is_reported(self) -> None:
+        out = sample_data._sample_sop(fake_sop(), "/p", {"point": 0})
+        self.assertEqual(out["arrayOrder"], "point_major_xyz")
+
+    def test_a_point_index_outside_the_roster_is_refused(self) -> None:
+        for bad in (99, -1, "x", 1.5, True):
+            out = sample_data._sample_sop(fake_sop(), "/p", {"point": bad})
+            self.assertFalse(out["ok"], bad)
+            self.assertIn(
+                out["code"], ("tdmcp.sample.bad_point", "tdmcp.sample.read_failed"), bad
+            )
+
+    def test_a_fractional_index_is_refused_rather_than_truncated(self) -> None:
+        # `int(1.5)` is 1, so a plain int() would hand back a DIFFERENT point
+        # than the caller named and report it as the one they asked for.
+        for bad in (1.5, "2.5", 0.2):
+            out = sample_data._sample_sop(fake_sop(), "/p", {"point": bad})
+            self.assertFalse(out["ok"], bad)
+            self.assertEqual(out["code"], "tdmcp.sample.bad_point", bad)
+
+    def test_image_coordinates_are_refused_rather_than_ignored(self) -> None:
+        # `pixels`/`region` are image coordinates with no meaning for a point
+        # roster. Ignoring them would answer a summary to a caller who asked for
+        # values -- the cheaper wrong answer, silently.
+        for field, value in (("pixels", [[0, 0]]), ("region", {"x": 0, "y": 0, "x1": 2, "y1": 2})):
+            out = sample_data._sample_sop(fake_sop(), "/p", {field: value})
+            self.assertFalse(out["ok"], field)
+            self.assertEqual(out["code"], "tdmcp.sample.wrong_coordinates", field)
+            self.assertEqual(out["rejectedField"], field)
+
+    def test_a_refused_coordinate_causes_no_cook(self) -> None:
+        # The refusal happens before the cook, so a call that cannot be served
+        # leaves no side effect behind.
+        order: list[str] = []
+        node = fake_sop()
+        node.cook = lambda force=False: order.append("cook")
+        out = sample_data._sample_sop(node, "/p", {"pixels": [[0, 0]], "forceCook": True})
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["code"], "tdmcp.sample.wrong_coordinates")
+        self.assertEqual(order, [], "a refused call must not cook")
+
+    def test_a_null_point_is_reported_as_a_summary_not_as_a_point_read(self) -> None:
+        # `"point": null` is indistinguishable from an omitted key once
+        # deserialized, so it answers with the summary -- and SAYS that is what
+        # it did, rather than returning an empty point or pretending to have
+        # read one.
+        out = sample_data._sample_sop(fake_sop(), "/p", {"point": None})
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["mode"], "summary")
+        self.assertNotIn("point", out)
+
+    def test_several_points_come_back_in_request_order(self) -> None:
+        out = sample_data._sample_sop(fake_sop(), "/p", {"points": [3, 0, 1]})
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["mode"], "exact_points")
+        self.assertEqual([p["index"] for p in out["points"]], [3, 0, 1])
+
+    def test_an_out_of_range_point_is_counted_not_clamped(self) -> None:
+        out = sample_data._sample_sop(fake_sop(), "/p", {"points": [0, 99, -1, "x"]})
+        self.assertEqual(out["returned"], 1)
+        self.assertEqual(out["outOfRange"], 3)
+        self.assertEqual(out["requested"], 4)
+
+    def test_a_summary_is_labelled_and_keeps_the_axes_apart(self) -> None:
+        # A geometry summary that collapsed x/y/z into one number would hide the
+        # anisotropy a caller is usually asking about.
+        out = sample_data._sample_sop(fake_sop(), "/p", {})
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["mode"], "summary")
+        self.assertTrue(out["isSummary"])
+        self.assertIn("not the roster itself", out["explanation"])
+        for axis in ("x", "y", "z"):
+            self.assertIn(axis, out["bounds"])
+            self.assertAlmostEqual(out["bounds"][axis]["min"], -0.5, places=6)
+            self.assertAlmostEqual(out["bounds"][axis]["max"], 0.5, places=6)
+            self.assertAlmostEqual(out["bounds"][axis]["mean"], 0.0, places=6)
+
+    def test_a_non_finite_coordinate_is_null_counted_and_excluded_from_the_mean(self) -> None:
+        node = fake_sop([(NAN, 0.0, 0.0), (2.0, 0.0, 0.0)])
+        out = sample_data._sample_sop(node, "/p", {})
+        self.assertEqual(out["nonFinite"]["nan"], 1)
+        self.assertEqual(out["readPoints"], 2)
+        # The mean covers only the finite value, not a NaN-averaged zero.
+        self.assertAlmostEqual(out["bounds"]["x"]["mean"], 2.0, places=6)
+        self.assertAlmostEqual(out["bounds"]["x"]["max"], 2.0, places=6)
+
+    def test_an_empty_roster_summarises_to_nothing_rather_than_zero(self) -> None:
+        out = sample_data._sample_sop(fake_sop([]), "/p", {})
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["pointCount"], 0)
+        self.assertIn("empty", out["explanation"])
+        self.assertNotIn("bounds", out)
+
+    def test_a_build_without_a_point_roster_reports_unavailable(self) -> None:
+        node = fake_sop(expose_points=False)
+        out = sample_data._sample_sop(node, "/p", {"point": 0})
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["code"], "tdmcp.sample.unsupported")
+
+    def test_a_failed_forced_cook_is_an_error(self) -> None:
+        node = fake_sop(cook_error=RuntimeError("boom"))
+        out = sample_data._sample_sop(node, "/p", {"point": 0, "forceCook": True})
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["code"], "tdmcp.sample.cook_failed")
+
+    def test_a_pop_is_refused_and_records_that_it_was_measured(self) -> None:
+        # POP and POT were both checked on 2025.32460: no `*POT` classes exist,
+        # and none of the 95 `*POP` classes exposes a numeric accessor. Saying so
+        # is what makes the refusal read as a measurement.
+        for family in ("POP", "POT", "MAT", "COMP"):
+            node = fake_sop(expose_points=False)
+            node.family = family
+            with mock.patch.object(sample_data, "resolve_op", return_value=node):
+                out = sample_data.handle_sample_data({"path": "/p"})
+            self.assertFalse(out["ok"], family)
+            self.assertEqual(out["code"], "tdmcp.sample.unsupported_family", family)
+            if family in ("POP", "POT"):
+                self.assertEqual(out["measuredUnsupported"], ["POP", "POT"], family)
+            else:
+                self.assertIsNone(out["measuredUnsupported"], family)
+
+    def test_a_sop_routes_through_dispatch(self) -> None:
+        node = fake_sop()
+        with mock.patch.object(sample_data, "resolve_op", return_value=node):
+            out = sample_data.handle_sample_data({"path": "/p", "point": 0})
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["family"], "SOP")
+        self.assertEqual(out["mode"], "exact_point")
+
+    def test_too_many_points_is_refused(self) -> None:
+        from tdmcp_bridge import constants as C
+
+        out = sample_data._sample_sop(
+            fake_sop(), "/p", {"points": [0] * (C.SAMPLE_MAX_POINT_SAMPLES + 1)}
+        )
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["code"], "tdmcp.sample.too_many_points")
+
 
 if __name__ == "__main__":
     unittest.main()

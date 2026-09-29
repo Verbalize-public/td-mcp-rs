@@ -113,7 +113,7 @@
     },
     "pixels": {
       "default": null,
-      "description": "Exact values at these `[x, y]` pixels.\n\nOut-of-range and malformed entries are counted in `outOfRange` rather\nthan clamped, because a clamped answer to a bad coordinate is a\ndifferent observation than the caller asked for.",
+      "description": "Exact values at these `[x, y]` pixels.\n\nOut-of-range entries are counted in `outOfRange` rather than clamped,\nbecause a clamped answer to a bad coordinate is a different observation\nthan the caller asked for.\n\nImage coordinates only. Passing this for a SOP is REFUSED rather than\nignored, so it cannot silently degrade to a point summary.",
       "items": {
         "items": {
           "format": "uint32",
@@ -121,6 +121,29 @@
           "type": "integer"
         },
         "type": "array"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "point": {
+      "default": null,
+      "description": "Exact position of one point, by index. For a SOP only.\n\nTyped `u32` so a fractional or negative index is refused by the type\nrather than truncated: `int(1.5)` is `1`, which would answer with a\ndifferent point than the caller named.",
+      "format": "uint32",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "points": {
+      "default": null,
+      "description": "Exact positions at these point indices. For a SOP only.",
+      "items": {
+        "format": "uint32",
+        "minimum": 0,
+        "type": "integer"
       },
       "type": [
         "array",
