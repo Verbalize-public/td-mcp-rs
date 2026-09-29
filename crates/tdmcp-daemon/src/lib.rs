@@ -21,6 +21,7 @@ pub mod logring;
 pub mod middleware;
 pub mod opdispatch;
 pub mod opjournal;
+pub mod receipt_port;
 pub mod settings;
 pub mod tracing_init;
 

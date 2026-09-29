@@ -9,6 +9,7 @@ use include_dir::{include_dir, Dir};
 
 mod args_diag;
 pub mod bridge_rpc;
+pub mod client_id;
 mod daemon_link;
 pub mod dialogs;
 pub mod dialogs_tool;
@@ -26,6 +27,7 @@ pub mod project_install;
 pub mod project_lint;
 pub mod project_pack;
 pub mod project_unpack;
+pub mod receipts;
 pub mod resources;
 mod rmcp_handler;
 mod schema;
