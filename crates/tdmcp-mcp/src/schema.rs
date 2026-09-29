@@ -28,6 +28,9 @@ pub fn input_schema_for(tool: ToolName) -> JsonObject {
         ToolName::SampleData => schema_value::<crate::sample_data::SampleDataParams>(),
         ToolName::ScriptSource => schema_value::<crate::script_source::ScriptSourceParams>(),
         ToolName::ParamInterface => schema_value::<crate::param_interface::ParamInterfaceParams>(),
+        ToolName::ProjectSnapshot => {
+            schema_value::<crate::project_snapshot::ProjectSnapshotParams>()
+        }
         ToolName::Record => schema_value::<crate::timing::RecordParams>(),
         ToolName::Inspect => schema_value::<InspectParams>(),
         ToolName::MutateNodes => schema_value::<MutateNodesParams>(),

@@ -121,6 +121,8 @@ pub enum ToolName {
     ScriptSource,
     /// Export a COMP's control surface, or apply one additively.
     ParamInterface,
+    /// Save a project or a component, with a receipt naming what was written.
+    ProjectSnapshot,
     /// Frame-exact video recording jobs.
     Record,
     /// Live TD Python API cards / class index.
@@ -164,6 +166,7 @@ impl ToolName {
             Self::SampleData => "sample_data",
             Self::ScriptSource => "script_source",
             Self::ParamInterface => "param_interface",
+            Self::ProjectSnapshot => "project_snapshot",
             Self::Record => "record",
             Self::ApiHelp => "api_help",
             Self::EditorContext => "editor_context",
@@ -208,6 +211,9 @@ impl ToolName {
             }
             Self::ParamInterface => {
                 "Export a COMP's control surface, or apply one. inspect reports parameter VALUES; this is the interface — pages, names, types, ranges, menu items — that a builder or another tool needs to drive a panel. export (the default) changes nothing. Type names come from TD's is* predicates, not parmType: on this build parmType is null for every created parameter, so a type this bridge could not identify is reported as \"unknown\" WITH the predicates that were checked, never as a confident wrong answer. int and float are told apart (isInt/isFloat), so a count is not silently converted. apply is ADDITIVE: it adds what is missing and removes nothing, because deleting a user's controls because a payload did not list them would be a data-loss primitive. It is idempotent — applying twice creates nothing the second time. A parameter that already exists with a DIFFERENT type is SKIPPED with the reason, never converted; turning your int count into a float is not a migration you asked for, and one conflict does not abort the rest of the panel. Every step is created/unchanged/skipped/failed and the counts sum to what you requested, so ok means here is what happened. Menu items are a second step: TD refuses a menuNames keyword at creation."
+            }
+            Self::ProjectSnapshot => {
+                "Save a project or one COMP, and get a receipt naming the file that was actually written. target is REQUIRED for both save actions, because TouchDesigner's own default is an INCREMENTED name under project.folder — unpredictable, and so impossible to put in a receipt. The requested path is NOT the artifact: component save can overwrite in place and report the same path back with different content, and project save writes name.toe AND name.1.toe when the destination exists. The receipt therefore reports written (the path TD produced) and artifact (sha256 of the bytes on disk), with the requested path carried separately. overwrite defaults to 'fail' and refuses an existing destination before touching anything, so replacing a file is always deliberate. outcome is written | declined | unknown, and they are not interchangeable: TD returns False for a DECLINE (the file exists and you did not replace it), and a save can also leave the outcome unknown. 'unknown' is never reported as the other two — claiming nothing was written when a file may exist is the worst available answer. A component receipt does not report the project's unsaved state: TouchDesigner exposes no per-component dirty flag, so it says so rather than showing you an empty list that reads as 'nothing unsaved'. status writes nothing."
             }
             Self::Record => "Record exactly frames consecutive samples from one TOP output, without audio. Starts a reset+forward-advance job; status/cancel remain available while it owns the PID. Default timeline FPS, qtrle MOV. Finalized artifact metadata is sample-table verified; read retrieves bounded base64 chunks by jobId/offset/length (works remotely), release removes the private artifact. Retains at most eight jobs per TD bridge generation.",
             Self::ApiHelp => {
@@ -260,6 +266,7 @@ impl ToolName {
         Self::SampleData,
         Self::ScriptSource,
         Self::ParamInterface,
+        Self::ProjectSnapshot,
         Self::Record,
         Self::ApiHelp,
         Self::EditorContext,
@@ -288,6 +295,7 @@ impl ToolName {
             "sample_data" => Some(Self::SampleData),
             "script_source" => Some(Self::ScriptSource),
             "param_interface" => Some(Self::ParamInterface),
+            "project_snapshot" => Some(Self::ProjectSnapshot),
             "record" => Some(Self::Record),
             "api_help" => Some(Self::ApiHelp),
             "editor_context" => Some(Self::EditorContext),
@@ -1774,6 +1782,60 @@ async fn dispatch_tool_inner(
                     "path": params.path,
                     "contextPath": params.context_path,
                     "definitions": params.definitions,
+                }),
+                journal,
+            )
+            .await;
+            map_script_outcome(
+                catalog,
+                params.pid,
+                outcome,
+                params.diagnostic_level,
+                crate::tools::FormatMode::Normal,
+                params.context_path,
+            )
+        }
+        ToolName::ProjectSnapshot => {
+            let params: crate::project_snapshot::ProjectSnapshotParams =
+                parse_args(catalog, tool, args.clone())?;
+            if let ControlFlow::Break(v) = maybe_proxy_bridged(
+                federation,
+                registry,
+                catalog,
+                "project_snapshot",
+                args,
+                params.daemon_id.as_deref(),
+                params.pid,
+                session,
+            )
+            .await?
+            {
+                return Ok(v);
+            }
+            let _slot = begin_session_slot(
+                session,
+                catalog,
+                "project_snapshot",
+                DAEMON_SCOPE_LOCAL,
+                params.pid,
+            )?;
+            // `status` writes nothing, `project` and `component` write to the
+            // user's disk. The class is not knowable from here without
+            // branching on the action, and an effect nobody established is
+            // what `Unknown` is for — a save is exactly the operation where
+            // claiming more than was observed would be worst.
+            let outcome = enqueue_and_call(
+                registry,
+                bridge,
+                params.pid,
+                BridgeMethod::ProjectSnapshot,
+                EffectClass::Unknown,
+                serde_json::json!({
+                    "action": params.action.as_str(),
+                    "target": params.target,
+                    "path": params.path,
+                    "overwrite": params.overwrite.as_str(),
+                    "contextPath": params.context_path,
                 }),
                 journal,
             )

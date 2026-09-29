@@ -1,0 +1,139 @@
+{
+  "$defs": {
+    "DiagnosticLevel": {
+      "description": "Payload size for diagnostics (independent of structural `detailLevel`).",
+      "oneOf": [
+        {
+          "const": "summary",
+          "description": "Codes, messages, capped lints, mitigation.",
+          "type": "string"
+        },
+        {
+          "const": "detailed",
+          "description": "Plus raw traceback / full TD dumps.",
+          "type": "string"
+        }
+      ]
+    },
+    "OpPath": {
+      "description": "Operator path string passed to TD for resolution via `td.op()`.",
+      "type": "string"
+    },
+    "Pid": {
+      "anyOf": [
+        {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "pattern": "^\\s*[0-9]+\\s*$",
+          "type": "string"
+        }
+      ],
+      "description": "OS process id — sole address for tools and queues."
+    },
+    "SnapshotAction": {
+      "description": "A `project_snapshot` action.",
+      "oneOf": [
+        {
+          "const": "project",
+          "description": "Save the whole project.",
+          "type": "string"
+        },
+        {
+          "const": "component",
+          "description": "Save one COMP.",
+          "type": "string"
+        },
+        {
+          "const": "status",
+          "description": "Report unsaved state; writes nothing.",
+          "type": "string"
+        }
+      ]
+    },
+    "SnapshotOverwrite": {
+      "description": "What to do when the destination already exists.",
+      "oneOf": [
+        {
+          "const": "fail",
+          "description": "Refuse. The default, and the only safe one to arrive by accident.",
+          "type": "string"
+        },
+        {
+          "const": "replace",
+          "description": "Replace or save alongside deliberately.",
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "additionalProperties": false,
+  "description": "Args for `project_snapshot`.",
+  "properties": {
+    "action": {
+      "$ref": "#/$defs/SnapshotAction",
+      "default": "project",
+      "description": "What to save, or `status` to report without writing. Defaults to\n`project`."
+    },
+    "contextPath": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/OpPath"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Optional context path for resolving a relative `path`."
+    },
+    "daemonId": {
+      "default": null,
+      "description": "Optional federated daemon id (omit for local / unique remote resolve).",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "diagnosticLevel": {
+      "$ref": "#/$defs/DiagnosticLevel",
+      "default": "summary",
+      "description": "Diagnostic payload size (`summary` omits raw traceback)."
+    },
+    "overwrite": {
+      "$ref": "#/$defs/SnapshotOverwrite",
+      "default": "fail",
+      "description": "What to do when the destination exists. Defaults to `fail`."
+    },
+    "path": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/OpPath"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "The COMP to save, for `action: component`."
+    },
+    "pid": {
+      "$ref": "#/$defs/Pid",
+      "description": "Target pid."
+    },
+    "target": {
+      "default": null,
+      "description": "Absolute output path. Required for both saving actions.\n\nNot optional because TouchDesigner's own default is an *incremented*\nname under `project.folder` — unpredictable, and therefore impossible\nto put in a receipt.",
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "pid"
+  ],
+  "type": "object"
+}
