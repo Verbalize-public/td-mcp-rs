@@ -51,6 +51,14 @@ mod tools;
 pub use bridge_rpc::{BridgeRpc, BridgeRpcError};
 pub use daemon_link::ReconnectConfig;
 pub use daemon_link::RespawnFn;
+/// `spawn_td`'s own default handshake-wait budget.
+///
+/// Exported so the daemon can size its MCP session keep-alive against the
+/// wait it must outlive. The daemon restating this number would be a second
+/// copy of a value that defines when a launch is considered timed out, and
+/// the two could then disagree — which is exactly the class of mismatch that
+/// let a 60s keep-alive cut the 60s default spawn wait mid-request.
+pub use daemon_link::DEFAULT_SPAWN_WAIT_MS;
 pub use editor_context::EditorContextParams;
 pub use fleet::{fleet_summary, FleetInclude, FleetParams, FleetProcess, FleetResponse};
 pub use resources::{

@@ -34,6 +34,7 @@ use tdmcp_daemon::idle::{idle_exit_timeout, run_idle_watcher};
 use tdmcp_daemon::install::{self, InstallOutcome};
 use tdmcp_daemon::middleware::{auth_and_loopback, AuthState};
 use tdmcp_daemon::session::effective_headless;
+use tdmcp_daemon::session_keepalive::session_keep_alive;
 use tdmcp_diagnostics::Catalog;
 use tdmcp_mcp::{build_mcp_router, AppState, McpHandler};
 
@@ -1058,13 +1059,29 @@ async fn run_daemon(
     // rmcp's own session-worker keep_alive defaults to 300s — an IDE killed
     // without a clean disconnect would otherwise leave a lease alive for up
     // to 5 minutes, blocking the daemon's own ~30s idle-exit watcher
-    // (idle.rs's busy check counts live MCP sessions) the whole time. Shrink
-    // it to 60s so a genuinely-dropped connection is reaped promptly; this is
-    // independent of `keep_alive` (daemon.toml), which gates whether the
+    // (idle.rs's busy check counts live MCP sessions) the whole time. So it is
+    // shrunk to keep a dropped connection reaped promptly, which is
+    // independent of `keep_alive` (daemon.toml): that gates whether the
     // daemon exits when idle at all, not whether a dead transport-level
     // session gets swept.
+    //
+    // It must ALSO outlast the longest call a handler can block in, and that
+    // is the whole reason this is a function rather than a number. The worker
+    // re-arms its keep-alive sleep on every loop iteration and selects on it
+    // alongside incoming events, so a handler that blocks produces no events,
+    // nothing resets the timer, and it fires *mid-request* — tearing down the
+    // session the caller is still waiting on. MEASURED live, with duration as
+    // the only variable: `spawn_td` with `waitTimeoutMs=25000` returned its
+    // `tdmcp.spawn.wait_timeout` payload after 25.1s, while `waitTimeoutMs=90000`
+    // got NO reply at all and died at exactly 60.0s — a cutoff that is not any
+    // budget the caller asked for, and that lands precisely on the shipped 60s
+    // constant, which is why the shipped 60 000ms default spawn wait met it
+    // head-on. The caller then sees `MCP stream ended without a response` for a
+    // call that is still running: the process is alive and unhandshaken, and
+    // the reply that would have said so is gone. See `session_keepalive`.
     let mut session_manager = LocalSessionManager::default();
-    session_manager.session_config.keep_alive = Some(Duration::from_secs(60));
+    session_manager.session_config.keep_alive = Some(session_keep_alive(&cfg.file));
+
     let streamable_http: StreamableHttpService<McpHandler, LocalSessionManager> =
         StreamableHttpService::new(
             move || Ok(McpHandler::new(mcp_handler_state.clone())),
