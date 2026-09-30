@@ -259,13 +259,22 @@ class Session:
 
     # -- touchdesigner -----------------------------------------------------
 
-    def spawn_td(self, *, timeout_s: float = 180.0) -> int:
+    def spawn_td(self, *, timeout_s: float = 180.0, project_path: str | None = None) -> int:
         """Spawn the Pro TouchDesigner and wait for the bridge handshake.
 
         The handshake is the whole point: a TD that opens without one is not
         a usable session, and round 36 measured a TD that opened, handshaked,
         and then died on a heartbeat timeout. Both must be visible, which is
         why the pid is only returned after the bridge reports connected.
+
+        A PROJECT IS REQUIRED for a handshake, and this is not a workaround for
+        a flaky start: `spawn_td` with no `projectPath` opens a blank project
+        that contains no bridge DATs, so the bridge has nothing to run and the
+        handshake can never arrive. That is a known property recorded in the
+        ledger at round 30 (`a BARE spawn_td ... correctly never handshakes -
+        it has no bridge`), so a bare spawn is accepted only when the caller
+        explicitly asks for one, and it is reported as no-bridge rather than
+        as a failure to connect.
 
         When the reply does not arrive, the spawn is STILL OWNED. A measured
         `wait_timeout` leaves a live TouchDesigner running that the reply
@@ -278,12 +287,18 @@ class Session:
         from scenario import Refusal  # local import: keeps the module import-light
 
         before = set(touchdesigner_pids())
-        payload = self.call("spawn_td", {}, timeout_s)
+        args: dict = {} if project_path is None else {"projectPath": project_path}
+        payload = self.call("spawn_td", args, timeout_s)
         if _extract_pid(payload) is None:
             self._adopt_unreported_td(before)
             raise Refusal({"ok": False, "summary": f"spawn_td returned no pid: {json.dumps(payload)[:400]}"})
         pid = _extract_pid(payload)
         self.td_pid = pid
+
+        # Without a project there is no bridge to connect, so waiting would
+        # burn the whole budget to learn something the call already decided.
+        if project_path is None:
+            return pid
 
         deadline = time.monotonic() + timeout_s
         while time.monotonic() < deadline:

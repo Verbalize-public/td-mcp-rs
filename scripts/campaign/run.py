@@ -101,6 +101,32 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def fault_verdict(results: list[ScenarioResult]) -> tuple[str, str]:
+    """Did a fault-injection run actually DETECT anything?
+
+    Returns `(verdict, line_to_print)`. Extracted so the decision can be
+    tested rather than trusted, because the tempting version -- `not
+    all_verified` -- is vacuous and was measured to be: a scenario whose SETUP
+    failed is `inconclusive`, never `passed`, so the shortcut reports "the
+    injected fault was caught" for a run in which the fault was never on
+    screen. "Did not pass" and "detected a defect" are different claims, and
+    only the second one is evidence that the harness can fail.
+    """
+    defects = [r.id for r in results if r.verdict == "defect" and not r.passed]
+    if defects:
+        return (
+            "verified (the injected fault was caught)",
+            f"FAULT INJECTION: caught by {defects}",
+        )
+    ran = [r.id for r in results if r.results]
+    why = (
+        "no scenario reported a defect verdict"
+        if ran
+        else "no scenario ran at all -- the injected fault was never exercised"
+    )
+    return "HARNESS FAILS TO DETECT", f"FAULT INJECTION: NOT CAUGHT ({why})"
+
+
 def main(argv: list[str]) -> int:
     args = build_parser().parse_args(argv)
 
@@ -112,6 +138,16 @@ def main(argv: list[str]) -> int:
 
     run_id = args.run_id or _new_run_id()
     run_dir = RECORD_ROOT / run_id
+
+    # Resolve the selection BEFORE anything expensive. A typo'd scenario id
+    # should cost a parse, not a full preflight sweep and a run directory:
+    # paying for the check only after the work is what makes a mistyped id
+    # look like a campaign that started and then failed.
+    scenarios = resolve_scenarios(args.scenario)
+    if not scenarios:
+        print("no scenarios selected")
+        return 2
+
     run_dir.mkdir(parents=True, exist_ok=True)
     started = time.monotonic()
     print(f"campaign run {run_id}\nrecord: {run_dir}")
@@ -131,11 +167,6 @@ def main(argv: list[str]) -> int:
         return 3
     if pf.inconclusive:
         print("NOTE: running with a non-fatal preflight failure; timeouts will be INCONCLUSIVE, not defects")
-
-    scenarios = resolve_scenarios(args.scenario)
-    if not scenarios:
-        print("no scenarios selected")
-        return 2
 
     data_dir = run_dir / "daemon-data"
     session = Session(data_dir=data_dir, run_dir=run_dir)
@@ -229,10 +260,8 @@ def main(argv: list[str]) -> int:
     all_verified = bool(real_results) and all(r.passed for r in real_results)
 
     if args.fault_inject:
-        # A fault run PASSES only by producing a failure.
-        caught = not all_verified
-        verdict = "verified (the injected fault was caught)" if caught else "HARNESS FAILS TO DETECT"
-        print(f"\nFAULT INJECTION: {'caught' if caught else 'NOT CAUGHT -- the runner cannot fail'}")
+        verdict, line = fault_verdict(real_results)
+        print(f"\n{line}")
     elif any_defect:
         verdict = "defect"
     elif any_inconclusive:
@@ -266,7 +295,7 @@ def main(argv: list[str]) -> int:
     print(f"\nverdict: {verdict}   wall: {summary['wall_s']}s   record: {run_dir}")
 
     if args.fault_inject:
-        return 0 if not all_verified else 1
+        return 0 if fault_verdict(real_results)[0].startswith("verified") else 1
     if any_defect:
         return 1
     if any_inconclusive or not all_verified or leaked_td:

@@ -444,3 +444,101 @@ def test_the_shipped_scenario_files_all_load_and_declare_their_tools():
     tools = sorted({t for sc in scenarios for t in sc.tools})
     report = cov.build(tools, scenarios)
     assert not report["unknown_tools"], f"scenarios name tools outside the roster: {report['unknown_tools']}"
+
+
+def test_a_bare_spawn_is_reported_as_no_bridge_not_as_a_failed_connection():
+    import harness
+
+    """A blank project has no bridge, so waiting for a handshake cannot help.
+
+    This is the harness bug the campaign hit: `spawn_td {}` opens a project
+    with no bridge DATs, and the ledger records at round 30 that such a spawn
+    "correctly never handshakes". A harness that waits the full budget for a
+    handshake that is structurally impossible learns nothing and reports a
+    lifecycle failure that never happened.
+    """
+    calls = []
+
+    class FakeSession:
+        def call(self, tool, args, timeout_s=120):
+            calls.append((tool, args, timeout_s))
+            if tool == "spawn_td":
+                return {"ok": True, "pid": 4321, "handshake": {"title": "blank.toe"}}
+            return {"processes": [{"pid": 4321, "bridge": "starting"}]}
+
+    session = FakeSession()
+    pid = harness.Session.spawn_td(session, timeout_s=180.0)
+    assert pid == 4321
+    assert calls == [("spawn_td", {}, 180.0)], (
+        "a bare spawn must be a single call: waiting for a handshake that a "
+        f"blank project cannot produce is the bug, not the fix. calls={calls}"
+    )
+    assert session.td_pid == 4321
+
+
+def test_a_spawn_with_a_project_waits_for_the_bridge_and_reports_its_row():
+    import harness
+
+    """With a project that carries the bridge, the wait is the whole point."""
+    states = iter(["starting", "starting", "connected", "connected"])
+    calls = []
+
+    class FakeSession:
+        def call(self, tool, args, timeout_s=120):
+            calls.append((tool, args))
+            if tool == "spawn_td":
+                return {"ok": True, "pid": 99, "handshake": {"title": "probe.toe"}}
+            return {"processes": [{"pid": 99, "bridge": next(states)}]}
+
+    session = FakeSession()
+    pid = harness.Session.spawn_td(session, timeout_s=30.0, project_path="/tmp/probe.toe")
+    assert pid == 99
+    assert calls[0] == ("spawn_td", {"projectPath": "/tmp/probe.toe"}), (
+        f"the project must be handed to spawn_td, not guessed: {calls[0]}"
+    )
+    fleet_calls = [c for c in calls if c[0] == "fleet"]
+    assert len(fleet_calls) >= 3, (
+        f"the wait must poll until the bridge reports connected, not stop early: {calls}"
+    )
+
+
+def test_a_fault_run_that_never_ran_a_scenario_did_not_catch_the_fault():
+    """A setup failure is INCONCLUSIVE, never a detection.
+
+    `not all_verified` is the tempting verdict for a fault-injection run and it
+    is vacuous: a scenario whose setup failed never passed, so the shortcut
+    reports "the injected fault was caught" for a run in which the fault was
+    never on screen. The pilot measured exactly that. The decision is exercised
+    through the runner's own `fault_verdict`, not re-stated here -- asserting
+    the properties of a local copy is how the previous version of this test
+    survived the mutant it was written for.
+    """
+    import run as runner
+
+    def res(verdict, *, passed, results=("step",), sid="s"):
+        return runner.ScenarioResult(
+            id=sid, title="t", passed=passed, verdict=verdict, results=list(results)
+        )
+
+    detected = runner.fault_verdict([res("defect", passed=False, results=("a", "b"))])
+    assert detected[0].startswith("verified"), detected
+
+    # The exact pilot shape: setup failed, no step ever ran.
+    setup_failed = [res("inconclusive", passed=False, results=(), sid="guarded")]
+    assert runner.fault_verdict(setup_failed)[0] == "HARNESS FAILS TO DETECT"
+
+    # ...and the reason must say the fault was never exercised, because a
+    # reader deciding what to do next needs to know which of the two happened.
+    assert "never exercised" in runner.fault_verdict(setup_failed)[1]
+
+    # A scenario that ran and was inconclusive is still not a detection.
+    ran_but_inconclusive = [res("inconclusive", passed=False, results=("a",))]
+    verdict, line = runner.fault_verdict(ran_but_inconclusive)
+    assert verdict == "HARNESS FAILS TO DETECT"
+    assert "no scenario reported a defect verdict" in line
+
+    # A clean run is not a detection either: the injector failed to inject.
+    assert runner.fault_verdict([res("verified", passed=True)])[0] == "HARNESS FAILS TO DETECT"
+
+    # No scenarios at all is the worst case, and must not read as caught.
+    assert runner.fault_verdict([])[0] == "HARNESS FAILS TO DETECT"
