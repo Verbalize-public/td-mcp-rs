@@ -1,0 +1,145 @@
+{
+  "id": "guarded-write-refuses-and-writes-nothing",
+  "title": "A guard that does not match refuses the write and the value is unchanged",
+  "description": "A guarded write exists to stop a stale intent landing on a scene that moved under it, so its whole value is the refusal: a mismatch must not write, and must not be reported as 'no change' either -- 'no change' would be a false confirmation of an action that never ran. The user contract says it outright: no whole-scene atomicity and no exactly-once, so the diff must admit that too. The fixture is the real shape the product produces (a captured baseline, then an unguarded change, then a guard), not a state invented for the test.",
+  "needs_td": true,
+  "tools": ["mutate_nodes", "compare_nodes", "inspect", "execute_python"],
+  "steps": [
+    {
+      "name": "set-up-a-constant-the-scenario-owns",
+      "tool": "mutate_nodes",
+      "args": {
+        "pid": "{{pid}}",
+        "steps": [
+          {"op": "delete", "path": "/project1/campaign_guard", "comment": "remove a leftover from an earlier run so the scenario starts from a state it controls"},
+          {"op": "create", "path": "/project1/campaign_guard", "opType": "constantCHOP", "comment": "campaign scratch: the value the guard checks"},
+          {"op": "set", "path": "/project1/campaign_guard", "values": {"const0value": 8}}
+        ]
+      },
+      "needs_pid": true,
+      "assert": [
+        {"predicate": "ok", "path": "ok"}
+      ]
+    },
+    {
+      "name": "the-value-is-the-one-the-scenario-set",
+      "tool": "inspect",
+      "args": {"pid": "{{pid}}", "paths": ["/project1/campaign_guard"], "include": ["params"]},
+      "needs_pid": true,
+      "assert": [
+        {"predicate": "ok", "path": "ok"},
+        {"predicate": "path_contains", "path": "nodes", "value": "const0value"}
+      ]
+    },
+    {
+      "name": "a-diff-with-no-baseline-refuses-instead-of-reporting-no-change",
+      "tool": "compare_nodes",
+      "args": {"pid": "{{pid}}", "paths": ["/project1/campaign_guard"], "fields": ["par.const0value"]},
+      "needs_pid": true,
+      "expect_refusal": true,
+      "assert": [
+        {"predicate": "path_contains", "path": "summary", "value": "baseline"}
+      ]
+    },
+    {
+      "name": "capture-a-real-baseline",
+      "tool": "compare_nodes",
+      "args": {"pid": "{{pid}}", "paths": ["/project1/campaign_guard"], "fields": ["par.const0value"], "capture": true},
+      "needs_pid": true,
+      "capture": "baseline",
+      "assert": [
+        {"predicate": "envelope_ok", "path": "ok"},
+        {"predicate": "path_present", "path": "baseline"}
+      ]
+    },
+    {
+      "name": "an-unguarded-change-moves-the-value",
+      "tool": "mutate_nodes",
+      "args": {
+        "pid": "{{pid}}",
+        "steps": [
+          {"op": "set", "path": "/project1/campaign_guard", "values": {"const0value": 16}, "comment": "the scene moved under the captured baseline, which is what makes the next guard stale"}
+        ]
+      },
+      "needs_pid": true,
+      "assert": [
+        {"predicate": "ok", "path": "ok"}
+      ]
+    },
+    {
+      "name": "a-diff-admits-it-is-not-atomic-and-not-exactly-once",
+      "tool": "compare_nodes",
+      "args": {"pid": "{{pid}}", "paths": ["/project1/campaign_guard"], "fields": ["par.const0value"], "baseline": "{{baseline}}"},
+      "needs_pid": true,
+      "assert": [
+        {"predicate": "path_equals", "path": "atomic", "equals": false},
+        {"predicate": "path_equals", "path": "exactlyOnce", "equals": false}
+      ]
+    },
+    {
+      "name": "a-guard-that-matches-permits-the-write",
+      "tool": "mutate_nodes",
+      "args": {
+        "pid": "{{pid}}",
+        "steps": [
+          {"op": "set", "path": "/project1/campaign_guard", "values": {"const0value": 32}, "expect": {"fields": {"par.const0value": 16}}}
+        ]
+      },
+      "needs_pid": true,
+      "assert": [
+        {"predicate": "ok", "path": "ok"}
+      ]
+    },
+    {
+      "name": "the-matching-guard-actually-wrote-32",
+      "tool": "inspect",
+      "args": {"pid": "{{pid}}", "paths": ["/project1/campaign_guard"], "include": ["params"]},
+      "needs_pid": true,
+      "assert": [
+        {"predicate": "ok", "path": "ok"},
+        {"predicate": "path_contains", "path": "nodes", "value": "32"}
+      ]
+    },
+    {
+      "name": "a-guard-that-does-not-match-refuses-the-step",
+      "tool": "mutate_nodes",
+      "args": {
+        "pid": "{{pid}}",
+        "steps": [
+          {"op": "set", "path": "/project1/campaign_guard", "values": {"const0value": 99}, "expect": {"fields": {"par.const0value": 0}}}
+        ]
+      },
+      "needs_pid": true,
+      "expect_refusal": true,
+      "assert": [
+        {"predicate": "step_refused", "contains": "precondition"},
+        {"predicate": "not_ok", "path": "ok"}
+      ]
+    },
+    {
+      "name": "and-the-refused-write-changed-nothing",
+      "tool": "inspect",
+      "args": {"pid": "{{pid}}", "paths": ["/project1/campaign_guard"], "include": ["params"]},
+      "needs_pid": true,
+      "assert": [
+        {"predicate": "ok", "path": "ok"},
+        {"predicate": "path_contains", "path": "nodes", "value": "32"},
+        {"predicate": "path_absent", "path": "nodes.params.99"}
+      ]
+    },
+    {
+      "name": "the-scenario-owns-its-node-and-removes-it",
+      "tool": "mutate_nodes",
+      "args": {
+        "pid": "{{pid}}",
+        "steps": [
+          {"op": "delete", "path": "/project1/campaign_guard"}
+        ]
+      },
+      "needs_pid": true,
+      "assert": [
+        {"predicate": "ok", "path": "ok"}
+      ]
+    }
+  ]
+}

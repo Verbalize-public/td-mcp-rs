@@ -1,0 +1,77 @@
+{
+  "id": "lifecycle-session-identity",
+  "title": "A spawned session is addressable, identified, and still connected after use",
+  "description": "Rounds 30-36 chased a handshake signature that turned out to hide three real defects, all in the seam between a session and the daemon that owns it. This scenario pins the observable half of that seam: the pid the spawn returns is the pid the fleet reports, the bridge on that row is connected, and it is STILL connected after other tools have run. A fleet row that reports connected for a pid nobody spawned is the artefact that made a contention look like a defect, so the pid is checked for provenance.",
+  "needs_td": true,
+  "tools": ["spawn_td", "fleet", "inspect", "execute_python"],
+  "steps": [
+    {
+      "name": "spawn-returns-an-addressable-pid",
+      "tool": "spawn_td",
+      "args": {},
+      "capture": "pid",
+      "timeout_s": 180,
+      "assert": [
+        {"predicate": "ok", "path": "ok"},
+        {"predicate": "path_present", "path": "pid"},
+        {"predicate": "path_present", "path": "handshake.toePath"}
+      ]
+    },
+    {
+      "name": "fleet-row-for-that-pid-is-connected",
+      "tool": "fleet",
+      "args": {"pids": ["{{pid}}"], "include": ["process", "bridge"]},
+      "assert": [
+        {"predicate": "path_present", "path": "processes"},
+        {"predicate": "path_contains", "path": "processes", "value": "{{pid}}"}
+      ]
+    },
+    {
+      "name": "the-spawned-row-carries-provenance",
+      "tool": "fleet",
+      "args": {"pids": ["{{pid}}"], "include": ["process"]},
+      "assert": [
+        {"predicate": "path_contains", "path": "processes", "value": "startedAt"},
+        {"predicate": "path_contains", "path": "processes", "value": "exePath"}
+      ]
+    },
+    {
+      "name": "the-session-answers-a-structural-read",
+      "tool": "inspect",
+      "args": {"pid": "{{pid}}", "paths": ["/project1"], "include": ["nodes"]},
+      "needs_pid": true,
+      "assert": [
+        {"predicate": "ok", "path": "ok"},
+        {"predicate": "path_present", "path": "nodes"}
+      ]
+    },
+    {
+      "name": "the-session-still-answers-a-python-call",
+      "tool": "execute_python",
+      "args": {"pid": "{{pid}}", "script": "result = 1 + 1"},
+      "needs_pid": true,
+      "assert": [
+        {"predicate": "ok", "path": "ok"},
+        {"predicate": "path_equals", "path": "result", "equals": 2}
+      ]
+    },
+    {
+      "name": "and-the-bridge-is-still-connected-afterwards",
+      "tool": "fleet",
+      "args": {"pids": ["{{pid}}"], "include": ["bridge"]},
+      "assert": [
+        {"predicate": "path_contains", "path": "processes", "value": "connected"}
+      ]
+    },
+    {
+      "name": "the-session-survives-a-second-daemon-facing-call",
+      "tool": "execute_python",
+      "args": {"pid": "{{pid}}", "script": "result = 6 * 7"},
+      "needs_pid": true,
+      "assert": [
+        {"predicate": "ok", "path": "ok"},
+        {"predicate": "path_equals", "path": "result", "equals": 42}
+      ]
+    }
+  ]
+}

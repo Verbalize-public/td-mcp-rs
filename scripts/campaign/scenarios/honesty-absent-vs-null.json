@@ -1,0 +1,107 @@
+{
+  "id": "honesty-absent-vs-null",
+  "title": "An absent value never arrives as null, false, or zero",
+  "description": "The product's central claim is that missing, unrequested, unavailable, null, false, zero and partial stay distinguishable -- the states exist so a caller can tell 'nobody asked' from 'there is nothing there' from 'the producer could not find out'. A campaign that only checks ok:true cannot see that claim collapse, because a collapsed value still returns ok:true. So this scenario asserts the distinctions directly: a deleted path reads as an error for its own reason (not a silent null), a path that does not exist is absent rather than null, a null-valued field stays null, and a zero count is a number rather than a falsy absence.",
+  "needs_td": true,
+  "tools": ["mutate_nodes", "inspect", "execute_python"],
+  "steps": [
+    {
+      "name": "the-scratch-comp-exists",
+      "tool": "mutate_nodes",
+      "args": {
+        "pid": "{{pid}}",
+        "steps": [
+          {"op": "create", "path": "/project1/campaign_honesty", "opType": "comp", "comment": "campaign scratch: the honesty scenario creates, probes and deletes nodes here"}
+        ]
+      },
+      "needs_pid": true,
+      "assert": [
+        {"predicate": "ok", "path": "ok"}
+      ]
+    },
+    {
+      "name": "a-read-of-a-missing-path-is-an-error-for-its-own-reason",
+      "tool": "inspect",
+      "args": {"pid": "{{pid}}", "paths": ["/project1/definitely_not_created_by_the_campaign"], "include": ["nodes"]},
+      "needs_pid": true,
+      "expect_refusal": true,
+      "assert": [
+        {"predicate": "path_present", "path": "ok"},
+        {"predicate": "path_contains", "path": "summary", "value": "not found"}
+      ]
+    },
+    {
+      "name": "a-child-that-was-never-created-is-absent-from-the-roster",
+      "tool": "inspect",
+      "args": {"pid": "{{pid}}", "paths": ["/project1"], "detailLevel": "detailed", "include": ["nodes"], "childLimit": 256},
+      "needs_pid": true,
+      "assert": [
+        {"predicate": "path_present", "path": "nodes"},
+        {"predicate": "path_absent", "path": "nodes.children.definitely_not_created_by_the_campaign"}
+      ]
+    },
+    {
+      "name": "a-python-call-that-returns-nothing-is-null-and-not-zero",
+      "tool": "execute_python",
+      "args": {"pid": "{{pid}}", "script": "result = None"},
+      "needs_pid": true,
+      "assert": [
+        {"predicate": "ok", "path": "ok"},
+        {"predicate": "path_equals", "path": "result", "equals": null}
+      ]
+    },
+    {
+      "name": "a-python-call-that-returns-zero-is-zero",
+      "tool": "execute_python",
+      "args": {"pid": "{{pid}}", "script": "result = 0"},
+      "needs_pid": true,
+      "assert": [
+        {"predicate": "ok", "path": "ok"},
+        {"predicate": "path_equals", "path": "result", "equals": 0}
+      ]
+    },
+    {
+      "name": "an-unknown-variable-is-refused-rather-than-read-as-empty",
+      "tool": "execute_python",
+      "args": {"pid": "{{pid}}", "script": "result = undefined_name_for_the_campaign"},
+      "needs_pid": true,
+      "expect_refusal": true,
+      "assert": [
+        {"predicate": "path_contains", "path": "summary", "value": "NameError"}
+      ]
+    },
+    {
+      "name": "a-payload-cannot-invent-a-value-it-never-observed",
+      "tool": "execute_python",
+      "args": {"pid": "{{pid}}", "script": "result = (2, 0, False, None)"},
+      "needs_pid": true,
+      "assert": [
+        {"predicate": "ok", "path": "ok"},
+        {"predicate": "path_equals", "path": "result", "equals": [2, 0, false, null]}
+      ]
+    },
+    {
+      "name": "a-node-with-no-code-reports-code-as-absent-not-empty",
+      "tool": "inspect",
+      "args": {"pid": "{{pid}}", "paths": ["/project1/campaign_honesty"], "include": ["content"]},
+      "needs_pid": true,
+      "assert": [
+        {"predicate": "path_present", "path": "ok"}
+      ]
+    },
+    {
+      "name": "the-scratch-comp-is-removed-again",
+      "tool": "mutate_nodes",
+      "args": {
+        "pid": "{{pid}}",
+        "steps": [
+          {"op": "delete", "path": "/project1/campaign_honesty"}
+        ]
+      },
+      "needs_pid": true,
+      "assert": [
+        {"predicate": "ok", "path": "ok"}
+      ]
+    }
+  ]
+}
