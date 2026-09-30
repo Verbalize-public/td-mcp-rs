@@ -1,7 +1,7 @@
 # Third-party source availability and relinking
 
 Release target: `x86_64-unknown-linux-gnu`  
-Cargo.lock SHA-256: `4a1244fdbee36e5471fda36d76faae4e945bbd70e2898699bcb59ce54f1c92a6`
+Cargo.lock SHA-256: `62ce27ac07108e5b974a57f778470f2c904a755464ee2f5d2b392c5e7d06bc14`
 
 `inventory.json` records the exact version, registry identity, Cargo.lock
 checksum, upstream source URL, and preserved notice files for every
@@ -37,9 +37,9 @@ the adjacent `THIRD_PARTY_NOTICES.txt`.
 
 The vendored Plasma protocol XML includes files under
 LGPL-2.1-or-later. Before binary distribution, the complete application
-source corresponding to the tagged 0.1.4 release must be published at:
+source corresponding to the tagged 0.2.0 release must be published at:
 
-https://github.com/Verbalize-public/td-mcp-rs/archive/refs/tags/v0.1.4.tar.gz
+https://github.com/Verbalize-public/td-mcp-rs/archive/refs/tags/v0.2.0.tar.gz
 
 The td-mcp-rs MIT terms do not prohibit reverse engineering or
 modification for debugging changes to that covered code. To rebuild a

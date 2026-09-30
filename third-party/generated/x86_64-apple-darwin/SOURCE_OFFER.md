@@ -1,7 +1,7 @@
 # Third-party source availability and relinking
 
 Release target: `x86_64-apple-darwin`  
-Cargo.lock SHA-256: `4a1244fdbee36e5471fda36d76faae4e945bbd70e2898699bcb59ce54f1c92a6`
+Cargo.lock SHA-256: `62ce27ac07108e5b974a57f778470f2c904a755464ee2f5d2b392c5e7d06bc14`
 
 `inventory.json` records the exact version, registry identity, Cargo.lock
 checksum, upstream source URL, and preserved notice files for every

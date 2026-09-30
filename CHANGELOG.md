@@ -1,12 +1,18 @@
 # Changelog
 
-## Unreleased
+## v0.2.0 — unreleased
 
-This release is 100 commits against v0.1.4. It is **additive**: every tool,
+112 commits against v0.1.4. It is **additive**: every tool,
 argument and response field that existed in v0.1.4 still works, and a call
 that omits `output` still gets the full legacy shape. Read
 [docs/MIGRATION.md](docs/MIGRATION.md) before upgrading — it says what is new,
 what is newly *labelled*, and what this release does not claim.
+
+**The version is bumped in source but not yet published.** There is no `v0.2.0`
+tag and nothing has been pushed; every artifact from this tree is UNSIGNED, and
+native Windows/macOS installers have not been built or accepted. See
+[docs/MIGRATION.md](docs/MIGRATION.md#what-this-release-does-not-claim) and
+`docs/OPEN_WORK.md`.
 
 ### Measuring cost, honestly
 

@@ -240,7 +240,10 @@ const SLAVE_ID: &str = "91ac33dd-02ea-49ab-8d10-9988aabbccdd";
 fn inject_status(app: &mut DashboardApp, role: &str, mcp: usize, _port: u16) {
     let body = json!({
         "ok": true,
-        "version": "0.1.4",
+        // `CARGO_PKG_VERSION` rather than a literal: this is preview data, and a
+        // hardcoded version is a pin that goes stale on the next bump without
+        // anything failing.
+        "version": env!("CARGO_PKG_VERSION"),
         "pid": std::process::id(),
         "mcpSessionCount": mcp,
         "bridgeCount": 2,
