@@ -175,6 +175,18 @@ def installed_bridge_matches(install_dir: Path, repo_bridge: Path) -> tuple[bool
     return True, f"{checked} bridge files identical to the repo"
 
 
+def _display_env() -> str:
+    """The display the child would inherit, as one readable token.
+
+    Reported rather than probed, because the question is "would a child
+    spawned from THIS shell have a display", and that is decided by this
+    process's environment, not by whether a display happens to be running
+    under a different session.
+    """
+    parts = [f"{k}={os.environ[k]}" for k in ("DISPLAY", "WAYLAND_DISPLAY") if os.environ.get(k)]
+    return " ".join(parts) or "none"
+
+
 def run(
     repo: Path,
     *,
@@ -218,6 +230,27 @@ def run(
         # Not fatal-as-wrong, but still blocks: a busy host cannot judge a
         # timeout, and reporting one as a defect would be a false finding.
         fatal=False,
+    )
+
+    # A TouchDesigner with no display cannot create a GL context, so it never
+    # reaches the bridge bootstrap and never handshakes. Measured in
+    # `r38-verify`: the shell had lost `DISPLAY`, Wine logged
+    # `nodrv_CreateWindow: Application tried to create a window, but no driver
+    # could be loaded`, and the harness spent 180 s waiting for a handshake that
+    # was never going to arrive -- then reported the setup failure as if the
+    # spawn were the thing under test. Two seconds here instead of 180 there.
+    display = _display_env()
+    pf.add(
+        "display-available",
+        display != "none",
+        f"{display}; without one TouchDesigner cannot create a window and "
+        "will never handshake"
+        if display == "none"
+        else f"{display}",
+        # Fatal, unlike host-load: a busy host makes a TIMEOUT uninformative,
+        # but a missing display means no spawn can succeed at all. Letting the
+        # round proceed turns a certain non-answer into 180 s of waiting per
+        # scenario plus a setup failure that reads like a spawn defect.
     )
 
     busy = sorted(set(listening_ports()) & set(REQUIRED_PORTS))

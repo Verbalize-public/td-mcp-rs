@@ -12,6 +12,7 @@ Run: .venv/bin/python -m pytest scripts/tests/test_campaign_harness.py -q
 from __future__ import annotations
 
 import json
+import os
 import sys
 import tempfile
 from unittest import mock
@@ -974,3 +975,72 @@ def test_a_crash_inside_a_predicate_is_reported_not_silently_passed():
     finally:
         sc.PREDICATES.clear()
         sc.PREDICATES.update(original)
+
+
+def test_a_child_that_could_never_show_a_window_is_refused_before_it_is_spawned(
+    monkeypatch,
+):
+    """No display means no handshake, and the round must say so in seconds.
+
+    Measured in `r38-verify`: the shell had lost `DISPLAY`, Wine logged
+    `nodrv_CreateWindow: Application tried to create a window, but no driver
+    could be loaded`, TouchDesigner never reached the bridge bootstrap, and
+    the harness waited the full 180 s handshake budget before reporting a
+    setup failure that read like a defect in `spawn_td`.
+
+    The fix is a preflight check, so this asserts on the real `run()` and the
+    real refusal semantics: a fatal failure blocks the round. And it asserts
+    the OTHER direction, because a check that fails everything is not a
+    check.
+    """
+    import preflight
+
+    def with_display(value):
+        env = dict(os.environ)
+        env.pop("DISPLAY", None)
+        env.pop("WAYLAND_DISPLAY", None)
+        if value is not None:
+            env["DISPLAY"] = value
+        return mock.patch.dict(os.environ, env, clear=True)
+
+    common = dict(
+        baseline_td_pids=[4242],
+        require_clean_tree=False,
+    )
+    with with_display(None):
+        blind = preflight.run(REPO, install_dir=Path(tempfile.gettempdir()), **common)
+    with with_display(":0"):
+        seeing = preflight.run(REPO, install_dir=Path(tempfile.gettempdir()), **common)
+    # An exported-but-empty DISPLAY is what a lost variable looks like in
+    # some launchers, and it is no more usable than an absent one.
+    with mock.patch.dict(os.environ, {"DISPLAY": ""}, clear=True):
+        empty = preflight.run(REPO, install_dir=Path(tempfile.gettempdir()), **common)
+    # A Wayland-only session has no DISPLAY, and blocking it would refuse
+    # every round on a host that can in fact run TouchDesigner.
+    with mock.patch.dict(os.environ, {"WAYLAND_DISPLAY": "wayland-0"}, clear=True):
+        wayland = preflight.run(REPO, install_dir=Path(tempfile.gettempdir()), **common)
+
+    def check(pf, name):
+        return next(c for c in pf.checks if c.name == name)
+
+    assert check(blind, "display-available").passed is False
+    assert check(blind, "display-available").fatal is True, (
+        "a missing display must BLOCK the round: a busy host makes a timeout "
+        "uninformative, but no display means no spawn can succeed at all"
+    )
+    assert check(seeing, "display-available").passed is True
+    assert check(empty, "display-available").passed is False, (
+        "an empty DISPLAY is no more usable than an absent one"
+    )
+    assert check(wayland, "display-available").passed is True, (
+        "a Wayland-only session has no DISPLAY; refusing it would block every "
+        "round on a host that can run TouchDesigner fine"
+    )
+
+    # Only the display check is under test. Asserting that the whole preflight
+    # is green would make this test hostage to every other check (the install
+    # directory, the repo tree), so a failure would stop meaning what the test
+    # name says. What must hold is the blocking behaviour itself: one failed
+    # fatal check is enough to refuse the round.
+    assert preflight.Preflight(checks=[check(blind, "display-available")]).ok is False
+    assert preflight.Preflight(checks=[check(seeing, "display-available")]).ok is True
