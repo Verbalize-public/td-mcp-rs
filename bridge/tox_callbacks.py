@@ -12,6 +12,8 @@ silent auto-reconnect that hides loss from the daemon.
 
 from __future__ import annotations
 
+import json
+import os
 import time
 from collections import OrderedDict
 
@@ -581,6 +583,47 @@ def _bridge_shutting_down(mod) -> bool:
 		return False
 
 
+def _trace(event: str, **fields) -> None:
+	"""Append one JSON line to the trace file, if `TDMCP_BRIDGE_TRACE` names one.
+
+	Off unless the variable names a writable path, so the cost when nobody is
+	debugging is one environment lookup.
+
+	This exists because the redial decision was UNOBSERVABLE from outside. The
+	supersede is visible only in the daemon's log, long after the bridge has
+	acted: by the time a caller learns "bridge for pid N disconnected during
+	call", the decision that caused it has already been taken and cannot be
+	attributed. Four attempts to catch it from outside all failed the same way
+	-- `execute_python` is itself delivered over the bridge being lost, so a
+	probe that installs itself through that bridge is cancelled by the event it
+	exists to catch. The decision has to write its own record, at the moment it
+	is made.
+	"""
+	path = os.environ.get("TDMCP_BRIDGE_TRACE")
+	if not path:
+		return
+	rec = {"event": event, "t": time.time()}
+	rec.update(fields)
+	try:
+		with open(path, "a", encoding="utf-8") as fh:
+			fh.write(json.dumps(rec, default=repr) + "\n")
+			fh.flush()
+	except Exception:  # noqa: BLE001
+		pass
+
+
+def _bridge_snapshot(mod) -> dict:
+	"""What the decision predicates saw, for the trace. Read-only."""
+	if mod is None:
+		return {"mod": None}
+	return {
+		"connected": _bridge_connected(mod),
+		"shutting_down": _bridge_shutting_down(mod),
+		"active_thread": repr(getattr(mod, "_active_thread", None)),
+		"active_stream": repr(getattr(mod, "_active_stream", None)),
+	}
+
+
 def _safe_disconnect(mod) -> None:
 	disconnect = getattr(mod, "disconnect", None)
 	if callable(disconnect):
@@ -666,6 +709,7 @@ def onFrameStart(frame) -> None:  # noqa: ANN001 — TD Execute DAT signature
 		# Manual: Connect Off→On edge always tries once (even if Autoconnect off).
 		# Autoconnect: retry after loss / connect at start (onStart already tried).
 		if connect_edge or auto:
+			_trace("frame_dialing", edge=connect_edge, auto=auto, **_bridge_snapshot(mod))
 			_run_bootstrap()
 			mod = _bridge_mod()
 			connected = mod is not None and _bridge_connected(mod)
@@ -689,6 +733,7 @@ def onFrameStart(frame) -> None:  # noqa: ANN001 — TD Execute DAT signature
 		# Not connected, and deliberately not dialling this pass. Reporting
 		# "Connected" here would be a lie the face and the next reader both
 		# believe, and the pump below would run against a dead session.
+		_trace("frame_wait_draining", edge=connect_edge, auto=auto, **_bridge_snapshot(mod))
 		_phase = "Re-connecting"
 		_refresh_face(comp, tasks=[], autoconnect=auto, pending_n=0)
 		return
@@ -769,9 +814,21 @@ def _reconnect_watchdog() -> None:
 	):
 		# Still reschedule below, so this is a wait, not a stop: the next
 		# pass sees the same answer until the worker is gone.
+		_trace("watchdog_wait_draining", **_bridge_snapshot(mod))
 		_refresh_face(comp, tasks=[], autoconnect=auto, pending_n=0)
 	elif not connected and want and auto:
+		# The dial happens here, so this is the LAST place the choice is still
+		# visible. Everything downstream of it -- the handshake, the daemon's
+		# supersede, the cancelled call -- is a consequence of this line.
+		_trace("watchdog_dialing", **_bridge_snapshot(mod))
 		_run_bootstrap()
+	else:
+		_trace(
+			"watchdog_no_action",
+			want=want,
+			auto=auto,
+			**_bridge_snapshot(mod),
+		)
 
 	if want:  # keep polling while Connect is on
 		try:

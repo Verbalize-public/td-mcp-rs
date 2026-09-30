@@ -256,30 +256,24 @@ def main() -> int:
             return 2
         print("TD is running the repo's bridge")
 
-        # `includeLogs` left to its DEFAULT on purpose. Passing it explicitly
-        # is what made the first two probe runs fail with
-        # "cannot access local variable 'out'", and pinning WHY is the point:
-        # bridge/tdmcp_bridge/execute.py:315 assigns out["logs"] in a `finally`
-        # that runs even when `includeLogs` is false, so `out` is read while
-        # unbound. Live TD's `td` import partly fails under Wine (the bare
-        # name is absent), which skips the only assignment and reaches that
-        # read. The unbound name is caught, turned into
-        # `tdmcp.script.execution_failed`, and the log says "bridge error",
-        # which is why it first read as a bridge failure rather than a script
-        # failure.
-        armed = session.call(
-            "execute_python",
-            {"pid": td_pid, "script": PATCH},
-            60,
-        )
-        print("arm result:", json.dumps(armed)[:400])
-        if not armed.get("ok"):
-            return 2
-
-        print(f"observing for {seconds:.0f}s while issuing the scenario's calls")
+                # The arm call goes through the SAME bridge the decision path uses, so
+        # a failure here is itself a measurement. Three earlier attempts failed
+        # with "cannot access local variable 'out' where it is not associated
+        # with a value" -- `execute.py`'s `finally` reading `out` unbound,
+        # fixed in 8fac14e.
+        #
+        # But a single call cannot both arm and observe. The supersede lands
+        # ~3.8 s after the handshake, `execute_python` is queued against that
+        # same bridge, and the watchdog that decides to redial runs on the
+        # same 2 s clock -- so the arm call was itself cancelled by the event
+        # it exists to catch, and the log stayed EMPTY (measured: 0 bytes,
+        # while the daemon log showed the supersede at seq 33-37).
+        #
+        # So the sequence is: let the probe arm as early as possible, then
+        # keep the bridge BUSY for the whole window. The arm is retried, and
+        # a successful arm is confirmed by the log growing rather than by the
+        # call's own reply -- the reply only says the script was accepted.
         deadline = time.monotonic() + seconds
-        # The calls that precede the supersede in both clean runs: two reads,
-        # a compare REFUSAL, then a capture.
         sequence = [
             ("fleet", {}),
             ("inspect", {"paths": ["/project1"], "include": ["nodes"]}),
@@ -288,7 +282,18 @@ def main() -> int:
             ("compare_nodes", {"paths": ["/project1"], "fields": ["par.name"], "capture": True}),
         ]
         index = 0
+        armed_reply = None
         while time.monotonic() < deadline:
+            if armed_reply is None:
+                armed_reply = session.call("execute_python", {"pid": td_pid, "script": PATCH}, 60)
+                print("arm attempt:", json.dumps(armed_reply)[:200])
+                print("log bytes after arm:", LOG.stat().st_size)
+                if not LOG.read_text(encoding="utf-8").strip():
+                    print("arm produced no record; retrying")
+                    armed_reply = None
+                    time.sleep(0.5)
+                    continue
+                print("PROBE ARMED (log is non-empty)")
             tool, tool_args = sequence[min(index, len(sequence) - 1)]
             reply = session.call(tool, dict(tool_args, pid=td_pid), 60)
             summary = reply.get("summary") or reply.get("ok")
