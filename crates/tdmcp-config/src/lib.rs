@@ -445,7 +445,7 @@ pub const FIELD_DESCS: &[FieldDesc] = &[
     FieldDesc {
         key: "daemon.show_tray",
         label: "Show tray",
-        help: "Show the system-tray dashboard (gui builds). CLI --no-gui still forces headless.",
+        help: "Show the system-tray dashboard (gui builds). Default on for every entry point, including the IDE's `mcp`. Set false, or pass --no-gui, to run headless.",
     },
     FieldDesc {
         key: "bridge.host",

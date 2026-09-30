@@ -51,7 +51,10 @@ keep_alive = true
 always_on = false
 
 # When true, show the system-tray dashboard (requires a gui-enabled build).
-# Default true. CLI --no-gui / TDMCP_NO_GUI=1 still forces headless.
+# Default true, and the default for every entry point: `mcp` (the IDE-spawned
+# stdio proxy) asks for the tray like `start` and `ensure` do. Set false, or
+# pass --no-gui / TDMCP_NO_GUI=1, for headless operation. On a host with no
+# desktop session the daemon serves headless anyway and reports noGui: true.
 show_tray = true
 
 [logging]

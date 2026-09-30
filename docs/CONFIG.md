@@ -51,6 +51,10 @@ the restart requirement. A restart disconnects MCP/bridge sessions temporarily.
 - `daemon.always_on`: register startup at user login for the standard per-user
   configuration. Custom-config/test daemons do not modify that global entry;
   register their explicit launch command separately if needed.
+- `daemon.show_tray`: default **true**, for every entry point including the
+  `mcp` command your assistant spawns. Set false to run headless; the
+  `--no-gui` flag and `TDMCP_NO_GUI=1` do the same per invocation. A host with
+  no desktop session serves headless either way and reports `noGui: true`.
 - `bridge.port`: default **9861**, loopback only; the bootstrap must dial it.
 - `bridge.call_timeout_secs`: default **45**.
 - `bridge.script_timeout_secs`: default **120**.

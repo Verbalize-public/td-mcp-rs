@@ -33,6 +33,7 @@ use tdmcp_daemon::federation::{spawn_slave_loop, FederationRuntime};
 use tdmcp_daemon::idle::{idle_exit_timeout, run_idle_watcher};
 use tdmcp_daemon::install::{self, InstallOutcome};
 use tdmcp_daemon::middleware::{auth_and_loopback, AuthState};
+use tdmcp_daemon::session::effective_headless;
 use tdmcp_diagnostics::Catalog;
 use tdmcp_mcp::{build_mcp_router, AppState, McpHandler};
 
@@ -330,12 +331,17 @@ fn main() -> Result<()> {
                     exe: cfg.daemon_bin.clone(),
                     timeout: Duration::from_millis(timeout_ms),
                     poll_only: false,
-                    // Headless, always: this proxy is the IDE-spawned manager
-                    // of the long-lived service. A tray request here would tear
-                    // down a healthy headless daemon to "restart with tray"
-                    // (see ensure_daemon) and every respawn it spawns would try
-                    // to open a GUI — failing outright on headless machines.
-                    no_gui: true,
+                    // GUI by default: the IDE-spawned proxy manages the
+                    // long-lived service, and the service is the user's — it
+                    // comes up with its tray dashboard like `ensure` / `start`
+                    // do, honouring `[daemon].show_tray`. Opt out with
+                    // `--no-gui` / `TDMCP_NO_GUI=1` or `show_tray = false`.
+                    //
+                    // A headless host is not a failure: `start` degrades to
+                    // headless serving when no display session is reachable
+                    // (see `start_daemon` / L-10), so this cannot wedge the
+                    // proxy on a machine without a desktop.
+                    no_gui: cfg.no_gui,
                     idle_exit_secs: None,
                     force_install: false,
                     ipc_port: None,
@@ -674,7 +680,16 @@ fn classify_startup_failure(e: &anyhow::Error) -> (&'static str, String) {
 fn start_daemon(cfg: Config, log_sink: tdmcp_daemon::LogSink) -> Result<()> {
     let shutdown = CancellationToken::new();
     let quit = Arc::new(AtomicBool::new(false));
-    let no_gui = cfg.no_gui;
+    // The reported mode must be the effective one: this process resolves the
+    // tray request against its own session (see `session::effective_headless`),
+    // so it stays headless on a headless host and `ensure_daemon` leaves it be.
+    let no_gui = effective_headless(cfg.no_gui);
+    if no_gui != cfg.no_gui {
+        info!(
+            requested_headless = cfg.no_gui,
+            no_gui, "effective daemon mode"
+        );
+    }
 
     #[cfg(feature = "gui")]
     {
@@ -756,10 +771,6 @@ fn start_daemon(cfg: Config, log_sink: tdmcp_daemon::LogSink) -> Result<()> {
                 Err(_) => Err(anyhow::anyhow!("daemon thread panicked")),
             };
         }
-    }
-    #[cfg(not(feature = "gui"))]
-    {
-        let _ = no_gui;
     }
 
     let rt = tokio::runtime::Runtime::new().context("tokio runtime")?;

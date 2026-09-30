@@ -13,7 +13,7 @@ different coverage; a shipped feature is not proof of every platform scenario.
                                                                    ▼
   ┌────────────── Daemon process (tdmcp-daemon, single binary) ──────────┐
   │  background: axum + rmcp │ admin │ PidRegistry │ per-pid queues      │
-  │  main thread (default): tray + toast; dashboard on demand (gui)      │
+  │  main thread (default, incl. via `mcp`): tray + toast; dashboard on demand (gui) │
   └──────────┬───────────────────────────────────────────────────────────┘
              │  TCP loopback 127.0.0.1:9861 (configurable via [bridge] host/port)
              ▼
@@ -28,7 +28,7 @@ different coverage; a shipped feature is not proof of every platform scenario.
 | IDE → daemon      | Streamable HTTP MCP (`/mcp/rpc`) + JSON fallback (`/mcp/tools/*`)    | Tool calls (direct HTTP clients) | **Shipped** |
 | IDE → daemon      | stdio (`tdmcp-daemon mcp` → stdio proxy → HTTP `/mcp/rpc`)           | Cursor entrypoint                | **Shipped** |
 | TD → daemon       | Local IPC                                                            | Bridge                           | **Shipped** |
-| Operator → daemon | In-process tray + admin HTTP + OS toasts (`gui` feature, default on) | Human monitor                    | **Shipped** |
+| Operator → daemon | In-process tray + admin HTTP + OS toasts (`gui` feature, default on for every entry point) | Human monitor                    | **Shipped** |
 | IDE → daemon      | Streamable HTTP remote (`bind_address` + optional Bearer PSK)        | LAN / non-loopback MCP           | **P3**      |
 | Master → slave    | Streamable HTTP tool proxy (`daemonId`) + `/admin/federation/*`      | Single-level federation          | **P3**      |
 | Bridge/proxy → daemon | Bridge `log` events (IPC) + `POST /admin/logs/ingest` (proxy)   | Log uplink into the central JSONL sink | **Shipped** |
@@ -1110,9 +1110,22 @@ Python `disconnect()` join fails.
 
 Config precedence: **CLI args > env (`TDMCP_`*) > RC file > defaults**.
 
-Artifacts: `tdmcp-daemon` (embeds tray UI when built with default `gui` feature), `bridge/`, `diagnostics/catalog.yaml`, bootstrap `.tox`. Bridge, catalog, and bootstrap ship embedded in the daemon binary; `install` / `ensure` / `start` / `mcp` extract into the data dir. Same semver stamp skips re-extract — use `tdmcp-daemon install --force` or `ensure --force` to refresh embedded assets without bumping the package version. `mcp` upsert stays non-force (does not re-extract on every Cursor reconnect). Packaging via `cargo run -p xtask -- package` ships named archives + SHA256SUMS (also `cargo run -p xtask -- dist` for plain `target/dist` tree); CI builds on tag `v*`. Headless: `cargo build --release -p tdmcp-daemon --no-default-features`, or runtime `--no-gui` / `TDMCP_NO_GUI=1`.
+Artifacts: `tdmcp-daemon` (embeds tray UI when built with default `gui` feature), `bridge/`, `diagnostics/catalog.yaml`, bootstrap `.tox`. Bridge, catalog, and bootstrap ship embedded in the daemon binary; `install` / `ensure` / `start` / `mcp` extract into the data dir. Same semver stamp skips re-extract — use `tdmcp-daemon install --force` or `ensure --force` to refresh embedded assets without bumping the package version. `mcp` upsert stays non-force (does not re-extract on every Cursor reconnect). Packaging via `cargo run -p xtask -- package` ships named archives + SHA256SUMS (also `cargo run -p xtask -- dist` for plain `target/dist` tree); CI builds on tag `v*`. Headless: `cargo build --release -p tdmcp-daemon --no-default-features`, or runtime `--no-gui` / `TDMCP_NO_GUI=1` / `[daemon] show_tray = false`.
 
-Daemon CLI: `start` (foreground; tray + toast by default, dashboard hidden until opened), `stop`, `status`, `install` (`--force` re-extract), `ensure` (`--force` re-extract then upsert), `mcp` (Cursor entrypoint — `ensure` then stdio proxy). Manual `start` for debugging; Cursor uses `mcp`.
+**Effective GUI mode:** the tray is the default for *every* entry point, `mcp`
+included — the IDE-spawned proxy is not an opt-out. `mcp` and `ensure` pass
+`daemon.show_tray` (default `true`, overridable by `--no-gui` / `TDMCP_NO_GUI=1`
+/ `show_tray = false`) into `ensure_daemon`, so the spawned daemon gets a tray
+exactly as a manual `start` does. Each process then narrows the request to its
+own **effective** mode: a build without the `gui` feature, or a host with no
+reachable display session (`WAYLAND_DISPLAY`/`DISPLAY` unset or empty on Linux),
+serves headless and reports `noGui: true` on `/admin/status` rather than opening
+a window that cannot appear. That reported truth is load-bearing: `ensure_daemon`
+only restarts a healthy daemon to "upgrade" it to a tray when the caller wants a
+tray *and* the live daemon is headless, so on a headless host the tray request
+settles into a no-op instead of restarting the daemon on every IDE reconnect.
+
+Daemon CLI: `start` (foreground; tray + toast by default, dashboard hidden until opened), `stop`, `status`, `install` (`--force` re-extract), `ensure` (`--force` re-extract then upsert), `mcp` (Cursor entrypoint — `ensure` then stdio proxy, tray by default; add `--no-gui` for headless). Manual `start` for debugging; Cursor uses `mcp`.
 
 ---
 

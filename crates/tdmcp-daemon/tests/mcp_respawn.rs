@@ -90,6 +90,15 @@ async fn mid_session_daemon_death_triggers_automatic_respawn() {
     // A real `mcp` stdio proxy child, exactly like an IDE would spawn — piped
     // stdin kept open (never closed/written) so its stdio server keeps
     // waiting and its background respawn watcher keeps running.
+    //
+    // `--no-gui` because this test is about death and respawn, not about the
+    // tray. `mcp` now defaults to a GUI request, and the daemon above is
+    // deliberately headless — so a bare `mcp` would correctly treat that
+    // daemon as a leftover `--no-gui` start and *upgrade* it to a tray (see
+    // `ensure_daemon`'s restart branch), which would keep the port occupied
+    // and hide the downtime this test needs to observe. On a headless CI box
+    // the flag is redundant; on a desktop it keeps the test from popping a
+    // window and bouncing the daemon.
     let mut mcp = Command::new(daemon_bin())
         .args([
             "mcp",
@@ -97,6 +106,7 @@ async fn mid_session_daemon_death_triggers_automatic_respawn() {
             &port.to_string(),
             "--data-dir",
             dir.path().to_str().expect("utf8 data_dir"),
+            "--no-gui",
         ])
         .env("TDMCP_IDLE_EXIT_SECS", "0")
         .env("TDMCP_IPC_PORT", ipc_port.to_string())

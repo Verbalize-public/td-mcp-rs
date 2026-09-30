@@ -2,7 +2,9 @@
 
 One binary contains the daemon, MCP server, desktop UI, bridge package,
 diagnostics, skills, and bootstrap assets. There is no separate GUI executable.
-Use `--no-gui` at runtime or `--no-default-features` for a headless build.
+The tray UI is on by default for every entry point, including the IDE-spawned
+`mcp`; use `--no-gui` at runtime, `daemon.show_tray = false` in the config, or
+`--no-default-features` for a headless build.
 
 ## Release workflow
 

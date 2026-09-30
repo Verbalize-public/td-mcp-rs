@@ -14,6 +14,20 @@ native Windows/macOS installers have not been built or accepted. See
 [docs/MIGRATION.md](docs/MIGRATION.md#what-this-release-does-not-claim) and
 `docs/OPEN_WORK.md`.
 
+### The GUI is the default, including from the IDE
+
+- fix: `tdmcp-daemon mcp` — the entrypoint your assistant spawns — spawned the
+  daemon headless by default and **ignored** `--no-gui`/`TDMCP_NO_GUI`/`show_tray`
+  when deciding, so the tray was reachable only by launching the binary by hand.
+  It now asks for the tray like `start` and `ensure` do, honouring
+  `[daemon].show_tray`; opt back out with `--no-gui`, `TDMCP_NO_GUI=1`, or
+  `show_tray = false`
+- fix: a headless host is no longer a reason to fail or to restart-loop. A build
+  without the `gui` feature, or a host with no reachable display session, serves
+  headless deliberately and reports `noGui: true` — the truth it is serving in.
+  `ensure_daemon` therefore settles instead of tearing down and respawning
+  "with tray" a daemon that could never show one, on every IDE reconnect
+
 ### Measuring cost, honestly
 
 - feat(mcp): count what was generated, emitted and admitted separately — a

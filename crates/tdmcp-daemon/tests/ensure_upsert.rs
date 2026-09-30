@@ -480,6 +480,168 @@ async fn poll_only_never_restarts_a_healthy_headless_daemon() {
     harness.stop_graceful().await;
 }
 
+/// Temporarily clear the display variables **process-wide** so
+/// `session::display_available` sees a headless host.
+///
+/// `ensure_daemon` resolves the tray request from its own environment (it is
+/// called in-process here), so clearing the child's env alone is not enough.
+/// Callers must hold [`binary_test_lock`]; the previous values are restored on
+/// drop, including on assertion failure.
+#[cfg(target_os = "linux")]
+struct HeadlessHostGuard {
+    wayland: Option<std::ffi::OsString>,
+    display: Option<std::ffi::OsString>,
+}
+
+#[cfg(target_os = "linux")]
+impl HeadlessHostGuard {
+    fn enter() -> Self {
+        let wayland = std::env::var_os("WAYLAND_DISPLAY");
+        let display = std::env::var_os("DISPLAY");
+        std::env::remove_var("WAYLAND_DISPLAY");
+        std::env::remove_var("DISPLAY");
+        Self { wayland, display }
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl Drop for HeadlessHostGuard {
+    fn drop(&mut self) {
+        match self.wayland.take() {
+            Some(v) => std::env::set_var("WAYLAND_DISPLAY", v),
+            None => std::env::remove_var("WAYLAND_DISPLAY"),
+        }
+        match self.display.take() {
+            Some(v) => std::env::set_var("DISPLAY", v),
+            None => std::env::remove_var("DISPLAY"),
+        }
+    }
+}
+
+/// A GUI request on a host with no desktop session must *settle*, not loop.
+///
+/// This is the regression guard for making the GUI the default: `mcp` / `ensure`
+/// now ask for a tray, and `ensure_daemon` restarts a healthy daemon whenever
+/// the caller wants a tray but the live daemon reports itself headless. If the
+/// daemon did not report its *effective* mode, every IDE reconnect on a headless
+/// box would bounce the daemon for a tray that can never appear.
+#[cfg(target_os = "linux")]
+#[tokio::test(flavor = "current_thread")]
+async fn tray_request_on_headless_host_settles_instead_of_restarting() {
+    let _guard = binary_test_lock();
+    let _headless = HeadlessHostGuard::enter();
+    let dir = tempdir().expect("tempdir");
+    let port = free_port();
+    let config_path = dir.path().join("test-config.toml");
+    tdmcp_config::ensure_default(&config_path, true).expect("seed config");
+
+    // `start` with NO --no-gui: the default the user now gets from `mcp`.
+    let mut child = Command::new(daemon_bin())
+        .args([
+            "start",
+            "--port",
+            &port.to_string(),
+            "--data-dir",
+            dir.path().to_str().expect("utf8 data_dir"),
+        ])
+        .env("TDMCP_IDLE_EXIT_SECS", "0")
+        .env("TDMCP_IPC_PORT", free_ipc_port(port).to_string())
+        .env(tdmcp_config::CONFIG_PATH_ENV, &config_path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn start");
+    wait_healthy(port, Duration::from_secs(15)).await;
+    let pid = read_daemon_lock_pid(dir.path()).expect("owner after start");
+
+    // It must report the mode it will actually serve in, not the mode it was
+    // asked for — that report is what ends the restart loop.
+    let status: serde_json::Value = reqwest::Client::new()
+        .get(format!("http://127.0.0.1:{port}/admin/status"))
+        .send()
+        .await
+        .expect("status")
+        .json()
+        .await
+        .expect("body");
+    assert_eq!(
+        status["noGui"], true,
+        "a daemon with no display session must report itself headless"
+    );
+
+    // A tray request against that daemon must be a no-op, not a restart.
+    let result = ensure_daemon(EnsureOptions {
+        no_gui: false,
+        ..ensure_opts(port, dir.path())
+    })
+    .await
+    .expect("ensure");
+    assert!(result.already_running, "{result:?}");
+    assert!(
+        !result.spawned,
+        "ensure must not bounce a daemon that has no desktop to put a tray on"
+    );
+    assert_eq!(
+        read_daemon_lock_pid(dir.path()),
+        Some(pid),
+        "the healthy headless daemon must keep owning the port"
+    );
+
+    let _ = Command::new(daemon_bin())
+        .args(["stop", "--port", &port.to_string()])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while health_ok(port).await && std::time::Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    if let Some(pid) = read_daemon_lock_pid(dir.path()) {
+        kill_pid(pid);
+    }
+    let _ = std::fs::remove_file(dir.path().join("daemon.lock"));
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
+/// The mirror case: a daemon that *did* open a tray, asked for a tray again.
+/// Must stay a no-op too — the restart branch is for upgrades from a previous
+/// `--no-gui` start, not for a routine reconnect.
+#[cfg(target_os = "linux")]
+#[tokio::test(flavor = "current_thread")]
+async fn tray_daemon_is_never_restarted_by_a_second_tray_request() {
+    let _guard = binary_test_lock();
+    let dir = tempdir().expect("tempdir");
+    let port = free_port();
+    let config_path = dir.path().join("test-config.toml");
+    tdmcp_config::ensure_default(&config_path, true).expect("seed config");
+
+    // A headless `--no-gui` daemon stands in for "a daemon that is headless"
+    // on a machine whose display we cannot rely on in CI. The assertion under
+    // test is the pin: once it is the owner, a tray request must not take the
+    // port away from it and leave a second daemon behind.
+    let mut harness = DaemonHarness::spawn_start(port, dir.path());
+    wait_healthy(port, Duration::from_secs(15)).await;
+    let pid = read_daemon_lock_pid(dir.path()).expect("owner");
+
+    // `poll_only` is the mode the stdio proxy uses once it is already linked:
+    // a reconnect must never restart the service underneath the client.
+    let result = ensure_daemon(EnsureOptions {
+        port,
+        data_dir: dir.path().to_path_buf(),
+        poll_only: true,
+        ..Default::default()
+    })
+    .await
+    .expect("ensure");
+    assert!(result.already_running, "{result:?}");
+    assert!(!result.spawned, "{result:?}");
+    assert_eq!(read_daemon_lock_pid(dir.path()), Some(pid));
+
+    harness.stop_graceful().await;
+}
+
 #[tokio::test(flavor = "current_thread")]
 async fn restart_applies_saved_port_instead_of_old_cli_override() {
     let _guard = binary_test_lock();

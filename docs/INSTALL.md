@@ -25,7 +25,25 @@ cargo build --locked --release --workspace
 
 On Windows, use the corresponding `.exe` paths. `install` prints the stable
 installed binary path; use it in your assistant. Normal startup is
-`tdmcp-daemon ensure`; `start --no-gui` runs headless.
+`tdmcp-daemon ensure`.
+
+## Tray or headless
+
+The tray dashboard is the default for **every** entry point — including `mcp`,
+which your assistant spawns. You are not opting into it by starting through
+your assistant.
+
+To run headless, use either:
+
+- `tdmcp-daemon start --no-gui` (or `mcp --no-gui`), or
+- `[daemon] show_tray = false` in the config file, which applies to every
+  command; the dashboard's **Show tray** checkbox writes the same setting.
+
+`TDMCP_NO_GUI=1` is the environment form of `--no-gui`.
+
+A host with no desktop session (headless server, service account, SSH shell)
+serves headless automatically and reports `noGui: true`, so the tray is never
+a reason for the daemon to fail to start.
 
 ## Connect your assistant
 
@@ -46,6 +64,20 @@ The outer configuration format depends on your assistant. The command and
 arguments are the same; use an absolute path and the Windows `.exe` suffix
 where appropriate. The `mcp` command starts the HTTP daemon if necessary and
 proxies the assistant's connection. Do not substitute `start` for `mcp`.
+
+Plain `["mcp"]` gives the tray dashboard. Add `--no-gui` to the arguments for
+headless operation:
+
+```json
+{
+  "mcpServers": {
+    "touchdesigner": {
+      "command": "/absolute/path/to/tdmcp-daemon",
+      "args": ["mcp", "--no-gui"]
+    }
+  }
+}
+```
 
 The [Claude Code plugin](CLAUDE_CODE_PLUGIN.md) provides registration and
 operating skills together. Other clients receive the skill cards through MCP

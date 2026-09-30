@@ -73,9 +73,24 @@ pub struct EnsureResult {
 /// When the caller wants a tray (`no_gui = false`) but a healthy **headless**
 /// daemon is already listening, shut it down and respawn with the tray so a
 /// leftover `--no-gui` debug start cannot pin the port forever.
+///
+/// "Wants a tray" means *in this session*: a request is first narrowed to the
+/// effective mode ([`crate::session::effective_headless`]), so on a headless
+/// host this stays headless and settles instead of restarting the daemon on
+/// every call for a tray that could never appear.
 pub async fn ensure_daemon(opts: EnsureOptions) -> Result<EnsureResult> {
     let base_url = format!("http://127.0.0.1:{}", opts.port);
     install::ensure_installed(&opts.data_dir, opts.force_install)?;
+    // Resolve the tray request against *this* caller's session before anything
+    // else. Two things depend on the narrowed value: the restart branch below
+    // (must not fire where no tray is possible) and `spawn_detached` (the child
+    // must be asked for the mode it can actually serve — otherwise the child
+    // resolves it again, fine, but the two must agree about `--no-gui` and the
+    // `noGui` it will report back to the *next* caller's restart branch).
+    let opts = EnsureOptions {
+        no_gui: crate::session::effective_headless(opts.no_gui),
+        ..opts
+    };
 
     if health_ok(opts.port).await {
         if !opts.poll_only && !opts.no_gui && daemon_is_headless(opts.port).await {
