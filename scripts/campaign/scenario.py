@@ -86,10 +86,29 @@ def resolve(value: Any, path: str) -> Any:
 Predicate = Callable[[Any, dict], tuple[bool, str]]
 
 
+def _show(value: Any, limit: int = 200) -> str:
+    """Render an observed value for a step's record.
+
+    One function, because a predicate that formats an absent value with
+    `json.dumps` crashes on the `_MISSING` sentinel -- and the crash is not
+    cosmetic: it aborts the scenario and reports "setup failed" for a run that
+    merely observed an absence. Absence is a VALUE the product deliberately
+    reports, so it must be renderable everywhere a value is.
+    """
+    if is_missing(value):
+        return "<absent>"
+    if isinstance(value, str):
+        return value[:limit]
+    try:
+        return json.dumps(value)[:limit]
+    except (TypeError, ValueError):
+        return repr(value)[:limit]
+
+
 def _p_ok(payload: Any, spec: dict) -> tuple[bool, str]:
     ok = _dig(payload, spec.get("path", "ok"))
     passed = ok is True
-    return passed, f"{spec.get('path', 'ok')}={json.dumps(ok)[:200]}"
+    return passed, f"{spec.get('path', 'ok')}={_show(ok)}"
 
 
 def envelope_ok(payload: Any) -> Any:
@@ -122,7 +141,7 @@ def _p_not_ok(payload: Any, spec: dict) -> tuple[bool, str]:
         # predicate is looking for -- but it is still not `ok:false`, and the
         # contract forbids conflating them.
         return True, f"{spec.get('path', 'ok')}=<absent> (refusal, not ok:false)"
-    return ok is False, f"{spec.get('path', 'ok')}={json.dumps(ok)[:200]}"
+    return ok is False, f"{spec.get('path', 'ok')}={_show(ok)}"
 
 
 def _p_step_refused(payload: Any, spec: dict) -> tuple[bool, str]:
@@ -158,8 +177,8 @@ def _p_path_contains(payload: Any, spec: dict) -> tuple[bool, str]:
     path = spec["path"]
     observed = _dig(payload, path)
     if not isinstance(observed, (str, list, dict)):
-        return False, f"{path}={json.dumps(observed)[:200]} is not a container"
-    text = json.dumps(observed) if not isinstance(observed, str) else observed
+        return False, f"{path}={_show(observed)} is not a container"
+    text = observed if isinstance(observed, str) else _show(observed, limit=10**6)
     needle = spec["value"]
     return needle in text, f"{path} contains {needle!r}: {needle in text} ({text[:200]})"
 
@@ -169,7 +188,7 @@ def _p_path_present(payload: Any, spec: dict) -> tuple[bool, str]:
     observed = _dig(payload, path)
     if is_missing(observed):
         return False, f"{path}=<absent>"
-    return True, f"{path}={json.dumps(observed)[:200]}"
+    return True, f"{path}={_show(observed)}"
 
 
 def _p_all_true(payload: Any, spec: dict) -> tuple[bool, str]:
@@ -178,7 +197,7 @@ def _p_all_true(payload: Any, spec: dict) -> tuple[bool, str]:
     for path in spec["paths"]:
         value = _dig(payload, path)
         if value is not True:
-            bad.append(f"{path}={json.dumps(value)[:80]}")
+            bad.append(f"{path}={_show(value, limit=80)}")
     return not bad, ("all true: " + ", ".join(spec["paths"])) if not bad else "not true: " + ", ".join(bad)
 
 
@@ -195,14 +214,14 @@ def _p_distinct(payload: Any, spec: dict) -> tuple[bool, str]:
     if is_missing(a) and is_missing(b):
         return True, f"{left} and {right} both absent"
     if is_missing(a) or is_missing(b):
-        return False, f"{left}={json.dumps(a)[:80] if not is_missing(a) else '<absent>'} / {right}={json.dumps(b)[:80] if not is_missing(b) else '<absent>'}"
-    return a != b, f"{left}={json.dumps(a)[:80]} vs {right}={json.dumps(b)[:80]}"
+        return False, f"{left}={_show(a, limit=80)} / {right}={_show(b, limit=80)}"
+    return a != b, f"{left}={_show(a, limit=80)} vs {right}={_show(b, limit=80)}"
 
 
 def _p_path_absent(payload: Any, spec: dict) -> tuple[bool, str]:
     path = spec["path"]
     observed = _dig(payload, path)
-    return is_missing(observed), f"{path} is {'absent' if is_missing(observed) else json.dumps(observed)[:200]}"
+    return is_missing(observed), f"{path} is {'absent' if is_missing(observed) else _show(observed)}"
 
 
 def _p_regex(payload: Any, spec: dict) -> tuple[bool, str]:
@@ -430,12 +449,37 @@ def run_scenario(
         # produced a payload and nothing more is claimed.
         failures: list[str] = []
         observed_bits: list[str] = []
+        predicate_errors: list[str] = []
         for claim in step.assert_:
             predicate = PREDICATES[claim["predicate"]]
-            passed, observed = predicate(payload, claim)
+            try:
+                passed, observed = predicate(payload, claim)
+            except Exception as exc:  # a broken predicate is a HARNESS failure
+                # A predicate that raises must never be read as a pass, and
+                # must never abort the scenario either: aborting reports
+                # "setup failed" for a run that merely hit a harness bug, and
+                # hides every assertion after this one. It becomes its own
+                # finding, so the reader sees a broken check rather than a
+                # broken product.
+                predicate_errors.append(f"{claim['predicate']} raised {type(exc).__name__}: {exc}")
+                continue
             observed_bits.append(observed)
             if not passed:
                 failures.append(observed)
+
+        if predicate_errors:
+            # An unevaluated claim is neither a pass nor a defect: nobody knows
+            # what it would have said, so it is reported as unknown.
+            result.results.append(
+                StepResult(step.name, step.tool, False, INCONCLUSIVE,
+                           " | ".join(predicate_errors), round(time.monotonic() - started, 2),
+                           payload_path, error="\n".join(predicate_errors))
+            )
+            result.findings.extend(f"{step.name}: {err}" for err in predicate_errors)
+            result.passed = False
+            if result.verdict == "verified":
+                result.verdict = INCONCLUSIVE
+            continue
 
         if step.expect_refusal:
             # An expect_refusal step states what a refusal looks like. If the
@@ -487,6 +531,68 @@ def _extract_pid(payload: Any) -> int | None:
         if isinstance(value, int) and value > 0:
             return value
     return None
+
+
+SCHEMA_DIR = Path(__file__).resolve().parents[2] / "crates" / "tdmcp-mcp" / "tests" / "fixtures" / "schemas"
+
+
+def tool_schema(tool: str) -> dict | None:
+    """The shipped JSON schema for one tool, or None when there is none.
+
+    Read from the checked-in fixtures rather than from a live daemon, so a
+    scenario file can be validated without a TouchDesigner: the cost of
+    finding out that a step's arguments are malformed should be a test, not a
+    campaign run whose every step fails for the same reason.
+    """
+    path = SCHEMA_DIR / f"{tool}.json"
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def validate_step_arguments(step: "Step") -> list[str]:
+    """Schema problems in a step's arguments, as human-readable strings.
+
+    This catches the exact defect the first pilot hit: a `comment` field on a
+    `mutate_nodes` DELETE step, which the daemon rejects as an unknown field,
+    so the create that step guards never happens and every assertion after it
+    reports a node that does not exist. Nine failures in a row with one cause
+    is a scenario-data defect wearing the costume of nine product defects.
+
+    `{{pid}}` placeholders are substituted with a representative value first,
+    because the schema cares about the type and the shape, not about which
+    process is live. A step that cannot be checked is REPORTED, never
+    silently skipped: "this was not validated" is a fact the reader needs.
+    """
+    schema = tool_schema(step.tool)
+    if schema is None:
+        return []
+    concrete = _resolve_vars(step.args, {"pid": 1, "path": "/project1/probe"})
+    try:
+        import jsonschema
+    except ImportError:  # pragma: no cover - governance requires it
+        return []
+    validator = jsonschema.Draft7Validator(schema)
+    problems = []
+    for error in sorted(validator.iter_errors(concrete), key=lambda e: list(e.path)):
+        where = ".".join(str(p) for p in error.path) or "(root)"
+        problems.append(f"{step.name}: {step.tool} arg {where}: {error.message}")
+    return problems
+
+
+def validate_scenarios(scenarios: list["Scenario"]) -> dict[str, list[str]]:
+    """Every schema problem in every scenario, keyed by scenario id."""
+    problems: dict[str, list[str]] = {}
+    for sc in scenarios:
+        found: list[str] = []
+        for step in sc.steps:
+            found.extend(validate_step_arguments(step))
+        if found:
+            problems[sc.id] = found
+    return problems
 
 
 def load_scenarios(directory: Any) -> list[Scenario]:

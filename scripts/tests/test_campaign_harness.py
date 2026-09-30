@@ -542,3 +542,151 @@ def test_a_fault_run_that_never_ran_a_scenario_did_not_catch_the_fault():
 
     # No scenarios at all is the worst case, and must not read as caught.
     assert runner.fault_verdict([])[0] == "HARNESS FAILS TO DETECT"
+
+
+def test_every_scenario_step_is_valid_against_the_shipped_tool_schemas():
+    """A malformed step fails every assertion after it, which reads as nine
+    product defects instead of one scenario-data defect.
+
+    The pilot put a `comment` field on a `mutate_nodes` DELETE step, which the
+    daemon rejects as an unknown field. The create that step guards never
+    happened, so every later assertion reported "operator not found" for a node
+    that had never been created. Checking the arguments here costs a unit test
+    instead of a campaign run.
+    """
+    import scenario as sc
+
+    scenarios = sc.load_scenarios(REPO / "scripts" / "campaign" / "scenarios")
+    problems = sc.validate_scenarios(scenarios)
+    assert problems == {}, f"scenario arguments do not match the shipped schemas: {problems}"
+
+
+def test_the_schema_validator_can_actually_fail():
+    """A validator that accepts everything is an assertion of nothing."""
+    import copy
+
+    import scenario as sc
+
+    scenarios = sc.load_scenarios(REPO / "scripts" / "campaign" / "scenarios")
+    assert sc.validate_scenarios(scenarios) == {}
+
+    # The exact defect the pilot hit: a field that exists on `create` but not
+    # on `delete`.
+    broken = copy.deepcopy(scenarios)
+    mutated = False
+    for sc_obj in broken:
+        for step in sc_obj.steps:
+            if step.tool != "mutate_nodes":
+                continue
+            for sub in step.args.get("steps", []):
+                if sub.get("op") == "delete":
+                    sub["comment"] = "not a field on delete"
+                    mutated = True
+                    break
+            if mutated:
+                break
+        if mutated:
+            break
+    assert mutated, "no delete step to mutate -- the check would be vacuous"
+    problems = sc.validate_scenarios(broken)
+    assert problems, "the schema validator accepted a field the tool rejects"
+
+
+def test_an_unvalidatable_step_is_reported_rather_than_silently_skipped():
+    """A tool with no checked-in schema is a fact the reader needs.
+
+    Silence here would be a step that looks validated and was not, which is the
+    same shape of lie as a scenario that fails to load being invisible.
+    """
+    import scenario as sc
+
+    assert sc.tool_schema("no_such_tool") is None
+    step = sc.Step(name="s", tool="no_such_tool", args={}, assert_=[])
+    assert sc.validate_step_arguments(step) == [], "no schema means no claim, not a pass"
+
+    # A tool that DOES have a schema, given a field it does not have.
+    real = sc.Step(
+        name="s",
+        tool="inspect",
+        args={"paths": ["/project1/x"], "not_a_field": 1},
+        assert_=[],
+    )
+    problems = sc.validate_step_arguments(real)
+    assert problems, "a real schema must reject an unknown field"
+
+
+def test_no_predicate_crashes_when_the_value_it_reads_is_absent():
+    """Absence is a value the product reports, so every predicate must render it.
+
+    The pilot aborted with `TypeError: Object of type _Missing is not JSON
+    serializable`: a predicate formatted an absent field with `json.dumps`, and
+    the sentinel that represents "this path is not in the payload" has no JSON
+    form. The crash surfaced as "scenario setup failed", which reads as a
+    product failure when it is a harness one -- and it hides every later
+    assertion, because the scenario stops there.
+
+    Each predicate is exercised with ITS OWN well-formed spec, because a spec
+    missing the key a predicate reads is a different failure (a malformed
+    scenario) and conflating the two would test the wrong thing.
+    """
+    import scenario as sc
+
+    payload = {"ok": True, "items": [{"ok": True, "result": {"a": 1}}], "summary": "s", "steps": []}
+    absent = {
+        "ok": {"path": "nope.deep"},
+        "not_ok": {"path": "nope.deep"},
+        "envelope_ok": {},
+        "step_refused": {"index": 0},
+        "path_equals": {"path": "nope.deep", "equals": 1},
+        "path_contains": {"path": "nope.deep", "value": "x"},
+        "path_present": {"path": "nope.deep"},
+        "path_absent": {"path": "nope.deep"},
+        "all_true": {"paths": ["nope.deep"]},
+        "distinct": {"left": "nope.deep", "right": "also.nope"},
+        "regex": {"path": "nope.deep", "pattern": "x"},
+    }
+    assert set(absent) == set(sc.PREDICATES), (
+        f"the roster changed: predicates={sorted(sc.PREDICATES)} covered={sorted(absent)}"
+    )
+    for name, predicate in sc.PREDICATES.items():
+        passed, text = predicate(payload, absent[name])
+        assert isinstance(passed, bool), f"{name} returned {passed!r}"
+        assert isinstance(text, str), f"{name} returned non-text: {text!r}"
+    assert sc._show(sc._MISSING) == "<absent>"
+
+
+def test_a_crash_inside_a_predicate_is_reported_not_silently_passed():
+    """A predicate that raises must not be read as a passing assertion."""
+    import scenario as sc
+
+    def exploding(payload, spec):
+        raise RuntimeError("predicate bug")
+
+    original = dict(sc.PREDICATES)
+    try:
+        sc.PREDICATES["ok"] = exploding
+        sc.PREDICATES["not_ok"] = exploding
+        sc.PREDICATES["envelope_ok"] = exploding
+        sc.PREDICATES["path_equals"] = exploding
+        sc.PREDICATES["path_contains"] = exploding
+        sc.PREDICATES["path_present"] = exploding
+        sc.PREDICATES["path_absent"] = exploding
+        sc.PREDICATES["all_true"] = exploding
+        sc.PREDICATES["distinct"] = exploding
+        sc.PREDICATES["regex"] = exploding
+        sc.PREDICATES["step_refused"] = exploding
+
+        sc_obj = sc.Scenario(
+            id="s",
+            title="t",
+            tools=["inspect"],
+            steps=[sc.Step(name="s1", tool="inspect", args={}, assert_=[{"predicate": "ok"}])],
+        )
+        result = sc.run_scenario(sc_obj, lambda tool, args, timeout_s=1: {"ok": True})
+        assert result.passed is False, "a crashing predicate read as a pass"
+        assert any("predicate bug" in f or "predicate" in f.lower() for f in result.findings), (
+            f"the crash must be named in the findings, not swallowed: {result.findings}"
+        )
+    finally:
+        sc.PREDICATES.clear()
+        sc.PREDICATES.update(original)

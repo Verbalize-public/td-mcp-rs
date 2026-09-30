@@ -11,7 +11,6 @@
       "args": {
         "pid": "{{pid}}",
         "steps": [
-          {"op": "delete", "path": "/project1/campaign_guard", "comment": "remove a leftover from an earlier run so the scenario starts from a state it controls"},
           {"op": "create", "path": "/project1/campaign_guard", "opType": "constantCHOP", "comment": "campaign scratch: the value the guard checks"},
           {"op": "set", "path": "/project1/campaign_guard", "values": {"const0value": 8}}
         ]

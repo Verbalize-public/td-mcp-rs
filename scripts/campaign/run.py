@@ -33,7 +33,14 @@ if str(REPO / "scripts") not in sys.path:
 import coverage as coverage_map  # noqa: E402
 import preflight as preflight_mod  # noqa: E402
 from harness import BRIDGE_PORT, MCP_PORT, Session  # noqa: E402
-from scenario import Refusal, Scenario, ScenarioResult, load_scenarios, run_scenario  # noqa: E402
+from scenario import (  # noqa: E402
+    Refusal,
+    Scenario,
+    ScenarioResult,
+    load_scenarios,
+    run_scenario,
+    validate_scenarios,
+)
 
 RECORD_ROOT = REPO / "retroanalysis" / "campaign"
 SCENARIO_DIR = HERE / "scenarios"
@@ -101,6 +108,27 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def stage_project(out_dir: Path) -> Path:
+    """Copy the shipped template into `out_dir` and return the staged path.
+
+    A copy, not the template itself: several scenarios mutate the network they
+    are handed, and a shared file would let one scenario's leftovers become
+    the next scenario's starting state. That is the same trap as a leaked
+    TouchDesigner -- the next measurement describes the previous one.
+
+    The copy lives under the repository rather than /tmp because TouchDesigner
+    reaches it through Wine's Z: mapping, and the bridge's package directory
+    travels with it.
+    """
+    source = REPO / "crates" / "tdmcp-daemon" / "embedded" / "template.toe"
+    if not source.exists():
+        raise RuntimeError(f"the shipped template is missing: {source}")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    staged = out_dir / "campaign.toe"
+    shutil.copy2(source, staged)
+    return staged
+
+
 def fault_verdict(results: list[ScenarioResult]) -> tuple[str, str]:
     """Did a fault-injection run actually DETECT anything?
 
@@ -146,6 +174,18 @@ def main(argv: list[str]) -> int:
     scenarios = resolve_scenarios(args.scenario)
     if not scenarios:
         print("no scenarios selected")
+        return 2
+
+    # Validate the arguments against the shipped tool schemas before anything
+    # runs. A malformed step fails every assertion that follows it, so nine
+    # product-looking failures with one cause is a scenario-data defect, and
+    # the reader should never have to work that out from a run record.
+    schema_problems = validate_scenarios(scenarios)
+    if schema_problems:
+        print("scenario arguments do not match the shipped tool schemas:")
+        for sid, problems in schema_problems.items():
+            for problem in problems:
+                print(f"  {sid}: {problem}")
         return 2
 
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -195,9 +235,15 @@ def main(argv: list[str]) -> int:
             if not scenario.needs_td:
                 result = run_scenario(scenario, call, ctx={"pid": None}, out_dir=run_dir / scenario.id)
             else:
-                print("    spawning a task-owned TouchDesigner (no project file)...")
+                # A PROJECT, not a bare spawn: a blank project carries no
+                # bridge, so its handshake can never arrive and waiting for one
+                # reports a lifecycle failure that never happened. The staged
+                # file is a copy of the shipped template, taken fresh per
+                # scenario so one scenario's mutations cannot reach the next.
+                project = stage_project(run_dir / scenario.id)
+                print(f"    spawning a task-owned TouchDesigner on {project.name}...")
                 try:
-                    pid = session.spawn_td()
+                    pid = session.spawn_td(project_path=str(project))
                     print(f"    td pid {pid}, bridge connected")
                     fleet_before = session.call("fleet", {"include": ["process", "bridge"]}, 30)
                     ctx = {"pid": pid}
