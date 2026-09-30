@@ -205,6 +205,12 @@ def main() -> int:
         # a bare spawn is accepted by the tool and then reports "no connected
         # bridge" forever. The probe needs a LIVE bridge, so it loads one.
         connect_deadline = time.monotonic() + 90.0
+        # `bootstrap.py` imports the bridge from the CONVENTIONAL data dir
+        # (`~/.local/share/tdmcp-rs/bridge`), not from the per-run `--data-dir`
+        # copy the daemon materialises, because `bridge_dir` only reaches TD
+        # through `TDMCP_BRIDGE_DIR` and `bootstrap_threaded(bridge_dir=...)`.
+        # So this probe's edits are only in TD if the CONVENTIONAL copy is
+        # current — proven, not assumed, by reading the file back out of TD.
         connected = False
         while time.monotonic() < connect_deadline:
             fleet = session.call("fleet", {"pids": [td_pid]}, 30)
@@ -215,7 +221,40 @@ def main() -> int:
         if not connected:
             print(f"bridge not connected for {td_pid} within 90s; refusing to arm")
             return 2
-        print("bridge connected; arming the probe")
+        print("bridge connected; checking TD is running the code under test")
+
+        # Read back what TD actually imported. The daemon's own handshake
+        # answer is not proof: `bootstrap.py` puts the CONVENTIONAL data dir on
+        # `sys.path` and hands `bootstrap_threaded` no override, so a per-run
+        # `--data-dir` copy never reaches TD. Measured: a fixed `execute.py`
+        # in the repo, in the per-run copy, and in the global install all left
+        # TD running the stale version.
+        probe = session.call(
+            "execute_python",
+            {
+                "pid": td_pid,
+                "script": (
+                    "import tdmcp_bridge.execute as e\n"
+                    "result = {\n"
+                    "    'file': e.__file__,\n"
+                    "    'seeded': 'execute_python produced no result' in "
+                    "open(e.__file__, encoding='utf-8').read(),\n"
+                    "}\n"
+                ),
+            },
+            60,
+        )
+        print("td bridge identity:", json.dumps(probe.get("result", probe))[:300])
+        loaded = (probe.get("result") or {}).get("seeded")
+        if loaded is not True:
+            print(
+                "\nSTALE BRIDGE IN TD -- this probe would describe code that is "
+                "not the code in the repo.\nInstall it first: cargo run -p "
+                "xtask -- install  (or re-run `ensure` against the install dir).\n"
+            )
+            session.stop_td()
+            return 2
+        print("TD is running the repo's bridge")
 
         # `includeLogs` left to its DEFAULT on purpose. Passing it explicitly
         # is what made the first two probe runs fail with

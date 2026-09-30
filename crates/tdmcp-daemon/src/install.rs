@@ -9,6 +9,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{bail, Context, Result};
 use include_dir::{include_dir, Dir, DirEntry};
+use sha2::{Digest, Sha256};
 use tdmcp_mcp::{RenderMode, TemplateEngine};
 
 /// Embedded bridge package (repo `bridge/` at compile time).
@@ -255,6 +256,156 @@ fn assets_current(data_dir: &Path, stamp_path: &Path, version: &str) -> bool {
             .join("touchdesigner")
             .join("SKILL.md")
             .is_file()
+        // The stamp alone is NOT evidence that the assets are current. It says
+        // which VERSION last extracted them; the version changes far less often
+        // than the code does, so a rebuilt binary at an unchanged version leaves
+        // edited, newly added and newly REMOVED assets sitting in the install.
+        //
+        // Measured while running the campaign: after fixing
+        // `bridge/tdmcp_bridge/execute.py`, `tdmcp-daemon install` reported
+        // `already current 0.2.0` and left the stale file in place — because the
+        // daemon binary that ships the fix had not been rebuilt yet, so the
+        // embedded copy was still the old one. `install --force` re-extracted
+        // and only then did `installed-bridge-matches-repo` pass. Any consumer
+        // that trusts the stamp is therefore trusting a claim the installer
+        // cannot back, and `bootstrap.py` imports that install directly, so
+        // TouchDesigner kept running the code that was on disk before the fix.
+        //
+        // So the embedded bytes are compared against what is installed. Cheap:
+        // a digest of the embedded tree, recomputed once per check.
+        && embedded_asset_digest() == installed_asset_digest(data_dir)
+}
+
+/// Managed paths only, on BOTH sides of the comparison.
+///
+/// `include_dir!` walks the FILESYSTEM, not the git index, so anything present
+/// under `bridge/` at build time gets embedded and extracted -- including the
+/// gitignored `.pytest_cache/` a local test run leaves behind. Measured: it
+/// ships into every user's data dir as `bridge/.pytest_cache/`, including a
+/// `v/cache/lastfailed` that records which of THEIR tests last failed on the
+/// MACHINE THAT BUILT THE BINARY.
+///
+/// It is excluded from the digest for two independent reasons, and both were
+/// found the hard way. First, the installed copy and the embedded copy can
+/// legitimately differ: the installed tree keeps whatever an earlier extraction
+/// wrote, and nothing ever prunes it, so a scratch file whose content changed
+/// since build time would make every install look stale forever. Second, a
+/// `tests` package is skipped on extraction by `should_skip_path`, so counting
+/// it here would leave the embedded side strictly larger than the installed
+/// side, forever.
+///
+/// Dot-prefixed components are ALSO skipped on extraction now, so the scratch
+/// neither ships nor breaks currency. That is a separate fix from the digest:
+/// excluding it only from the comparison would still install it.
+fn is_managed_bridge_path(rel: &Path) -> bool {
+    !rel.components().any(|c| {
+        let s = c.as_os_str().to_string_lossy();
+        s == "__pycache__" || s == "tests" || s.starts_with('.') || s.ends_with(".pyc")
+    })
+}
+
+/// Digest of every embedded runtime asset, over `(relative path, bytes)`.
+///
+/// Path and content both, so a moved or renamed file changes it and an
+/// unchanged tree with one edited file changes it. Deliberately not a digest of
+/// `bridge/manifest.json` alone: that file carries `checksum: null`.
+fn embedded_asset_digest() -> String {
+    let mut files: Vec<(String, Vec<u8>)> = Vec::new();
+    fn walk(dir: &Dir<'_>, prefix: &str, files: &mut Vec<(String, Vec<u8>)>) {
+        for entry in dir.entries() {
+            match entry {
+                DirEntry::Dir(subdir) => {
+                    if !is_managed_bridge_path(subdir.path()) {
+                        continue;
+                    }
+                    let name = subdir
+                        .path()
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .into_owned();
+                    walk(subdir, &format!("{prefix}{name}/"), files);
+                }
+                DirEntry::File(file) => {
+                    if !is_managed_bridge_path(file.path()) {
+                        continue;
+                    }
+                    let name = file
+                        .path()
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .into_owned();
+                    files.push((format!("{prefix}{name}"), file.contents().to_vec()));
+                }
+            }
+        }
+    }
+    walk(&BRIDGE, "", &mut files);
+    files.push((
+        "diagnostics/catalog.yaml".to_owned(),
+        CATALOG_YAML.as_bytes().to_vec(),
+    ));
+    files.push(("bootstrap.tox".to_owned(), BOOTSTRAP_TOX.to_vec()));
+    files.push(("template.toe".to_owned(), TEMPLATE_TOE.to_vec()));
+    files.sort();
+    digest_files(&files)
+}
+
+/// Digest of the same asset set, read back from an install.
+fn installed_asset_digest(data_dir: &Path) -> String {
+    let mut files: Vec<(String, Vec<u8>)> = Vec::new();
+    fn walk(root: &Path, prefix: &str, files: &mut Vec<(String, Vec<u8>)>) {
+        let Ok(entries) = fs::read_dir(root) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned();
+            let rel = PathBuf::from(format!("{prefix}{name}"));
+            if path.is_dir() {
+                walk(&path, &format!("{prefix}{name}/"), files);
+            } else if is_managed_bridge_path(&rel) {
+                if let Ok(bytes) = fs::read(&path) {
+                    files.push((rel.to_string_lossy().replace('\\', "/"), bytes));
+                }
+            }
+        }
+    }
+    walk(&data_dir.join("bridge"), "", &mut files);
+    walk(&data_dir.join("diagnostics"), "diagnostics/", &mut files);
+    // A file the install lacks is simply absent from this list, so the digest
+    // covers fewer entries than the embedded side and cannot match. That is
+    // the point: "missing" and "edited" must both read as stale.
+    //
+    // `diagnostics/catalog.yaml` is deliberately NOT in this list: the
+    // `diagnostics/` walk above already collected it, and listing it here too
+    // made this side strictly larger than the embedded one, so EVERY install
+    // reported itself stale forever -- the exact failure mode the digest
+    // exists to remove. Found by diffing the two sides in one process rather
+    // than by reasoning about them.
+    for rel in ["bootstrap.tox", "template.toe"] {
+        if let Ok(bytes) = fs::read(data_dir.join(rel)) {
+            files.push((rel.to_owned(), bytes));
+        }
+    }
+    files.sort();
+    digest_files(&files)
+}
+
+fn digest_files(files: &[(String, Vec<u8>)]) -> String {
+    let mut hasher = Sha256::new();
+    for (name, bytes) in files {
+        hasher.update((name.len() as u64).to_le_bytes());
+        hasher.update(name.as_bytes());
+        hasher.update((bytes.len() as u64).to_le_bytes());
+        hasher.update(bytes);
+    }
+    format!("{:x}", hasher.finalize())
 }
 
 fn extract_all(data_dir: &Path) -> Result<()> {
@@ -353,11 +504,13 @@ fn extract_dir(dir: &Dir<'_>, dest_root: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Paths never published into a data dir.
+///
+/// The digest's predicate delegates here so "what is compared" and "what is
+/// installed" cannot drift into disagreeing -- a mismatch between the two would
+/// make every install report itself stale on the next `install`.
 fn should_skip_path(rel: &Path) -> bool {
-    rel.components().any(|c| {
-        let s = c.as_os_str();
-        s == "__pycache__" || s == "tests" || s.to_string_lossy().ends_with(".pyc")
-    })
+    !is_managed_bridge_path(rel)
 }
 
 /// Resolve the default data directory (same as config).
@@ -748,6 +901,138 @@ mod tests {
                 .trim(),
             env!("CARGO_PKG_VERSION")
         );
+    }
+
+    /// The two halves of the digest must actually disagree when they differ.
+    ///
+    /// M1 (drop the digest comparison) and M3 (count the gitignored
+    /// `.pytest_cache` scratch) were both killed by the staleness test above.
+    /// M2 -- hashing the path but not the bytes -- and M4 -- treating a missing
+    /// top-level asset as present -- both SURVIVED it. A digest is the kind of
+    /// function that looks correct by inspection, so "the test that names it
+    /// passed" is not evidence that the digest distinguishes anything at all.
+    ///
+    /// These two run the real functions and assert the difference, which is
+    /// the only property the surrounding logic actually depends on.
+    #[test]
+    fn the_digest_separates_a_changed_asset_from_an_unchanged_one() {
+        let dir = tempdir().expect("tempdir");
+        let data = dir.path();
+        ensure_installed(data, true).expect("install");
+        let baseline = installed_asset_digest(data);
+        assert_eq!(
+            baseline,
+            embedded_asset_digest(),
+            "a freshly installed tree must match the embedded one, or every \
+             install re-extracts forever"
+        );
+
+        // Changed content: same path, different bytes.
+        let victim = data.join("bridge/tdmcp_bridge/execute.py");
+        let original = fs::read(&victim).expect("read");
+        fs::write(&victim, b"# a different body\n").expect("edit");
+        assert_ne!(
+            installed_asset_digest(data),
+            baseline,
+            "a content change must change the digest, or an edited asset \
+             reads as current and the stale code keeps running"
+        );
+        fs::write(&victim, &original).expect("restore");
+
+        // A REMOVED file is not the same as an edited one, and must not be
+        // quietly filled in from the embedded side.
+        let absent = data.join("bridge/tdmcp_bridge/video.py");
+        let absent_bytes = fs::read(&absent).expect("read");
+        fs::remove_file(&absent).expect("remove");
+        assert_ne!(
+            installed_asset_digest(data),
+            baseline,
+            "a missing asset must read as stale; substituting the embedded \
+             bytes for it would hide exactly the deletion the check is for"
+        );
+        fs::write(&absent, absent_bytes).expect("restore");
+        assert_eq!(installed_asset_digest(data), baseline);
+
+        // Same for a TOP-LEVEL asset, which is the shape M4 substituted its
+        // way past: filling `bootstrap.tox` in from the embedded copy would
+        // report a deleted file as present, and the next thing that loads it
+        // gets a tox this daemon never checked.
+        let top = data.join("bootstrap.tox");
+        let top_bytes = fs::read(&top).expect("read top-level");
+        fs::remove_file(&top).expect("remove top-level");
+        assert_ne!(
+            installed_asset_digest(data),
+            baseline,
+            "a deleted bootstrap.tox must read as stale; back-filling it \
+             from the embedded copy hides the deletion"
+        );
+        fs::write(&top, &top_bytes).expect("restore");
+        assert_eq!(installed_asset_digest(data), baseline);
+
+        // Same path set, different content, is the case M2 missed.
+        assert_ne!(
+            digest_files(&[("a".to_owned(), b"one".to_vec())]),
+            digest_files(&[("a".to_owned(), b"two".to_vec())]),
+            "the digest must hash content, not just paths, or an edited asset \
+             reads as current"
+        );
+    }
+
+    /// The stamp says which VERSION extracted the assets. It says nothing
+    /// about whether the files on disk are the ones THIS binary embeds, and
+    /// the version changes far less often than the code does.
+    ///
+    /// Measured while running the campaign's live probes: after editing
+    /// `bridge/tdmcp_bridge/execute.py`, `tdmcp-daemon install` printed
+    /// `already current 0.2.0` and left the stale file installed. TouchDesigner
+    /// imports that install directly (`bootstrap.py` resolves the conventional
+    /// data dir, not the per-run one), so it kept running pre-fix code while
+    /// the repo said the fix was committed — and the campaign's probe would
+    /// have described the old behaviour.
+    #[test]
+    fn an_edited_asset_is_stale_even_when_the_version_stamp_matches() {
+        let dir = tempdir().expect("tempdir");
+        let data = dir.path();
+        ensure_installed(data, false).expect("install");
+        assert_eq!(
+            ensure_installed(data, false).expect("noop"),
+            InstallOutcome::AlreadyCurrent,
+            "a fresh install must be reported current"
+        );
+
+        // Same stamp, different bytes -- the exact state a rebuild produces.
+        let victim = data.join("bridge/tdmcp_bridge/execute.py");
+        let original = fs::read(&victim).expect("read");
+        fs::write(&victim, b"# edited but the stamp still matches\n").expect("edit");
+        assert_eq!(
+            ensure_installed(data, false).expect("after edit"),
+            InstallOutcome::Extracted,
+            "an edited asset at an unchanged version must be re-extracted, not skipped"
+        );
+        assert_eq!(fs::read(&victim).expect("re-read"), original);
+
+        // A file that is there but not one this binary embeds is scratch, not
+        // a reason to re-extract: comparing it would make every install stale.
+        // A DIRECTORY, because that is the measured shape -- a local test run
+        // leaves `bridge/.pytest_cache/` in the REPO, `include_dir!` embeds it,
+        // and it carries a `v/cache/lastfailed` whose content changes on every
+        // run. A single flat file would have been a weaker version of this.
+        fs::create_dir_all(data.join("bridge/.pytest_cache/v/cache")).expect("scratch dir");
+        fs::write(data.join("bridge/.pytest_cache/v/cache/lastfailed"), b"{}").expect("scratch");
+        fs::write(data.join("bridge/.pytest_cache/v/cache/nodeids"), b"[]").expect("scratch");
+        assert_eq!(
+            ensure_installed(data, false).expect("with scratch"),
+            InstallOutcome::AlreadyCurrent
+        );
+
+        // And a REMOVED asset reads as stale too, which a manifest-free digest
+        // still catches because the embedded side lists it and this one does not.
+        fs::remove_file(&victim).expect("remove");
+        assert_eq!(
+            ensure_installed(data, false).expect("after remove"),
+            InstallOutcome::Extracted
+        );
+        assert!(victim.is_file());
     }
 
     #[test]
