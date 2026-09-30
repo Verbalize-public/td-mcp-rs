@@ -293,3 +293,78 @@ def test_execute_python_truncates_oversized_result() -> None:
     assert out["truncation"]["limit"] == bridge.RESULT_MAX_BYTES
     assert len(out["result"].encode("utf-8")) <= bridge.RESULT_MAX_BYTES
     assert out["result"].startswith('"x')
+
+
+def test_an_exception_whose_str_fails_is_still_reported() -> None:
+    """The error path must not become the thing that errors.
+
+    Measured live while arming the `decision_probe`: `execute_python` returned
+
+        bridge error: cannot access local variable 'out' where it is not
+        associated with a value
+
+    and the daemon mapped it to `tdmcp.bridge.lost` -- a BRIDGE failure, for a
+    script that had only ever failed in the most ordinary way.
+
+    Two independent causes, both reproduced here against the real function:
+
+    1. `out` was assigned only inside the inner `try`, so the `finally`'s
+       `out["logs"] = logs` read it unbound on any path that skipped the
+       assignment. `KeyboardInterrupt` / `SystemExit` do exactly that,
+       because `except Exception` does not catch them.
+    2. `str(exc)` raises whenever the exception carries an object whose
+       `__str__` does -- a TouchDesigner object being the routine case, since
+       `execute_python` scripts raise on scene objects constantly.
+
+    The contract being pinned: a script that fails, however badly, produces a
+    payload that NAMES the failure. It never produces a payload about the
+    bridge's own internals.
+    """
+    # (1) A BaseException skips `except Exception`, so nothing assigned `out`.
+    for script, label in [
+        ("raise KeyboardInterrupt()", "KeyboardInterrupt"),
+        ("raise SystemExit(1)", "SystemExit"),
+    ]:
+        with pytest.raises(BaseException) as caught:
+            bridge.handle_execute_python({"script": script, "includeLogs": True})
+        # The BaseException itself must reach the caller untouched, rather
+        # than being replaced by a bridge-internal error.
+        assert type(caught.value).__name__ == label, (
+            f"{label} was replaced by {type(caught.value).__name__}: {caught.value}"
+        )
+        assert "unbound" not in str(caught.value).lower()
+        assert bridge._capture_depth == 0, f"capture depth leaked after {label}"
+
+    # (2) An exception whose own __str__ fails must still be named.
+    out = bridge.handle_execute_python(
+        {
+            "script": (
+                "class SceneError(Exception):\n"
+                "    def __str__(self):\n"
+                "        raise RuntimeError('this object has no text form')\n"
+                "raise SceneError('boom')\n"
+            ),
+            "includeLogs": True,
+        }
+    )
+    assert out["ok"] is False
+    assert "SceneError" in (out.get("error") or ""), out.get("error")
+    assert out["exception"]["type"] == "SceneError"
+    assert "logs" in out, "the finally must still complete"
+
+    # (3) The report builder itself failing must not erase the failure.
+    import tdmcp_bridge.exception_report as _er
+
+    real = _er.build_exception_report
+    try:
+        _er.build_exception_report = lambda *a, **k: (_ for _ in ()).throw(
+            RuntimeError("report builder exploded")
+        )
+        out = bridge.handle_execute_python(
+            {"script": "raise ValueError('the real failure')", "includeLogs": True}
+        )
+    finally:
+        _er.build_exception_report = real
+    assert out["ok"] is False
+    assert "the real failure" in (out.get("error") or ""), out.get("error")
+    assert out["exception"]["type"] == "ValueError"

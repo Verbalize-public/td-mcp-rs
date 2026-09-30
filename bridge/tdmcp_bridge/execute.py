@@ -237,6 +237,16 @@ def handle_execute_python(params: dict[str, Any]) -> dict[str, Any]:
     suppress_cm = _logtap.suppress() if installed else contextlib.nullcontext()
     with suppress_cm:
         try:
+            # Seeded before the `try`, so the `finally` below can always report
+            # a shape even when NOTHING assigned it. It was previously assigned
+            # only inside the inner try/except, which left it unbound on two
+            # measured paths, and the `finally`'s `out["logs"] = logs` then
+            # raised `UnboundLocalError` from inside an error path — replacing
+            # the caller's actual exception with a bridge bug, and surfacing
+            # as `tdmcp.bridge.lost`/"bridge error" rather than a script
+            # failure (measured live in the `decision-probe` arm, and
+            # reproduced below).
+            out: dict[str, Any] = {"ok": False, "error": "execute_python produced no result"}
             try:
                 exec(script, local_vars, local_vars)  # noqa: S102 — intentional TD script surface
                 result_value = local_vars.get("result")
@@ -271,13 +281,26 @@ def handle_execute_python(params: dict[str, Any]) -> dict[str, Any]:
                         "ok": True,
                     }
             except Exception as exc:  # noqa: BLE001 — surface to diagnostics
-                report = build_exception_report(
-                    exc, script, format_mode=format_mode
-                )
+                # The error path is the LAST place that can still go wrong, and
+                # it must not: `str(exc)` raises whenever the exception carries
+                # something whose `__str__` does (a TD object is the routine
+                # case), and a raised report builder would leave the caller's
+                # real exception unreported. Both are measured, not
+                # theoretical -- see `test_execute_logs.py`.
+                try:
+                    report = build_exception_report(
+                        exc, script, format_mode=format_mode
+                    )
+                except Exception:  # noqa: BLE001
+                    report = {"type": type(exc).__name__, "message": "<unprintable>"}
+                try:
+                    message = str(exc)
+                except Exception:  # noqa: BLE001
+                    message = f"<{type(exc).__name__}: str() failed>"
                 # Prefer trimmed user-only traceback (no execute.py wrapper frames).
                 out = {
                     "ok": False,
-                    "error": str(exc),
+                    "error": message,
                     "traceback": report.get("raw") or "",
                     "exception": report,
                 }
