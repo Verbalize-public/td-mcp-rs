@@ -80,14 +80,35 @@ def resolve_scenarios(selection: list[str]) -> list[Scenario]:
     return found
 
 
-def main(argv: list[str]) -> int:
+def build_parser() -> argparse.ArgumentParser:
+    """The real parser, so a docstring example can be checked against it.
+
+    Extracted rather than built inline so the usage text is verifiable: an
+    example that does not parse is a false promise about how to run the
+    thing, and the only way to know is to parse the real thing.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--scenario", action="append", default=[], help="scenario id (repeatable) or 'all'")
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        help="run every scenario (the same as --scenario all, spelled as a flag)",
+    )
     parser.add_argument("--fault-inject", action="store_true", help="prove the runner can fail")
     parser.add_argument("--no-preflight", action="store_true")
     parser.add_argument("--run-id", default="")
     parser.add_argument("--keep-td", action="store_true", help="debug only: do not stop the spawned TD")
-    args = parser.parse_args(argv)
+    return parser
+
+
+def main(argv: list[str]) -> int:
+    args = build_parser().parse_args(argv)
+
+    if args.all:
+        # Both spellings work because the usage text in this module's own
+        # docstring shows `--all`; an example that fails to parse is a false
+        # promise about how to run the thing.
+        args.scenario = ["all"]
 
     run_id = args.run_id or _new_run_id()
     run_dir = RECORD_ROOT / run_id

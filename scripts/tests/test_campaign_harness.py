@@ -392,3 +392,55 @@ def test_the_leftover_report_names_a_survivor_that_is_not_the_session_pid():
     session._extra_td_pids = [live]
     report = session.teardown()
     assert f"td:{live}" in report["leftovers"]
+
+
+def test_every_usage_example_in_the_runner_docstring_parses():
+    """A usage example that does not parse is a false promise.
+
+    The runner's own docstring is how a person drives the campaign, so an
+    example there that no longer matches the parser is a documented way to
+    fail. Checked against the REAL parser, extracted as `build_parser`, and
+    a wrong script name fails this too -- that was the first state of this
+    test's own predecessors.
+    """
+    import contextlib
+    import re
+
+    import run as runner
+
+    parser = runner.build_parser()
+    examples = re.findall(
+        r"\.venv/bin/python scripts/campaign/run\.py([^\n`]*)", runner.__doc__ or ""
+    )
+    assert examples, "the runner docstring should show how to drive it"
+    for argv_text in examples:
+        argv = argv_text.split()
+        with contextlib.suppress(SystemExit):  # not reached; parse must succeed
+            pass
+        # A failing parse raises SystemExit, so let it propagate to the assert.
+        ns = parser.parse_args(argv)
+        assert ns is not None
+
+
+def test_the_shipped_scenario_files_all_load_and_declare_their_tools():
+    """A scenario that cannot be loaded is invisible coverage, not a finding.
+
+    Scenarios are data, and data drifts: a renamed id, a predicate that no
+    longer exists, a tool the daemon does not serve. The coverage map reports
+    unmapped tools, but a scenario that FAILS TO LOAD is not even a map
+    entry, so it is checked here where it cannot be missed.
+    """
+    import coverage as cov
+    from scenario import load_scenarios
+
+    scenario_dir = REPO / "scripts" / "campaign" / "scenarios"
+    scenarios = load_scenarios(scenario_dir)
+    assert scenarios, f"no scenarios loaded from {scenario_dir}"
+    for sc in scenarios:
+        assert sc.id and sc.title, f"a scenario in {scenario_dir} is missing id/title"
+        assert sc.tools, f"{sc.id} names no tools, so it would map to nothing"
+        assert sc.steps, f"{sc.id} has no steps, so it asserts nothing"
+    # And the roster they claim must at least be self-consistent.
+    tools = sorted({t for sc in scenarios for t in sc.tools})
+    report = cov.build(tools, scenarios)
+    assert not report["unknown_tools"], f"scenarios name tools outside the roster: {report['unknown_tools']}"
