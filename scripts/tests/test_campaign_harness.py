@@ -11,7 +11,9 @@ Run: .venv/bin/python -m pytest scripts/tests/test_campaign_harness.py -q
 """
 from __future__ import annotations
 
+import json
 import sys
+from unittest import mock
 from pathlib import Path
 
 import pytest
@@ -29,6 +31,36 @@ from scenario import (  # noqa: E402
     is_missing,
     run_scenario,
 )
+
+
+def _scenario_dict(sc: "scenario.Scenario") -> dict:
+    """Serialise a Scenario the way its own JSON file does.
+
+    Written out here rather than borrowed from the loader, because the loader
+    only goes one way. `Step` keeps the assertions under `assert_` because
+    `assert` is a statement, so the JSON key has to be restored by hand.
+    """
+    return {
+        "id": sc.id,
+        "title": sc.title,
+        "tools": sc.tools,
+        "description": sc.description,
+        "needs_td": sc.needs_td,
+        "steps": [
+            {
+                "name": s.name,
+                "tool": s.tool,
+                "args": s.args,
+                "expect_refusal": s.expect_refusal,
+                "needs_pid": s.needs_pid,
+                "timeout_s": s.timeout_s,
+                "capture": s.capture,
+                "assert": s.assert_,
+            }
+            for s in sc.steps
+        ],
+    }
+
 
 ENVELOPED = {"items": [{"ok": True, "result": {"value": 1}}], "ok": True}
 BARE = {"ok": True, "value": 1}
@@ -420,6 +452,93 @@ def test_every_usage_example_in_the_runner_docstring_parses():
         # A failing parse raises SystemExit, so let it propagate to the assert.
         ns = parser.parse_args(argv)
         assert ns is not None
+
+
+def test_the_runner_refuses_to_start_on_a_malformed_scenario():
+    """The gate in the RUNNER, not just the validator, is what keeps a bad run honest.
+
+    `validate_scenarios` has its own tests, and those all passed while the
+    runner's call to it was still dead code -- a mutant that emptied the
+    runner's result went 43/43 green. The defect this gate prevents costs a
+    whole live run: a malformed step fails every assertion after it, and the
+    record then reads as many product defects with one cause.
+
+    Driven through `main()` rather than by re-stating the rule, so the test
+    cannot be satisfied by a local copy of the check it is meant to pin.
+    """
+    import copy
+    import tempfile
+
+    import run as runner
+    import scenario as sc
+
+    scenarios = sc.load_scenarios(REPO / "scripts" / "campaign" / "scenarios")
+    broken = copy.deepcopy(scenarios)
+    mutated = False
+    for sc_obj in broken:
+        for step in sc_obj.steps:
+            if step.tool != "mutate_nodes":
+                continue
+            for sub in step.args.get("steps", []):
+                if sub.get("op") == "create":
+                    sub["no_such_field"] = "x"
+                    mutated = True
+                    break
+            if mutated:
+                break
+        if mutated:
+            break
+    assert mutated, "no create step to mutate -- the check would be vacuous"
+
+    with tempfile.TemporaryDirectory() as tmp:
+        record_root = Path(tmp) / "records"
+        scenario_dir = Path(tmp) / "scenarios"
+        scenario_dir.mkdir(parents=True)
+        for sc_obj in broken:
+            (scenario_dir / f"{sc_obj.id}.json").write_text(
+                json.dumps(_scenario_dict(sc_obj)), encoding="utf-8"
+            )
+
+        original_scenario_dir = runner.SCENARIO_DIR
+        original_record_root = runner.RECORD_ROOT
+
+        class _Exploding:
+            """Fails loudly if the runner gets as far as starting a daemon.
+
+            The gate must answer BEFORE anything live happens, so reaching this
+            is a failure of the gate, not a setup problem in the test. Without
+            it, a mutant that drops the gate costs a real daemon inside the
+            unit suite -- 25 seconds of the campaign host to prove a boolean.
+            """
+
+            def __getattr__(self, name):  # noqa: ANN001
+                raise AssertionError(
+                    f"the runner reached Session.{name} -- the scenario gate let a "
+                    "malformed scenario through into a live run"
+                )
+
+        try:
+            runner.SCENARIO_DIR = scenario_dir
+            runner.RECORD_ROOT = record_root
+            # A preflight refusal would mask the gate, so this asks for the
+            # one thing the gate must answer before anything live happens.
+            with mock.patch.object(runner, "Session", _Exploding):
+                code = runner.main(
+                    [
+                        "--scenario",
+                        broken[0].id,
+                        "--no-preflight",
+                        "--run-id",
+                        "gate-check",
+                    ],
+                )
+        finally:
+            runner.SCENARIO_DIR = original_scenario_dir
+            runner.RECORD_ROOT = original_record_root
+
+    # 2 is INCONCLUSIVE, not the 0 of a clean run and not the 1 of a defect:
+    # the runner declined to produce a verdict because its own data was wrong.
+    assert code == 2, f"a malformed scenario should stop the runner, got exit {code}"
 
 
 def test_the_shipped_scenario_files_all_load_and_declare_their_tools():
