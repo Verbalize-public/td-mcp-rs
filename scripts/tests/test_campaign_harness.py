@@ -929,6 +929,7 @@ def test_no_predicate_crashes_when_the_value_it_reads_is_absent():
         "all_true": {"paths": ["nope.deep"]},
         "distinct": {"left": "nope.deep", "right": "also.nope"},
         "regex": {"path": "nope.deep", "pattern": "x"},
+        "observation_has_stamp": {"path": "nope.deep"},
     }
     assert set(absent) == set(sc.PREDICATES), (
         f"the roster changed: predicates={sorted(sc.PREDICATES)} covered={sorted(absent)}"
@@ -1044,3 +1045,125 @@ def test_a_child_that_could_never_show_a_window_is_refused_before_it_is_spawned(
     # fatal check is enough to refuse the round.
     assert preflight.Preflight(checks=[check(blind, "display-available")]).ok is False
     assert preflight.Preflight(checks=[check(seeing, "display-available")]).ok is True
+
+
+def test_a_capture_pointing_nowhere_is_inconclusive_not_a_product_defect():
+    """A capture that finds nothing is an authoring error, and must say so.
+
+    Measured in `r39-verify`: step 03 captured the whole `compare_nodes`
+    envelope into `ctx["baseline"]`, because capture mode returns the fresh
+    read under `observation`. Step 05 then passed that envelope back as
+    `baseline`, the bridge correctly refused it ("baseline is not an
+    observation: it has no observedAtMs stamp"), and the runner printed
+    `verdict: defect` -- accusing the product of a bug it was right to reject.
+
+    Two distinct failures, fixed separately and both pinned here. The first is
+    that capturing something narrower must be expressible at all; the second
+    is that when it finds nothing, the scenario says INCONCLUSIVE instead of
+    handing the next step `None` and letting it fail for a reason that has
+    nothing to do with what it tests.
+    """
+    import scenario as sc
+
+    envelope = {
+        "ok": True,
+        "mode": "capture",
+        "observation": {
+            "observedAtMs": 1759000000000,
+            "fields": ["par.const0value"],
+            "nodes": [{"path": "/project1/campaign_guard", "readable": True, "fields": {}}],
+        },
+    }
+    steps = [
+        sc.Step(
+            name="capture",
+            tool="compare_nodes",
+            args={"paths": ["/project1/campaign_guard"]},
+            capture="baseline:/observation",
+        ),
+        sc.Step(
+            name="later",
+            tool="compare_nodes",
+            args={"baseline": "{{baseline}}"},
+            assert_=[{"predicate": "path_equals", "path": "mode", "equals": "compare"}],
+        ),
+    ]
+    scenario = sc.Scenario(id="s", title="s", tools=["compare_nodes"], steps=steps)
+    seen = []
+
+    compared = {"ok": True, "mode": "compare", "atomic": False, "exactlyOnce": False}
+
+    def call(tool, args, timeout_s):
+        seen.append(args)
+        # Capture mode answers with the envelope; the follow-on compare answers
+        # with a diff. Returning the envelope for both would have this test
+        # assert its own stub rather than the capture behaviour.
+        return envelope if "baseline" not in args else compared
+
+    result = sc.run_scenario(scenario, call)
+    assert seen[1]["baseline"] == envelope["observation"], (
+        "the capture must bind the OBSERVATION, not the envelope wrapping it; "
+        f"got {type(seen[1]['baseline']).__name__}"
+    )
+    assert result.verdict == "verified", result.findings
+
+    # The same step against a payload with no `observation`: inconclusive, and
+    # the finding names the capture rather than any product code.
+    missing = dict(envelope)
+    missing.pop("observation")
+    bad = sc.run_scenario(scenario, lambda t, a, to: missing if "baseline" not in a else compared)
+    assert bad.verdict == sc.INCONCLUSIVE, (
+        f"a capture that found nothing must not read as a defect, got {bad.verdict}"
+    )
+    assert any("capture 'baseline:/observation'" in f for f in bad.findings), bad.findings
+
+    # And the pointer must not silently match a partial name: `observ` is not
+    # `observation`, and treating it as a match would be a fixture that agrees
+    # with itself.
+    partial = sc.run_scenario(
+        scenario,
+        lambda t, a, to: {"ok": True, "observationX": {"observedAtMs": 1}}
+        if "baseline" not in a
+        else compared,
+    )
+    assert partial.verdict == sc.INCONCLUSIVE, "a wrong pointer must not capture something else"
+
+
+def test_an_observation_must_be_stamped_not_merely_present():
+    """The predicate the scenario needed and did not have.
+
+    `compare_nodes` refuses an unstamped baseline because an unstamped value
+    cannot be shown to be a read of anything. A step that only asserts the
+    key EXISTS therefore passes while binding something the next step's tool
+    will reject — which is exactly what `r39-verify` reported as a defect.
+
+    Driven against the real predicate, with the three shapes that must not
+    pass: absent, present-but-unstamped, and stamped-but-malformed.
+    """
+    import scenario as sc
+
+    predicate = sc.PREDICATES["observation_has_stamp"]
+    spec = {"path": "observation"}
+
+    good = {"observation": {"observedAtMs": 1759000000000, "fields": [], "nodes": [{}]}}
+    passed, text = predicate({"observation": {"observedAtMs": 1, "nodes": [{}]}}, spec)
+    assert passed, (
+        "the bridge accepts an absent field list; rejecting it here would make "
+        f"this predicate stricter than the thing it checks, said: {text}"
+    )
+    passed, text = predicate(good, spec)
+    assert passed, text
+
+    for bad, why in [
+        ({}, "absent"),
+        ({"observation": {"fields": [], "nodes": []}}, "no observedAtMs"),
+        ({"observation": {"observedAtMs": 1759000000000, "fields": []}}, "nodes key absent"),
+        (
+            {"observation": {"observedAtMs": 1759000000000, "fields": [], "nodes": []}},
+            "nodes is an EMPTY list -- stamped, and still nothing to compare against",
+        ),
+        ({"observation": {"observedAtMs": "not-a-number", "nodes": [{}]}}, "stamp is a string"),
+        ({"observation": "not even an object"}, "not an object"),
+    ]:
+        passed, text = predicate(bad, spec)
+        assert not passed, f"{why} must not pass as an observation, said: {text}"

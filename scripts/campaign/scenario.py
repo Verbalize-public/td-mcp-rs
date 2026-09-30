@@ -191,6 +191,35 @@ def _p_path_present(payload: Any, spec: dict) -> tuple[bool, str]:
     return True, f"{path}={_show(observed)}"
 
 
+def _p_observation_has_stamp(payload: Any, spec: dict) -> tuple[bool, str]:
+    """Assert a value is a stamped observation, not merely present.
+
+    `compare_nodes` refuses a baseline with no `observedAtMs` stamp precisely
+    because an unstamped value cannot be shown to be a read of anything. A
+    campaign step that only checks the key EXISTS therefore passes while
+    binding something the next step's tool will reject -- measured in
+    `r39-verify`, where `capture-a-real-baseline` reported
+    `baseline=<absent>` and the follow-on step then failed on
+    `tdmcp.compare.baseline_unavailable`.
+    """
+    value = _dig(payload, spec["path"])
+    if not isinstance(value, dict):
+        return False, f"{spec['path']} is not an object: {_show(value, limit=80)}"
+    stamp = value.get("observedAtMs")
+    if not isinstance(stamp, int):
+        return False, f"{spec['path']}.observedAtMs={_show(stamp)} (not a stamp)"
+    nodes = value.get("nodes")
+    if not isinstance(nodes, list) or not nodes:
+        # The bridge refuses this exact shape ("baseline carries no node
+        # list"), so a step that only checked PRESENCE would pass here and the
+        # next step would fail on a rejection the product made correctly.
+        return False, f"{spec['path']}.nodes={_show(nodes, limit=60)} (no nodes to compare against)"
+    # `fields` is deliberately NOT required: the bridge accepts an absent or
+    # empty field list and only rejects a NON-EMPTY one that differs from the
+    # request. Checking it here would be stricter than the thing being tested.
+    return True, f"{spec['path']}: stamped observation at {stamp}, {len(nodes)} node(s)"
+
+
 def _p_all_true(payload: Any, spec: dict) -> tuple[bool, str]:
     """Assert several dotted paths are all literally `true`."""
     bad = []
@@ -245,6 +274,7 @@ PREDICATES: dict[str, Predicate] = {
     "path_equals": _p_path_equals,
     "path_contains": _p_path_contains,
     "path_present": _p_path_present,
+    "observation_has_stamp": _p_observation_has_stamp,
     "path_absent": _p_path_absent,
     "all_true": _p_all_true,
     "distinct": _p_distinct,
@@ -268,7 +298,9 @@ class Step:
     # Skip unless this tool call succeeded far enough to produce a pid.
     needs_pid: bool = False
     timeout_s: int = 120
-    # Set when a step's payload feeds the next step's arguments.
+    # Set when a step's payload feeds the next step's arguments. `pid` extracts
+    # the pid; `name:/json/pointer` captures just that value; a bare `name`
+    # captures the whole payload.
     capture: str | None = None
 
     @staticmethod
@@ -361,6 +393,25 @@ class ScenarioResult:
         }
 
 
+#: JSON pointer into a step's payload, used to capture something narrower than
+#: the whole payload. `compare_nodes` in capture mode returns the observation
+#: under `observation`; capturing the whole envelope binds a payload that the
+#: next step passes back as `baseline`, which the bridge then correctly refuses
+#: ("baseline is not an observation: it has no observedAtMs stamp") -- so the
+#: follow-on step fails for a reason that has nothing to do with what it tests.
+#: Measured in `r39-verify`, where that refusal was reported as a product defect.
+def _capture_value(payload: Any, pointer: str) -> Any:
+    """Resolve a `capture` pointer, or return `_MISSING` if it is not there."""
+    node = payload
+    for part in pointer.lstrip("/").split("/"):
+        if not part:
+            continue
+        if not isinstance(node, dict) or part not in node:
+            return _MISSING
+        node = node[part]
+    return node
+
+
 def _resolve_vars(value: Any, ctx: dict) -> Any:
     """Substitute `{{var}}` placeholders in a step's arguments.
 
@@ -443,7 +494,23 @@ def run_scenario(
                 payload_path = ""
 
         if step.capture:
-            ctx[step.capture] = _extract_pid(payload) if step.capture == "pid" else payload
+            if step.capture == "pid":
+                ctx["pid"] = _extract_pid(payload)
+            else:
+                name, _, pointer = step.capture.partition(":")
+                ctx[name] = _capture_value(payload, pointer) if pointer else payload
+                if ctx[name] is _MISSING:
+                    # Capturing nothing is a scenario-authoring error, and it
+                    # must be visible as one. Binding `None` would send the next
+                    # step `baseline: null`, which the bridge refuses — and a
+                    # refusal reads as a product finding about the very thing
+                    # this harness was asked to check.
+                    result.findings.append(
+                        f"{step.name}: capture '{step.capture}' found no value in the "
+                        "payload; the next step would run against nothing"
+                    )
+                    result.passed = False
+                    result.verdict = INCONCLUSIVE
 
         # A step with no assertions is a probe, not a test: it must have
         # produced a payload and nothing more is claimed.
