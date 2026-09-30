@@ -344,20 +344,72 @@ def test_coverage_flags_a_scenario_naming_a_tool_the_daemon_does_not_serve():
 # ---------------------------------------------------------------------------
 
 
-def test_a_leaked_touch_designer_is_named_rather_than_reported_as_clean():
-    """`stop_td` must keep a pid it could not kill, so the leftover check sees it.
+def test_a_touch_designer_it_could_not_kill_is_still_named_by_the_leftover_report():
+    """A pid still in /proc after the kill attempt must survive `stop_td`.
 
-    The failure this pins is silent: a session that forgets its pid on the
-    first attempt reports 'clean' while a TouchDesigner it started keeps
-    running, and the next round then measures the previous round's debris.
+    The failure this pins is silent: a session that forgets its pid reports
+    'clean' while a TouchDesigner it started keeps running, and the next round
+    then measures the previous round's debris.
+
+    Pid 4242 would NOT have caught that. It is not a live process, so `/proc`
+    reports it gone and `stop_td` is right to forget it — nothing was leaked,
+    because there was never anything to leak. This test drove the real
+    observable instead: the session's own pid, which `/proc` really does report
+    present afterwards.
     """
     import harness
 
     session = harness.Session(data_dir=Path("/nonexistent"), run_dir=Path("/nonexistent"))
-    session.td_pid = 4242
-    session._extra_td_pids = [4243]
-    # A pid that is not a live process: _terminate_td returns without doing
-    # anything, and /proc says it is gone, so both are forgotten.
+    live = __import__("os").getpid()
+    session.td_pid = live
+    session._extra_td_pids = [live + 0]  # same pid twice: the survivor path
+    real = harness._terminate_td
+    killed: list[int] = []
+
+    def _kill(pid: int) -> None:
+        killed.append(pid)
+
+    harness._terminate_td = _kill
+    try:
+        session.stop_td()
+    finally:
+        harness._terminate_td = real
+
+    assert killed, "the pid was never passed to the termination path"
+    assert session.td_pid == live, "a pid still in /proc must stay owned by the session"
+    assert f"td:{live}" in session.teardown()["leftovers"], (
+        "the survivor must be NAMED, or the run reads as clean with a live "
+        "TouchDesigner behind it"
+    )
+
+
+def test_a_pid_that_is_already_gone_is_forgotten():
+    """The other direction: a pid `/proc` never had is not a leak.
+
+    Without this, the rule above is satisfied by keeping every pid forever —
+    which makes every run report leftovers and trains the reader to ignore them.
+
+    The pids are derived, not literal. 4242 was a plausible placeholder and
+    turned out to be a LIVE Brave GPU process on this host, so the test was
+    asserting against whatever the host happened to have. `stop_td` was right
+    to keep it (it is not TouchDesigner), which is the silent failure this
+    campaign exists to prevent — the assertion only passed on a host where
+    those two pids happened to be free.
+    """
+    import harness
+
+    # Walk up from a high pid until two are genuinely absent from /proc.
+    free: list[int] = []
+    candidate = 4194300
+    while len(free) < 2 and candidate > 100000:
+        if not Path(f"/proc/{candidate}").exists():
+            free.append(candidate)
+        candidate -= 1
+    assert len(free) == 2, "could not find two free pids to test with"
+
+    session = harness.Session(data_dir=Path("/nonexistent"), run_dir=Path("/nonexistent"))
+    session.td_pid = free[0]
+    session._extra_td_pids = [free[1]]
     session.stop_td()
     assert session.td_pid is None
     assert session._extra_td_pids == []

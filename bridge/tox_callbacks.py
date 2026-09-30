@@ -556,6 +556,31 @@ def _bridge_connected(mod) -> bool:
 		return False
 
 
+def _bridge_shutting_down(mod) -> bool:
+	"""Is a previous worker still tearing down on the socket we would reuse?
+
+	`disconnect()` bounds its join at 2 s and then closes the stream out from
+	under the worker, so the teardown can outlive the call that reported the
+	session gone. `is_connected()` is False in that window and the port is NOT
+	free: the next dial lands on a socket the old worker is still draining, the
+	daemon reads a second handshake for a pid it already has, and it supersedes
+	the generation it is serving — cancelling whatever call was in flight.
+
+	So this is a third answer, not a variant of the first: connected (serve),
+	disconnected and free (dial), disconnected but still draining (wait).
+	"""
+	fn = getattr(mod, "is_shutting_down", None)
+	if not callable(fn):
+		# An older bridge package has no teardown to speak of, so there is
+		# nothing that can still be holding the socket. Failing closed here
+		# would strand such a package on a dead session forever.
+		return False
+	try:
+		return bool(fn())
+	except Exception:  # noqa: BLE001
+		return False
+
+
 def _safe_disconnect(mod) -> None:
 	disconnect = getattr(mod, "disconnect", None)
 	if callable(disconnect):
@@ -630,7 +655,13 @@ def onFrameStart(frame) -> None:  # noqa: ANN001 — TD Execute DAT signature
 
 	# Connect On — connect on rising edge, or keep/retry when Autoconnect
 	connected = mod is not None and _bridge_connected(mod)
-	if not connected:
+	# Same third answer as the watchdog: a teardown still in flight means the
+	# port is not free, so this pass does not dial. The next frame or the next
+	# watchdog pass re-asks. Both paths needed the gate — fixing only one would
+	# have left a reconnect that works while the timeline plays and hangs when
+	# it is paused, which is the harder of the two to notice.
+	draining = mod is not None and _bridge_shutting_down(mod)
+	if not connected and not draining:
 		should_try = connect_edge or auto or (not _had_connected and auto)
 		# Manual: Connect Off→On edge always tries once (even if Autoconnect off).
 		# Autoconnect: retry after loss / connect at start (onStart already tried).
@@ -651,6 +682,14 @@ def onFrameStart(frame) -> None:  # noqa: ANN001 — TD Execute DAT signature
 				_phase = "Connecting"
 			else:
 				_phase = "Disconnected"
+		_refresh_face(comp, tasks=[], autoconnect=auto, pending_n=0)
+		return
+
+	if draining:
+		# Not connected, and deliberately not dialling this pass. Reporting
+		# "Connected" here would be a lie the face and the next reader both
+		# believe, and the pump below would run against a dead session.
+		_phase = "Re-connecting"
 		_refresh_face(comp, tasks=[], autoconnect=auto, pending_n=0)
 		return
 
@@ -718,7 +757,20 @@ def _reconnect_watchdog() -> None:
 	mod = _bridge_mod()
 	connected = mod is not None and _bridge_connected(mod)
 
-	if not connected and want and auto:
+	# A teardown still in flight is not a free port. `_run_bootstrap` would
+	# otherwise dial a replacement onto the socket the old worker is draining,
+	# and the daemon would supersede the generation it is serving.
+	if (
+		not connected
+		and mod is not None
+		and _bridge_shutting_down(mod)
+		and want
+		and auto
+	):
+		# Still reschedule below, so this is a wait, not a stop: the next
+		# pass sees the same answer until the worker is gone.
+		_refresh_face(comp, tasks=[], autoconnect=auto, pending_n=0)
+	elif not connected and want and auto:
 		_run_bootstrap()
 
 	if want:  # keep polling while Connect is on
