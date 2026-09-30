@@ -32,7 +32,7 @@ if str(REPO / "scripts") not in sys.path:
 
 import coverage as coverage_map  # noqa: E402
 import preflight as preflight_mod  # noqa: E402
-from harness import BRIDGE_PORT, MCP_PORT, Session  # noqa: E402
+from harness import BRIDGE_PORT, MCP_PORT, Session, child_crashed  # noqa: E402
 from scenario import (  # noqa: E402
     Refusal,
     Scenario,
@@ -317,6 +317,21 @@ def main(argv: list[str]) -> int:
     else:
         verdict = "inconclusive"
 
+    # A crashed child is not a product defect. The evidence was already in
+    # `child-noise.log` -- captured with exactly this warning in the field's
+    # docstring and then never read, which is how eight failing steps were
+    # reported as a defect when the process under test had been killed by its
+    # own X server. `inconclusive` says "the host could not answer this", and
+    # it cannot be mistaken for either of the other two outcomes.
+    crashed = child_crashed(session.log_noise)
+    if crashed:
+        verdict = "inconclusive"
+        print(f"\n!! TouchDesigner crashed during the run: {crashed[0].strip()}")
+        print(
+            "   Every step after this failed because the process under test died, "
+            "not because the code was wrong. This is NOT a defect verdict."
+        )
+
     # A leak is never folded into a scenario verdict. A campaign that reports
     # "verified" while leaving a TouchDesigner running is telling the next
     # round that the host was clean when it was not, and the next round's
@@ -330,6 +345,7 @@ def main(argv: list[str]) -> int:
     summary = {
         "run_id": run_id,
         "verdict": verdict,
+        "child_crashed": crashed,
         "fault_inject": args.fault_inject,
         "wall_s": round(time.monotonic() - started, 1),
         "preflight": pf.as_dict(),
@@ -342,6 +358,11 @@ def main(argv: list[str]) -> int:
 
     if args.fault_inject:
         return 0 if fault_verdict(real_results)[0].startswith("verified") else 1
+    # A crash outranks `any_defect`, because a crashed child makes every step
+    # after it fail for the same non-product reason. Exit 1 here would be the
+    # harness accusing the code it was built to check.
+    if crashed:
+        return 2
     if any_defect:
         return 1
     if any_inconclusive or not all_verified or leaked_td:

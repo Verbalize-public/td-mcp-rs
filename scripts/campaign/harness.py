@@ -81,6 +81,36 @@ def _terminate_td(pid: int) -> None:
             time.sleep(0.5)
 
 
+#: Markers a dying TouchDesigner leaves on the shared stdout pipe. These are
+#: Wine/X11 crash reports, not daemon output: they mean the process under test
+#: died, so every step after that point failed for a reason that has nothing
+#: to do with the code being tested.
+_CHILD_CRASH_MARKERS = (
+    "X Error of failed request",
+    "GLXBadDrawable",
+    "Fatal glX error",
+    "wine: Unhandled page fault",
+    "Backtrace (",
+)
+
+
+def child_crashed(log_noise: list[str]) -> list[str]:
+    """Crash evidence in the child's output, if any.
+
+    A harness that ignores this reports a crashed TouchDesigner as a cluster
+    of product defects. Measured: `r36-verify` printed `verdict: defect` for
+    eight failing steps, and the real cause was one line in this noise --
+    `X Error of failed request: GLXBadDrawable` -- which killed the process
+    under test 45 s into the run. Every later failure was the harness
+    measuring its own crashed child.
+
+    The markers are deliberately specific. A Wine `fixme:` line is not a crash:
+    it appears in every healthy run, and treating it as one would make the
+    harness inconclusive on every run it has ever done.
+    """
+    return [line for line in log_noise if any(m in line for m in _CHILD_CRASH_MARKERS)]
+
+
 def _unpack_refusal(exc: RuntimeError) -> dict:
     """Turn an `isError` exception back into the payload it carried.
 

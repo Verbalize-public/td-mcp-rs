@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import sys
+import tempfile
 from unittest import mock
 from pathlib import Path
 
@@ -25,6 +26,7 @@ sys.path.insert(0, str(REPO / "scripts"))
 import scenario  # noqa: E402
 from scenario import (  # noqa: E402
     Scenario,
+    ScenarioResult,
     Step,
     _dig,
     envelope_ok,
@@ -476,6 +478,117 @@ def test_the_leftover_report_names_a_survivor_that_is_not_the_session_pid():
     session._extra_td_pids = [live]
     report = session.teardown()
     assert f"td:{live}" in report["leftovers"]
+
+
+def test_a_crashed_touch_designer_is_never_reported_as_a_product_defect():
+    """Eight failing steps from one dead process is not a verdict about the code.
+
+    Measured in `r36-verify`: TouchDesigner printed `X Error of failed
+    request: GLXBadDrawable` 45 s into the run and was killed by its own X
+    server. Every step after that failed for that one reason, and the runner
+    printed `verdict: defect` with exit 1 -- accusing the product of eight
+    defects caused by one crash.
+
+    The evidence was already captured. `Session.log_noise` carries a field
+    comment saying exactly this, and `child-noise.log` had the line on disk;
+    nothing read it. So this drives the REAL runner end to end with a stub
+    session that reports eight failing steps and the crash that caused them,
+    and asserts the verdict is `inconclusive` with exit 2.
+    """
+    import run as runner
+
+    crash = "X Error of failed request:  GLXBadDrawable"
+    failing = [
+        ScenarioResult(
+            id="s",
+            title="s",
+            passed=False,
+            verdict="defect",
+            findings=["tdmcp.bridge.lost"],
+        )
+    ]
+
+    class _CrashedSession:
+        """Stands in for a real Session: the child crashed, the steps failed."""
+
+        def __init__(self, *a, **k):  # noqa: ANN001
+            self.log_noise = [crash, "0024:fixme:dwrite:not implemented"]
+            self.log_lines = []
+            self.td_pid = None
+            self._extra_td_pids: list[int] = []
+
+        def start_daemon(self):  # noqa: ANN001
+            return None
+
+        def call(self, tool, args, timeout_s=None):  # noqa: ANN001
+            return {"ok": True}
+
+        def spawn_td(self, **k):  # noqa: ANN001
+            return 4242
+
+        def stop_td(self):  # noqa: ANN001
+            return None
+
+        def teardown(self):  # noqa: ANN001
+            return {"td_stopped": True, "leftovers": []}
+
+        def close(self):  # noqa: ANN001
+            return None
+
+        def stop_daemon(self):  # noqa: ANN001
+            return None
+
+    scenario = Scenario(id="s", title="s", tools=["fleet"], steps=[], needs_td=True)
+    with tempfile.TemporaryDirectory() as tmp:
+        record_root = Path(tmp) / "records"
+        orig_root, orig_session = runner.RECORD_ROOT, runner.Session
+        orig_run, orig_resolve = runner.run_scenario, runner.resolve_scenarios
+        try:
+            runner.RECORD_ROOT = record_root
+            runner.Session = _CrashedSession
+            runner.resolve_scenarios = lambda sel: [scenario]
+            runner.run_scenario = lambda sc, call, ctx, out_dir: failing[0]
+            code = runner.main(["--scenario", "s", "--no-preflight", "--run-id", "crash-check"])
+        finally:
+            runner.RECORD_ROOT, runner.Session = orig_root, orig_session
+            runner.run_scenario, runner.resolve_scenarios = orig_run, orig_resolve
+
+        summary = json.loads((record_root / "crash-check" / "summary.json").read_text())
+
+    assert code == 2, f"a crashed child must not exit as a defect, got {code}"
+    assert summary["verdict"] == "inconclusive", (
+        f"expected inconclusive, got {summary['verdict']!r}"
+    )
+    assert crash in summary["child_crashed"], (
+        "the crash must be recorded in the summary, not only printed"
+    )
+
+
+def test_a_wine_fixme_is_not_mistaken_for_a_crash():
+    """The false-positive direction, and it is the one that matters most.
+
+    A Wine `fixme:` line appears in every healthy run — `r36-verify`'s own
+    noise log is mostly dwrite and d2d fixmes. Treating ordinary noise as a
+    crash would make the harness report `inconclusive` on every run it has
+    ever done, which is not a harness that can say no; it is one that can only
+    say "don't know", and a reader learns to stop reading it.
+
+    The second assertion matters as much as the first: without it this test
+    would also pass if the detector were inert.
+    """
+    import harness
+
+    healthy_noise = [
+        "0024:fixme:d2d:d2d_path_geometry_Tessellate iface 000000003B2C0B00 stub!",
+        "0024:fixme:dwrite:dwritefactory3_GetSystemFontCollection not implemented",
+        "0024:fixme:dwrite:dwritefactory3_GetSystemFontCollection not implemented",
+        "0024:err:module:import DLL failed",
+    ]
+    assert harness.child_crashed(healthy_noise) == [], (
+        "ordinary Wine output was read as a crash -- this would make every "
+        "healthy run inconclusive"
+    )
+    assert harness.child_crashed(healthy_noise + ["X Error of failed request:  GLXBadDrawable"])
 
 
 def test_every_usage_example_in_the_runner_docstring_parses():
