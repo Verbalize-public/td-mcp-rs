@@ -97,6 +97,43 @@ All "successful" steps landed at the wrong level and had to be deleted/rebuilt.
 - Suggested fix: document/apply batch-internal context (a step should be able
   to anchor on a node created earlier in the same batch).
 
+### T7 Receipt quota fills with abandoned calls and only a restart drains it — P1
+
+Seen 2026-10-22 (daemon 0.2.0, TD 2025.32460 under Wine; verbalize-studio
+unattended render campaign). Once the quota was full, every call was refused:
+`evidence quota exceeded: owner already has 64 unsettled operation receipts;
+finish or read them first`. That stopped a golden-frame render task through
+three retries and a model bump.
+
+- Mechanism (`crates/tdmcp-daemon/src/opjournal.rs`, `in_flight_bounds`): the
+  quota counts receipts with `expires_at_ms IS NULL`, i.e. `dispatched` /
+  `wait_expired`. A `wait_expired` receipt is written by `PendingDispatch::drop`
+  in `opdispatch.rs` whenever the caller stops waiting. A shell client's own
+  timeouts trigger that, and long `execute_python` calls hit it routinely.
+- No settle path for the caller: `/admin/operations/resolve` only writes a
+  `resolution` note. Live test: `stateUnchanged: true`, count unchanged. Such
+  receipts have no expiry either. The only transition that frees them is
+  `recover_uncertain()`, which runs when the journal opens, i.e. on daemon
+  restart. It promotes them to `unknown_effect` with a 24 h expiry.
+- Shared principal: shell clients that send no `x-tdmcp-client` claim all land
+  on `local:anonymous`. Every task and agent in one campaign therefore shares
+  the single 64-slot window. The 64 receipts in this case came from one earlier
+  task's run, and the TD pids they referred to were already dead.
+- The message is misleading. "finish or read them first" suggests reading or
+  resolving clears them, and neither does. The `/admin/operations` list also
+  returns `count: 64` as a page size, which reads like the in-flight count.
+- Workaround (client side, verbalize-studio `studio/td/tdctl.py`): on this
+  refusal, `POST /admin/restart`, wait for a new pid, reconnect, and resend once.
+  This is safe because the refusal comes at admission, before dispatch. The
+  restart also drops any other client's session.
+- Suggested fix, any of:
+  - let `resolve` settle a `wait_expired` receipt when the caller reports an
+    observed effect, or at least give it an expiry;
+  - run `recover_uncertain` for receipts whose target pid is gone, not only at
+    open;
+  - make `max_in_flight_per_owner` configurable;
+  - say in the error how to drain the quota.
+
 ## 2. TD semantic traps [TD] — document in cards/recipes
 
 ### D1 Parameter-expression path base is the op's *containing network*
