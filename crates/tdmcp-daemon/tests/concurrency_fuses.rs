@@ -181,8 +181,11 @@ fn spawn_hold_then_echo(
         let Message::Request { id, params, .. } = msg else {
             return;
         };
+        // Subscribe before announcing readiness: another runtime worker can
+        // release us immediately after observing `held`.
+        let released = release.notified();
         held.notify_waiters();
-        release.notified().await;
+        released.await;
         let _ = peer
             .send_response(id, echo_result_from_params(&params))
             .await;
