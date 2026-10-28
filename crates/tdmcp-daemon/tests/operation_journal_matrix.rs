@@ -7,8 +7,9 @@
 //! behaves; it is that the *daemon's real failure modes* produce honest
 //! receipts, and that none of them silently claims an effect.
 //!
-//! The journal here is the on-disk backend, because a receipt that survives a
-//! restart is the entire claim being tested.
+//! Unix uses the on-disk backend, including restart durability. Windows uses
+//! in-memory SQLite for transport semantics; its disk backend explicitly reports
+//! unsupported permissions, so restart durability is tested only on Unix.
 
 #![allow(clippy::unwrap_used, reason = "test setup/assertions may panic")]
 #![allow(clippy::expect_used, reason = "test setup/assertions may panic")]
@@ -64,8 +65,20 @@ fn journal_root(name: &str) -> std::path::PathBuf {
     path
 }
 
+fn open_journal(root: &std::path::Path, config: JournalConfig) -> SqliteOperationJournal {
+    #[cfg(unix)]
+    {
+        SqliteOperationJournal::open(root, config).unwrap()
+    }
+    #[cfg(windows)]
+    {
+        let _ = root;
+        SqliteOperationJournal::open_memory(config).unwrap()
+    }
+}
+
 fn recorder(root: &std::path::Path) -> Arc<OperationRecorder> {
-    let journal = SqliteOperationJournal::open(root, config()).unwrap();
+    let journal = open_journal(root, config());
     Arc::new(OperationRecorder::new(Arc::new(journal), owner()))
 }
 
@@ -237,6 +250,7 @@ async fn a_bridge_that_drops_mid_call_reports_a_lost_result_not_a_failure() {
 /// This is the case the durable journal exists for: the daemon is gone, so it
 /// cannot know what the mutation did, and the next process must report that
 /// rather than presenting the operation as never having run.
+#[cfg(unix)]
 #[tokio::test]
 async fn a_restart_reports_an_unobserved_dispatch_as_unknown_rather_than_replaying_it() {
     let root = journal_root("restart");
@@ -326,7 +340,7 @@ async fn a_cancelled_caller_still_leaves_a_receipt_behind() {
 #[tokio::test]
 async fn repeated_caller_cancellations_do_not_exhaust_receipt_admission() {
     let root = journal_root("repeated-cancellation");
-    let journal = Arc::new(SqliteOperationJournal::open(&root, config()).unwrap());
+    let journal = Arc::new(open_journal(&root, config()));
     let recorder = Arc::new(OperationRecorder::new(journal.clone(), owner()));
     let (_registry, sessions, mut peer) = session(4247, Duration::from_secs(30)).await;
     let frozen = tokio::spawn(async move { while peer.recv_message().await.is_ok() {} });
@@ -371,7 +385,7 @@ async fn retention_bounds_ended_waits_but_never_discards_active_dispatches() {
     // A receipt settled under this retention is expired the instant it is
     // written; `prune` runs on the next admission.
     expiring.retention = Duration::ZERO;
-    let journal = SqliteOperationJournal::open(&root, expiring).unwrap();
+    let journal = open_journal(&root, expiring);
 
     // Settled: an observer recorded its answer, so dropping it loses nothing.
     let settled = journal.admit(&owner(), "mutate_nodes", None).unwrap();

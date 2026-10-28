@@ -2803,10 +2803,16 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::thread;
 
+    fn canonical_tempdir() -> tempfile::TempDir {
+        // macOS exposes /var through a symlink. The store intentionally rejects
+        // symlink ancestors, so fixtures must use the physical temporary root.
+        tempfile::tempdir_in(std::env::temp_dir().canonicalize().unwrap()).unwrap()
+    }
+
     #[cfg(windows)]
     #[test]
     fn disk_store_explicitly_reports_unsupported_permissions() {
-        let directory = tempfile::tempdir().unwrap();
+        let directory = canonical_tempdir();
         assert!(matches!(
             SqliteEvidenceStore::open(directory.path(), config()),
             Err(EvidenceError::UnsupportedPlatform(_))
@@ -3102,7 +3108,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn a_refused_second_writer_leaves_the_live_one_serving_its_committed_evidence() {
-        let directory = tempfile::tempdir().unwrap();
+        let directory = canonical_tempdir();
         let first = SqliteEvidenceStore::open(directory.path(), config()).unwrap();
         let alice = owner("alice");
         let record = upload(&first, &alice, vec![("p", PartKind::Binary, b"h01d")]);
@@ -3172,7 +3178,7 @@ mod tests {
     #[test]
     fn expired_rows_are_reclaimed_and_never_resurrected_by_a_later_read() {
         let limits = config();
-        let directory = tempfile::tempdir().unwrap();
+        let directory = canonical_tempdir();
         let alice = owner("alice");
         let hash = sha256_hex(b"t7");
         let record = {
@@ -3257,7 +3263,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn a_truncated_blob_on_disk_is_refused_rather_than_served_as_evidence() {
-        let directory = tempfile::tempdir().unwrap();
+        let directory = canonical_tempdir();
         let store = SqliteEvidenceStore::open(directory.path(), config()).unwrap();
         let alice = owner("alice");
         // One chunk, so exactly one blob, and its name is knowable.
@@ -3772,7 +3778,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn a_second_writer_is_refused_instead_of_racing_reconciliation() {
-        let directory = tempfile::tempdir().unwrap();
+        let directory = canonical_tempdir();
         let _first = SqliteEvidenceStore::open(directory.path(), config()).unwrap();
         assert!(matches!(
             SqliteEvidenceStore::open(directory.path(), config()),
@@ -3788,7 +3794,7 @@ mod tests {
         let mut limits = config();
         limits.max_owner_bytes = 10;
         limits.max_total_bytes = 10;
-        let directory = tempfile::tempdir().unwrap();
+        let directory = canonical_tempdir();
         let store = Arc::new(SqliteEvidenceStore::open(directory.path(), limits).unwrap());
         let alice = owner("alice");
         let request = reserve_request(vec![manifest("p", PartKind::Binary, b"12345678")]);
@@ -3964,7 +3970,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn disk_publish_failure_cleans_staging_and_retry_succeeds() {
-        let directory = tempfile::tempdir().unwrap();
+        let directory = canonical_tempdir();
         let failure = FailOnce::at(FailurePoint::BlobPublish);
         let store =
             SqliteEvidenceStore::open_with_failures(directory.path(), config(), failure).unwrap();
@@ -4009,8 +4015,8 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn an_interrupted_backup_export_is_repaired_on_reopen() {
-        let spool = tempfile::tempdir().unwrap();
-        let output = tempfile::tempdir().unwrap();
+        let spool = canonical_tempdir();
+        let output = canonical_tempdir();
         let destination = output.path().join("result.bin");
         fs::write(&destination, b"old").unwrap();
         let failure = FailOnce::at(FailurePoint::ExportReplaceWindow);
@@ -4067,8 +4073,8 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn an_interrupted_directory_sync_is_confirmed_on_reopen() {
-        let spool = tempfile::tempdir().unwrap();
-        let output = tempfile::tempdir().unwrap();
+        let spool = canonical_tempdir();
+        let output = canonical_tempdir();
         let destination = output.path().join("result.bin");
         let failure = FailOnce::at(FailurePoint::DirectorySync);
         let store =
@@ -4110,8 +4116,8 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn an_unresolvable_export_journal_fails_the_open() {
-        let spool = tempfile::tempdir().unwrap();
-        let output = tempfile::tempdir().unwrap();
+        let spool = canonical_tempdir();
+        let output = canonical_tempdir();
         let store = SqliteEvidenceStore::open(spool.path(), config()).unwrap();
         let journal = ExportJournal {
             id: "orphaned".to_owned(),
@@ -4175,7 +4181,7 @@ mod tests {
     fn sqlite_refuses_a_store_root_that_stopped_being_private() {
         use std::os::unix::fs::{symlink, PermissionsExt};
 
-        let directory = tempfile::tempdir().unwrap();
+        let directory = canonical_tempdir();
         let alice = owner("alice");
         {
             let store = SqliteEvidenceStore::open(directory.path(), config()).unwrap();
@@ -4216,7 +4222,7 @@ mod tests {
         // private mode on the real directory lets the second half run, so the
         // two checks cannot pass off one another's setup.
         fs::set_permissions(directory.path(), fs::Permissions::from_mode(mode)).unwrap();
-        let elsewhere = tempfile::tempdir().unwrap();
+        let elsewhere = canonical_tempdir();
         let linked = elsewhere.path().join("linked-root");
         symlink(directory.path(), &linked).unwrap();
         assert!(
@@ -4234,7 +4240,7 @@ mod tests {
     fn sqlite_rejects_symlink_roots_and_incompatible_schema_versions() {
         use std::os::unix::fs::symlink;
 
-        let parent = tempfile::tempdir().unwrap();
+        let parent = canonical_tempdir();
         let actual = parent.path().join("actual");
         fs::create_dir(&actual).unwrap();
         let linked = parent.path().join("linked");
@@ -4264,7 +4270,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn sqlite_restart_retains_committed_and_cleans_incomplete_orphans() {
-        let directory = tempfile::tempdir().unwrap();
+        let directory = canonical_tempdir();
         let alice = owner("alice");
         let complete;
         let incomplete;
@@ -4313,7 +4319,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn sqlite_range_read_detects_corrupt_chunk_without_whole_artifact_allocation() {
-        let directory = tempfile::tempdir().unwrap();
+        let directory = canonical_tempdir();
         let store = SqliteEvidenceStore::open(directory.path(), config()).unwrap();
         let alice = owner("alice");
         let record = upload(
@@ -4343,8 +4349,8 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn export_is_no_overwrite_by_default_and_backup_is_explicit() {
-        let spool = tempfile::tempdir().unwrap();
-        let output = tempfile::tempdir().unwrap();
+        let spool = canonical_tempdir();
+        let output = canonical_tempdir();
         let store = SqliteEvidenceStore::open(spool.path(), config()).unwrap();
         let alice = owner("alice");
         let record = upload(

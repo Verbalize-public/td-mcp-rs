@@ -82,6 +82,9 @@ jobs:
       - name: Platform dependency gate
         run: cargo deny --locked --target ${{ matrix.target }} check 2>&1 | tee dependencies.log
         shell: bash
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libfontconfig1-dev libfreetype6-dev
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
@@ -187,7 +190,7 @@ jobs:
           RELEASE_MODE: ${{ needs.assert.outputs.mode }}
         run: python3 scripts/release.py publish
       - name: Attest build provenance
-        if: github.repository_visibility == 'public'
+        if: github.event.repository.visibility == 'public'
         uses: actions/attest-build-provenance@v4
         with:
           subject-path: dist/**

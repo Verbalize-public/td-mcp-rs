@@ -135,9 +135,12 @@ def publish():
         return
     repo = os.environ["GH_REPO"]
     # Recheck on the server immediately before creating the release. Never force a tag.
-    remote = run("gh", "api", f"repos/{repo}/commits/{tag}", check=False)
+    remote = run("gh", "api", f"repos/{repo}/git/ref/tags/{tag}", check=False)
     if remote.returncode == 0:
-        if json.loads(remote.stdout)["sha"] != sha:
+        target = json.loads(remote.stdout)["object"]
+        while target["type"] == "tag":
+            target = json.loads(gh("api", f"repos/{repo}/git/tags/{target['sha']}"))["object"]
+        if target["type"] != "commit" or target["sha"] != sha:
             raise ValueError("existing release tag identifies another commit")
     else:
         # A permission/network failure is not proof of absence: creation will fail closed.
