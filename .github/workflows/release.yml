@@ -88,6 +88,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
+          cache-on-failure: true
       - name: Native platform tests
         run: cargo test --locked --workspace 2>&1 | tee rust-tests.log
         shell: bash

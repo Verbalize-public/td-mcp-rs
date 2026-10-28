@@ -304,7 +304,7 @@ fn copy_tree(src: &Path, dest: &Path) -> Result<()> {
 /// then compress with the native archiver.
 ///
 /// No zip/tar crates on purpose: GitHub runners and dev boxes both ship
-/// `Compress-Archive` / bsdtar, and a dependency-free xtask builds fast in CI.
+/// PowerShell/.NET ZIP support or bsdtar keeps the packager lightweight.
 fn stage_and_compress(
     bin_src: &Path,
     license_src: &Path,
@@ -376,20 +376,19 @@ fn stage_and_compress(
     let status = if is_windows {
         // Pass paths as data, not PowerShell source; apostrophes and wildcard
         // characters in a user's checkout must not change the command.
+        // Compress-Archive internally treats some destination paths as globs,
+        // even with -LiteralPath. .NET's filesystem API treats both as literal.
+        fs::remove_file(&temporary).context("prepare new ZIP destination")?;
         Command::new("pwsh")
-            .env("TDMCP_PACKAGE_BINARY", &staged_bin)
-            .env("TDMCP_PACKAGE_LICENSE", &staged_license)
-            .env("TDMCP_PACKAGE_NOTICES", &staged_notices)
-            .env("TDMCP_PACKAGE_SOURCE_OFFER", &staged_offer)
-            .env("TDMCP_PACKAGE_THIRD_PARTY", &staged_third_party)
+            .env("TDMCP_PACKAGE_STAGE", stage)
             .env("TDMCP_PACKAGE_ARCHIVE", &temporary)
             .args([
                 "-NoProfile",
                 "-Command",
-                "Compress-Archive -LiteralPath @($env:TDMCP_PACKAGE_BINARY, $env:TDMCP_PACKAGE_LICENSE, $env:TDMCP_PACKAGE_NOTICES, $env:TDMCP_PACKAGE_SOURCE_OFFER, $env:TDMCP_PACKAGE_THIRD_PARTY) -DestinationPath $env:TDMCP_PACKAGE_ARCHIVE -Force -ErrorAction Stop",
+                "$ErrorActionPreference = 'Stop'; Add-Type -AssemblyName System.IO.Compression.FileSystem; [System.IO.Compression.ZipFile]::CreateFromDirectory($env:TDMCP_PACKAGE_STAGE, $env:TDMCP_PACKAGE_ARCHIVE)",
             ])
             .status()
-            .context("Compress-Archive")?
+            .context("create ZIP archive")?
     } else {
         Command::new("tar")
             .args(["-czf"])
@@ -831,7 +830,7 @@ mod tests {
                 .args([
                     "-NoProfile",
                     "-Command",
-                    "Expand-Archive -LiteralPath $env:TDMCP_TEST_ARCHIVE -DestinationPath $env:TDMCP_TEST_EXTRACTED -ErrorAction Stop",
+                    "$ErrorActionPreference = 'Stop'; Add-Type -AssemblyName System.IO.Compression.FileSystem; [System.IO.Compression.ZipFile]::ExtractToDirectory($env:TDMCP_TEST_ARCHIVE, $env:TDMCP_TEST_EXTRACTED)",
                 ])
                 .status()
                 .unwrap()

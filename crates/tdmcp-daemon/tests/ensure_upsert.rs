@@ -384,6 +384,12 @@ async fn admin_restart_yields_one_healthy_listener() {
         resp.status()
     );
 
+    // Reap our owned child before the replacement checks that its PID exited.
+    // On macOS a zombie remains visible to kill(pid, 0) until the parent waits.
+    assert!(
+        harness.wait_exit(Duration::from_secs(5)).await,
+        "old daemon exited"
+    );
     // Wait for a new healthy owner (possibly new pid).
     let deadline = std::time::Instant::now() + Duration::from_secs(20);
     let mut new_pid = None;
@@ -674,6 +680,10 @@ async fn restart_applies_saved_port_instead_of_old_cli_override() {
         .expect("restart")
         .error_for_status()
         .expect("accepted");
+    assert!(
+        harness.wait_exit(Duration::from_secs(5)).await,
+        "old daemon exited"
+    );
     harness.port = new_port;
     wait_healthy(new_port, Duration::from_secs(20)).await;
     assert!(!health_ok(old_port).await);

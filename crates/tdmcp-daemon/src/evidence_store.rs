@@ -3188,7 +3188,7 @@ mod tests {
                 .reserve(
                     &alice,
                     ReserveObservation {
-                        ttl: Duration::from_millis(30),
+                        ttl: Duration::from_secs(60),
                         ..reserve_request(vec![manifest("p", PartKind::Binary, b"t7")])
                     },
                 )
@@ -3220,11 +3220,19 @@ mod tests {
                     .evidence_id,
                 record.evidence_id
             );
-            // Outlive the lease, then drop the instance entirely: nothing polls
-            // the old one, so the next instance is the only place reclamation
-            // can happen. That is what makes this cross-instance rather than
-            // just a timer firing under the writer that created it.
-            thread::sleep(Duration::from_millis(120));
+            // Persist an expired lease only after setup is complete. A short
+            // wall-clock lease can expire during append/commit on busy runners.
+            // Drop without polling this writer: only reopen may reclaim bytes.
+            store
+                .inner
+                .connection
+                .lock()
+                .unwrap()
+                .execute(
+                    "UPDATE observations SET expires_ms=0 WHERE id=?1",
+                    [record.evidence_id.as_str()],
+                )
+                .unwrap();
             record
         };
 

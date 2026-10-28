@@ -42,6 +42,9 @@ use tokio::time::timeout;
 const NUM_CLIENTS: usize = 8;
 const BURST_PER_CLIENT: usize = 16;
 const STORM_SECS: u64 = 15;
+// Fixed traffic volume preserves the connection-churn assertion across runner
+// speeds: 8 * 25 * 16 = 3200 calls, exceeding the 2000 no-pool failure bound.
+const BURSTS_PER_CLIENT: u64 = 25;
 const PROBE_INTERVAL: Duration = Duration::from_millis(200);
 const PROBE_BUDGET: Duration = Duration::from_secs(3);
 const CALL_BUDGET: Duration = Duration::from_secs(10);
@@ -456,7 +459,7 @@ async fn run_storm(daemon_url: String, pids: &[u32], port: u16) -> StormReport {
         let stats = Arc::clone(&stats);
         let w = tokio::spawn(async move {
             let started = Instant::now();
-            while started.elapsed() < Duration::from_secs(STORM_SECS) {
+            for burst in 0..BURSTS_PER_CLIENT {
                 let mut calls = Vec::new();
                 for k in 0..BURST_PER_CLIENT {
                     let peer = Arc::clone(&peer);
@@ -495,6 +498,15 @@ async fn run_storm(daemon_url: String, pids: &[u32], port: u16) -> StormReport {
                         }
                     }
                 }
+                // Keep the original storm duration and peak concurrency, but
+                // do not make faster machines generate unbounded extra bursts.
+                tokio::time::sleep_until(
+                    tokio::time::Instant::from_std(started)
+                        + Duration::from_millis(
+                            STORM_SECS * 1000 * (burst + 1) / BURSTS_PER_CLIENT,
+                        ),
+                )
+                .await;
             }
         });
         workers.push(w);
@@ -657,12 +669,34 @@ async fn multi_client_storm_does_not_freeze() {
     // Dump connection counts on the daemon port (netstat, foreign process).
     // With pooled clients the count stays bounded (connections reused); the
     // pre-fix no-pool clients burned ~16k TIME_WAIT sockets in 20s.
-    let mut time_wait_count = 0usize;
-    if let Ok(out) = std::process::Command::new("netstat").arg("-ano").output() {
+    #[cfg(target_os = "linux")]
+    let out = std::process::Command::new("ss").arg("-tan").output();
+    #[cfg(target_os = "macos")]
+    let out = std::process::Command::new("netstat")
+        .args(["-an", "-p", "tcp"])
+        .output();
+    #[cfg(windows)]
+    let out = std::process::Command::new("netstat").arg("-ano").output();
+    let out = out.expect("TCP socket inventory tool");
+    assert!(
+        out.status.success(),
+        "socket inventory failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let time_wait_count = {
         let text = String::from_utf8_lossy(&out.stdout);
         let matching: Vec<&str> = text
             .lines()
-            .filter(|l| l.contains(&format!(":{port} ")) || l.contains(&format!(":{port}\t")))
+            .filter(|l| {
+                [
+                    format!(":{port} "),
+                    format!(":{port}\t"),
+                    format!(".{port} "),
+                    format!(".{port}\t"),
+                ]
+                .iter()
+                .any(|endpoint| l.contains(endpoint))
+            })
             .collect();
         // netstat column order differs between Windows and Linux — identify
         // the TCP state by token instead of by position.
@@ -673,6 +707,7 @@ async fn multi_client_storm_does_not_freeze() {
                     *t,
                     "ESTABLISHED"
                         | "TIME_WAIT"
+                        | "TIME-WAIT"
                         | "LISTEN"
                         | "SYN_SENT"
                         | "SYN_RECV"
@@ -683,15 +718,18 @@ async fn multi_client_storm_does_not_freeze() {
                         | "LAST_ACK"
                 )
             });
-            *by_state.entry(state.unwrap_or("?").to_owned()).or_default() += 1;
+            *by_state
+                .entry(state.unwrap_or("?").replace('-', "_"))
+                .or_default() += 1;
         }
-        time_wait_count = by_state.get("TIME_WAIT").copied().unwrap_or(0);
+        let count = by_state.get("TIME_WAIT").copied().unwrap_or(0);
         println!(
             "netstat on :{port}: {} conns {:?}",
             matching.len(),
             by_state
         );
-    }
+        count
+    };
 
     let max_probe = report
         .probe_latencies
