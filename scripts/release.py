@@ -3,6 +3,7 @@
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -102,7 +103,9 @@ def report_failures(qualified, sha):
         excerpt = "No qualified artifact was produced."
         if job:
             log = run("gh", "api", f"repos/{repo}/actions/jobs/{job['id']}/logs", check=False)
-            excerpt = (log.stdout or log.stderr or excerpt)[-6000:]
+            if "allow-escape-sequences" in log.stdout + log.stderr:
+                log = run("gh", "api", f"repos/{repo}/actions/jobs/{job['id']}/logs", "--allow-escape-sequences", check=False)
+            excerpt = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", log.stdout or log.stderr or excerpt)[-6000:]
         title = f"Release platform failure: {target}"
         body = f"Target: `{target}`\nCommit: `{sha}`\nFailed step: {', '.join(steps) or 'qualification/upload'}\nWorkflow: {workflow}\n\n```text\n{excerpt}\n```\n"
         with tempfile.NamedTemporaryFile("w", delete=False) as output:
