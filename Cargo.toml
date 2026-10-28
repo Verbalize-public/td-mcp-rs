@@ -25,22 +25,22 @@ default-members = [
 ]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 license = "MIT"
 rust-version = "1.92"
 repository = "https://github.com/Verbalize-public/td-mcp-rs"
 
 [workspace.dependencies]
-tdmcp-core = { path = "crates/tdmcp-core", version = "0.2.0" }
-tdmcp-config = { path = "crates/tdmcp-config", version = "0.2.0" }
-tdmcp-diagnostics = { path = "crates/tdmcp-diagnostics", version = "0.2.0" }
-tdmcp-ipc = { path = "crates/tdmcp-ipc", version = "0.2.0" }
-tdmcp-mcp = { path = "crates/tdmcp-mcp", version = "0.2.0" }
-tdmcp-projectio = { path = "crates/tdmcp-projectio", version = "0.2.0" }
-tdmcp-dialogs = { path = "crates/tdmcp-dialogs", version = "0.2.0" }
-tdmcp-gui = { path = "crates/tdmcp-gui", version = "0.2.0" }
-tdmcp-test-support = { path = "crates/tdmcp-test-support", version = "0.2.0" }
+tdmcp-core = { path = "crates/tdmcp-core", version = "0.3.0" }
+tdmcp-config = { path = "crates/tdmcp-config", version = "0.3.0" }
+tdmcp-diagnostics = { path = "crates/tdmcp-diagnostics", version = "0.3.0" }
+tdmcp-ipc = { path = "crates/tdmcp-ipc", version = "0.3.0" }
+tdmcp-mcp = { path = "crates/tdmcp-mcp", version = "0.3.0" }
+tdmcp-projectio = { path = "crates/tdmcp-projectio", version = "0.3.0" }
+tdmcp-dialogs = { path = "crates/tdmcp-dialogs", version = "0.3.0" }
+tdmcp-gui = { path = "crates/tdmcp-gui", version = "0.3.0" }
+tdmcp-test-support = { path = "crates/tdmcp-test-support", version = "0.3.0" }
 
 anyhow = "1"
 async-trait = "0.1"
@@ -82,7 +82,7 @@ schemars = { version = "1", features = ["chrono04"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_path_to_error = "0.1.20"
-serde_yaml = "0.9"
+serde_yaml = { package = "yaml_serde", version = "0.10.7" }
 image = { version = "0.25", default-features = false, features = ["png"] }
 notify-rust = "4"
 thiserror = "2"

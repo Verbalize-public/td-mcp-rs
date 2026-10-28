@@ -6,24 +6,22 @@
 //! itself never panics: every fallible step degrades to "no report".
 
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use chrono::Local;
 
 use crate::logring::LogRing;
 
-/// Newest reports kept in `{data_dir}/crash`; older ones pruned on each write.
-const KEEP_REPORTS: usize = 10;
-
-/// Recent ring lines appended to every report (tail of the in-memory ring).
-const TAIL_LINES: usize = 30;
+static REPORT_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 /// Install the process-wide panic hook writing reports into `{data_dir}/crash`.
 ///
 /// Call once early in `main`, before worker threads spawn, so panics on any
 /// thread (daemon runtime, GUI render) are captured into the same directory.
-pub fn install(data_dir: &Path, ring: Option<Arc<LogRing>>) {
+pub fn install(data_dir: &Path, ring: Option<Arc<LogRing>>, max_reports: usize, tail_lines: usize) {
     let dir = crash_dir(data_dir);
     std::panic::set_hook(Box::new(move |info: &std::panic::PanicHookInfo<'_>| {
         let payload = info.payload();
@@ -37,7 +35,7 @@ pub fn install(data_dir: &Path, ring: Option<Arc<LogRing>>) {
             location: info.location().map(|l| l.to_string()),
             backtrace: format!("{}", std::backtrace::Backtrace::force_capture()),
         };
-        let _ = write_report(&dir, ring.clone(), &report);
+        let _ = write_report(&dir, ring.clone(), &report, max_reports, tail_lines);
     }));
 }
 
@@ -65,17 +63,41 @@ pub fn write_report(
     dir: &Path,
     ring: Option<Arc<LogRing>>,
     report: &Report,
+    max_reports: usize,
+    tail_lines: usize,
 ) -> std::io::Result<PathBuf> {
     fs::create_dir_all(dir)?;
     // Filename-encoded timestamp sorts lexicographically, which the prune
     // relies on — keep this format stable.
     let now = Local::now();
-    let name = format!(
-        "crash-{}-p{}.log",
-        now.format("%Y%m%d-%H%M%S%.3f"),
-        std::process::id()
-    );
-    let path = dir.join(name);
+    let mut reserved = None;
+    for _ in 0..16 {
+        let name = format!(
+            "crash-{}-p{}-{:020}.log",
+            now.format("%Y%m%d-%H%M%S%.9f"),
+            std::process::id(),
+            REPORT_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        );
+        let path = dir.join(name);
+        match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+        {
+            Ok(file) => {
+                reserved = Some((path, file));
+                break;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        }
+    }
+    let Some((path, mut file)) = reserved else {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            "crash filename collisions",
+        ));
+    };
 
     let thread_name = std::thread::current()
         .name()
@@ -96,42 +118,65 @@ pub fn write_report(
     text.push_str("\n--- backtrace ---\n");
     text.push_str(&report.backtrace);
 
-    if let Some(ring) = ring {
-        let (records, _) = ring.snapshot_after(0, usize::MAX, None, &[]);
-        text.push_str(&format!("\n--- recent log (last {TAIL_LINES}) ---\n"));
-        for r in records.iter().rev().take(TAIL_LINES).rev() {
+    if let Some(records) = ring.and_then(|ring| ring.try_tail(tail_lines)) {
+        text.push_str(&format!("\n--- recent log (last {tail_lines}) ---\n"));
+        for r in records.iter().rev().take(tail_lines).rev() {
             text.push_str(&crate::record_to_line(r));
             text.push('\n');
         }
     }
 
-    fs::write(&path, text)?;
-    prune(dir);
+    file.write_all(text.as_bytes())?;
+    drop(file);
+    prune(dir, max_reports, &path);
     Ok(path)
 }
 
-/// Keep only the newest [`KEEP_REPORTS`] reports (filename timestamp order).
-fn prune(dir: &Path) {
+/// Keep newest recognized reports; zero disables cleanup.
+fn prune(dir: &Path, max_reports: usize, current: &Path) {
+    if max_reports == 0 {
+        return;
+    }
     let Ok(entries) = fs::read_dir(dir) else {
         return;
     };
     let mut files: Vec<PathBuf> = entries
         .flatten()
+        .filter(|e| e.file_type().is_ok_and(|kind| kind.is_file()))
         .map(|e| e.path())
         .filter(|p| {
             p.file_name()
                 .and_then(|n| n.to_str())
-                .is_some_and(|n| n.starts_with("crash-") && n.ends_with(".log"))
+                .is_some_and(is_report_name)
         })
         .collect();
-    if files.len() <= KEEP_REPORTS {
+    if files.len() <= max_reports {
         return;
     }
     files.sort_unstable(); // timestamp-prefixed names sort oldest-first
-    let stale_count = files.len() - KEEP_REPORTS;
+    let stale_count = files.len() - max_reports;
     for stale in files.into_iter().take(stale_count) {
-        let _ = fs::remove_file(stale);
+        if stale != current {
+            let _ = fs::remove_file(stale);
+        }
     }
+}
+
+fn is_report_name(name: &str) -> bool {
+    let Some(body) = name
+        .strip_prefix("crash-")
+        .and_then(|n| n.strip_suffix(".log"))
+    else {
+        return false;
+    };
+    let Some((stamp, owner)) = body.split_once("-p") else {
+        return false;
+    };
+    chrono::NaiveDateTime::parse_from_str(stamp, "%Y%m%d-%H%M%S%.f").is_ok()
+        && owner.split('-').count() <= 2
+        && owner
+            .split('-')
+            .all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()))
 }
 
 #[cfg(test)]
@@ -152,7 +197,7 @@ mod tests {
     #[test]
     fn write_report_writes_markers() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let path = write_report(dir.path(), None, &sample("boom")).expect("write");
+        let path = write_report(dir.path(), None, &sample("boom"), 500, 200).expect("write");
         assert!(path.file_name().is_some_and(|n| {
             let n = n.to_string_lossy();
             n.starts_with("crash-") && n.ends_with(".log") && n.contains("-p")
@@ -171,12 +216,12 @@ mod tests {
             let name = format!("crash-20260101-0000{:02}.000-p1.log", i);
             std::fs::write(dir.path().join(name), "x").expect("seed");
         }
-        write_report(dir.path(), None, &sample("latest")).expect("write");
+        write_report(dir.path(), None, &sample("latest"), 10, 200).expect("write");
         let remaining: Vec<_> = fs::read_dir(dir.path())
             .expect("readdir")
             .collect::<Result<Vec<_>, _>>()
             .expect("entries");
-        assert_eq!(remaining.len(), KEEP_REPORTS);
+        assert_eq!(remaining.len(), 10);
         // Oldest seeds pruned; exactly one freshly written report survives.
         let names: Vec<String> = remaining
             .iter()
@@ -189,10 +234,55 @@ mod tests {
     }
 
     #[test]
+    fn report_contains_only_configured_recent_context() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let ring = Arc::new(LogRing::new(256));
+        for i in 0..230 {
+            ring.push(crate::logrecord::Record {
+                seq: 0,
+                ts: String::new(),
+                level: crate::logrecord::Level::Info,
+                src: crate::logrecord::Src::Daemon,
+                pid: 1,
+                target: "test".into(),
+                msg: format!("context-{i:03}"),
+                code: None,
+                kvs: Default::default(),
+            });
+        }
+        let path =
+            write_report(dir.path(), Some(ring.clone()), &sample("tail"), 500, 200).expect("write");
+        let text = fs::read_to_string(path).expect("read");
+        assert!(!text.contains("context-029"));
+        assert!(text.contains("context-030"));
+        assert!(text.contains("context-229"));
+        let path = write_report(dir.path(), Some(ring), &sample("no tail"), 500, 0).expect("write");
+        assert!(!fs::read_to_string(path).expect("read").contains("context-"));
+    }
+
+    #[test]
+    fn concurrent_reports_are_unique_and_zero_disables_pruning() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::thread::scope(|scope| {
+            for _ in 0..32 {
+                scope.spawn(|| {
+                    write_report(dir.path(), None, &sample("parallel"), 0, 0).expect("write");
+                });
+            }
+        });
+        assert_eq!(fs::read_dir(dir.path()).expect("entries").count(), 32);
+        fs::write(dir.path().join("crash-personal.log"), "keep").expect("unrelated");
+        let latest = write_report(dir.path(), None, &sample("latest"), 1, 0).expect("write");
+        assert!(latest.exists());
+        assert!(dir.path().join("crash-personal.log").exists());
+        assert_eq!(fs::read_dir(dir.path()).expect("entries").count(), 2);
+    }
+
+    #[test]
     fn hook_fires_and_writes_report() {
         let dir = tempfile::tempdir().expect("tempdir");
         let prev = std::panic::take_hook();
-        install(dir.path(), None);
+        install(dir.path(), None, 500, 200);
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             // panic_any, not panic!: clippy::panic is deny-listed even in
             // tests, and this test's whole job is to raise a real panic.

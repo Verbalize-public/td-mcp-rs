@@ -223,6 +223,8 @@ fn main() -> Result<()> {
             tdmcp_daemon::crashreport::install(
                 &cfg.data_dir,
                 Some(log_handles.sink.ring().clone()),
+                cfg.file.logging.crash_max_reports as usize,
+                cfg.file.logging.crash_tail_lines as usize,
             );
             start_daemon(cfg, log_handles.sink.clone())?;
             // The buffered file writer flushes when the guard drops; keep it
@@ -1171,6 +1173,7 @@ async fn run_daemon(
         cfg.logging_dir.clone(),
         cfg.data_dir.clone(),
         cfg.logging_retention_days,
+        cfg.logging_max_files,
         shutdown.clone(),
     ));
 

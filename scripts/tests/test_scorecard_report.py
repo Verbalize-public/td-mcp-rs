@@ -11,6 +11,8 @@ from __future__ import annotations
 import importlib.util
 import json
 import sys
+import tempfile
+from contextlib import contextmanager
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -26,6 +28,19 @@ SCORECARD = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = SCORECARD
 SPEC.loader.exec_module(SCORECARD)
 REPO = SCORECARD.REPO
+
+
+@contextmanager
+def synthetic_study():
+    with tempfile.TemporaryDirectory(dir=REPO) as directory:
+        root = Path(directory)
+        (root / "projection.json").write_text(json.dumps({"totals": {
+            "original_chars": 1000, "ref_front_chars": 100,
+            "simulated_read_all_chars": 1200, "simulated_pages": 3}}))
+        (root / "delta.json").write_text(json.dumps({"pairs": 2}))
+        with mock.patch.object(SCORECARD, "PROJECTION_STUDY", root / "projection.json"), \
+             mock.patch.object(SCORECARD, "DELTA_STUDY", root / "delta.json"):
+            yield
 
 
 class TheFourScorecardsAreTheShape(unittest.TestCase):
@@ -166,9 +181,9 @@ class TheProjectionCardCountsTheCostOfReassembly(unittest.TestCase):
         self.assertIn("denominator", str(caught.exception))
 
     def test_the_read_all_cost_is_reported_beside_the_saving(self):
-        card = SCORECARD.projections_scorecard()
-        if not card["measured"]:
-            self.skipTest("the private study is not in this checkout")
+        with synthetic_study():
+            card = SCORECARD.projections_scorecard()
+        self.assertTrue(card["measured"])
         self.assertIsNotNone(card["simulatedReadAllChars"])
         self.assertIn("only cheaper if", card["readAllNote"])
         self.assertGreater(card["simulatedReadAllChars"], card["referenceFrontChars"])
@@ -288,18 +303,30 @@ class TheAdmissionFreezeIsAFloorNotACeiling(unittest.TestCase):
 
 
 class TheReportRefusesToLookComplete(unittest.TestCase):
-    def test_the_shipped_set_measures_all_four(self):
-        report = SCORECARD.build_report(
-            SCORECARD.DEFAULT_DUMP, SCORECARD.WORKFLOW.GUIDANCE.DEFAULT_FIXTURES
-        )
+    def test_synthetic_study_completes_all_four(self):
+        with synthetic_study():
+            report = SCORECARD.build_report(
+                SCORECARD.DEFAULT_DUMP, SCORECARD.WORKFLOW.GUIDANCE.DEFAULT_FIXTURES
+            )
         self.assertTrue(report["ok"], report["unmeasuredScorecards"])
         self.assertEqual([], report["unmeasuredScorecards"])
         self.assertEqual(4, len(report["scorecards"]))
 
+    def test_missing_private_inputs_leave_report_explicitly_incomplete(self):
+        with mock.patch.object(SCORECARD, "PROJECTION_STUDY", REPO / "no-such-study.json"):
+            report = SCORECARD.build_report(SCORECARD.DEFAULT_DUMP,
+                SCORECARD.WORKFLOW.GUIDANCE.DEFAULT_FIXTURES, require_all=False)
+            self.assertFalse(report["ok"])
+            self.assertIn("projections", report["unmeasuredScorecards"])
+            with self.assertRaises(SCORECARD.ScorecardError):
+                SCORECARD.build_report(SCORECARD.DEFAULT_DUMP,
+                    SCORECARD.WORKFLOW.GUIDANCE.DEFAULT_FIXTURES)
+
     def test_it_states_what_it_is_not_claiming(self):
-        report = SCORECARD.build_report(
-            SCORECARD.DEFAULT_DUMP, SCORECARD.WORKFLOW.GUIDANCE.DEFAULT_FIXTURES
-        )
+        with synthetic_study():
+            report = SCORECARD.build_report(
+                SCORECARD.DEFAULT_DUMP, SCORECARD.WORKFLOW.GUIDANCE.DEFAULT_FIXTURES
+            )
         for claim in ("model token A/B significance", "agent task-acceptance rate"):
             self.assertIn(claim, report["notClaimed"])
 

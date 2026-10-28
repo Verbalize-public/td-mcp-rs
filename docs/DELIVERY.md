@@ -111,3 +111,23 @@ Upgrading from an earlier version: [Migrating to v0.2.0](MIGRATION.md).
 
 Bootstrap changes need [live TD repacking](../scripts/pack_bootstrap_tox.md).
 Skill changes need [checked-in rendering](../skills/README.md).
+
+## Manual releases
+
+Run the Release workflow on the intended ref and enter its full commit SHA.
+Choose `build-only` to retain qualified artifacts without a release, `draft`
+(the default) to stage one, or `publish` to publish it. The workspace version
+must match its immutable `v<version>` tag; existing tags are never moved.
+
+Shared source checks precede native qualification on Linux x64, Windows x64
+MSVC, macOS ARM64 and macOS Intel. Each target runs dependency checks, native
+Rust tests, packaging and an extracted-package MCP smoke test. Successful
+platforms can publish independently; release notes prominently name missing
+platforms and an issue records each failure. No qualified platforms means no
+publication. Failed-job logs and available artifacts are retained for 90 days.
+
+Rerun failed jobs in the same run to reuse the exact source commit. Qualification
+manifests bind files and hashes to that commit. Existing archive assets must
+match byte-for-byte; only the aggregate checksum file and release notes are
+updated. Unsigned archives/installers need no signing credentials; macOS ad-hoc
+signatures are not Developer ID signatures or notarization.

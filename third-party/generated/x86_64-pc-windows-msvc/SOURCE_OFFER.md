@@ -1,7 +1,7 @@
 # Third-party source availability and relinking
 
 Release target: `x86_64-pc-windows-msvc`  
-Cargo.lock SHA-256: `62ce27ac07108e5b974a57f778470f2c904a755464ee2f5d2b392c5e7d06bc14`
+Cargo.lock SHA-256: `f05d0c55b07e94a540e2426eea2ee590f68e42ddc408a49c239cb565fe2d3c31`
 
 `inventory.json` records the exact version, registry identity, Cargo.lock
 checksum, upstream source URL, and preserved notice files for every

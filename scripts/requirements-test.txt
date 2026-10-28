@@ -1,3 +1,4 @@
 # Test-only dependencies; not embedded in or required by the shipped daemon.
 pytest>=8,<10
 jsonschema==4.26.0
+tiktoken>=0.12,<1

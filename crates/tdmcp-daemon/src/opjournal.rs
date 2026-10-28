@@ -339,7 +339,7 @@ pub struct SqliteOperationJournal {
     config: JournalConfig,
     /// Held for the lifetime of the journal so the OS releases the lock when
     /// the process exits, including on an unclean exit.
-    _writer_lock: File,
+    _writer_lock: Option<File>,
 }
 
 impl std::fmt::Debug for SqliteOperationJournal {
@@ -437,7 +437,7 @@ impl SqliteOperationJournal {
         let journal = Self {
             connection: Mutex::new(connection),
             config,
-            _writer_lock: writer_lock,
+            _writer_lock: Some(writer_lock),
         };
         // Recovery runs before the journal is handed out, so the first caller
         // after a crash already sees uncertain receipts rather than receipts
@@ -472,7 +472,7 @@ impl SqliteOperationJournal {
         Ok(Self {
             connection: Mutex::new(connection),
             config,
-            _writer_lock: File::open("/dev/null").map_err(io_error)?,
+            _writer_lock: None,
         })
     }
 
@@ -2008,6 +2008,16 @@ mod tests {
         "op_v1".to_owned()
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn disk_journal_explicitly_reports_unsupported_permissions() {
+        let directory = tempfile::tempdir().unwrap();
+        assert!(matches!(
+            SqliteOperationJournal::open(directory.path(), config()),
+            Err(EvidenceError::UnsupportedPlatform(_))
+        ));
+    }
+
     #[cfg(unix)]
     #[test]
     fn an_older_journal_is_migrated_without_losing_its_unobserved_receipts() {
@@ -2262,6 +2272,7 @@ mod tests {
         wait_expiry_contract(&SqliteOperationJournal::open_memory(config()).unwrap());
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_restart_turns_an_expired_wait_into_an_unknown_effect_rather_than_replaying_it() {
         let root = temp_root("wait-expiry-restart");

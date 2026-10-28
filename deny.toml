@@ -28,11 +28,11 @@ exceptions = [
   # Public-domain dedication; canonical CC0 text is included in notices.
   { crate = "hexf-parse@0.2.1", allow = ["CC0-1.0"] },
   # Linux status-notifier support; upstream UNLICENSE is preserved.
-  { crate = "ksni@0.3.6", allow = ["Unlicense"] },
+  { crate = "ksni@0.3.7", allow = ["Unlicense"] },
   # Directory discovery; exact unmodified source is shipped with the MPL text.
   { crate = "option-ext@0.2.0", allow = ["MPL-2.0"] },
   # Windows clipboard support; Boost license text is preserved per package.
-  { crate = "clipboard-win@5.4.1", allow = ["BSL-1.0"] },
+  { crate = "clipboard-win@5.4.3", allow = ["BSL-1.0"] },
   { crate = "error-code@3.3.2", allow = ["BSL-1.0"] },
 ]
 
@@ -43,6 +43,14 @@ wildcards = "deny"
 [advisories]
 version = 2
 yanked = "deny"
+# zbus 5 consumers (ksni, notifications, AccessKit/AT-SPI) have not migrated
+# to the merged zbus 6 API. Maintenance-only; no vulnerability exceptions.
+# Remove with https://github.com/Verbalize-public/td-mcp-rs/issues/7
+ignore = [
+  "RUSTSEC-2026-0370", # zvariant merged into zbus::wire
+  "RUSTSEC-2026-0371", # zbus_names merged into zbus
+  "RUSTSEC-2026-0372", # zvariant_derive merged into zbus
+]
 
 [sources]
 unknown-registry = "deny"

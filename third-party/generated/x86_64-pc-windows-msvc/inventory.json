@@ -1,5 +1,5 @@
 {
-  "cargoLockSha256": "62ce27ac07108e5b974a57f778470f2c904a755464ee2f5d2b392c5e7d06bc14",
+  "cargoLockSha256": "f05d0c55b07e94a540e2426eea2ee590f68e42ddc408a49c239cb565fe2d3c31",
   "dependencyKinds": [
     "normal"
   ],
@@ -1016,7 +1016,7 @@
       "authors": [
         "Douman <douman@gmx.se>"
       ],
-      "cargoLockChecksum": "bde03770d3df201d4fb868f2c9c59e66a3e4e2bd06692a0fe701e7103c7e84d4",
+      "cargoLockChecksum": "052af7878466feccda12ba7a6a67d019d712f296809559b47c12c8cc196d3a9a",
       "license": "BSL-1.0",
       "licenseFiles": [
         {
@@ -1029,8 +1029,8 @@
       "name": "clipboard-win",
       "repository": "https://github.com/DoumanAsh/clipboard-win",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "sourceUrl": "https://crates.io/api/v1/crates/clipboard-win/5.4.1/download",
-      "version": "5.4.1"
+      "sourceUrl": "https://crates.io/api/v1/crates/clipboard-win/5.4.3/download",
+      "version": "5.4.3"
     },
     {
       "authors": [
@@ -3438,6 +3438,27 @@
       "version": "0.38.2"
     },
     {
+      "authors": [
+        "David Tolnay <dtolnay@gmail.com>",
+        "YAML Organization <noreply@yaml.org>"
+      ],
+      "cargoLockChecksum": "2e126dda6f34391ab7b444f9922055facc83c07a910da3eb16f1e4d9c45dc777",
+      "license": "MIT",
+      "licenseFiles": [
+        {
+          "origin": "package",
+          "originalPath": "LICENSE-MIT",
+          "packagedPath": "licenses/23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt",
+          "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3"
+        }
+      ],
+      "name": "libyaml-rs",
+      "repository": "https://github.com/yaml/libyaml-rs",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "sourceUrl": "https://crates.io/api/v1/crates/libyaml-rs/0.3.0/download",
+      "version": "0.3.0"
+    },
+    {
       "authors": [],
       "cargoLockChecksum": "d4a5ff6bcca6c4867b1c4fd4ef63e4db7436ef363e0ad7531d1558856bae64f4",
       "license": "Apache-2.0 OR MIT",
@@ -3890,7 +3911,7 @@
       "authors": [
         "Hendrik Sollich <hendrik@hoodie.de>"
       ],
-      "cargoLockChecksum": "c5b4c1b4f2aa9f25f63a7a49d3dd0ed567b3670da15330a66b29434be899b891",
+      "cargoLockChecksum": "4587364a9a0074333429b3df75a30a205340c56a536ca3eb6ca0e59b87bbf8af",
       "license": "MIT OR Apache-2.0",
       "licenseFiles": [
         {
@@ -3909,8 +3930,8 @@
       "name": "notify-rust",
       "repository": "https://github.com/hoodie/notify-rust",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "sourceUrl": "https://crates.io/api/v1/crates/notify-rust/4.18.0/download",
-      "version": "4.18.0"
+      "sourceUrl": "https://crates.io/api/v1/crates/notify-rust/4.18.2/download",
+      "version": "4.18.2"
     },
     {
       "authors": [
@@ -4853,7 +4874,7 @@
       "authors": [
         "Poly <marynczak.bartlomiej@gmail.com>"
       ],
-      "cargoLockChecksum": "25a73a7337fc24366edfca76ec521f51877b114e42dab584008209cca6719251",
+      "cargoLockChecksum": "20dafead71c16a34e1ff357ddefc8afc11e7d51d6d2b9fbd07eaa48e3e540220",
       "license": "MIT",
       "licenseFiles": [
         {
@@ -4861,13 +4882,19 @@
           "originalPath": "LICENSE",
           "packagedPath": "licenses/65fc947f4bac882a2cd104ef73c246b1b037059df9f2b3a58b7f77f0b9e56071.txt",
           "sha256": "65fc947f4bac882a2cd104ef73c246b1b037059df9f2b3a58b7f77f0b9e56071"
+        },
+        {
+          "origin": "package",
+          "originalPath": "src/backend/xdg_desktop_portal/window_identifier/LICENSE",
+          "packagedPath": "licenses/ae26bc7b1bc91fb8648f6a298decbb1a77090a56c9d04e2c23b8365e5f54acb5.txt",
+          "sha256": "ae26bc7b1bc91fb8648f6a298decbb1a77090a56c9d04e2c23b8365e5f54acb5"
         }
       ],
       "name": "rfd",
       "repository": "https://github.com/PolyMeilex/rfd",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "sourceUrl": "https://crates.io/api/v1/crates/rfd/0.14.1/download",
-      "version": "0.14.1"
+      "sourceUrl": "https://crates.io/api/v1/crates/rfd/0.17.2/download",
+      "version": "0.17.2"
     },
     {
       "authors": [],
@@ -4961,7 +4988,7 @@
     },
     {
       "authors": [],
-      "cargoLockChecksum": "0d41d731c7d2f962d1ccc364cec258de3c0e93b38c2fb3ba97ac74513048d634",
+      "cargoLockChecksum": "48e13bd8c0e9365c43cfa5c9e8f9ad49d3c8444926c9aac819e0e4dc503c8fdf",
       "license": "Apache-2.0 OR ISC OR MIT",
       "licenseFiles": [
         {
@@ -4986,8 +5013,8 @@
       "name": "rustls",
       "repository": "https://github.com/rustls/rustls",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "sourceUrl": "https://crates.io/api/v1/crates/rustls/0.23.45/download",
-      "version": "0.23.45"
+      "sourceUrl": "https://crates.io/api/v1/crates/rustls/0.23.46/download",
+      "version": "0.23.46"
     },
     {
       "authors": [],
@@ -5039,7 +5066,7 @@
     },
     {
       "authors": [],
-      "cargoLockChecksum": "f3c3cf1d8b1e7d4927e2d154c3fcb02979afb9939629c62cd9048d4f07b60ac2",
+      "cargoLockChecksum": "4443b1b6d39d7c663139942cc4558262562d2c84123bb6282ef177009ca8b281",
       "license": "ISC",
       "licenseFiles": [
         {
@@ -5052,8 +5079,8 @@
       "name": "rustls-webpki",
       "repository": "https://github.com/rustls/webpki",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "sourceUrl": "https://crates.io/api/v1/crates/rustls-webpki/0.103.15/download",
-      "version": "0.103.15"
+      "sourceUrl": "https://crates.io/api/v1/crates/rustls-webpki/0.103.16/download",
+      "version": "0.103.16"
     },
     {
       "authors": [
@@ -5383,32 +5410,6 @@
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "sourceUrl": "https://crates.io/api/v1/crates/serde_urlencoded/0.7.1/download",
       "version": "0.7.1"
-    },
-    {
-      "authors": [
-        "David Tolnay <dtolnay@gmail.com>"
-      ],
-      "cargoLockChecksum": "6a8b1a1a2ebf674015cc02edccce75287f1a0130d394307b36743c2f5d504b47",
-      "license": "MIT OR Apache-2.0",
-      "licenseFiles": [
-        {
-          "origin": "package",
-          "originalPath": "LICENSE-APACHE",
-          "packagedPath": "licenses/62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a.txt",
-          "sha256": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a"
-        },
-        {
-          "origin": "package",
-          "originalPath": "LICENSE-MIT",
-          "packagedPath": "licenses/23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt",
-          "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3"
-        }
-      ],
-      "name": "serde_yaml",
-      "repository": "https://github.com/dtolnay/serde-yaml",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "sourceUrl": "https://crates.io/api/v1/crates/serde_yaml/0.9.34+deprecated/download",
-      "version": "0.9.34+deprecated"
     },
     {
       "authors": [
@@ -5868,7 +5869,7 @@
         "allenbenz",
         "Tauri Programme within The Commons Conservancy"
       ],
-      "cargoLockChecksum": "9ed071c670382e85fc2f48ae706492d8c338f4f89bf72520d32f8abfe880aade",
+      "cargoLockChecksum": "f37a6c354fd28fc9e322ed9bd47e3959576dad28c9d58ea1cf888cce1c7ccb36",
       "license": "MIT OR Apache-2.0",
       "licenseFiles": [
         {
@@ -5893,8 +5894,8 @@
       "name": "tauri-winrt-notification",
       "repository": "https://github.com/tauri-apps/winrt-notification",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "sourceUrl": "https://crates.io/api/v1/crates/tauri-winrt-notification/0.7.3/download",
-      "version": "0.7.3"
+      "sourceUrl": "https://crates.io/api/v1/crates/tauri-winrt-notification/0.8.1/download",
+      "version": "0.8.1"
     },
     {
       "authors": [
@@ -6081,7 +6082,7 @@
       "authors": [
         "Tokio Contributors <team@tokio.rs>"
       ],
-      "cargoLockChecksum": "202caea871b69668250d242070849eb495be178ed697a3e98aebce5bc81a0bed",
+      "cargoLockChecksum": "b52fd3255258d26fac7264ab5a76b53c13367136dc011d3d6ad4f8ed070396a3",
       "license": "MIT",
       "licenseFiles": [
         {
@@ -6094,8 +6095,8 @@
       "name": "tokio",
       "repository": "https://github.com/tokio-rs/tokio",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "sourceUrl": "https://crates.io/api/v1/crates/tokio/1.53.1/download",
-      "version": "1.53.1"
+      "sourceUrl": "https://crates.io/api/v1/crates/tokio/1.54.1/download",
+      "version": "1.54.1"
     },
     {
       "authors": [
@@ -6691,26 +6692,6 @@
     },
     {
       "authors": [
-        "David Tolnay <dtolnay@gmail.com>"
-      ],
-      "cargoLockChecksum": "673aac59facbab8a9007c7f6108d11f63b603f7cabff99fabf650fea5c32b861",
-      "license": "MIT",
-      "licenseFiles": [
-        {
-          "origin": "package",
-          "originalPath": "LICENSE-MIT",
-          "packagedPath": "licenses/23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt",
-          "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3"
-        }
-      ],
-      "name": "unsafe-libyaml",
-      "repository": "https://github.com/dtolnay/unsafe-libyaml",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "sourceUrl": "https://crates.io/api/v1/crates/unsafe-libyaml/0.2.11/download",
-      "version": "0.2.11"
-    },
-    {
-      "authors": [
         "Brian Smith <brian@briansmith.org>"
       ],
       "cargoLockChecksum": "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1",
@@ -7175,32 +7156,6 @@
       "version": "0.58.0"
     },
     {
-      "authors": [
-        "Microsoft"
-      ],
-      "cargoLockChecksum": "9babd3a767a4c1aef6900409f85f5d53ce2544ccdfaa86dad48c91782c6d6893",
-      "license": "MIT OR Apache-2.0",
-      "licenseFiles": [
-        {
-          "origin": "package",
-          "originalPath": "license-apache-2.0",
-          "packagedPath": "licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt",
-          "sha256": "c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b"
-        },
-        {
-          "origin": "package",
-          "originalPath": "license-mit",
-          "packagedPath": "licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt",
-          "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
-        }
-      ],
-      "name": "windows",
-      "repository": "https://github.com/microsoft/windows-rs",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "sourceUrl": "https://crates.io/api/v1/crates/windows/0.61.3/download",
-      "version": "0.61.3"
-    },
-    {
       "authors": [],
       "cargoLockChecksum": "527fadee13e0c05939a6a05d5bd6eec6cd2e3dbd648b9f8e447c6518133d8580",
       "license": "MIT OR Apache-2.0",
@@ -7223,30 +7178,6 @@
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "sourceUrl": "https://crates.io/api/v1/crates/windows/0.62.2/download",
       "version": "0.62.2"
-    },
-    {
-      "authors": [],
-      "cargoLockChecksum": "3beeceb5e5cfd9eb1d76b381630e82c4241ccd0d27f1a39ed41b2760b255c5e8",
-      "license": "MIT OR Apache-2.0",
-      "licenseFiles": [
-        {
-          "origin": "package",
-          "originalPath": "license-apache-2.0",
-          "packagedPath": "licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt",
-          "sha256": "c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b"
-        },
-        {
-          "origin": "package",
-          "originalPath": "license-mit",
-          "packagedPath": "licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt",
-          "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
-        }
-      ],
-      "name": "windows-collections",
-      "repository": "https://github.com/microsoft/windows-rs",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "sourceUrl": "https://crates.io/api/v1/crates/windows-collections/0.2.0/download",
-      "version": "0.2.0"
     },
     {
       "authors": [],
@@ -7299,32 +7230,6 @@
       "version": "0.58.0"
     },
     {
-      "authors": [
-        "Microsoft"
-      ],
-      "cargoLockChecksum": "c0fdd3ddb90610c7638aa2b3a3ab2904fb9e5cdbecc643ddb3647212781c4ae3",
-      "license": "MIT OR Apache-2.0",
-      "licenseFiles": [
-        {
-          "origin": "package",
-          "originalPath": "license-apache-2.0",
-          "packagedPath": "licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt",
-          "sha256": "c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b"
-        },
-        {
-          "origin": "package",
-          "originalPath": "license-mit",
-          "packagedPath": "licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt",
-          "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
-        }
-      ],
-      "name": "windows-core",
-      "repository": "https://github.com/microsoft/windows-rs",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "sourceUrl": "https://crates.io/api/v1/crates/windows-core/0.61.2/download",
-      "version": "0.61.2"
-    },
-    {
       "authors": [],
       "cargoLockChecksum": "b8e83a14d34d0623b51dce9581199302a221863196a1dde71a7663a4c2be9deb",
       "license": "MIT OR Apache-2.0",
@@ -7347,30 +7252,6 @@
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "sourceUrl": "https://crates.io/api/v1/crates/windows-core/0.62.2/download",
       "version": "0.62.2"
-    },
-    {
-      "authors": [],
-      "cargoLockChecksum": "fc6a41e98427b19fe4b73c550f060b59fa592d7d686537eebf9385621bfbad8e",
-      "license": "MIT OR Apache-2.0",
-      "licenseFiles": [
-        {
-          "origin": "package",
-          "originalPath": "license-apache-2.0",
-          "packagedPath": "licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt",
-          "sha256": "c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b"
-        },
-        {
-          "origin": "package",
-          "originalPath": "license-mit",
-          "packagedPath": "licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt",
-          "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
-        }
-      ],
-      "name": "windows-future",
-      "repository": "https://github.com/microsoft/windows-rs",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "sourceUrl": "https://crates.io/api/v1/crates/windows-future/0.2.1/download",
-      "version": "0.2.1"
     },
     {
       "authors": [],
@@ -7497,32 +7378,6 @@
       "version": "0.59.3"
     },
     {
-      "authors": [
-        "Microsoft"
-      ],
-      "cargoLockChecksum": "5e6ad25900d524eaabdbbb96d20b4311e1e7ae1699af4fb28c17ae66c80d798a",
-      "license": "MIT OR Apache-2.0",
-      "licenseFiles": [
-        {
-          "origin": "package",
-          "originalPath": "license-apache-2.0",
-          "packagedPath": "licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt",
-          "sha256": "c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b"
-        },
-        {
-          "origin": "package",
-          "originalPath": "license-mit",
-          "packagedPath": "licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt",
-          "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
-        }
-      ],
-      "name": "windows-link",
-      "repository": "https://github.com/microsoft/windows-rs",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "sourceUrl": "https://crates.io/api/v1/crates/windows-link/0.1.3/download",
-      "version": "0.1.3"
-    },
-    {
       "authors": [],
       "cargoLockChecksum": "f0805222e57f7521d6a62e36fa9163bc891acd422f971defe97d64e70d0a4fe5",
       "license": "MIT OR Apache-2.0",
@@ -7545,30 +7400,6 @@
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "sourceUrl": "https://crates.io/api/v1/crates/windows-link/0.2.1/download",
       "version": "0.2.1"
-    },
-    {
-      "authors": [],
-      "cargoLockChecksum": "9150af68066c4c5c07ddc0ce30421554771e528bde427614c61038bc2c92c2b1",
-      "license": "MIT OR Apache-2.0",
-      "licenseFiles": [
-        {
-          "origin": "package",
-          "originalPath": "license-apache-2.0",
-          "packagedPath": "licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt",
-          "sha256": "c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b"
-        },
-        {
-          "origin": "package",
-          "originalPath": "license-mit",
-          "packagedPath": "licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt",
-          "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
-        }
-      ],
-      "name": "windows-numerics",
-      "repository": "https://github.com/microsoft/windows-rs",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "sourceUrl": "https://crates.io/api/v1/crates/windows-numerics/0.2.0/download",
-      "version": "0.2.0"
     },
     {
       "authors": [],
@@ -7645,32 +7476,6 @@
       "version": "0.2.0"
     },
     {
-      "authors": [
-        "Microsoft"
-      ],
-      "cargoLockChecksum": "56f42bd332cc6c8eac5af113fc0c1fd6a8fd2aa08a0119358686e5160d0586c6",
-      "license": "MIT OR Apache-2.0",
-      "licenseFiles": [
-        {
-          "origin": "package",
-          "originalPath": "license-apache-2.0",
-          "packagedPath": "licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt",
-          "sha256": "c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b"
-        },
-        {
-          "origin": "package",
-          "originalPath": "license-mit",
-          "packagedPath": "licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt",
-          "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
-        }
-      ],
-      "name": "windows-result",
-      "repository": "https://github.com/microsoft/windows-rs",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "sourceUrl": "https://crates.io/api/v1/crates/windows-result/0.3.4/download",
-      "version": "0.3.4"
-    },
-    {
       "authors": [],
       "cargoLockChecksum": "7781fa89eaf60850ac3d2da7af8e5242a5ea78d1a11c49bf2910bb5a73853eb5",
       "license": "MIT OR Apache-2.0",
@@ -7721,32 +7526,6 @@
       "version": "0.1.0"
     },
     {
-      "authors": [
-        "Microsoft"
-      ],
-      "cargoLockChecksum": "56e6c93f3a0c3b36176cb1327a4958a0353d5d166c2a35cb268ace15e91d3b57",
-      "license": "MIT OR Apache-2.0",
-      "licenseFiles": [
-        {
-          "origin": "package",
-          "originalPath": "license-apache-2.0",
-          "packagedPath": "licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt",
-          "sha256": "c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b"
-        },
-        {
-          "origin": "package",
-          "originalPath": "license-mit",
-          "packagedPath": "licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt",
-          "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
-        }
-      ],
-      "name": "windows-strings",
-      "repository": "https://github.com/microsoft/windows-rs",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "sourceUrl": "https://crates.io/api/v1/crates/windows-strings/0.4.2/download",
-      "version": "0.4.2"
-    },
-    {
       "authors": [],
       "cargoLockChecksum": "7837d08f69c77cf6b07689544538e017c1bfcf57e34b4c0ff58e6c2cd3b37091",
       "license": "MIT OR Apache-2.0",
@@ -7769,32 +7548,6 @@
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "sourceUrl": "https://crates.io/api/v1/crates/windows-strings/0.5.1/download",
       "version": "0.5.1"
-    },
-    {
-      "authors": [
-        "Microsoft"
-      ],
-      "cargoLockChecksum": "677d2418bec65e3338edb076e806bc1ec15693c5d0104683f2efe857f61056a9",
-      "license": "MIT OR Apache-2.0",
-      "licenseFiles": [
-        {
-          "origin": "package",
-          "originalPath": "license-apache-2.0",
-          "packagedPath": "licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt",
-          "sha256": "c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b"
-        },
-        {
-          "origin": "package",
-          "originalPath": "license-mit",
-          "packagedPath": "licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt",
-          "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
-        }
-      ],
-      "name": "windows-sys",
-      "repository": "https://github.com/microsoft/windows-rs",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "sourceUrl": "https://crates.io/api/v1/crates/windows-sys/0.48.0/download",
-      "version": "0.48.0"
     },
     {
       "authors": [
@@ -7876,32 +7629,6 @@
       "authors": [
         "Microsoft"
       ],
-      "cargoLockChecksum": "9a2fa6e2155d7247be68c096456083145c183cbbbc2764150dda45a87197940c",
-      "license": "MIT OR Apache-2.0",
-      "licenseFiles": [
-        {
-          "origin": "package",
-          "originalPath": "license-apache-2.0",
-          "packagedPath": "licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt",
-          "sha256": "c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b"
-        },
-        {
-          "origin": "package",
-          "originalPath": "license-mit",
-          "packagedPath": "licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt",
-          "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
-        }
-      ],
-      "name": "windows-targets",
-      "repository": "https://github.com/microsoft/windows-rs",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "sourceUrl": "https://crates.io/api/v1/crates/windows-targets/0.48.5/download",
-      "version": "0.48.5"
-    },
-    {
-      "authors": [
-        "Microsoft"
-      ],
       "cargoLockChecksum": "9b724f72796e036ab90c1021d4780d4d3d648aca59e491e6b98e725b84e99973",
       "license": "MIT OR Apache-2.0",
       "licenseFiles": [
@@ -7947,32 +7674,6 @@
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "sourceUrl": "https://crates.io/api/v1/crates/windows-targets/0.53.5/download",
       "version": "0.53.5"
-    },
-    {
-      "authors": [
-        "Microsoft"
-      ],
-      "cargoLockChecksum": "b66463ad2e0ea3bbf808b7f1d371311c80e115c0b71d60efc142cafbcfb057a6",
-      "license": "MIT OR Apache-2.0",
-      "licenseFiles": [
-        {
-          "origin": "package",
-          "originalPath": "license-apache-2.0",
-          "packagedPath": "licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt",
-          "sha256": "c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b"
-        },
-        {
-          "origin": "package",
-          "originalPath": "license-mit",
-          "packagedPath": "licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt",
-          "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
-        }
-      ],
-      "name": "windows-threading",
-      "repository": "https://github.com/microsoft/windows-rs",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "sourceUrl": "https://crates.io/api/v1/crates/windows-threading/0.1.0/download",
-      "version": "0.1.0"
     },
     {
       "authors": [],
@@ -8021,32 +7722,6 @@
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "sourceUrl": "https://crates.io/api/v1/crates/windows-version/0.1.7/download",
       "version": "0.1.7"
-    },
-    {
-      "authors": [
-        "Microsoft"
-      ],
-      "cargoLockChecksum": "ed94fce61571a4006852b7389a063ab983c02eb1bb37b47f8272ce92d06d9538",
-      "license": "MIT OR Apache-2.0",
-      "licenseFiles": [
-        {
-          "origin": "package",
-          "originalPath": "license-apache-2.0",
-          "packagedPath": "licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt",
-          "sha256": "c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b"
-        },
-        {
-          "origin": "package",
-          "originalPath": "license-mit",
-          "packagedPath": "licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt",
-          "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
-        }
-      ],
-      "name": "windows_x86_64_msvc",
-      "repository": "https://github.com/microsoft/windows-rs",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "sourceUrl": "https://crates.io/api/v1/crates/windows_x86_64_msvc/0.48.5/download",
-      "version": "0.48.5"
     },
     {
       "authors": [
@@ -8156,6 +7831,32 @@
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "sourceUrl": "https://crates.io/api/v1/crates/writeable/0.6.3/download",
       "version": "0.6.3"
+    },
+    {
+      "authors": [
+        "YAML Organization <noreply@yaml.org>"
+      ],
+      "cargoLockChecksum": "33b729a08a9a6be689bbad3e2bf8015926db54b6622cc89c3a5f7dc174b9e918",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        {
+          "origin": "package",
+          "originalPath": "LICENSE-APACHE",
+          "packagedPath": "licenses/62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a.txt",
+          "sha256": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a"
+        },
+        {
+          "origin": "package",
+          "originalPath": "LICENSE-MIT",
+          "packagedPath": "licenses/23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt",
+          "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3"
+        }
+      ],
+      "name": "yaml_serde",
+      "repository": "https://github.com/yaml/yaml-serde",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "sourceUrl": "https://crates.io/api/v1/crates/yaml_serde/0.10.7/download",
+      "version": "0.10.7"
     },
     {
       "authors": [
@@ -8411,8 +8112,8 @@
     }
   ],
   "rootPackage": "tdmcp-daemon",
-  "rootSourceUrl": "https://github.com/Verbalize-public/td-mcp-rs/archive/refs/tags/v0.2.0.tar.gz",
-  "rootVersion": "0.2.0",
+  "rootSourceUrl": "https://github.com/Verbalize-public/td-mcp-rs/archive/refs/tags/v0.3.0.tar.gz",
+  "rootVersion": "0.3.0",
   "schemaVersion": 1,
   "target": "x86_64-pc-windows-msvc"
 }

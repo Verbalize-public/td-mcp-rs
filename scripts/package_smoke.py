@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import tomllib
 import urllib.request
 
 from mcp_probe import McpClient
@@ -104,13 +105,16 @@ def smoke(binary, *, distribution=False):
         ipc_port = free_port()
         while ipc_port == port:
             ipc_port = free_port()
-        config.write_text(f'[server]\nport = {port}\n[daemon]\nkeep_alive = true\nshow_tray = false\n[federation]\ndaemon_id = "package-smoke-stable-id"\n', encoding="utf-8")
+        config.write_text(f'[server]\nport = {port}\n[daemon]\nkeep_alive = true\nshow_tray = false\n[federation]\ndaemon_id = "package-smoke-stable-id"\n[logging]\nmax_files = 7\nretention_days = 5\ncrash_max_reports = 9\ncrash_tail_lines = 3\n', encoding="utf-8")
         env = {k: v for k, v in os.environ.items() if not k.startswith("TDMCP_")}
         env.update(TDMCP_CONFIG_PATH=str(config), TDMCP_PORT=str(port), TDMCP_IPC_PORT=str(ipc_port), TDMCP_NO_GUI="1")
         data = root / "data"
         for _ in range(2):
             subprocess.run([binary, "install", "--force", "--data-dir", str(data)], env=env, check=True, timeout=30)
         assert 'package-smoke-stable-id' in config.read_text(encoding="utf-8"), "install reset the configuration"
+        logging = tomllib.loads(config.read_text(encoding="utf-8"))["logging"]
+        for key, value in {"max_files": 7, "retention_days": 5, "crash_max_reports": 9, "crash_tail_lines": 3}.items():
+            assert logging[key] == value, f"install reset logging.{key}"
         check_project_license(data)
         check_third_party_records(data)
         for asset in ["bootstrap.tox", "bridge/tdmcp_bridge/__init__.py", "diagnostics/catalog.yaml", "skills/touchdesigner/SKILL.md"]:

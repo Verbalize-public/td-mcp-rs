@@ -1,5 +1,5 @@
 {
-  "cargoLockSha256": "62ce27ac07108e5b974a57f778470f2c904a755464ee2f5d2b392c5e7d06bc14",
+  "cargoLockSha256": "f05d0c55b07e94a540e2426eea2ee590f68e42ddc408a49c239cb565fe2d3c31",
   "dependencyKinds": [
     "normal"
   ],
@@ -364,6 +364,32 @@
     },
     {
       "authors": [
+        "Michal 'vorner' Vaner <vorner@vorner.cz>"
+      ],
+      "cargoLockChecksum": "380962b3d93b99642e50b9febf72c071e97e8b32d86eae9cf4ef582bb960ae6e",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        {
+          "origin": "package",
+          "originalPath": "LICENSE-APACHE",
+          "packagedPath": "licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt",
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2"
+        },
+        {
+          "origin": "package",
+          "originalPath": "LICENSE-MIT",
+          "packagedPath": "licenses/ff3f1cd12af8866d9bde961d6cc40df774cd131d484de31d3170c4b02b21a7b5.txt",
+          "sha256": "ff3f1cd12af8866d9bde961d6cc40df774cd131d484de31d3170c4b02b21a7b5"
+        }
+      ],
+      "name": "arc-swap",
+      "repository": "https://github.com/vorner/arc-swap",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "sourceUrl": "https://crates.io/api/v1/crates/arc-swap/1.9.3/download",
+      "version": "1.9.3"
+    },
+    {
+      "authors": [
         "David Roundy <roundyd@physics.oregonstate.edu>"
       ],
       "cargoLockChecksum": "76a2e8124351fda1ef8aaaa3bbd7ebbcb486bbcd4225aca0aa0d84bb2db8fecb",
@@ -462,26 +488,6 @@
     },
     {
       "authors": [
-        "Bilal Elmoussaoui <bil.elmoussaoui@gmail.com>"
-      ],
-      "cargoLockChecksum": "c3af990a617932d416e83cf79e7335dd5247dcb0825995ca3274c17dab5b749d",
-      "license": "MIT",
-      "licenseFiles": [
-        {
-          "origin": "package",
-          "originalPath": "LICENSE",
-          "packagedPath": "licenses/ae26bc7b1bc91fb8648f6a298decbb1a77090a56c9d04e2c23b8365e5f54acb5.txt",
-          "sha256": "ae26bc7b1bc91fb8648f6a298decbb1a77090a56c9d04e2c23b8365e5f54acb5"
-        }
-      ],
-      "name": "ashpd",
-      "repository": "https://github.com/bilelmoussaoui/ashpd",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "sourceUrl": "https://crates.io/api/v1/crates/ashpd/0.8.2/download",
-      "version": "0.8.2"
-    },
-    {
-      "authors": [
         "Stjepan Glavina <stjepang@gmail.com>",
         "Yoshua Wuyts <yoshuawuyts@gmail.com>",
         "Zeeshan Ali Khan <zeeshanak@gnome.org>"
@@ -565,32 +571,6 @@
       "authors": [
         "Stjepan Glavina <stjepang@gmail.com>"
       ],
-      "cargoLockChecksum": "8034a681df4aed8b8edbd7fbe472401ecf009251c8b40556b304567052e294c5",
-      "license": "Apache-2.0 OR MIT",
-      "licenseFiles": [
-        {
-          "origin": "package",
-          "originalPath": "LICENSE-APACHE",
-          "packagedPath": "licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt",
-          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2"
-        },
-        {
-          "origin": "package",
-          "originalPath": "LICENSE-MIT",
-          "packagedPath": "licenses/23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt",
-          "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3"
-        }
-      ],
-      "name": "async-fs",
-      "repository": "https://github.com/smol-rs/async-fs",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "sourceUrl": "https://crates.io/api/v1/crates/async-fs/2.2.0/download",
-      "version": "2.2.0"
-    },
-    {
-      "authors": [
-        "Stjepan Glavina <stjepang@gmail.com>"
-      ],
       "cargoLockChecksum": "456b8a8feb6f42d237746d4b3e9a178494627745c3c56c6ea55d92ba50d026fc",
       "license": "Apache-2.0 OR MIT",
       "licenseFiles": [
@@ -638,32 +618,6 @@
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "sourceUrl": "https://crates.io/api/v1/crates/async-lock/3.4.2/download",
       "version": "3.4.2"
-    },
-    {
-      "authors": [
-        "Stjepan Glavina <stjepang@gmail.com>"
-      ],
-      "cargoLockChecksum": "b948000fad4873c1c9339d60f2623323a0cfd3816e5181033c6a5cb68b2accf7",
-      "license": "Apache-2.0 OR MIT",
-      "licenseFiles": [
-        {
-          "origin": "package",
-          "originalPath": "LICENSE-APACHE",
-          "packagedPath": "licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt",
-          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2"
-        },
-        {
-          "origin": "package",
-          "originalPath": "LICENSE-MIT",
-          "packagedPath": "licenses/23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt",
-          "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3"
-        }
-      ],
-      "name": "async-net",
-      "repository": "https://github.com/smol-rs/async-net",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "sourceUrl": "https://crates.io/api/v1/crates/async-net/2.0.0/download",
-      "version": "2.0.0"
     },
     {
       "authors": [
@@ -1755,6 +1709,30 @@
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "sourceUrl": "https://crates.io/api/v1/crates/crossbeam-channel/0.5.16/download",
       "version": "0.5.16"
+    },
+    {
+      "authors": [],
+      "cargoLockChecksum": "03e8bd762f7479489c70ed6c768ddca99d7296857de437a68dcb2a94365b3fae",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        {
+          "origin": "package",
+          "originalPath": "LICENSE-APACHE",
+          "packagedPath": "licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt",
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2"
+        },
+        {
+          "origin": "package",
+          "originalPath": "LICENSE-MIT",
+          "packagedPath": "licenses/5734ed989dfca1f625b40281ee9f4530f91b2411ec01cb748223e7eb87e201ab.txt",
+          "sha256": "5734ed989dfca1f625b40281ee9f4530f91b2411ec01cb748223e7eb87e201ab"
+        }
+      ],
+      "name": "crossbeam-queue",
+      "repository": "https://github.com/crossbeam-rs/crossbeam",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "sourceUrl": "https://crates.io/api/v1/crates/crossbeam-queue/0.3.14/download",
+      "version": "0.3.14"
     },
     {
       "authors": [],
@@ -3285,32 +3263,6 @@
       "authors": [
         "The Rand Project Developers"
       ],
-      "cargoLockChecksum": "ff2abc00be7fca6ebc474524697ae276ad847ad0a6b3faa4bcb027e9a4614ad0",
-      "license": "MIT OR Apache-2.0",
-      "licenseFiles": [
-        {
-          "origin": "package",
-          "originalPath": "LICENSE-APACHE",
-          "packagedPath": "licenses/aaff376532ea30a0cd5330b9502ad4a4c8bf769c539c87ffe78819d188a18ebf.txt",
-          "sha256": "aaff376532ea30a0cd5330b9502ad4a4c8bf769c539c87ffe78819d188a18ebf"
-        },
-        {
-          "origin": "package",
-          "originalPath": "LICENSE-MIT",
-          "packagedPath": "licenses/42fa16951ce7f24b5a467a40e5b449a1d41e662f97ca779864f053f39e097737.txt",
-          "sha256": "42fa16951ce7f24b5a467a40e5b449a1d41e662f97ca779864f053f39e097737"
-        }
-      ],
-      "name": "getrandom",
-      "repository": "https://github.com/rust-random/getrandom",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "sourceUrl": "https://crates.io/api/v1/crates/getrandom/0.2.17/download",
-      "version": "0.2.17"
-    },
-    {
-      "authors": [
-        "The Rand Project Developers"
-      ],
       "cargoLockChecksum": "899def5c37c4fd7b2664648c28120ecec138e4d395b459e5ca34f9cce2dd77fd",
       "license": "MIT OR Apache-2.0",
       "licenseFiles": [
@@ -4323,7 +4275,7 @@
       "authors": [
         "iovxw <iovxw@outlook.com>"
       ],
-      "cargoLockChecksum": "814b44c24cd2cb236c3b8a41c7f08237b452a8e76ecaa81f1cec40b5b678215b",
+      "cargoLockChecksum": "1bcc1cb43797140f74b711f1c4a49f48a7a7429f211c5fb78264e7bcd1e99caf",
       "license": "Unlicense",
       "licenseFiles": [
         {
@@ -4336,8 +4288,8 @@
       "name": "ksni",
       "repository": "https://github.com/iovxw/ksni",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "sourceUrl": "https://crates.io/api/v1/crates/ksni/0.3.6/download",
-      "version": "0.3.6"
+      "sourceUrl": "https://crates.io/api/v1/crates/ksni/0.3.7/download",
+      "version": "0.3.7"
     },
     {
       "authors": [],
@@ -4481,6 +4433,27 @@
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "sourceUrl": "https://crates.io/api/v1/crates/libsqlite3-sys/0.38.2/download",
       "version": "0.38.2"
+    },
+    {
+      "authors": [
+        "David Tolnay <dtolnay@gmail.com>",
+        "YAML Organization <noreply@yaml.org>"
+      ],
+      "cargoLockChecksum": "2e126dda6f34391ab7b444f9922055facc83c07a910da3eb16f1e4d9c45dc777",
+      "license": "MIT",
+      "licenseFiles": [
+        {
+          "origin": "package",
+          "originalPath": "LICENSE-MIT",
+          "packagedPath": "licenses/23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt",
+          "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3"
+        }
+      ],
+      "name": "libyaml-rs",
+      "repository": "https://github.com/yaml/libyaml-rs",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "sourceUrl": "https://crates.io/api/v1/crates/libyaml-rs/0.3.0/download",
+      "version": "0.3.0"
     },
     {
       "authors": [],
@@ -4815,26 +4788,6 @@
     },
     {
       "authors": [
-        "Gilad Naaman <gilad.naaman@gmail.com>"
-      ],
-      "cargoLockChecksum": "488016bfae457b036d996092f6cb448677611ce4449e970ceaf42695203f218a",
-      "license": "MIT",
-      "licenseFiles": [
-        {
-          "origin": "package",
-          "originalPath": "LICENSE",
-          "packagedPath": "licenses/3234ac55816264ee7b6c7ee27efd61cf0a1fe775806870e3d9b4c41ea73c5cb1.txt",
-          "sha256": "3234ac55816264ee7b6c7ee27efd61cf0a1fe775806870e3d9b4c41ea73c5cb1"
-        }
-      ],
-      "name": "memoffset",
-      "repository": "https://github.com/Gilnaa/memoffset",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "sourceUrl": "https://crates.io/api/v1/crates/memoffset/0.9.1/download",
-      "version": "0.9.1"
-    },
-    {
-      "authors": [
         "Sean McArthur <sean@seanmonstar.com>"
       ],
       "cargoLockChecksum": "6877bb514081ee2a7ff5ef9de3281f14a4dd4bceac4c09388074a6b5df8a139a",
@@ -5000,26 +4953,6 @@
       "version": "29.0.4"
     },
     {
-      "authors": [
-        "The nix-rust Project Developers"
-      ],
-      "cargoLockChecksum": "71e2746dc3a24dd78b3cfcb7be93368c6de9963d30f43a6a73998a9cf4b17b46",
-      "license": "MIT",
-      "licenseFiles": [
-        {
-          "origin": "package",
-          "originalPath": "LICENSE",
-          "packagedPath": "licenses/66e3ee1fa7f909ad3c612d556f2a0cdabcd809ad6e66f3b0605015ac64841b70.txt",
-          "sha256": "66e3ee1fa7f909ad3c612d556f2a0cdabcd809ad6e66f3b0605015ac64841b70"
-        }
-      ],
-      "name": "nix",
-      "repository": "https://github.com/nix-rust/nix",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "sourceUrl": "https://crates.io/api/v1/crates/nix/0.29.0/download",
-      "version": "0.29.0"
-    },
-    {
       "authors": [],
       "cargoLockChecksum": "cf20d2fde8ff38632c426f1165ed7436270b44f199fc55284c38276f9db47c3d",
       "license": "MIT",
@@ -5067,7 +5000,7 @@
       "authors": [
         "Hendrik Sollich <hendrik@hoodie.de>"
       ],
-      "cargoLockChecksum": "c5b4c1b4f2aa9f25f63a7a49d3dd0ed567b3670da15330a66b29434be899b891",
+      "cargoLockChecksum": "4587364a9a0074333429b3df75a30a205340c56a536ca3eb6ca0e59b87bbf8af",
       "license": "MIT OR Apache-2.0",
       "licenseFiles": [
         {
@@ -5086,8 +5019,8 @@
       "name": "notify-rust",
       "repository": "https://github.com/hoodie/notify-rust",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "sourceUrl": "https://crates.io/api/v1/crates/notify-rust/4.18.0/download",
-      "version": "4.18.0"
+      "sourceUrl": "https://crates.io/api/v1/crates/notify-rust/4.18.2/download",
+      "version": "4.18.2"
     },
     {
       "authors": [
@@ -5661,32 +5594,6 @@
       "authors": [
         "Joshua Barretto <joshua.s.barretto@gmail.com>"
       ],
-      "cargoLockChecksum": "22686f4785f02a4fcc856d3b3bb19bf6c8160d103f7a99cc258bddd0251dc7f2",
-      "license": "Apache-2.0/MIT",
-      "licenseFiles": [
-        {
-          "origin": "package",
-          "originalPath": "LICENSE-APACHE",
-          "packagedPath": "licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt",
-          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2"
-        },
-        {
-          "origin": "package",
-          "originalPath": "LICENSE-MIT",
-          "packagedPath": "licenses/cc02a53316678ca2575cc69d12daa7b1833935d4b7742c31fbab7bd74a481077.txt",
-          "sha256": "cc02a53316678ca2575cc69d12daa7b1833935d4b7742c31fbab7bd74a481077"
-        }
-      ],
-      "name": "pollster",
-      "repository": "https://github.com/zesterer/pollster",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "sourceUrl": "https://crates.io/api/v1/crates/pollster/0.3.0/download",
-      "version": "0.3.0"
-    },
-    {
-      "authors": [
-        "Joshua Barretto <joshua.s.barretto@gmail.com>"
-      ],
       "cargoLockChecksum": "2f3a9f18d041e6d0e102a0a46750538147e5e8992d3b4873aaafee2520b00ce3",
       "license": "Apache-2.0/MIT",
       "licenseFiles": [
@@ -5778,32 +5685,6 @@
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "sourceUrl": "https://crates.io/api/v1/crates/powerfmt/0.2.0/download",
       "version": "0.2.0"
-    },
-    {
-      "authors": [
-        "The CryptoCorrosion Contributors"
-      ],
-      "cargoLockChecksum": "85eae3c4ed2f50dcfe72643da4befc30deadb458a9b590d720cde2f2b1e97da9",
-      "license": "MIT OR Apache-2.0",
-      "licenseFiles": [
-        {
-          "origin": "package",
-          "originalPath": "LICENSE-APACHE",
-          "packagedPath": "licenses/0218327e7a480793ffdd4eb792379a9709e5c135c7ba267f709d6f6d4d70af0a.txt",
-          "sha256": "0218327e7a480793ffdd4eb792379a9709e5c135c7ba267f709d6f6d4d70af0a"
-        },
-        {
-          "origin": "package",
-          "originalPath": "LICENSE-MIT",
-          "packagedPath": "licenses/4cada0bd02ea3692eee6f16400d86c6508bbd3bafb2b65fed0419f36d4f83e8f.txt",
-          "sha256": "4cada0bd02ea3692eee6f16400d86c6508bbd3bafb2b65fed0419f36d4f83e8f"
-        }
-      ],
-      "name": "ppv-lite86",
-      "repository": "https://github.com/cryptocorrosion/cryptocorrosion",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "sourceUrl": "https://crates.io/api/v1/crates/ppv-lite86/0.2.21/download",
-      "version": "0.2.21"
     },
     {
       "authors": [
@@ -6016,73 +5897,6 @@
     },
     {
       "authors": [
-        "The Rand Project Developers",
-        "The Rust Project Developers"
-      ],
-      "cargoLockChecksum": "e058c7de0b26af77780c769414d6257830bb240f3c38477dbc2c16e5f54d6d4c",
-      "license": "MIT OR Apache-2.0",
-      "licenseFiles": [
-        {
-          "origin": "package",
-          "originalPath": "COPYRIGHT",
-          "packagedPath": "licenses/90eb64f0279b0d9432accfa6023ff803bc4965212383697eee27a0f426d5f8d5.txt",
-          "sha256": "90eb64f0279b0d9432accfa6023ff803bc4965212383697eee27a0f426d5f8d5"
-        },
-        {
-          "origin": "package",
-          "originalPath": "LICENSE-APACHE",
-          "packagedPath": "licenses/35242e7a83f69875e6edeff02291e688c97caafe2f8902e4e19b49d3e78b4cab.txt",
-          "sha256": "35242e7a83f69875e6edeff02291e688c97caafe2f8902e4e19b49d3e78b4cab"
-        },
-        {
-          "origin": "package",
-          "originalPath": "LICENSE-MIT",
-          "packagedPath": "licenses/209fbbe0ad52d9235e37badf9cadfe4dbdc87203179c0899e738b39ade42177b.txt",
-          "sha256": "209fbbe0ad52d9235e37badf9cadfe4dbdc87203179c0899e738b39ade42177b"
-        }
-      ],
-      "name": "rand",
-      "repository": "https://github.com/rust-random/rand",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "sourceUrl": "https://crates.io/api/v1/crates/rand/0.8.8/download",
-      "version": "0.8.8"
-    },
-    {
-      "authors": [
-        "The Rand Project Developers",
-        "The Rust Project Developers",
-        "The CryptoCorrosion Contributors"
-      ],
-      "cargoLockChecksum": "e6c10a63a0fa32252be49d21e7709d4d4baf8d231c2dbce1eaa8141b9b127d88",
-      "license": "MIT OR Apache-2.0",
-      "licenseFiles": [
-        {
-          "origin": "package",
-          "originalPath": "COPYRIGHT",
-          "packagedPath": "licenses/90eb64f0279b0d9432accfa6023ff803bc4965212383697eee27a0f426d5f8d5.txt",
-          "sha256": "90eb64f0279b0d9432accfa6023ff803bc4965212383697eee27a0f426d5f8d5"
-        },
-        {
-          "origin": "package",
-          "originalPath": "LICENSE-APACHE",
-          "packagedPath": "licenses/aaff376532ea30a0cd5330b9502ad4a4c8bf769c539c87ffe78819d188a18ebf.txt",
-          "sha256": "aaff376532ea30a0cd5330b9502ad4a4c8bf769c539c87ffe78819d188a18ebf"
-        },
-        {
-          "origin": "package",
-          "originalPath": "LICENSE-MIT",
-          "packagedPath": "licenses/209fbbe0ad52d9235e37badf9cadfe4dbdc87203179c0899e738b39ade42177b.txt",
-          "sha256": "209fbbe0ad52d9235e37badf9cadfe4dbdc87203179c0899e738b39ade42177b"
-        }
-      ],
-      "name": "rand_chacha",
-      "repository": "https://github.com/rust-random/rand",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "sourceUrl": "https://crates.io/api/v1/crates/rand_chacha/0.3.1/download",
-      "version": "0.3.1"
-    },
-    {
-      "authors": [
         "The Rand Project Developers"
       ],
       "cargoLockChecksum": "63b8176103e19a2643978565ca18b50549f6101881c443590420e4dc998a3c69",
@@ -6112,39 +5926,6 @@
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "sourceUrl": "https://crates.io/api/v1/crates/rand_core/0.10.1/download",
       "version": "0.10.1"
-    },
-    {
-      "authors": [
-        "The Rand Project Developers",
-        "The Rust Project Developers"
-      ],
-      "cargoLockChecksum": "ec0be4795e2f6a28069bec0b5ff3e2ac9bafc99e6a9a7dc3547996c5c816922c",
-      "license": "MIT OR Apache-2.0",
-      "licenseFiles": [
-        {
-          "origin": "package",
-          "originalPath": "COPYRIGHT",
-          "packagedPath": "licenses/90eb64f0279b0d9432accfa6023ff803bc4965212383697eee27a0f426d5f8d5.txt",
-          "sha256": "90eb64f0279b0d9432accfa6023ff803bc4965212383697eee27a0f426d5f8d5"
-        },
-        {
-          "origin": "package",
-          "originalPath": "LICENSE-APACHE",
-          "packagedPath": "licenses/6df43f6f4b5d4587f3d8d71e45532c688fd168afa5fe89d571cb32fa09c4ef51.txt",
-          "sha256": "6df43f6f4b5d4587f3d8d71e45532c688fd168afa5fe89d571cb32fa09c4ef51"
-        },
-        {
-          "origin": "package",
-          "originalPath": "LICENSE-MIT",
-          "packagedPath": "licenses/209fbbe0ad52d9235e37badf9cadfe4dbdc87203179c0899e738b39ade42177b.txt",
-          "sha256": "209fbbe0ad52d9235e37badf9cadfe4dbdc87203179c0899e738b39ade42177b"
-        }
-      ],
-      "name": "rand_core",
-      "repository": "https://github.com/rust-random/rand",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "sourceUrl": "https://crates.io/api/v1/crates/rand_core/0.6.4/download",
-      "version": "0.6.4"
     },
     {
       "authors": [
@@ -6396,7 +6177,7 @@
       "authors": [
         "Poly <marynczak.bartlomiej@gmail.com>"
       ],
-      "cargoLockChecksum": "25a73a7337fc24366edfca76ec521f51877b114e42dab584008209cca6719251",
+      "cargoLockChecksum": "20dafead71c16a34e1ff357ddefc8afc11e7d51d6d2b9fbd07eaa48e3e540220",
       "license": "MIT",
       "licenseFiles": [
         {
@@ -6404,13 +6185,19 @@
           "originalPath": "LICENSE",
           "packagedPath": "licenses/65fc947f4bac882a2cd104ef73c246b1b037059df9f2b3a58b7f77f0b9e56071.txt",
           "sha256": "65fc947f4bac882a2cd104ef73c246b1b037059df9f2b3a58b7f77f0b9e56071"
+        },
+        {
+          "origin": "package",
+          "originalPath": "src/backend/xdg_desktop_portal/window_identifier/LICENSE",
+          "packagedPath": "licenses/ae26bc7b1bc91fb8648f6a298decbb1a77090a56c9d04e2c23b8365e5f54acb5.txt",
+          "sha256": "ae26bc7b1bc91fb8648f6a298decbb1a77090a56c9d04e2c23b8365e5f54acb5"
         }
       ],
       "name": "rfd",
       "repository": "https://github.com/PolyMeilex/rfd",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "sourceUrl": "https://crates.io/api/v1/crates/rfd/0.14.1/download",
-      "version": "0.14.1"
+      "sourceUrl": "https://crates.io/api/v1/crates/rfd/0.17.2/download",
+      "version": "0.17.2"
     },
     {
       "authors": [],
@@ -6582,7 +6369,7 @@
     },
     {
       "authors": [],
-      "cargoLockChecksum": "0d41d731c7d2f962d1ccc364cec258de3c0e93b38c2fb3ba97ac74513048d634",
+      "cargoLockChecksum": "48e13bd8c0e9365c43cfa5c9e8f9ad49d3c8444926c9aac819e0e4dc503c8fdf",
       "license": "Apache-2.0 OR ISC OR MIT",
       "licenseFiles": [
         {
@@ -6607,8 +6394,8 @@
       "name": "rustls",
       "repository": "https://github.com/rustls/rustls",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "sourceUrl": "https://crates.io/api/v1/crates/rustls/0.23.45/download",
-      "version": "0.23.45"
+      "sourceUrl": "https://crates.io/api/v1/crates/rustls/0.23.46/download",
+      "version": "0.23.46"
     },
     {
       "authors": [],
@@ -6696,7 +6483,7 @@
     },
     {
       "authors": [],
-      "cargoLockChecksum": "f3c3cf1d8b1e7d4927e2d154c3fcb02979afb9939629c62cd9048d4f07b60ac2",
+      "cargoLockChecksum": "4443b1b6d39d7c663139942cc4558262562d2c84123bb6282ef177009ca8b281",
       "license": "ISC",
       "licenseFiles": [
         {
@@ -6709,8 +6496,34 @@
       "name": "rustls-webpki",
       "repository": "https://github.com/rustls/webpki",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "sourceUrl": "https://crates.io/api/v1/crates/rustls-webpki/0.103.15/download",
-      "version": "0.103.15"
+      "sourceUrl": "https://crates.io/api/v1/crates/rustls-webpki/0.103.16/download",
+      "version": "0.103.16"
+    },
+    {
+      "authors": [
+        "David Tolnay <dtolnay@gmail.com>"
+      ],
+      "cargoLockChecksum": "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        {
+          "origin": "package",
+          "originalPath": "LICENSE-APACHE",
+          "packagedPath": "licenses/62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a.txt",
+          "sha256": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a"
+        },
+        {
+          "origin": "package",
+          "originalPath": "LICENSE-MIT",
+          "packagedPath": "licenses/23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt",
+          "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3"
+        }
+      ],
+      "name": "rustversion",
+      "repository": "https://github.com/dtolnay/rustversion",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "sourceUrl": "https://crates.io/api/v1/crates/rustversion/1.0.23/download",
+      "version": "1.0.23"
     },
     {
       "authors": [
@@ -7112,58 +6925,6 @@
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "sourceUrl": "https://crates.io/api/v1/crates/serde_urlencoded/0.7.1/download",
       "version": "0.7.1"
-    },
-    {
-      "authors": [
-        "David Tolnay <dtolnay@gmail.com>"
-      ],
-      "cargoLockChecksum": "6a8b1a1a2ebf674015cc02edccce75287f1a0130d394307b36743c2f5d504b47",
-      "license": "MIT OR Apache-2.0",
-      "licenseFiles": [
-        {
-          "origin": "package",
-          "originalPath": "LICENSE-APACHE",
-          "packagedPath": "licenses/62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a.txt",
-          "sha256": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a"
-        },
-        {
-          "origin": "package",
-          "originalPath": "LICENSE-MIT",
-          "packagedPath": "licenses/23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt",
-          "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3"
-        }
-      ],
-      "name": "serde_yaml",
-      "repository": "https://github.com/dtolnay/serde-yaml",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "sourceUrl": "https://crates.io/api/v1/crates/serde_yaml/0.9.34+deprecated/download",
-      "version": "0.9.34+deprecated"
-    },
-    {
-      "authors": [
-        "RustCrypto Developers"
-      ],
-      "cargoLockChecksum": "a978451301f4db1d02937a4ab3ccce137717b81826e79b7d49ffe3244a13c3b8",
-      "license": "MIT OR Apache-2.0",
-      "licenseFiles": [
-        {
-          "origin": "package",
-          "originalPath": "LICENSE-APACHE",
-          "packagedPath": "licenses/a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5.txt",
-          "sha256": "a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5"
-        },
-        {
-          "origin": "package",
-          "originalPath": "LICENSE-MIT",
-          "packagedPath": "licenses/b4eb00df6e2a4d22518fcaa6a2b4646f249b3a3c9814509b22bd2091f1392ff1.txt",
-          "sha256": "b4eb00df6e2a4d22518fcaa6a2b4646f249b3a3c9814509b22bd2091f1392ff1"
-        }
-      ],
-      "name": "sha1",
-      "repository": "https://github.com/RustCrypto/hashes",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "sourceUrl": "https://crates.io/api/v1/crates/sha1/0.10.7/download",
-      "version": "0.10.7"
     },
     {
       "authors": [
@@ -8057,7 +7818,7 @@
       "authors": [
         "Tokio Contributors <team@tokio.rs>"
       ],
-      "cargoLockChecksum": "202caea871b69668250d242070849eb495be178ed697a3e98aebce5bc81a0bed",
+      "cargoLockChecksum": "b52fd3255258d26fac7264ab5a76b53c13367136dc011d3d6ad4f8ed070396a3",
       "license": "MIT",
       "licenseFiles": [
         {
@@ -8070,8 +7831,8 @@
       "name": "tokio",
       "repository": "https://github.com/tokio-rs/tokio",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "sourceUrl": "https://crates.io/api/v1/crates/tokio/1.53.1/download",
-      "version": "1.53.1"
+      "sourceUrl": "https://crates.io/api/v1/crates/tokio/1.54.1/download",
+      "version": "1.54.1"
     },
     {
       "authors": [
@@ -8709,26 +8470,6 @@
     },
     {
       "authors": [
-        "David Tolnay <dtolnay@gmail.com>"
-      ],
-      "cargoLockChecksum": "673aac59facbab8a9007c7f6108d11f63b603f7cabff99fabf650fea5c32b861",
-      "license": "MIT",
-      "licenseFiles": [
-        {
-          "origin": "package",
-          "originalPath": "LICENSE-MIT",
-          "packagedPath": "licenses/23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt",
-          "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3"
-        }
-      ],
-      "name": "unsafe-libyaml",
-      "repository": "https://github.com/dtolnay/unsafe-libyaml",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "sourceUrl": "https://crates.io/api/v1/crates/unsafe-libyaml/0.2.11/download",
-      "version": "0.2.11"
-    },
-    {
-      "authors": [
         "Brian Smith <brian@briansmith.org>"
       ],
       "cargoLockChecksum": "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1",
@@ -8772,27 +8513,6 @@
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "sourceUrl": "https://crates.io/api/v1/crates/url/2.5.8/download",
       "version": "2.5.8"
-    },
-    {
-      "authors": [
-        "Kornel <kornel@geekhood.net>",
-        "Bertram Truong <b@bertramtruong.com>"
-      ],
-      "cargoLockChecksum": "daf8dba3b7eb870caf1ddeed7bc9d2a049f3cfdfae7cb521b087cc33ae4c49da",
-      "license": "MIT",
-      "licenseFiles": [
-        {
-          "origin": "package",
-          "originalPath": "LICENSE",
-          "packagedPath": "licenses/5a952e4a62a3022a7f39e9f0eb8d0638addd3efffb3f4092890923668152296e.txt",
-          "sha256": "5a952e4a62a3022a7f39e9f0eb8d0638addd3efffb3f4092890923668152296e"
-        }
-      ],
-      "name": "urlencoding",
-      "repository": "https://github.com/kornelski/rust_urlencoding",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "sourceUrl": "https://crates.io/api/v1/crates/urlencoding/2.1.3/download",
-      "version": "2.1.3"
     },
     {
       "authors": [
@@ -9601,26 +9321,6 @@
     },
     {
       "authors": [
-        "Zeeshan Ali Khan <zeeshanak@gnome.org>"
-      ],
-      "cargoLockChecksum": "ec1cdab258fb55c0da61328dc52c8764709b249011b2cad0454c72f0bf10a1f6",
-      "license": "MIT",
-      "licenseFiles": [
-        {
-          "origin": "package",
-          "originalPath": "LICENSE-MIT",
-          "packagedPath": "licenses/23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt",
-          "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3"
-        }
-      ],
-      "name": "xdg-home",
-      "repository": "https://github.com/zeenix/xdg-home",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "sourceUrl": "https://crates.io/api/v1/crates/xdg-home/1.3.0/download",
-      "version": "1.3.0"
-    },
-    {
-      "authors": [
         "Francesca Frangipane <francesca@comfysoft.net>"
       ],
       "cargoLockChecksum": "d039de8032a9a8856a6be89cea3e5d12fdd82306ab7c94d74e6deab2460651c5",
@@ -9670,6 +9370,32 @@
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "sourceUrl": "https://crates.io/api/v1/crates/xkeysym/0.2.1/download",
       "version": "0.2.1"
+    },
+    {
+      "authors": [
+        "YAML Organization <noreply@yaml.org>"
+      ],
+      "cargoLockChecksum": "33b729a08a9a6be689bbad3e2bf8015926db54b6622cc89c3a5f7dc174b9e918",
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        {
+          "origin": "package",
+          "originalPath": "LICENSE-APACHE",
+          "packagedPath": "licenses/62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a.txt",
+          "sha256": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a"
+        },
+        {
+          "origin": "package",
+          "originalPath": "LICENSE-MIT",
+          "packagedPath": "licenses/23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt",
+          "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3"
+        }
+      ],
+      "name": "yaml_serde",
+      "repository": "https://github.com/yaml/yaml-serde",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "sourceUrl": "https://crates.io/api/v1/crates/yaml_serde/0.10.7/download",
+      "version": "0.10.7"
     },
     {
       "authors": [
@@ -9737,26 +9463,6 @@
       "authors": [
         "Zeeshan Ali Khan <zeeshanak@gnome.org>"
       ],
-      "cargoLockChecksum": "bb97012beadd29e654708a0fdb4c84bc046f537aecfde2c3ee0a9e4b4d48c725",
-      "license": "MIT",
-      "licenseFiles": [
-        {
-          "origin": "package",
-          "originalPath": "LICENSE",
-          "packagedPath": "licenses/260e4ff3fc493695880c90774283eb1e3d018f898fabe655bbd52dd2cbd2fcad.txt",
-          "sha256": "260e4ff3fc493695880c90774283eb1e3d018f898fabe655bbd52dd2cbd2fcad"
-        }
-      ],
-      "name": "zbus",
-      "repository": "https://github.com/dbus2/zbus/",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "sourceUrl": "https://crates.io/api/v1/crates/zbus/4.4.0/download",
-      "version": "4.4.0"
-    },
-    {
-      "authors": [
-        "Zeeshan Ali Khan <zeeshanak@gnome.org>"
-      ],
       "cargoLockChecksum": "fe18fb60dc696039e738717b76eaea21e7a4489bbb1885020b43c94236d7e98a",
       "license": "MIT",
       "licenseFiles": [
@@ -9819,27 +9525,6 @@
         "Marc-Andr\u00e9 Lureau <marcandre.lureau@redhat.com>",
         "Zeeshan Ali Khan <zeeshanak@gnome.org>"
       ],
-      "cargoLockChecksum": "267db9407081e90bbfa46d841d3cbc60f59c0351838c4bc65199ecd79ab1983e",
-      "license": "MIT",
-      "licenseFiles": [
-        {
-          "origin": "package",
-          "originalPath": "LICENSE",
-          "packagedPath": "licenses/260e4ff3fc493695880c90774283eb1e3d018f898fabe655bbd52dd2cbd2fcad.txt",
-          "sha256": "260e4ff3fc493695880c90774283eb1e3d018f898fabe655bbd52dd2cbd2fcad"
-        }
-      ],
-      "name": "zbus_macros",
-      "repository": "https://github.com/dbus2/zbus/",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "sourceUrl": "https://crates.io/api/v1/crates/zbus_macros/4.4.0/download",
-      "version": "4.4.0"
-    },
-    {
-      "authors": [
-        "Marc-Andr\u00e9 Lureau <marcandre.lureau@redhat.com>",
-        "Zeeshan Ali Khan <zeeshanak@gnome.org>"
-      ],
       "cargoLockChecksum": "fe96480bed92df2b442a1a30df364e12d08eed03aeb061f2b8dc6afb2be91119",
       "license": "MIT",
       "licenseFiles": [
@@ -9855,26 +9540,6 @@
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "sourceUrl": "https://crates.io/api/v1/crates/zbus_macros/5.18.0/download",
       "version": "5.18.0"
-    },
-    {
-      "authors": [
-        "Zeeshan Ali Khan <zeeshanak@gnome.org>"
-      ],
-      "cargoLockChecksum": "4b9b1fef7d021261cc16cba64c351d291b715febe0fa10dc3a443ac5a5022e6c",
-      "license": "MIT",
-      "licenseFiles": [
-        {
-          "origin": "package",
-          "originalPath": "LICENSE",
-          "packagedPath": "licenses/23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt",
-          "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3"
-        }
-      ],
-      "name": "zbus_names",
-      "repository": "https://github.com/dbus2/zbus/",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "sourceUrl": "https://crates.io/api/v1/crates/zbus_names/3.0.0/download",
-      "version": "3.0.0"
     },
     {
       "authors": [
@@ -10132,26 +9797,6 @@
       "authors": [
         "Zeeshan Ali Khan <zeeshanak@gnome.org>"
       ],
-      "cargoLockChecksum": "2084290ab9a1c471c38fc524945837734fbf124487e105daec2bb57fd48c81fe",
-      "license": "MIT",
-      "licenseFiles": [
-        {
-          "origin": "package",
-          "originalPath": "LICENSE",
-          "packagedPath": "licenses/260e4ff3fc493695880c90774283eb1e3d018f898fabe655bbd52dd2cbd2fcad.txt",
-          "sha256": "260e4ff3fc493695880c90774283eb1e3d018f898fabe655bbd52dd2cbd2fcad"
-        }
-      ],
-      "name": "zvariant",
-      "repository": "https://github.com/dbus2/zbus/",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "sourceUrl": "https://crates.io/api/v1/crates/zvariant/4.2.0/download",
-      "version": "4.2.0"
-    },
-    {
-      "authors": [
-        "Zeeshan Ali Khan <zeeshanak@gnome.org>"
-      ],
       "cargoLockChecksum": "bee2a0bcd2a907786a456fff45aaaaf54c9ba5f50b71ae9ec1a4edd200c94911",
       "license": "MIT",
       "licenseFiles": [
@@ -10167,26 +9812,6 @@
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "sourceUrl": "https://crates.io/api/v1/crates/zvariant/5.13.1/download",
       "version": "5.13.1"
-    },
-    {
-      "authors": [
-        "Zeeshan Ali Khan <zeeshanak@gnome.org>"
-      ],
-      "cargoLockChecksum": "73e2ba546bda683a90652bac4a279bc146adad1386f25379cf73200d2002c449",
-      "license": "MIT",
-      "licenseFiles": [
-        {
-          "origin": "package",
-          "originalPath": "LICENSE",
-          "packagedPath": "licenses/260e4ff3fc493695880c90774283eb1e3d018f898fabe655bbd52dd2cbd2fcad.txt",
-          "sha256": "260e4ff3fc493695880c90774283eb1e3d018f898fabe655bbd52dd2cbd2fcad"
-        }
-      ],
-      "name": "zvariant_derive",
-      "repository": "https://github.com/dbus2/zbus/",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "sourceUrl": "https://crates.io/api/v1/crates/zvariant_derive/4.2.0/download",
-      "version": "4.2.0"
     },
     {
       "authors": [
@@ -10213,27 +9838,6 @@
         "Zeeshan Ali Khan <zeeshanak@gnome.org>",
         "turbocooler <turbocooler@cocaine.ninja>"
       ],
-      "cargoLockChecksum": "c51bcff7cc3dbb5055396bcf774748c3dab426b4b8659046963523cee4808340",
-      "license": "MIT",
-      "licenseFiles": [
-        {
-          "origin": "package",
-          "originalPath": "LICENSE",
-          "packagedPath": "licenses/23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt",
-          "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3"
-        }
-      ],
-      "name": "zvariant_utils",
-      "repository": "https://github.com/dbus2/zbus/",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "sourceUrl": "https://crates.io/api/v1/crates/zvariant_utils/2.1.0/download",
-      "version": "2.1.0"
-    },
-    {
-      "authors": [
-        "Zeeshan Ali Khan <zeeshanak@gnome.org>",
-        "turbocooler <turbocooler@cocaine.ninja>"
-      ],
       "cargoLockChecksum": "90cb9383f9b45290407a1258b202d3f8f01db719eb60b4e4055c6375af4fc7c7",
       "license": "MIT",
       "licenseFiles": [
@@ -10252,8 +9856,8 @@
     }
   ],
   "rootPackage": "tdmcp-daemon",
-  "rootSourceUrl": "https://github.com/Verbalize-public/td-mcp-rs/archive/refs/tags/v0.2.0.tar.gz",
-  "rootVersion": "0.2.0",
+  "rootSourceUrl": "https://github.com/Verbalize-public/td-mcp-rs/archive/refs/tags/v0.3.0.tar.gz",
+  "rootVersion": "0.3.0",
   "schemaVersion": 1,
   "target": "x86_64-unknown-linux-gnu"
 }

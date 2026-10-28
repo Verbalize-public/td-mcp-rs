@@ -89,6 +89,19 @@ impl LogRing {
         (records, cursor)
     }
 
+    /// Best-effort crash context: never wait for a lock held by a panicking thread.
+    pub(crate) fn try_tail(&self, limit: usize) -> Option<Vec<Arc<Record>>> {
+        let inner = self.inner.try_lock().ok()?;
+        Some(
+            inner
+                .queue
+                .iter()
+                .skip(inner.queue.len().saturating_sub(limit))
+                .cloned()
+                .collect(),
+        )
+    }
+
     /// Current live length (status badge hint).
     pub fn path_hint(&self) -> usize {
         self.lock().queue.len()
@@ -137,33 +150,39 @@ impl LogSink {
     }
 }
 
-/// Delete rotated `*.log*` files older than `retention_days` under `log_dir`
-/// and any legacy `{data_dir}/daemon.log`. Returns removed file count.
-pub fn sweep_logs(log_dir: &Path, data_dir: &Path, retention_days: u32) -> usize {
+/// Remove only recognized daily application logs, preserving today's UTC file.
+/// Zero disables the corresponding count or age limit. Legacy daemon.log stays.
+pub fn sweep_logs(log_dir: &Path, _data_dir: &Path, retention_days: u32, max_files: u32) -> usize {
     let now = SystemTime::now();
+    let current = format!("daemon.{}.log", chrono::Utc::now().format("%Y-%m-%d"));
+    let Ok(entries) = fs::read_dir(log_dir) else {
+        return 0;
+    };
+    let mut files: Vec<_> = entries
+        .flatten()
+        .filter(|entry| {
+            entry.file_type().is_ok_and(|kind| kind.is_file()) && is_rotated_log_name(&entry.path())
+        })
+        .collect();
+    files.sort_by_key(|entry| entry.file_name());
+    let excess = if max_files == 0 {
+        0
+    } else {
+        files.len().saturating_sub(max_files as usize)
+    };
     let mut removed = 0;
-
-    if let Ok(entries) = fs::read_dir(log_dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if !is_rotated_log_name(&path) {
-                continue;
-            }
-            let modified_ok = entry
+    for (index, entry) in files.into_iter().enumerate() {
+        if entry.file_name().to_str() == Some(&current) {
+            continue;
+        }
+        let expired = retention_days != 0
+            && entry
                 .metadata()
                 .and_then(|m| m.modified())
-                .map(|modified| is_older_than(modified, now, retention_days))
-                .unwrap_or(false);
-            if modified_ok && fs::remove_file(&path).is_ok() {
-                removed += 1;
-            }
+                .is_ok_and(|modified| is_older_than(modified, now, retention_days));
+        if (index < excess || expired) && fs::remove_file(entry.path()).is_ok() {
+            removed += 1;
         }
-    }
-
-    // One-time migration: pre-sink daemons appended to this file directly.
-    let legacy = data_dir.join("daemon.log");
-    if fs::remove_file(&legacy).is_ok() {
-        removed += 1;
     }
     removed
 }
@@ -174,12 +193,13 @@ pub async fn run_sweep_loop(
     log_dir: std::path::PathBuf,
     data_dir: std::path::PathBuf,
     retention_days: u32,
+    max_files: u32,
     shutdown: tokio_util::sync::CancellationToken,
 ) {
     let mut interval = tokio::time::interval(SWEEP_INTERVAL);
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
-        let removed = sweep_logs(&log_dir, &data_dir, retention_days);
+        let removed = sweep_logs(&log_dir, &data_dir, retention_days, max_files);
         if removed > 0 {
             tracing::info!(removed, dir = %log_dir.display(), "log retention swept");
         }
@@ -333,7 +353,11 @@ fn is_rotated_log_name(path: &Path) -> bool {
     let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
         return false;
     };
-    name.starts_with("daemon.") && name.contains(".log")
+    name.strip_prefix("daemon.")
+        .and_then(|n| n.strip_suffix(".log"))
+        .is_some_and(|date| {
+            date.len() == 10 && chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d").is_ok()
+        })
 }
 
 fn is_older_than(modified: SystemTime, now: SystemTime, retention_days: u32) -> bool {
@@ -434,25 +458,61 @@ mod tests {
     }
 
     #[test]
-    fn sweep_removes_stale_and_legacy_files() {
+    fn sweep_preserves_legacy_and_unrelated_files() {
         let dir = tempfile::tempdir().expect("tempdir");
         let log_dir = dir.path().join("logs");
         let data_dir = dir.path().join("data");
         std::fs::create_dir_all(&log_dir).expect("mkdir");
         std::fs::create_dir_all(&data_dir).expect("mkdir");
 
-        // Fresh rotated file survives; legacy root daemon.log always goes.
+        // Fresh rotated file and legacy root daemon.log both survive.
         std::fs::write(log_dir.join("daemon.2999-01-01.log"), "{}\n").expect("fresh");
         std::fs::write(data_dir.join("daemon.log"), "legacy\n").expect("legacy");
-        assert_eq!(sweep_logs(&log_dir, &data_dir, 30), 1);
+        assert_eq!(sweep_logs(&log_dir, &data_dir, 30, 180), 0);
         assert!(log_dir.join("daemon.2999-01-01.log").exists());
-        assert!(!data_dir.join("daemon.log").exists());
+        assert!(data_dir.join("daemon.log").exists());
 
         // Unrelated files are untouched.
         std::fs::write(log_dir.join("other.txt"), "keep").expect("other");
         std::fs::write(data_dir.join("config.toml"), "keep").expect("cfg");
-        assert_eq!(sweep_logs(&log_dir, &data_dir, 30), 0);
+        assert_eq!(sweep_logs(&log_dir, &data_dir, 30, 180), 0);
         assert!(log_dir.join("other.txt").exists());
+    }
+
+    #[test]
+    fn crash_tail_does_not_wait_for_the_ring_lock() {
+        let ring = LogRing::new(10);
+        let _guard = ring.inner.lock().expect("lock");
+        assert!(ring.try_tail(200).is_none());
+    }
+
+    #[test]
+    fn cleanup_limits_preserve_current_and_only_remove_owned_files() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let today = format!("daemon.{}.log", chrono::Utc::now().format("%Y-%m-%d"));
+        for name in [
+            "daemon.2000-01-01.log",
+            "daemon.2000-01-02.log",
+            &today,
+            "daemon.custom.log",
+            "daemon.2000-01-01.log.backup",
+            "daemon.log",
+        ] {
+            let file = fs::File::create(dir.path().join(name)).expect("create");
+            file.set_modified(SystemTime::UNIX_EPOCH).expect("mtime");
+        }
+        assert_eq!(sweep_logs(dir.path(), dir.path(), 0, 0), 0);
+        assert_eq!(sweep_logs(dir.path(), dir.path(), 0, 2), 1);
+        assert!(!dir.path().join("daemon.2000-01-01.log").exists());
+        assert_eq!(sweep_logs(dir.path(), dir.path(), 180, 0), 1);
+        for name in [
+            &today,
+            "daemon.custom.log",
+            "daemon.2000-01-01.log.backup",
+            "daemon.log",
+        ] {
+            assert!(dir.path().join(name).exists());
+        }
     }
 
     #[test]

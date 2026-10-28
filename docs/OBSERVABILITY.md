@@ -11,7 +11,13 @@ poll of every operator's error state.
 ## Files and retention
 
 JSONL files rotate daily under `{dataDir}/logs`. The default retention keeps
-at most 14 rotated files and removes files older than 30 days.
+at most 180 daily files and removes files older than 180 days.
+Only recognized daily log names are cleaned; the current UTC log and legacy
+`daemon.log` are preserved. Set either limit to `0` to disable that cleanup limit.
+Crash reports default to 500 retained reports with 200 recent records per report,
+configured through `[logging].crash_max_reports` and `crash_tail_lines`.
+A zero report limit disables crash cleanup; zero tail lines omits recent records.
+These settings require restart. Installation preserves existing configured limits.
 The `[logging]` section controls directory, filter, console level, file count,
 and retention days; see the
 [commented defaults](../crates/tdmcp-config/assets/default.toml).

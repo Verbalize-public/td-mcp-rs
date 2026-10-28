@@ -1,18 +1,24 @@
 name: Checks
 
 on:
+  pull_request:
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       native:
         description: Also test Windows and macOS
         type: boolean
-        default: false
+        default: true
       dependencies:
         description: Also check release dependency licenses and advisories
         type: boolean
-        default: false
+        default: true
   workflow_call:
     inputs:
+      source_only:
+        type: boolean
+        default: false
       native:
         type: boolean
         default: false
@@ -34,15 +40,13 @@ env:
 
 jobs:
   linux:
-    needs: dependencies
-    if: ${{ !cancelled() && github.event_name != 'schedule' && (needs.dependencies.result == 'success' || needs.dependencies.result == 'skipped') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: '1.92'
+          toolchain: '1.92.0'
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-python@v5
@@ -58,28 +62,58 @@ jobs:
       - run: python scripts/generate_inspect_fixtures.py --check
       - run: python scripts/generate_envelope_fixtures.py --check
       - run: python -m unittest discover -s scripts/tests
+      - run: python scripts/generate_third_party_notices.py --check
       - run: cargo fmt --all -- --check
-      - run: cargo clippy --locked --workspace --all-targets -- -D warnings
-      - run: cargo test --locked --workspace
+      - if: ${{ !inputs.source_only }}
+        run: cargo build --locked --workspace 2>&1 | tee build.log
+        shell: bash
+      - if: ${{ !inputs.source_only }}
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings 2>&1 | tee clippy.log
+        shell: bash
+      - if: ${{ !inputs.source_only }}
+        run: cargo test --locked --workspace 2>&1 | tee rust-tests.log
+        shell: bash
       - run: python -m pytest bridge/tests -q
 
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: diagnostics-linux
+          path: |
+            *.log
+            target/debug/tdmcp-daemon*
+          retention-days: 90
+          if-no-files-found: ignore
+
   native:
-    needs: dependencies
-    if: ${{ !cancelled() && inputs.native && (needs.dependencies.result == 'success' || needs.dependencies.result == 'skipped') }}
+    if: ${{ !inputs.source_only && (github.event_name == 'push' || github.event_name == 'pull_request' || github.event_name == 'schedule' || inputs.native) }}
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-15]
+        os: [windows-2025, macos-15, macos-15-intel]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.92.0'
       - uses: Swatinem/rust-cache@v2
-      - run: cargo test --locked --workspace
+      - run: cargo test --locked --workspace 2>&1 | tee rust-tests.log
+        shell: bash
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: diagnostics-${{ matrix.os }}
+          path: |
+            *.log
+            target/debug/tdmcp-daemon*
+          retention-days: 90
+          if-no-files-found: ignore
 
   dependencies:
-    if: github.event_name == 'schedule' || inputs.dependencies
+    if: ${{ !inputs.source_only && (github.event_name == 'push' || github.event_name == 'pull_request' || github.event_name == 'schedule' || inputs.dependencies) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -87,4 +121,14 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-deny@0.20.2
-      - run: python3 scripts/check_dependencies.py
+      - run: python3 scripts/check_dependencies.py 2>&1 | tee dependencies.log
+        shell: bash
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: diagnostics-dependencies
+          path: |
+            *.log
+            target/debug/tdmcp-daemon*
+          retention-days: 90
+          if-no-files-found: ignore

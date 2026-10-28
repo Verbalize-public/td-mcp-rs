@@ -159,6 +159,10 @@ pub struct LoggingSection {
     pub max_files: u32,
     /// Files older than this many days are swept at startup and every 24 h.
     pub retention_days: u32,
+    /// Maximum crash reports retained; zero disables cleanup.
+    pub crash_max_reports: u32,
+    /// Recent records included in a crash report; zero omits the tail.
+    pub crash_tail_lines: u32,
 }
 
 impl Default for LoggingSection {
@@ -167,8 +171,10 @@ impl Default for LoggingSection {
             dir: None,
             filter: None,
             console_level: None,
-            max_files: 14,
-            retention_days: 30,
+            max_files: 180,
+            retention_days: 180,
+            crash_max_reports: 500,
+            crash_tail_lines: 200,
         }
     }
 }
@@ -849,6 +855,8 @@ pub fn save(path: &Path, cfg: &ConfigFile) -> Result<()> {
     doc["bridge"]["pong_timeout_secs"] = value(cfg.bridge.pong_timeout_secs as i64);
     doc["bridge"]["idle_dead_secs"] = value(cfg.bridge.idle_dead_secs as i64);
 
+    doc["logging"]["crash_max_reports"] = value(cfg.logging.crash_max_reports as i64);
+    doc["logging"]["crash_tail_lines"] = value(cfg.logging.crash_tail_lines as i64);
     doc["logging"]["max_files"] = value(cfg.logging.max_files as i64);
     doc["logging"]["retention_days"] = value(cfg.logging.retention_days as i64);
     let dir_str = cfg
@@ -978,6 +986,21 @@ fn set_optional_str(table_item: &mut Item, key: &str, val: Option<&str>) {
 #[allow(clippy::unwrap_used, clippy::expect_used, reason = "unit tests")]
 mod tests {
     use super::*;
+
+    #[test]
+    fn diagnostic_limits_round_trip_including_zero() {
+        for limit in [0, 1, 180, 500] {
+            let mut cfg = ConfigFile::default();
+            cfg.logging.max_files = limit;
+            cfg.logging.retention_days = limit;
+            cfg.logging.crash_max_reports = limit;
+            cfg.logging.crash_tail_lines = limit;
+            let dir = tempfile::tempdir().expect("tempdir");
+            let path = dir.path().join("config.toml");
+            save(&path, &cfg).expect("save");
+            assert_eq!(load(&path).expect("load").logging, cfg.logging);
+        }
+    }
 
     #[test]
     fn reading_wine_settings_does_not_change_process_environment() {
@@ -1345,8 +1368,8 @@ show_tray = true
         assert_eq!(cfg.logging.dir, None);
         assert_eq!(cfg.logging.filter, None);
         assert_eq!(cfg.logging.console_level, None);
-        assert_eq!(cfg.logging.max_files, 14);
-        assert_eq!(cfg.logging.retention_days, 30);
+        assert_eq!(cfg.logging.max_files, 180);
+        assert_eq!(cfg.logging.retention_days, 180);
     }
 
     #[test]

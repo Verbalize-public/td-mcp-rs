@@ -68,11 +68,15 @@ show_tray = true
 # Separate EnvFilter for the console (stderr). Unset: the historical defaults.
 # console_level = "warn"
 
-# Daily rotated files kept on disk (default 14).
-max_files = 14
+# Daily rotated files kept on disk (default 180; zero disables count cleanup).
+max_files = 180
 
-# Files older than this many days are deleted at startup and daily (default 30).
-retention_days = 30
+# Files older than this many days are deleted at startup and daily (default 180; zero disables age cleanup).
+retention_days = 180
+# Maximum crash reports; zero disables automatic cleanup.
+crash_max_reports = 500
+# Recent records attached to each crash report; zero omits the tail.
+crash_tail_lines = 200
 
 [bridge]
 # Loopback bind host for the daemon<->bridge TCP listener. Loopback only in

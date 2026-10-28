@@ -103,3 +103,10 @@ writing. Success includes `config` and a `restartRequired` list.
 
 Treat returned configuration as sensitive: it contains access keys.
 The endpoint is subject to the daemon's admin authentication policy.
+
+## Diagnostic retention
+
+`[logging]` defaults to `max_files = 180`, `retention_days = 180`,
+`crash_max_reports = 500`, and `crash_tail_lines = 200`. Zero disables the
+corresponding automatic cleanup limit (or omits the crash tail). Changes require
+restart. Existing installations keep their configured limits during upgrades.

@@ -2803,6 +2803,16 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::thread;
 
+    #[cfg(windows)]
+    #[test]
+    fn disk_store_explicitly_reports_unsupported_permissions() {
+        let directory = tempfile::tempdir().unwrap();
+        assert!(matches!(
+            SqliteEvidenceStore::open(directory.path(), config()),
+            Err(EvidenceError::UnsupportedPlatform(_))
+        ));
+    }
+
     fn owner(value: &str) -> OwnerId {
         OwnerId::parse(value).unwrap()
     }
@@ -3089,6 +3099,7 @@ mod tests {
     /// writer but had already run reconciliation against its rows would still
     /// be a corruption path — two processes each expiring and reclaiming the
     /// other's rows is exactly what the lock exists to prevent.
+    #[cfg(unix)]
     #[test]
     fn a_refused_second_writer_leaves_the_live_one_serving_its_committed_evidence() {
         let directory = tempfile::tempdir().unwrap();
@@ -3157,6 +3168,7 @@ mod tests {
     /// So the row was still live and the assertion failed on a premise that was
     /// never true. The lease is set on the reservation, and the tombstone window
     /// is left long enough that a reclaimed row still reads as `Expired`.
+    #[cfg(unix)]
     #[test]
     fn expired_rows_are_reclaimed_and_never_resurrected_by_a_later_read() {
         let limits = config();

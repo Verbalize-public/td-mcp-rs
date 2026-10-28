@@ -165,9 +165,9 @@ impl Config {
             logging_dir,
             logging_filter: file.logging.filter,
             logging_console_level: file.logging.console_level,
-            // Clamp degenerate zeros so rotation/sweep always keep something.
-            logging_max_files: file.logging.max_files.max(1),
-            logging_retention_days: file.logging.retention_days.max(1),
+            // Zero explicitly disables the corresponding cleanup limit.
+            logging_max_files: file.logging.max_files,
+            logging_retention_days: file.logging.retention_days,
             daemon_bin: file.advanced.daemon_bin,
             dialogs: file.dialogs,
         })
@@ -396,7 +396,7 @@ mod tests {
     }
 
     #[test]
-    fn logging_defaults_and_clamps() {
+    fn logging_defaults_and_disabled_limits() {
         let dir = tempdir().expect("tempdir");
         let config_path = dir.path().join("config.toml");
         cfgfile::ensure_default(&config_path, true).expect("seed");
@@ -416,8 +416,8 @@ mod tests {
         assert_eq!(cfg.logging_dir, data.join("logs"));
         assert_eq!(cfg.logging_filter, None);
         assert_eq!(cfg.logging_console_level, None);
-        assert_eq!(cfg.logging_max_files, 1);
-        assert_eq!(cfg.logging_retention_days, 1);
+        assert_eq!(cfg.logging_max_files, 0);
+        assert_eq!(cfg.logging_retention_days, 0);
     }
 
     #[test]

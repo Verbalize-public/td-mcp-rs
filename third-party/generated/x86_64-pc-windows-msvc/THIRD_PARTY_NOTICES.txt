@@ -2,7 +2,7 @@ td-mcp-rs third-party notices
 ================================
 
 Release target: x86_64-pc-windows-msvc
-Cargo.lock SHA-256: 62ce27ac07108e5b974a57f778470f2c904a755464ee2f5d2b392c5e7d06bc14
+Cargo.lock SHA-256: f05d0c55b07e94a540e2426eea2ee590f68e42ddc408a49c239cb565fe2d3c31
 
 This inventory is generated from the locked tdmcp-daemon release graph
 with the gui feature enabled. License and notice texts are stored in
@@ -352,10 +352,10 @@ clap_lex 1.1.0
   Notice: licenses/c6596eb7be8581c18be736c846fb9173b69eccf6ef94c5135893ec56bd92ba08.txt (upstream LICENSE-APACHE; package)
   Notice: licenses/6efb0476a1cc085077ed49357026d8c173bf33017278ef440f222fb9cbcb66e6.txt (upstream LICENSE-MIT; package)
 
-clipboard-win 5.4.1
+clipboard-win 5.4.3
   License: BSL-1.0
-  Source: https://crates.io/api/v1/crates/clipboard-win/5.4.1/download
-  Cargo.lock checksum: bde03770d3df201d4fb868f2c9c59e66a3e4e2bd06692a0fe701e7103c7e84d4
+  Source: https://crates.io/api/v1/crates/clipboard-win/5.4.3/download
+  Cargo.lock checksum: 052af7878466feccda12ba7a6a67d019d712f296809559b47c12c8cc196d3a9a
   Authors: Douman <douman@gmx.se>
   Repository: https://github.com/DoumanAsh/clipboard-win
   Notice: licenses/84c6ef3ea9e3254a54d0acf5d3e0c61ae011b8fef7dd6940591cf060e6380a8f.txt (upstream SPDX/BSL-1.0.txt; SPDX-3.27.0)
@@ -1194,6 +1194,14 @@ libsqlite3-sys 0.38.2
   Notice: licenses/c10c1f27337546471e5f7e4e97fdd398b35b9d4e126115dcd22de8d8e65abf6f.txt (upstream LICENSE; package)
   Notice: licenses/ea4fcb309f14a22065e1ea45362d494d320012249ed865fe9c7c0946db754131.txt (upstream sqlcipher/LICENSE; package)
 
+libyaml-rs 0.3.0
+  License: MIT
+  Source: https://crates.io/api/v1/crates/libyaml-rs/0.3.0/download
+  Cargo.lock checksum: 2e126dda6f34391ab7b444f9922055facc83c07a910da3eb16f1e4d9c45dc777
+  Authors: David Tolnay <dtolnay@gmail.com>, YAML Organization <noreply@yaml.org>
+  Repository: https://github.com/yaml/libyaml-rs
+  Notice: licenses/23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt (upstream LICENSE-MIT; package)
+
 linebender_resource_handle 0.1.1
   License: Apache-2.0 OR MIT
   Source: https://crates.io/api/v1/crates/linebender_resource_handle/0.1.1/download
@@ -1346,10 +1354,10 @@ nohash-hasher 0.2.0
   Notice: licenses/cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30.txt (upstream LICENSE-APACHE; package)
   Notice: licenses/ec353d4fecf7963b4c054384557e5dbc3c7a717997eb4a3815b315721a6aa75a.txt (upstream LICENSE-MIT; package)
 
-notify-rust 4.18.0
+notify-rust 4.18.2
   License: MIT OR Apache-2.0
-  Source: https://crates.io/api/v1/crates/notify-rust/4.18.0/download
-  Cargo.lock checksum: c5b4c1b4f2aa9f25f63a7a49d3dd0ed567b3670da15330a66b29434be899b891
+  Source: https://crates.io/api/v1/crates/notify-rust/4.18.2/download
+  Cargo.lock checksum: 4587364a9a0074333429b3df75a30a205340c56a536ca3eb6ca0e59b87bbf8af
   Authors: Hendrik Sollich <hendrik@hoodie.de>
   Repository: https://github.com/hoodie/notify-rust
   Notice: licenses/b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1.txt (upstream LICENSE-Apache; package)
@@ -1674,13 +1682,14 @@ reqwest 0.13.4
   Notice: licenses/751963a8b88c0e3a9f27e98933079fbcf09b9998b2c13ac49c2e4d58444520d6.txt (upstream LICENSE-APACHE; package)
   Notice: licenses/dd87e27dfbaa888cb77ea34592648a7743636b8dce07e49543bddda0fcfc73bc.txt (upstream LICENSE-MIT; package)
 
-rfd 0.14.1
+rfd 0.17.2
   License: MIT
-  Source: https://crates.io/api/v1/crates/rfd/0.14.1/download
-  Cargo.lock checksum: 25a73a7337fc24366edfca76ec521f51877b114e42dab584008209cca6719251
+  Source: https://crates.io/api/v1/crates/rfd/0.17.2/download
+  Cargo.lock checksum: 20dafead71c16a34e1ff357ddefc8afc11e7d51d6d2b9fbd07eaa48e3e540220
   Authors: Poly <marynczak.bartlomiej@gmail.com>
   Repository: https://github.com/PolyMeilex/rfd
   Notice: licenses/65fc947f4bac882a2cd104ef73c246b1b037059df9f2b3a58b7f77f0b9e56071.txt (upstream LICENSE; package)
+  Notice: licenses/ae26bc7b1bc91fb8648f6a298decbb1a77090a56c9d04e2c23b8365e5f54acb5.txt (upstream src/backend/xdg_desktop_portal/window_identifier/LICENSE; package)
 
 rmcp 3.0.1
   License: Apache-2.0
@@ -1715,10 +1724,10 @@ rustc-hash 2.1.3
   Notice: licenses/95bd3988beee069fa2848f648dab43cc6e0b2add2ad6bcb17360caf749802bcc.txt (upstream LICENSE-APACHE; package)
   Notice: licenses/30fefc3a7d6a0041541858293bcbea2dde4caa4c0a5802f996a7f7e8c0085652.txt (upstream LICENSE-MIT; package)
 
-rustls 0.23.45
+rustls 0.23.46
   License: Apache-2.0 OR ISC OR MIT
-  Source: https://crates.io/api/v1/crates/rustls/0.23.45/download
-  Cargo.lock checksum: 0d41d731c7d2f962d1ccc364cec258de3c0e93b38c2fb3ba97ac74513048d634
+  Source: https://crates.io/api/v1/crates/rustls/0.23.46/download
+  Cargo.lock checksum: 48e13bd8c0e9365c43cfa5c9e8f9ad49d3c8444926c9aac819e0e4dc503c8fdf
   Repository: https://github.com/rustls/rustls
   Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE-APACHE; package)
   Notice: licenses/7cfafc877eccc46c0e346ccbaa5c51bb6b894d2b818e617d970211e232785ad4.txt (upstream LICENSE-ISC; package)
@@ -1740,10 +1749,10 @@ rustls-platform-verifier 0.7.0
   Notice: licenses/c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4.txt (upstream LICENSE-APACHE; package)
   Notice: licenses/1c7cf76689c837a68ed8d704994e52a0f2940c087958f860d17f3186afbdcc0c.txt (upstream LICENSE-MIT; package)
 
-rustls-webpki 0.103.15
+rustls-webpki 0.103.16
   License: ISC
-  Source: https://crates.io/api/v1/crates/rustls-webpki/0.103.15/download
-  Cargo.lock checksum: f3c3cf1d8b1e7d4927e2d154c3fcb02979afb9939629c62cd9048d4f07b60ac2
+  Source: https://crates.io/api/v1/crates/rustls-webpki/0.103.16/download
+  Cargo.lock checksum: 4443b1b6d39d7c663139942cc4558262562d2c84123bb6282ef177009ca8b281
   Repository: https://github.com/rustls/webpki
   Notice: licenses/5b698ca13897be3afdb7174256fa1574f8c6892b8bea1a66dd6469d3fe27885a.txt (upstream LICENSE; package)
 
@@ -1860,15 +1869,6 @@ serde_urlencoded 0.7.1
   Repository: https://github.com/nox/serde_urlencoded
   Notice: licenses/62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a.txt (upstream LICENSE-APACHE; package)
   Notice: licenses/b9eb266294324f672cbe945fe8f2e32f85024f0d61a1a7d14382cdde0ac44769.txt (upstream LICENSE-MIT; package)
-
-serde_yaml 0.9.34+deprecated
-  License: MIT OR Apache-2.0
-  Source: https://crates.io/api/v1/crates/serde_yaml/0.9.34+deprecated/download
-  Cargo.lock checksum: 6a8b1a1a2ebf674015cc02edccce75287f1a0130d394307b36743c2f5d504b47
-  Authors: David Tolnay <dtolnay@gmail.com>
-  Repository: https://github.com/dtolnay/serde-yaml
-  Notice: licenses/62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a.txt (upstream LICENSE-APACHE; package)
-  Notice: licenses/23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt (upstream LICENSE-MIT; package)
 
 sha2 0.10.9
   License: MIT OR Apache-2.0
@@ -2033,10 +2033,10 @@ synstructure 0.13.2
   Repository: https://github.com/mystor/synstructure
   Notice: licenses/219920e865eee70b7dcfc948a86b099e7f4fe2de01bcca2ca9a20c0a033f2b59.txt (upstream LICENSE; package)
 
-tauri-winrt-notification 0.7.3
+tauri-winrt-notification 0.8.1
   License: MIT OR Apache-2.0
-  Source: https://crates.io/api/v1/crates/tauri-winrt-notification/0.7.3/download
-  Cargo.lock checksum: 9ed071c670382e85fc2f48ae706492d8c338f4f89bf72520d32f8abfe880aade
+  Source: https://crates.io/api/v1/crates/tauri-winrt-notification/0.8.1/download
+  Cargo.lock checksum: f37a6c354fd28fc9e322ed9bd47e3959576dad28c9d58ea1cf888cce1c7ccb36
   Authors: allenbenz, Tauri Programme within The Commons Conservancy
   Repository: https://github.com/tauri-apps/winrt-notification
   Notice: licenses/a212bb763e1d415210f9d345a4c0bb896571b997f3599a92de16281acafc989b.txt (upstream LICENSE.spdx; package)
@@ -2105,10 +2105,10 @@ tinystr 0.8.3
   Repository: https://github.com/unicode-org/icu4x
   Notice: licenses/f367c1b8e1aa262435251e442901da4607b4650e0e63a026f5044473ecfb90f2.txt (upstream LICENSE; package)
 
-tokio 1.53.1
+tokio 1.54.1
   License: MIT
-  Source: https://crates.io/api/v1/crates/tokio/1.53.1/download
-  Cargo.lock checksum: 202caea871b69668250d242070849eb495be178ed697a3e98aebce5bc81a0bed
+  Source: https://crates.io/api/v1/crates/tokio/1.54.1/download
+  Cargo.lock checksum: b52fd3255258d26fac7264ab5a76b53c13367136dc011d3d6ad4f8ed070396a3
   Authors: Tokio Contributors <team@tokio.rs>
   Repository: https://github.com/tokio-rs/tokio
   Notice: licenses/253cd04c6714889df2d32f3f64d669179a1c95c76ac43c40882c52eb06bc3552.txt (upstream LICENSE; package)
@@ -2323,14 +2323,6 @@ unicode-width 0.2.2
   Notice: licenses/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt (upstream LICENSE-APACHE; package)
   Notice: licenses/7b63ecd5f1902af1b63729947373683c32745c16a10e8e6292e2e2dcd7e90ae0.txt (upstream LICENSE-MIT; package)
 
-unsafe-libyaml 0.2.11
-  License: MIT
-  Source: https://crates.io/api/v1/crates/unsafe-libyaml/0.2.11/download
-  Cargo.lock checksum: 673aac59facbab8a9007c7f6108d11f63b603f7cabff99fabf650fea5c32b861
-  Authors: David Tolnay <dtolnay@gmail.com>
-  Repository: https://github.com/dtolnay/unsafe-libyaml
-  Notice: licenses/23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt (upstream LICENSE-MIT; package)
-
 untrusted 0.9.0
   License: ISC
   Source: https://crates.io/api/v1/crates/untrusted/0.9.0/download
@@ -2490,27 +2482,10 @@ windows 0.58.0
   Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
   Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
 
-windows 0.61.3
-  License: MIT OR Apache-2.0
-  Source: https://crates.io/api/v1/crates/windows/0.61.3/download
-  Cargo.lock checksum: 9babd3a767a4c1aef6900409f85f5d53ce2544ccdfaa86dad48c91782c6d6893
-  Authors: Microsoft
-  Repository: https://github.com/microsoft/windows-rs
-  Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
-  Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
-
 windows 0.62.2
   License: MIT OR Apache-2.0
   Source: https://crates.io/api/v1/crates/windows/0.62.2/download
   Cargo.lock checksum: 527fadee13e0c05939a6a05d5bd6eec6cd2e3dbd648b9f8e447c6518133d8580
-  Repository: https://github.com/microsoft/windows-rs
-  Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
-  Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
-
-windows-collections 0.2.0
-  License: MIT OR Apache-2.0
-  Source: https://crates.io/api/v1/crates/windows-collections/0.2.0/download
-  Cargo.lock checksum: 3beeceb5e5cfd9eb1d76b381630e82c4241ccd0d27f1a39ed41b2760b255c5e8
   Repository: https://github.com/microsoft/windows-rs
   Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
   Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
@@ -2532,27 +2507,10 @@ windows-core 0.58.0
   Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
   Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
 
-windows-core 0.61.2
-  License: MIT OR Apache-2.0
-  Source: https://crates.io/api/v1/crates/windows-core/0.61.2/download
-  Cargo.lock checksum: c0fdd3ddb90610c7638aa2b3a3ab2904fb9e5cdbecc643ddb3647212781c4ae3
-  Authors: Microsoft
-  Repository: https://github.com/microsoft/windows-rs
-  Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
-  Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
-
 windows-core 0.62.2
   License: MIT OR Apache-2.0
   Source: https://crates.io/api/v1/crates/windows-core/0.62.2/download
   Cargo.lock checksum: b8e83a14d34d0623b51dce9581199302a221863196a1dde71a7663a4c2be9deb
-  Repository: https://github.com/microsoft/windows-rs
-  Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
-  Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
-
-windows-future 0.2.1
-  License: MIT OR Apache-2.0
-  Source: https://crates.io/api/v1/crates/windows-future/0.2.1/download
-  Cargo.lock checksum: fc6a41e98427b19fe4b73c550f060b59fa592d7d686537eebf9385621bfbad8e
   Repository: https://github.com/microsoft/windows-rs
   Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
   Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
@@ -2599,27 +2557,10 @@ windows-interface 0.59.3
   Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
   Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
 
-windows-link 0.1.3
-  License: MIT OR Apache-2.0
-  Source: https://crates.io/api/v1/crates/windows-link/0.1.3/download
-  Cargo.lock checksum: 5e6ad25900d524eaabdbbb96d20b4311e1e7ae1699af4fb28c17ae66c80d798a
-  Authors: Microsoft
-  Repository: https://github.com/microsoft/windows-rs
-  Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
-  Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
-
 windows-link 0.2.1
   License: MIT OR Apache-2.0
   Source: https://crates.io/api/v1/crates/windows-link/0.2.1/download
   Cargo.lock checksum: f0805222e57f7521d6a62e36fa9163bc891acd422f971defe97d64e70d0a4fe5
-  Repository: https://github.com/microsoft/windows-rs
-  Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
-  Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
-
-windows-numerics 0.2.0
-  License: MIT OR Apache-2.0
-  Source: https://crates.io/api/v1/crates/windows-numerics/0.2.0/download
-  Cargo.lock checksum: 9150af68066c4c5c07ddc0ce30421554771e528bde427614c61038bc2c92c2b1
   Repository: https://github.com/microsoft/windows-rs
   Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
   Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
@@ -2649,15 +2590,6 @@ windows-result 0.2.0
   Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
   Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
 
-windows-result 0.3.4
-  License: MIT OR Apache-2.0
-  Source: https://crates.io/api/v1/crates/windows-result/0.3.4/download
-  Cargo.lock checksum: 56f42bd332cc6c8eac5af113fc0c1fd6a8fd2aa08a0119358686e5160d0586c6
-  Authors: Microsoft
-  Repository: https://github.com/microsoft/windows-rs
-  Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
-  Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
-
 windows-result 0.4.1
   License: MIT OR Apache-2.0
   Source: https://crates.io/api/v1/crates/windows-result/0.4.1/download
@@ -2675,28 +2607,10 @@ windows-strings 0.1.0
   Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
   Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
 
-windows-strings 0.4.2
-  License: MIT OR Apache-2.0
-  Source: https://crates.io/api/v1/crates/windows-strings/0.4.2/download
-  Cargo.lock checksum: 56e6c93f3a0c3b36176cb1327a4958a0353d5d166c2a35cb268ace15e91d3b57
-  Authors: Microsoft
-  Repository: https://github.com/microsoft/windows-rs
-  Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
-  Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
-
 windows-strings 0.5.1
   License: MIT OR Apache-2.0
   Source: https://crates.io/api/v1/crates/windows-strings/0.5.1/download
   Cargo.lock checksum: 7837d08f69c77cf6b07689544538e017c1bfcf57e34b4c0ff58e6c2cd3b37091
-  Repository: https://github.com/microsoft/windows-rs
-  Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
-  Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
-
-windows-sys 0.48.0
-  License: MIT OR Apache-2.0
-  Source: https://crates.io/api/v1/crates/windows-sys/0.48.0/download
-  Cargo.lock checksum: 677d2418bec65e3338edb076e806bc1ec15693c5d0104683f2efe857f61056a9
-  Authors: Microsoft
   Repository: https://github.com/microsoft/windows-rs
   Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
   Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
@@ -2727,15 +2641,6 @@ windows-sys 0.61.2
   Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
   Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
 
-windows-targets 0.48.5
-  License: MIT OR Apache-2.0
-  Source: https://crates.io/api/v1/crates/windows-targets/0.48.5/download
-  Cargo.lock checksum: 9a2fa6e2155d7247be68c096456083145c183cbbbc2764150dda45a87197940c
-  Authors: Microsoft
-  Repository: https://github.com/microsoft/windows-rs
-  Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
-  Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
-
 windows-targets 0.52.6
   License: MIT OR Apache-2.0
   Source: https://crates.io/api/v1/crates/windows-targets/0.52.6/download
@@ -2753,15 +2658,6 @@ windows-targets 0.53.5
   Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
   Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
 
-windows-threading 0.1.0
-  License: MIT OR Apache-2.0
-  Source: https://crates.io/api/v1/crates/windows-threading/0.1.0/download
-  Cargo.lock checksum: b66463ad2e0ea3bbf808b7f1d371311c80e115c0b71d60efc142cafbcfb057a6
-  Authors: Microsoft
-  Repository: https://github.com/microsoft/windows-rs
-  Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
-  Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
-
 windows-threading 0.2.1
   License: MIT OR Apache-2.0
   Source: https://crates.io/api/v1/crates/windows-threading/0.2.1/download
@@ -2774,15 +2670,6 @@ windows-version 0.1.7
   License: MIT OR Apache-2.0
   Source: https://crates.io/api/v1/crates/windows-version/0.1.7/download
   Cargo.lock checksum: e4060a1da109b9d0326b7262c8e12c84df67cc0dbc9e33cf49e01ccc2eb63631
-  Repository: https://github.com/microsoft/windows-rs
-  Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
-  Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
-
-windows_x86_64_msvc 0.48.5
-  License: MIT OR Apache-2.0
-  Source: https://crates.io/api/v1/crates/windows_x86_64_msvc/0.48.5/download
-  Cargo.lock checksum: ed94fce61571a4006852b7389a063ab983c02eb1bb37b47f8272ce92d06d9538
-  Authors: Microsoft
   Repository: https://github.com/microsoft/windows-rs
   Notice: licenses/c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b.txt (upstream license-apache-2.0; package)
   Notice: licenses/c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383.txt (upstream license-mit; package)
@@ -2826,6 +2713,15 @@ writeable 0.6.3
   Authors: The ICU4X Project Developers
   Repository: https://github.com/unicode-org/icu4x
   Notice: licenses/f367c1b8e1aa262435251e442901da4607b4650e0e63a026f5044473ecfb90f2.txt (upstream LICENSE; package)
+
+yaml_serde 0.10.7
+  License: MIT OR Apache-2.0
+  Source: https://crates.io/api/v1/crates/yaml_serde/0.10.7/download
+  Cargo.lock checksum: 33b729a08a9a6be689bbad3e2bf8015926db54b6622cc89c3a5f7dc174b9e918
+  Authors: YAML Organization <noreply@yaml.org>
+  Repository: https://github.com/yaml/yaml-serde
+  Notice: licenses/62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a.txt (upstream LICENSE-APACHE; package)
+  Notice: licenses/23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt (upstream LICENSE-MIT; package)
 
 yoke 0.8.3
   License: Unicode-3.0

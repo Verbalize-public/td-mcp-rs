@@ -1,6 +1,19 @@
 # Changelog
 
-## v0.2.0 — unreleased
+## v0.3.0 — 2026-10-28
+
+- Retain 180 daily logs / 180 days and 500 crash reports by default, with 200
+  recent records per crash. Zero disables cleanup; upgrades preserve configured
+  limits. Preserve legacy logs and prevent crash report filename collisions.
+- Repair portable journal/permission tests and make scorecard tests independent
+  of private studies. Update vulnerable dependencies and generated license records.
+- Check Rust 1.92 and all four native targets on pull requests and main pushes.
+- Add manual build-only, draft (default), and publish releases pinned to an exact
+  commit. Qualify platforms independently, retain failure diagnostics for 90 days,
+  and publish available platforms with explicit missing-platform issue tracking.
+- Release artifacts are unsigned; see the release notes for qualified targets.
+
+## v0.2.0 — development history (included in v0.3.0)
 
 112 commits against v0.1.4. It is **additive**: every tool,
 argument and response field that existed in v0.1.4 still works, and a call
@@ -8,11 +21,7 @@ that omits `output` still gets the full legacy shape. Read
 [docs/MIGRATION.md](docs/MIGRATION.md) before upgrading — it says what is new,
 what is newly *labelled*, and what this release does not claim.
 
-**The version is bumped in source but not yet published.** There is no `v0.2.0`
-tag and nothing has been pushed; every artifact from this tree is UNSIGNED, and
-native Windows/macOS installers have not been built or accepted. See
-[docs/MIGRATION.md](docs/MIGRATION.md#what-this-release-does-not-claim) and
-`docs/OPEN_WORK.md`.
+The v0.2.0 work below was not published as a separate release.
 
 ### The GUI is the default, including from the IDE
 

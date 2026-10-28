@@ -63,7 +63,6 @@ pub fn init(cfg: &Config) -> Result<LogHandles> {
         .rotation(Rotation::DAILY)
         .filename_prefix("daemon")
         .filename_suffix("log")
-        .max_log_files(cfg.logging_max_files as usize)
         .build(&cfg.logging_dir)
         .with_context(|| format!("build rolling appender in {}", cfg.logging_dir.display()))?;
     let (writer, guard) = tracing_appender::non_blocking(appender);
