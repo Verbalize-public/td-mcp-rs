@@ -70,6 +70,24 @@ the tool). Thresholds:
 `TDMCP_RECONNECT_PROBE_MAX_MS` (5000). This is **not** the TD↔daemon IPC
 resurrection policy (Goals §7 / non-goal “Silent auto-reconnect”).
 
+### Operation receipts
+
+Each bridge dispatch has an owner-scoped receipt. `GET /admin/operations`
+returns `receipts`, `count` / `pageCount` (returned rows), and `totalCount`,
+`inFlight`, `unresolved` (counts over the owner's entire retained history).
+Unresolved counts dispatched, wait-expired, and unknown-effect receipts without
+a caller resolution. Both receipt routes require loopback access and configured
+authentication; `x-tdmcp-client` scopes ownership (absent means `local:anonymous`).
+
+Only active `admitted` / `dispatched` waits consume admission slots (64 per
+owner, 512 globally). When the caller stops waiting, `wait_expired` records an
+`unknown` effect, releases the slot, and enters bounded history retention
+(24 hours by default, also subject to row limits). Work may still be running;
+this transition neither cancels nor retries it. Active waits have no expiry.
+`POST /admin/operations/resolve` records a labelled caller account without
+changing the daemon's state or effect, and does not stop active work. Reading
+receipts does not change admission accounting.
+
 ### Bridge transport — Shipped (TCP loopback)
 
 

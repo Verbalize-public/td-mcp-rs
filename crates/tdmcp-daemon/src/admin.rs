@@ -24,7 +24,6 @@ use crate::ensure::configure_detached_spawn;
 use crate::federation::{tag_local_processes, FederationRuntime};
 use crate::logrecord::{Level, Src};
 use crate::logring::{ingest_proxy_logs, LogSink};
-use crate::opjournal::ReceiptState;
 use crate::receipt_port::ClientReceiptFactory;
 
 /// Arguments needed to respawn the daemon after `/admin/restart`.
@@ -500,24 +499,21 @@ async fn admin_operations(
         .limit
         .unwrap_or(OPERATIONS_PAGE_LIMIT)
         .clamp(1, OPERATIONS_PAGE_LIMIT);
-    match factory.journal().list(&owner, limit) {
-        Ok(receipts) => {
-            let unresolved: Vec<&ReceiptState> = receipts
-                .iter()
-                .filter(|receipt| receipt.state == ReceiptState::UnknownEffect)
-                .map(|receipt| &receipt.state)
-                .collect();
-            Json(json!({
-                "ok": true,
-                "available": true,
-                "count": receipts.len(),
-                // Named as a count rather than left implicit: a client reading
-                // `unresolved: 0` learns that nothing is unaccounted for, which
-                // is a different and stronger statement than an empty list.
-                "unresolved": unresolved.len(),
-                "receipts": receipts,
-            }))
-        }
+    let journal = factory.journal();
+    match journal
+        .list(&owner, limit)
+        .and_then(|receipts| journal.counts(&owner).map(|counts| (receipts, counts)))
+    {
+        Ok((receipts, counts)) => Json(json!({
+            "ok": true,
+            "available": true,
+            "count": receipts.len(),
+            "pageCount": receipts.len(),
+            "totalCount": counts.total,
+            "inFlight": counts.in_flight,
+            "unresolved": counts.unresolved,
+            "receipts": receipts,
+        })),
         Err(error) => Json(json!({
             "ok": false,
             "available": true,

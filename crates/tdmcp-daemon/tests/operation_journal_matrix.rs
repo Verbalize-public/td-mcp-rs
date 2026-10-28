@@ -322,19 +322,50 @@ async fn a_cancelled_caller_still_leaves_a_receipt_behind() {
     std::fs::remove_dir_all(&root).ok();
 }
 
-/// Retention: a settled receipt expires and is pruned, an unsettled one is not.
-///
-/// A settled receipt is safe to drop because it recorded its answer. An
-/// unsettled one is the only record of an operation whose effect nobody
-/// observed, so it must survive its retention window untouched — otherwise an
-/// honest unknown quietly becomes "never happened".
+/// Repeated cancellations free slots while preserving unknown effects.
+#[tokio::test]
+async fn repeated_caller_cancellations_do_not_exhaust_receipt_admission() {
+    let root = journal_root("repeated-cancellation");
+    let journal = Arc::new(SqliteOperationJournal::open(&root, config()).unwrap());
+    let recorder = Arc::new(OperationRecorder::new(journal.clone(), owner()));
+    let (_registry, sessions, mut peer) = session(4247, Duration::from_secs(30)).await;
+    let frozen = tokio::spawn(async move { while peer.recv_message().await.is_ok() {} });
+
+    // Exceed both configured admission bounds, through real dispatch futures.
+    for _ in 0..20 {
+        let call = call_and_record(
+            &sessions,
+            &recorder,
+            4247,
+            "mutate_nodes",
+            json!({"steps": []}),
+            &read_mutate_effect,
+        );
+        assert!(tokio::time::timeout(Duration::from_millis(5), call)
+            .await
+            .is_err());
+        assert_eq!(journal.counts(&owner()).unwrap().in_flight, 0);
+    }
+    assert!(journal.list(&owner(), 16).unwrap().iter().all(|receipt| {
+        receipt.state == ReceiptState::WaitExpired
+            && receipt.effect == EffectState::Unknown
+            && receipt.expires_at_ms.is_some()
+    }));
+    frozen.abort();
+    drop(recorder);
+    drop(journal);
+    std::fs::remove_dir_all(&root).ok();
+}
+
+/// Retention bounds history after the result arrives or the caller stops
+/// waiting. Active dispatches keep their admission slots and never expire.
 ///
 /// Driven with a zero-length retention so the settled row is already past its
 /// expiry when the next admission prunes. This is a property of the journal,
 /// not of the transport, so it is asserted directly rather than through a
 /// bridge that would only add noise.
 #[tokio::test]
-async fn retention_drops_settled_receipts_but_never_the_unobserved_ones() {
+async fn retention_bounds_ended_waits_but_never_discards_active_dispatches() {
     let root = journal_root("retention");
     let mut expiring = config();
     // A receipt settled under this retention is expired the instant it is
@@ -355,13 +386,15 @@ async fn retention_drops_settled_receipts_but_never_the_unobserved_ones() {
         )
         .unwrap();
 
-    // Unsettled: dispatched, then the caller's wait ended without a result.
+    // The wait ended without a result: uncertainty is now retained history.
     let unsettled = journal.admit(&owner(), "mutate_nodes", None).unwrap();
     journal.mark_dispatched(&owner(), &unsettled).unwrap();
     journal
         .mark_wait_expired(&owner(), &unsettled, "caller stopped waiting")
         .unwrap();
 
+    let active = journal.admit(&owner(), "mutate_nodes", None).unwrap();
+    journal.mark_dispatched(&owner(), &active).unwrap();
     // A fresh admission is what triggers the prune.
     let keeper = journal.admit(&owner(), "mutate_nodes", None).unwrap();
 
@@ -369,14 +402,17 @@ async fn retention_drops_settled_receipts_but_never_the_unobserved_ones() {
         journal.get(&owner(), &settled).unwrap().is_none(),
         "a settled receipt past its retention is pruned"
     );
+    assert!(
+        journal.get(&owner(), &unsettled).unwrap().is_none(),
+        "an ended wait is pruned after the configured history retention"
+    );
     assert_eq!(
         journal
-            .get(&owner(), &unsettled)
+            .get(&owner(), &active)
             .unwrap()
-            .expect("the unobserved receipt must survive retention")
+            .unwrap()
             .expires_at_ms,
-        None,
-        "an unsettled receipt has no expiry and is never pruned by age"
+        None
     );
     assert!(journal.get(&owner(), &keeper).unwrap().is_some());
 

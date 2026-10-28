@@ -235,6 +235,49 @@ async fn an_observed_operation_is_not_reported_as_unresolved() {
 }
 
 #[tokio::test]
+async fn counts_cover_the_owner_history_independently_of_the_page() {
+    for journal in [
+        Arc::new(MemoryOperationJournal::new(config())) as Arc<dyn OperationJournal>,
+        Arc::new(tdmcp_daemon::opjournal::SqliteOperationJournal::open_memory(config()).unwrap()),
+    ] {
+        let owner = owner_of("ide-1");
+        let active = journal.admit(&owner, "execute_python", None).unwrap();
+        journal.mark_dispatched(&owner, &active).unwrap();
+        let abandoned = journal.admit(&owner, "execute_python", None).unwrap();
+        journal.mark_dispatched(&owner, &abandoned).unwrap();
+        journal
+            .mark_wait_expired(&owner, &abandoned, "timeout")
+            .unwrap();
+        journal.admit(&owner, "execute_python", None).unwrap();
+        let foreign_owner = owner_of("ide-2");
+        let foreign = journal
+            .admit(&foreign_owner, "execute_python", None)
+            .unwrap();
+        journal.mark_dispatched(&foreign_owner, &foreign).unwrap();
+        let (router, _) = admin_router(Some(Arc::clone(&journal)));
+        let (_, body) = get(router.clone(), Some("ide-1"), "/admin/operations?limit=1").await;
+        assert_eq!(body["count"], json!(1));
+        assert_eq!(body["pageCount"], json!(1));
+        assert_eq!(body["totalCount"], json!(3));
+        assert_eq!(body["inFlight"], json!(2));
+        assert_eq!(body["unresolved"], json!(2));
+        let (status, resolution) = resolve(
+            router.clone(),
+            "ide-1",
+            json!({"id": abandoned, "observedEffect": "applied"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(resolution["stateUnchanged"], json!(true));
+        assert_eq!(resolution["receipt"]["state"], json!("wait_expired"));
+        assert_eq!(resolution["receipt"]["effect"], json!("unknown"));
+        let (_, body) = get(router, Some("ide-1"), "/admin/operations?limit=1").await;
+        assert_eq!(body["unresolved"], json!(1));
+        assert_eq!(body["inFlight"], json!(2));
+    }
+}
+
+#[tokio::test]
 async fn accounting_for_a_dispatch_records_it_without_changing_the_record() {
     let journal = journal();
     let id = stage_unobserved(&journal, "ide-1");

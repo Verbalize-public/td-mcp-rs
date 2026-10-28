@@ -41,13 +41,13 @@ const SCHEMA_VERSION: i64 = 2;
 const DEFAULT_MAX_ROWS_PER_OWNER: u64 = 512;
 /// Journal rows retained across the journal, including tombstones.
 const DEFAULT_MAX_TOTAL_ROWS: u64 = 4_096;
-/// Unsettled receipts allowed for one owner before admissions are refused.
+/// Active waiters allowed for one owner before admissions are refused.
 const DEFAULT_MAX_IN_FLIGHT_PER_OWNER: u64 = 64;
-/// Unsettled receipts allowed across the journal before admissions are refused.
+/// Active waiters allowed across the journal before admissions are refused.
 const DEFAULT_MAX_IN_FLIGHT_TOTAL: u64 = 512;
 /// Maximum serialized bytes in a caller-supplied receipt detail.
 const MAX_DETAIL_BYTES: u64 = 8 * 1024;
-/// Default retention for a receipt that has reached a terminal state.
+/// Default retention for a receipt whose result arrived or whose wait ended.
 const DEFAULT_RETENTION: Duration = Duration::from_secs(24 * 60 * 60);
 
 /// Bounded limits for one operation journal.
@@ -57,14 +57,13 @@ pub struct JournalConfig {
     pub max_rows_per_owner: u64,
     /// Maximum retained receipts across the journal, including tombstones.
     pub max_total_rows: u64,
-    /// Maximum unsettled (admitted or dispatched, no observed result) receipts
-    /// for one owner.
+    /// Maximum active (admitted or dispatched) receipts for one owner.
     pub max_in_flight_per_owner: u64,
-    /// Maximum unsettled receipts across the journal.
+    /// Maximum active receipts across the journal.
     pub max_in_flight_total: u64,
     /// Maximum serialized bytes of caller-supplied detail on one receipt.
     pub max_detail_bytes: u64,
-    /// How long a terminal receipt is retained before it may be dropped.
+    /// How long a terminal or wait-expired receipt is retained before pruning.
     pub retention: Duration,
 }
 
@@ -199,7 +198,7 @@ pub struct OperationReceipt {
     pub created_at_ms: i64,
     /// Wall-clock milliseconds of the most recent transition.
     pub updated_at_ms: i64,
-    /// When a terminal receipt may be dropped.
+    /// When a terminal or wait-expired receipt may be dropped.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expires_at_ms: Option<i64>,
     /// The owner's own account of an unobserved dispatch, if they gave one.
@@ -217,6 +216,17 @@ impl OperationReceipt {
             extensions: ExtensionData::new(),
         }
     }
+}
+
+/// Owner-scoped counts across all retained receipts, independent of pagination.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OperationCounts {
+    /// All retained receipts for the owner.
+    pub total: u64,
+    /// Admitted or dispatched calls whose caller is still waiting.
+    pub in_flight: u64,
+    /// Unobserved dispatches without a caller resolution.
+    pub unresolved: u64,
 }
 
 /// A durable receipt log for externally-visible operations.
@@ -255,8 +265,9 @@ pub trait OperationJournal: Send + Sync {
     /// the call may still be running inside TouchDesigner. Recording this as
     /// `failed` would claim the work did not happen, and recording it as
     /// `completed` would claim more than anybody observed. The receipt stays
-    /// unsettled so a later [`Self::recover_uncertain`] reports it as unknown
-    /// rather than quietly forgetting it.
+    /// unknown, but releases its admission slot and gets the configured history
+    /// retention. It remains readable and resolvable without a restart. Ending
+    /// the wait does not stop or retry the work.
     ///
     /// The effect is always [`EffectState::Unknown`] and is not a parameter,
     /// so no caller can turn a lost result into a known one by accident.
@@ -307,6 +318,9 @@ pub trait OperationJournal: Send + Sync {
 
     /// List an owner's receipts, newest first, at most `limit` rows.
     fn list(&self, owner: &OwnerId, limit: u64) -> Result<Vec<OperationReceipt>, EvidenceError>;
+
+    /// Count an owner's retained receipts and active waits without pagination.
+    fn counts(&self, owner: &OwnerId) -> Result<OperationCounts, EvidenceError>;
 
     /// Fail every non-terminal receipt as uncertain.
     ///
@@ -507,11 +521,9 @@ impl SqliteOperationJournal {
         connection: &rusqlite::Connection,
         owner: &OwnerId,
     ) -> Result<(), EvidenceError> {
-        // Only settled receipts are ever deleted. A dispatched or admitted row
-        // is the caller's only record that work left this process, so dropping
-        // one to satisfy a row count would turn an honest unknown into a
-        // silent "never happened". Those rows are bounded by refusing new
-        // admissions instead (see `in_flight_bounds`).
+        // Active waits never expire. Once the wait ends, even an unknown effect
+        // is retained as bounded history, just like recovery's unknown_effect
+        // receipts. Keeping that history must not consume active admission slots.
         connection
             .execute(
                 "DELETE FROM receipts
@@ -546,11 +558,10 @@ impl SqliteOperationJournal {
         Ok(())
     }
 
-    /// Refuse a new admission when too many receipts are still unsettled.
+    /// Refuse a new admission when too many callers are still waiting.
     ///
-    /// This is the deliberate alternative to deleting an unsettled receipt to
-    /// stay under a bound. Exhausting the bound makes the journal say "no"
-    /// instead of forgetting a dispatch it never saw the result of.
+    /// History retention is separate: a wait-expired receipt still reports an
+    /// unknown effect, but no longer occupies an active waiter's slot.
     fn in_flight_bounds(
         &self,
         connection: &rusqlite::Connection,
@@ -567,7 +578,7 @@ impl SqliteOperationJournal {
         if u64::try_from(owner_in_flight).unwrap_or(u64::MAX) >= self.config.max_in_flight_per_owner
         {
             return Err(EvidenceError::QuotaExceeded(format!(
-                "owner already has {} unsettled operation receipts; finish or read them first",
+                "owner already has {} active operation receipts; wait for active calls to return or their callers to stop waiting; reading or resolving receipts does not stop work",
                 owner_in_flight
             )));
         }
@@ -580,7 +591,7 @@ impl SqliteOperationJournal {
             .map_err(db_error)?;
         if u64::try_from(total_in_flight).unwrap_or(u64::MAX) >= self.config.max_in_flight_total {
             return Err(EvidenceError::QuotaExceeded(format!(
-                "journal already holds {total_in_flight} unsettled operation receipts"
+                "journal already holds {total_in_flight} active operation receipts; wait for active calls to return or their callers to stop waiting; reading or resolving receipts does not stop work"
             )));
         }
         Ok(())
@@ -702,10 +713,8 @@ impl OperationJournal for SqliteOperationJournal {
             .connection
             .lock()
             .map_err(|_| EvidenceError::Conflict)?;
-        // `wait_expired` is not terminal, so `transition` leaves `expires_at_ms`
-        // NULL: the receipt keeps counting against the in-flight bound until a
-        // restart settles it, which is what stops a wall of abandoned waits from
-        // being admitted forever.
+        // An ended wait becomes retained history, even though no effect was
+        // observed. It must not keep an active admission slot until a restart.
         transition(
             &connection,
             Transition {
@@ -820,6 +829,30 @@ impl OperationJournal for SqliteOperationJournal {
             receipts.push(row.map_err(db_error)?);
         }
         Ok(receipts)
+    }
+
+    fn counts(&self, owner: &OwnerId) -> Result<OperationCounts, EvidenceError> {
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| EvidenceError::Conflict)?;
+        connection
+            .query_row(
+                "SELECT COUNT(*),
+                    COUNT(CASE WHEN expires_at_ms IS NULL THEN 1 END),
+                    COUNT(CASE WHEN state IN ('dispatched', 'wait_expired', 'unknown_effect')
+                                AND resolution IS NULL THEN 1 END)
+               FROM receipts WHERE owner = ?1",
+                params![owner.as_str()],
+                |row| {
+                    Ok(OperationCounts {
+                        total: u64::try_from(row.get::<_, i64>(0)?).unwrap_or(u64::MAX),
+                        in_flight: u64::try_from(row.get::<_, i64>(1)?).unwrap_or(u64::MAX),
+                        unresolved: u64::try_from(row.get::<_, i64>(2)?).unwrap_or(u64::MAX),
+                    })
+                },
+            )
+            .map_err(db_error)
     }
 
     fn recover_uncertain(&self) -> Result<Vec<OperationReceipt>, EvidenceError> {
@@ -951,7 +984,7 @@ struct Transition<'a> {
     effect: EffectState,
     /// Optional bounded detail; `None` leaves any existing detail intact.
     detail: Option<String>,
-    /// Retention used to compute the terminal expiry.
+    /// Retention used once a result arrives or the caller's wait ends.
     retention: Duration,
     /// Owning principal, from the authenticated transport.
     owner: &'a OwnerId,
@@ -972,8 +1005,9 @@ fn transition(
     // would make a journal opened with a different retention write an expiry
     // its owner never asked for, and the mismatch would only show up later as
     // a receipt vanishing on the wrong schedule.
-    let expires = if request.next.is_terminal() {
-        Some(now_ms() + retention_ms(request.retention))
+    let now = now_ms();
+    let expires = if request.next.is_terminal() || request.next == ReceiptState::WaitExpired {
+        Some(now + retention_ms(request.retention))
     } else {
         None
     };
@@ -987,7 +1021,7 @@ fn transition(
                 request.next.as_str(),
                 effect_str(request.effect),
                 request.detail,
-                now_ms(),
+                now,
                 expires,
                 request.id,
                 request.owner.as_str(),
@@ -1200,9 +1234,7 @@ impl OperationJournal for MemoryOperationJournal {
         receipt.effect = EffectState::Unknown;
         receipt.detail = Some(detail.to_owned());
         receipt.updated_at_ms = now_ms();
-        // No expiry: an unsettled receipt keeps counting against the in-flight
-        // bound until recovery settles it.
-        receipt.expires_at_ms = None;
+        receipt.expires_at_ms = Some(receipt.updated_at_ms + retention_ms(self.config.retention));
         Ok(())
     }
 
@@ -1294,6 +1326,31 @@ impl OperationJournal for MemoryOperationJournal {
         owned
             .truncate(usize::try_from(limit.clamp(1, self.config.max_rows_per_owner)).unwrap_or(1));
         Ok(owned)
+    }
+
+    fn counts(&self, owner: &OwnerId) -> Result<OperationCounts, EvidenceError> {
+        let receipts = self.receipts.lock().map_err(|_| EvidenceError::Conflict)?;
+        let mut counts = OperationCounts {
+            total: 0,
+            in_flight: 0,
+            unresolved: 0,
+        };
+        for receipt in receipts
+            .values()
+            .filter(|receipt| receipt.owner == owner.as_str())
+        {
+            counts.total += 1;
+            counts.in_flight += u64::from(receipt.expires_at_ms.is_none());
+            counts.unresolved += u64::from(
+                matches!(
+                    receipt.state,
+                    ReceiptState::Dispatched
+                        | ReceiptState::WaitExpired
+                        | ReceiptState::UnknownEffect
+                ) && receipt.resolution.is_none(),
+            );
+        }
+        Ok(counts)
     }
 
     fn recover_uncertain(&self) -> Result<Vec<OperationReceipt>, EvidenceError> {
@@ -2185,7 +2242,13 @@ mod tests {
         assert_eq!(receipt.detail.as_deref(), Some("caller timed out"));
         // Not terminal: the receipt stays unsettled and recoverable.
         assert!(!receipt.state.is_terminal());
-        assert_eq!(receipt.expires_at_ms, None);
+        let expires = receipt
+            .expires_at_ms
+            .expect("ended waits have bounded retention");
+        assert_eq!(
+            expires - receipt.updated_at_ms,
+            retention_ms(config().retention)
+        );
         assert_eq!(receipt.outcome().state, OperationState::WaitExpired);
     }
 
@@ -2228,21 +2291,33 @@ mod tests {
     }
 
     #[test]
-    fn an_expired_wait_still_counts_as_unsettled_so_abandons_cannot_be_unbounded() {
+    fn repeated_expired_waits_release_admission_slots_without_a_restart() {
         let mut bounded = config();
         bounded.max_in_flight_per_owner = 1;
         bounded.max_in_flight_total = 1;
         let journal = SqliteOperationJournal::open_memory(bounded).unwrap();
-        let id = journal.admit(&alice(), "mutate_nodes", None).unwrap();
-        journal.mark_dispatched(&alice(), &id).unwrap();
-        journal.mark_wait_expired(&alice(), &id, "gave up").unwrap();
-        // The receipt is not terminal and must not be pruned away by age, so the
-        // next admission is refused rather than silently exceeding the bound.
-        let second = journal.admit(&alice(), "mutate_nodes", None);
-        assert!(
-            matches!(second, Err(EvidenceError::QuotaExceeded(_))),
-            "expected QuotaExceeded, got {second:?}"
-        );
+        for _ in 0..130 {
+            for owner in [alice(), bob()] {
+                let id = journal.admit(&owner, "mutate_nodes", None).unwrap();
+                journal.mark_dispatched(&owner, &id).unwrap();
+                journal.mark_wait_expired(&owner, &id, "gave up").unwrap();
+                let receipt = journal.get(&owner, &id).unwrap().unwrap();
+                assert_eq!(receipt.state, ReceiptState::WaitExpired);
+                assert_eq!(receipt.effect, EffectState::Unknown);
+                assert!(receipt.expires_at_ms.is_some());
+            }
+        }
+        // Uncertain history stays bounded independently of active waiters.
+        assert!(journal.list(&alice(), 100).unwrap().len() <= bounded.max_rows_per_owner as usize);
+        let active = journal.admit(&alice(), "mutate_nodes", None).unwrap();
+        journal.mark_dispatched(&alice(), &active).unwrap();
+        // Real active dispatches still consume both the owner and global quota.
+        for owner in [alice(), bob()] {
+            assert!(matches!(
+                journal.admit(&owner, "mutate_nodes", None),
+                Err(EvidenceError::QuotaExceeded(_))
+            ));
+        }
     }
 
     #[test]

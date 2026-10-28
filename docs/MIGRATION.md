@@ -220,6 +220,22 @@ move" and "the scene did not change" separate statements. A daemon that
 cannot open a journal answers both routes `503` with a reason rather than
 serving an empty list that reads as "nothing happened".
 
+Receipts whose callers stop waiting stay `wait_expired` with an `unknown`
+effect. They release their admission slots immediately and use the same bounded
+history retention as terminal receipts (24 hours by default, also subject to
+row limits). This does not cancel, retry, or establish the effect of the work.
+Only active `admitted` / `dispatched` calls consume the 64-per-owner and
+512-global admission limits. Reading or resolving a receipt does not stop work.
+Clients without `x-tdmcp-client` share the `local:anonymous` principal; send a
+stable client claim to keep task histories and admission windows separate.
+
+The operations list retains `count` as the number of rows in the returned page
+and exposes the same value as `pageCount`. `totalCount`, `inFlight`, and
+`unresolved` count the owner's entire retained history, independent of the page
+limit. Unresolved includes dispatched, wait-expired, and unknown-effect receipts
+without a caller resolution. Resolving a receipt records the caller's account
+and removes it from `unresolved`, while its state and effect stay unchanged.
+
 ## What this release does not claim
 
 - No model token A/B significance, and no agent task-acceptance measurement.
