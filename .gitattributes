@@ -7,3 +7,9 @@ fixtures/v2-probes/**/*.bin -text
 *.tox -text
 # Probe backup artifacts (created by project_install_bridge) stay opaque
 fixtures/v2-probes/**/*.bak -text
+# License inventories contain hashes of exact upstream bytes. Windows checkout
+# must not rewrite those records or their canonical fallback texts to CRLF.
+/third-party/generated/** -text
+/third-party/canonical/** -text
+# The inventory also records the exact lockfile digest.
+/Cargo.lock text eol=lf
