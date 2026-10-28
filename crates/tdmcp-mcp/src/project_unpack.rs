@@ -1037,8 +1037,13 @@ mod tests {
                     fs::create_dir(to.expect("target action requires destination"))
                 }
                 HookAction::ReplaceSourceDir { marker, .. } => {
-                    fs::remove_dir_all(from)?;
+                    // Keep the old inode allocated while creating its replacement.
+                    // Delete/recreate can immediately reuse it on Linux, defeating
+                    // this fixture's intended identity-change precondition.
+                    let prior_identity = tdmcp_projectio::publish::identity(from)?;
+                    fs::rename(from, from.with_extension("displaced"))?;
                     fs::create_dir(from)?;
+                    assert_ne!(prior_identity, tdmcp_projectio::publish::identity(from)?);
                     fs::write(from.join("concurrent.marker"), marker)
                 }
             }
