@@ -159,6 +159,12 @@ class Session:
         env["TDMCP_IPC_PORT"] = str(BRIDGE_PORT)  # the BRIDGE port, not --port
         env["TDMCP_NO_GUI"] = "true"  # a tray in a headless campaign is noise
         env.pop("TDMCP_BRIDGE_DIR", None)  # force the handshake's own answer
+        # The bridge-side redial decision, recorded by the callback itself.
+        # Without it the supersede is only visible in the DAEMON's log, long
+        # after the bridge has acted -- see `bridge/tox_callbacks.py::_trace`.
+        # Inherited by the TouchDesigner the daemon spawns, which is the
+        # process that has to write it.
+        env["TDMCP_BRIDGE_TRACE"] = str(self.run_dir / "bridge-trace.jsonl")
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.daemon_proc = subprocess.Popen(
             [

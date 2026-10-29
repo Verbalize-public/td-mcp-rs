@@ -4,6 +4,18 @@ Control-plane layout for **td-mcp-rs**. Contract source of truth for agent
 behaviour remains [`docs/CONTRACT.md`](docs/CONTRACT.md). This document owns
 crate boundaries and process topology.
 
+## Follow one request
+
+The assistant launches `tdmcp-daemon mcp`, a stdio proxy that connects to the
+long-lived daemon over HTTP. The daemon identifies the target TD process and
+queues the call. Inside TD, the bridge dispatches TD API work on the main
+thread and returns the result through the daemon to the assistant.
+
+Offline file tools use the installed official TD utilities without a bridge
+call. For a remote target, the coordinator routes to the owning daemon first.
+The dashboard is another client of the daemon's admin API; it does not own
+the tool queue.
+
 ## Topology
 
 ```text
@@ -93,7 +105,9 @@ See [`docs/CONTRACT.md`](docs/CONTRACT.md):
 
 | Doc | Role |
 | --- | --- |
-| [`README.md`](README.md) | Product overview + quickstart |
+| [`README.md`](README.md) | Product overview |
+| [`docs/QUICKSTART.md`](docs/QUICKSTART.md) | First connection and creative task |
+| [`docs/README.md`](docs/README.md) | Documentation map |
 | [`docs/INSTALL.md`](docs/INSTALL.md) | Per-harness MCP setup + troubleshooting |
 | [`docs/FEDERATION.md`](docs/FEDERATION.md) | Federation user guide (setup, security model, limits) |
 | [`docs/RECIPES.md`](docs/RECIPES.md) | Prompt cookbook for end users |

@@ -17,6 +17,24 @@ Install test dependencies in an activated virtual environment with
 `scripts/check.ps1` wrap the local checks. The JSON Schema validator is test-only;
 no project script is executed by documentation validation.
 
+## Documentation-only changes
+
+Run the existing validators before changing any runtime installation:
+
+```sh
+python scripts/check_docs.py
+python scripts/check_guidance.py
+git diff --check
+```
+
+The first checks local Markdown links and anchors. The second checks classified
+skill examples against schemas and source hashes; it does not validate every
+prose claim or execute TD. Review prose and CLI examples against the current
+implementation. Template edits also require the render checks below.
+
+A docs-only change does not require a daemon restart or a live project edit.
+Report static checks separately from any native validation.
+
 ## Where tests live
 
 | Layer | Location | Coverage |

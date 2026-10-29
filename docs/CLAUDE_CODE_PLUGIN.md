@@ -5,6 +5,26 @@ plugin from this repo — no separate marketplace repo, no hand-edited MCP JSON.
 It sits alongside the [`mcp.tdmcp.example.json`](../mcp.tdmcp.example.json)
 flow, which Cursor and any other MCP harness keep using unchanged.
 
+## Installing
+
+First [install td-mcp-rs](INSTALL.md); the plugin does not include its binary.
+In Claude Code, use:
+
+```text
+/plugin marketplace add Verbalize-public/td-mcp-rs
+/plugin install td-mcp-rs@td-mcp-rs
+```
+
+Supply the [installed executable path](INSTALL.md#connect-your-assistant)
+when configuring the plugin; leave `tdmcp-daemon` only if it is on your PATH.
+The plugin declares both the MCP server and the TouchDesigner operating skill.
+Reconnect the client and ask it to list TD instances, then continue with
+[adding the bridge](QUICKSTART.md#3-add-the-bridge-to-your-project).
+
+If plugin setup fails in your client version, use the manual
+[stdio configuration](INSTALL.md#connect-your-assistant) and inspect the
+client's plugin/MCP logs. Avoid registering the same server twice.
+
 ## Layout
 
 | Path | Role |
@@ -13,14 +33,9 @@ flow, which Cursor and any other MCP harness keep using unchanged.
 | [`mcp-servers.json`](../mcp-servers.json) | The `tdmcp-rs` MCP server entry, referenced from `plugin.json` |
 | [`claude-skills/`](../claude-skills/) | Checked-in, filesystem-mode render of `skills/` — one `SKILL.md` per Claude Code's own format |
 
-`plugin.json` must live at the repo root for the one-line
-`/plugin marketplace add <owner>/<repo>` install to work (Claude Code infers
-a single-plugin marketplace from a root `plugin.json`; it has no documented
-way to point a marketplace entry at a subdirectory of a shared repo). The
-existing top-level `skills/` directory (Jinja templates + `MANIFEST.yaml`,
-consumed by `tdmcp-mcp` / `tdmcp-daemon skills render`) is left untouched;
-`plugin.json`'s `skills` field points at `./claude-skills/` explicitly instead
-of relying on the default `./skills/` scan, so the two never collide.
+The manifest lives in `.claude-plugin/` and points explicitly to
+`./claude-skills/`. The top-level `skills/` directory contains the templates
+used to produce that render; it is not the installed plugin skill pack.
 
 ## Why `mcp-servers.json`, not `.mcp.json`
 
@@ -76,16 +91,3 @@ git add claude-skills
 ```
 
 then `cargo test -p tdmcp-daemon` (or the normal quality gate) will pass again.
-
-## Installing
-
-```text
-/plugin marketplace add Verbalize-public/td-mcp-rs
-/plugin install td-mcp-rs@td-mcp-rs
-```
-
-Claude Code prompts once for the `tdmcp-daemon` binary path (leave the
-default if it's on `PATH`). After that, the `tdmcp-rs` MCP server and the
-`touchdesigner` skill are both active automatically — the skill's own
-description (`MUST READ before any TouchDesigner work: ...`) is what gets it
-picked up proactively, so there's no separate persona doc to keep in sync.

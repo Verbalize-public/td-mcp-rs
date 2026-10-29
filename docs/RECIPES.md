@@ -1,284 +1,289 @@
 # Recipes — what to say
 
-There is no new interface to learn. You talk to your assistant, and it
-operates TouchDesigner. These are prompts that work, ordered from *"just look
-at this"* to *"build the whole thing"*.
+Describe the result you want in your own words. You don't need to remember
+tool names. These prompts are starting points: replace example paths with
+operators in your project, and tell the assistant which project to use.
 
-**Contents**
+New connection? Finish the [quick start](QUICKSTART.md) first.
 
-- [Before you start](#before-you-start)
-- [Level 1 · Look and explain](#level-1--look-and-explain)
-- [Level 2 · Small precise edits](#level-2--small-precise-edits)
-- [Level 3 · Delegate a chunk](#level-3--delegate-a-chunk)
-- [Level 4 · End to end](#level-4--end-to-end)
-- [Teach it your Palette](#teach-it-your-palette)
-- [Debugging](#debugging)
-- [Project and file wrangling](#project-and-file-wrangling)
-- [Across machines](#across-machines)
-- [Making it check its work](#making-it-check-its-work)
-
----
+Jump to [timing and recording](#look-at-specific-frames),
+[Palette](#teach-it-your-palette), [debugging](#debugging),
+[offline files](#project-and-file-wrangling), or [federation](#across-machines).
 
 ## Before you start
 
-**You don't need to name the tools.** *"Why is this black?"* is a fine prompt.
-Naming them (*"call `inspect` on `/project1`"*) only helps when the assistant
-has wandered off.
+Give the assistant somewhere to work: “Build it in a new COMP called
+`bloom_v2`” is easier to review than an open invitation to rearrange the root.
+Save first, especially while trying unfamiliar workflows.
 
-**"This node" works.** The assistant can see which network pane you have open
-and what's selected, so *"the node I've got selected"* or *"the one I'm
-looking at"* resolves correctly.
-
-**Ask it to look before it claims.** Add *"…then screenshot it and tell me
-what you see."* Without that, an assistant will tell you a black render looks
-great.
-
-**Give it somewhere to work.** *"Build it in a new COMP called `bloom_v2`"* is
-better than turning it loose in your root network, and makes the result
-trivial to delete.
-
-**Save first, the first few times.** It operates your live project. Nothing
-here is destructive by design, but you'll experiment more freely with a save
-behind you.
-
----
+“This node” can be useful: the assistant can read editor panes and selections.
+With multiple panes or instances, have it confirm the path and project before
+editing. Ask it to capture results and inspect errors; a confident paragraph
+isn't a render preview.
 
 ## Level 1 · Look and explain
 
-Nothing is modified.
+Start with observation:
 
-> *"What's in this project? Give me the structure."*
+> “Walk me through this network. What's generating the image, what's modifying
+> it, and where does it leave the COMP?”
 
-> *"Walk me through what this network does, node by node."*
+> “Show me the parameters on the node I've selected. Which ones matter for
+> the look, and which are just setup?”
 
-> *"What is this feedback loop doing, and why does it need the Level TOP?"*
+> “Read this shader DAT and explain what each block does.”
 
-> *"Which operators are erroring or warning right now, and what do the errors
-> mean?"*
+> “Find the operators with errors or warnings and explain the messages.”
 
-> *"Show me the parameters on the node I have selected, and explain which ones
-> matter."*
-
-> *"Screenshot the output of `render1` and describe what you see."*
-
-> *"What's the difference between a POP and a SOP, and which should I use
-> here?"*
-
-> *"Read the GLSL in this shader DAT and explain what each block does."*
-
-The answers come from your actual network — names, wiring, parameter values,
-error text, DAT bodies — cross-referenced against a built-in TouchDesigner
-manual (operator families, cooking, GLSL ground truth, network conventions).
-
----
+The assistant can read real names, wiring, values, and source text, then query
+live TD Python API help. Inspection and capture can trigger cooking or shader
+compilation; “look” doesn't mean TD stops evaluating the project.
 
 ## Level 2 · Small precise edits
 
-Exactly what you said, no improvising. Faster than reaching for the mouse.
+> “Add a Level TOP after `noise1`, set gamma to 0.8, and connect it to `out1`.”
 
-> *"Add a Level TOP after `noise1`, set gamma to 0.8, wire it into `out1`."*
+> “Give this COMP a `Look` page with gain, saturation, and blur controls.
+> Connect them to the parameters inside and test each control.”
 
-> *"Set the resolution on every TOP in this COMP to 1920×1080."*
+> “Duplicate this chain into three new COMPs, one per scene. Give each a
+> different noise seed and lay them out clearly.”
 
-> *"Give this COMP a custom page called `Look` with sliders for gain,
-> saturation and blur, and bind them to the right parameters."*
+> “Explain this wiring first, then rename the nodes and add useful comments.”
 
-> *"Rename these nodes to something sane and lay them out left to right."*
-
-> *"Duplicate this chain three times, one per scene, and offset the noise seed
-> on each."*
-
-> *"Add a comment to each of these nodes saying what it's for."*
-
-> *"Turn this hard-coded 0.5 into a reference to the slider I just added."*
-
-Edits go through in one ordered batch. If step four fails you're told which
-step and why, so you never end up with half a network and no explanation.
-
----
+Edits run in an ordered batch. A hard failure stops the batch, but earlier
+steps—and parts of the failing step—may already have changed the project.
+Ask the assistant to inspect that state before repairing or repeating it.
 
 ## Level 3 · Delegate a chunk
 
-You describe the outcome; it picks the operators.
+> “Build an audio-reactive particle effect in a new COMP. Check the Palette
+> for a suitable component before building from scratch.”
 
-> *"Build an audio-reactive particle system in a new COMP. Use something from
-> the Palette rather than hand-rolling it."*
+> “Make a feedback trails effect with one control for trail length. Add a
+> reset pulse so we can compare changes from the same starting point.”
 
-> *"Make me a feedback-based trails effect I can drive from one 'amount'
-> parameter."*
+> “Port this Shadertoy into a GLSL TOP. Get it compiling, then capture the
+> result: <paste shader>.”
 
-> *"Port this Shadertoy to a GLSL TOP and get it compiling: <paste the code>"*
+> “Build a three-scene switcher with a crossfade and a preview for each scene.”
 
-> *"Set up a Kinect input chain with smoothing and a deadzone, exposed as
-> custom parameters."*
+Tell it what a good result looks like: “soft trails, no abrupt jumps, readable
+at a distance” is more useful than “make it better.” Finish with:
 
-> *"Take this static composite and make it react to the audio input — put the
-> analysis in its own COMP so I can reuse it."*
-
-> *"Build a 3-scene switcher with a crossfader and a preview of each scene."*
-
-Worth adding to any of these:
-
-> *"…then screenshot the result. If it doesn't look like what I asked for, fix
-> it and screenshot again."*
-
-Let that build-look-correct loop run twice before you step in.
-
----
+> “Capture the output, inspect errors, and tell me what you checked. If you
+> can't see the image, say so.”
 
 ## Level 4 · End to end
 
-Nothing open, nothing set up.
+> “Start a new TouchDesigner project from the configured template. Build a
+> microphone-driven visual in its own COMP and show me the output.”
 
-> *"Start TouchDesigner on a new project, build me a generative visual driven
-> by microphone input, and show me what it looks like."*
+> “Open a copy of `show_v3.toe` in a new instance. Investigate the slow section
+> and propose a fix before editing it.”
 
-> *"Open `show_v3.toe`, find whatever is causing the frame drops, fix it, save
-> as `show_v4.toe` and tell me what you changed."*
+> “Build our output chain as a reusable COMP: colour correction, LUT, and
+> safe-area overlay. Expose its controls, test them, and save a new `.tox`.”
 
-> *"Create a reusable `.tox` for our standard output chain — colour
-> correction, LUT, safe-area overlay — with custom parameters for everything,
-> then save it to the shared folder."*
+New projects use the installed starter project unless you configure
+`project.template_path`. A custom template should already contain the bridge;
+see [Configuration](CONFIG.md#common-settings).
 
-> *"Spin up TouchDesigner, load each of these four project files in turn,
-> check them for errors, and give me a one-line verdict on each."*
+Component saves can return the actual file path and digest through
+`project_snapshot`. Whole-project saves through that tool have a recorded risk of losing the
+response while TD keeps running. Save the `.toe` from TD's UI for this workflow;
+a lost tool reply does not mean no file was written. See [Current limitations](OPEN_WORK.md).
 
-For this level, point `[project] template_path` in `config.toml` at a template
-`.toe` that already contains the bridge — then *"make a new project"* gives
-the assistant a project it can immediately work in. See
-[`CONFIG.md`](CONFIG.md#common-settings).
+## Look at specific frames
 
----
+For an evolving visual, a screenshot taken “soon” is not much of a test.
+Timed capture lets you choose when to look while processing the frames between
+samples. Use an explicit TOP output and, for repeatable starts, a component
+with a public reset pulse.
+
+> “Find this effect's reset pulse and effective timeline. Reset it, allow one
+> initialization frame and 10 warmup frames, then capture `out1` at sample
+> offsets 0, 30, and 60. Inspect its controls and errors at each sample. Leave
+> it paused afterward.”
+
+Offsets count from the state **after initialization and warmup**, not from
+project frame zero. Initialization gives the reset time to take effect;
+choose its length to match your component. Warmup develops the effect before
+the first sample. With no reset, the job continues from the prepared state.
+
+The job steps forward one frame per TD callback iteration and demands the
+output at every intervening frame. That matters for feedback and simulations.
+Matching frame numbers alone cannot make random inputs, live cameras, audio,
+or external devices repeatable.
+
+> “From the current state, advance this TOP by 15 frames and capture it.
+> Report the actual frame and time source with the image.”
+
+Timed jobs reserve that TD instance. Have the assistant poll their status;
+an accepted start request does not mean the job finished. Avoid seeking,
+changing the frame rate, or pressing Play during a job. Interference stops
+it, and a schedule that crosses the timeline end is rejected before reset.
+Use `pause`, `play`, or `restore` for the completion policy; `restore` restores
+play flags, not the project's previous simulation history. Failure or
+cancellation leaves the clocks paused.
+
+### Record a short clip
+
+> “Record 120 consecutive frames from `/project1/visuals/out1` at its timeline
+> frame rate. Wait for completion, retrieve the clip, and report its actual
+> frame count and dimensions.”
+
+Current recording is **qtrle MOV without audio**, at most 3,600 frames,
+4096×4096 pixels, and 512 MiB per artifact. The source's parent must allow a
+temporary recorder operator. The assistant retrieves the artifact in bounded
+chunks; a remote artifact is not automatically a local file.
+
+Timed captures support up to 16 samples, an offset up to 3,600, and 8 MiB of
+combined results. Both timed capture and recording require a TOP, rather than
+a shared operator viewer. Jobs/artifacts are temporary: at most eight jobs
+per bridge generation, invalidated by reload. Download what you need before
+reloading or releasing a recording.
+
+Recorded acceptance covers TD 2025.32460 under Wine/Linux. Native Windows,
+macOS, and additional codecs need separate acceptance. Exact controls and
+failure behavior: [timing contract](CONTRACT.md#timing-metadata-and-deferred-capturerecord-jobs).
 
 ## Teach it your Palette
 
-TouchDesigner ships hundreds of finished components, and you probably have a
-folder of your own. An assistant that knows about them stops rebuilding
-`particlesGpu` from scratch.
+> “Scan my Palette. Start with TOP and CHOP components, inspect their controls,
+> and describe the ones we might reuse.”
 
-**One time, to build the catalogue:**
+Scanning lists files; probing loads components into a scratch container in TD
+to inspect their real interfaces. The assistant writes the descriptions.
+Loading a `.tox` can run startup scripts, open sockets, or expect hardware;
+a scratch container is not a security sandbox.
 
-> *"Scan my palette and tell me what's in it."*
+> “Is there a Palette component for this? Explain how we'd use it.”
 
-> *"Learn my palette — start with the TOP and CHOP categories, and write up
-> what each component does."*
+> “Place `particlesGpu` in this COMP and expose the controls needed for my
+> audio analysis.”
 
-It indexes the components, opens them safely in a scratch container to read
-their real inputs, outputs and custom parameters, then writes a description of
-each. This happens a slice at a time, on your machine only.
-
-**Afterwards:**
-
-> *"Is there a Palette component for this? Use it instead of building one."*
-
-> *"Place `particlesGpu` in this COMP, wire my audio analysis into the birth
-> rate, and expose the count as a custom parameter."*
-
-> *"What's in my palette that deals with projection mapping?"*
-
-**If a component misbehaves** — some open network sockets or expect hardware
-that isn't there, and loading one can hang TouchDesigner:
-
-> *"Blacklist that component so you never load it again."*
-
-A handful of known-problematic ones are excluded by default. The list is yours
-to edit; see [`CONFIG.md`](CONFIG.md#common-settings).
-
----
+If one misbehaves, ask to blacklist it from future probes. Ignored components
+can remain in the catalogue; overriding that exclusion should be deliberate.
+See [Palette settings](CONFIG.md#common-settings).
 
 ## Debugging
 
-> *"This TOP is black. Find out why."*
+> “This TOP is black. Capture intermediate stages and read the parameters
+> until you find where the image disappears.”
 
-> *"The project cooks at 30fps and should be at 60. What's expensive?"*
+> “This should run at 60 fps. Inspect the expensive operators and suggest
+> changes we can test one at a time.”
 
-> *"This GLSL won't compile — here's the error, fix it."*
+> “Read the actual CHOP samples before and after `math1`. Is the signal zero,
+> or is the preview misleading?”
 
-> *"Something's wrong with my audio chain, nothing reacts. Trace it from the
-> input to the output and tell me where the signal dies."*
+> “Sample these TOP pixels numerically. Are values above 1.0 being preserved?”
 
-> *"Why does this only break when I load the project fresh?"*
+`sample_data` reads TOP/CHOP values and SOP point positions; ordinary PNG previews cannot prove float
+precision or HDR range. The source texture's format still limits its values.
 
-Let it look rather than reason from memory:
+For changes made by several people or assistants, ask for a baseline and a
+fresh comparison of specific fields. `compare_nodes` reports unreadable fields
+and missing baselines instead of treating them as unchanged. Guarded writes
+can check expectations again before editing; they aren't whole-project locks.
 
-> *"Don't guess — inspect the chain, read the actual parameter values, and
-> capture the output at each stage."*
+## Reuse scripts and control panels
 
-It can screenshot intermediate nodes, read raw CHOP channel values, and follow
-GLSL DAT references, so *"the signal is zero after `math1`"* is something it
-can establish rather than assume.
+> “Register this Python script for reuse without running it. Describe its
+> dependencies, then ask me which project to run it in.”
 
----
+`script_source` stores source under a content-based ID. Registration doesn't
+execute it; running does, through the same Python execution route as an inline
+script. Dependencies are checked on each run, and a changed dependency is
+reported rather than silently assumed to be the old one.
+
+> “Export this COMP's parameter interface so we can review its pages, types,
+> ranges, and menus. Explain any unsupported controls.”
+
+`param_interface` describes the control surface, while `inspect` reads current
+values. Review the exported interface before applying it to another COMP.
+Application adds missing controls without removing existing ones; check the
+reported skipped/failed entries afterward.
 
 ## Project and file wrangling
 
-These work on closed project files, with TouchDesigner not running.
+Work on **closed** `.toe`/`.tox` files for these operations. TD need not be
+running, but the installed official `toeexpand`/`toecollapse` tools are required
+(and run through Wine on Linux).
 
-> *"Install the tdmcp bridge into every `.toe` in this folder."*
+> “Check which TD installations and official project tools are available.”
 
-> *"Unpack `show.toe` so I can see it as files, and tell me what components
-> it's made of."*
+> “Install the bridge in this closed copy of `show.toe`. Keep the default
+> backup and report the verification result and backup path.”
 
-> *"Check these project files for problems before I take them to the venue."*
+Bridge installation can add a missing bridge or update an existing one. It
+works on staged copies, checks the repacked contents, and backs up the target
+by default before replacing it. That verification checks the file contents;
+open the result and confirm its live connection separately.
 
-> *"Which TouchDesigner versions do I have installed, and which one is
-> usable?"*
+For broader offline edits:
 
-And on running instances:
+> “Unpack `effect.tox` into a new directory. Show me the source files and
+> identify the script I want to change before editing anything.”
 
-> *"Is there a dialog blocking TouchDesigner right now? Dismiss it."*
+> “Apply this script change to the expanded copy, lint it, and repack it as
+> `effect_v2.tox` using the matching TD build. Keep the original.”
 
-> *"Close the TouchDesigner running `test.toe`, leave the other one alone."*
+The tools check structure and guard against repacking with a different TD
+build. They do not run the network, compile every shader, or prove the visual
+result. Test the new file in a scratch TD project before using it in a show.
 
-Everything is addressed by process id, so *"the other one"* is unambiguous
-even with four instances open.
+For running projects:
 
----
+> “List the open projects and their process IDs. Close only the scratch
+> instance named `test.toe` after checking for unsaved work.”
+
+> “Check whether a dialog is blocking this TD instance. Tell me what it says
+> before dismissing it.”
+
+Dialog tools are available on Windows/macOS; on Linux, inspect the visible
+window yourself. A timed-out launch may still be starting: inspect the
+original process before launching another copy.
 
 ## Across machines
 
-With [federation](FEDERATION.md) set up:
+With [federation](FEDERATION.md) connected:
 
-> *"What's running across the studio?"*
+> “What's running across the studio? Group the projects by computer.”
 
-> *"On studio-b, capture the main output and tell me if it matches what I've
-> got here."*
+> “On studio-b, capture the main output. Compare it with studio-c and label
+> each image with its machine and project.”
 
-> *"Push this fix to every machine running the show project."*
+> “Plan this parameter change for the machines running the rehearsal project.
+> Confirm each target, apply it, then read back the values.”
 
-> *"Kill TouchDesigner on all the render nodes, then relaunch them on
-> `show_v4.toe` and confirm all four came back."*
-
-> *"Studio-c is behaving differently from the others. Compare its project
-> against studio-b's and tell me what differs."*
-
----
+Each remote target needs its computer identity and PID. Paths refer to that
+computer's filesystem. Federation doesn't distribute project files or assets,
+synchronize timelines, or make a multi-machine edit atomic. Stage and verify
+files on each host before launching them.
 
 ## Making it check its work
 
-| Say this | Because |
+| Ask for… | What it establishes |
 | --- | --- |
-| *"Screenshot it and tell me what you see."* | Perception is explicit — without asking, it may never look. |
-| *"Don't guess — inspect it first."* | Redirects from memory to your actual network. |
-| *"Show me the parameter values you read."* | Turns a claim into evidence. |
-| *"Build it in a new COMP called `x`."* | Contains the damage. |
-| *"What did you change? List it."* | A review pass before you accept anything. |
-| *"That's still wrong — look again and fix it."* | Two correction rounds is normal. |
+| A capture and a description of the image | What the assistant can actually see |
+| Parameter values and operator errors | What TD currently reports |
+| Sampled pixel or channel values | Numerical data beyond a preview |
+| A named COMP for new work | A clear boundary for review and cleanup |
+| A before/after comparison | Changes in the fields actually read |
+| A list of changes and unverified parts | What remains for you to check |
 
-**When it goes off the rails:** stop it, undo in TouchDesigner
-(<kbd>Ctrl/Cmd</kbd>+<kbd>Z</kbd> works — these are ordinary operator
-changes), and be more specific about where it may build. Deleting the COMP it
-was told to work in resets everything.
+If an edit goes wrong, stop further edits and inspect what remains. Don't
+assume scripted operations are covered by TD's undo stack. A saved copy and
+a dedicated COMP make recovery easier; delete only the subtree created for
+the experiment, or reopen your saved copy deliberately.
 
-**When it won't use the tools at all:** say so directly — *"use the td-mcp-rs
-tools, start with `fleet`"*. On Claude Code, install the plugin rather than the
-bare MCP server; the bundled skill pack is what makes tool use automatic.
-
----
+If a connection drops, follow [connection recovery](OBSERVABILITY.md#when-a-connection-drops)
+before repeating a write. If the assistant doesn't use the tools, ask it to
+start with `fleet` and confirm the connection.
 
 ## See also
 
-- [`INSTALL.md`](INSTALL.md) — setup and troubleshooting
-- [`FEDERATION.md`](FEDERATION.md) — multi-machine fleets
-- [`CONTRACT.md`](CONTRACT.md) — what every tool does, precisely
-- [`../README.md`](../README.md) — the overview
+[Quick start](QUICKSTART.md) · [Installation](INSTALL.md) ·
+[Tool contract](CONTRACT.md) · [Documentation map](README.md)

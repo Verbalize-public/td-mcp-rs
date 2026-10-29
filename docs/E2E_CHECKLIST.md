@@ -9,6 +9,18 @@ in the release or review evidence. Old pass marks are not evidence for a new
 build. Run the sections affected by a change; a full release needs every
 applicable section and native installer checks on each supported OS.
 
+## Reader-facing claims to verify
+
+Use these checks when a documentation update accompanies a behavior change:
+complete the [quick start](QUICKSTART.md) on the target OS, confirm every
+advertised capture can be retrieved, and record the actual project/PID used.
+Check a second instance stays untouched during a scoped edit. For timing,
+verify the sampled frames and clip contents, not just an accepted start.
+For recovery, verify state before repeating any interrupted mutation.
+
+Editorial changes alone need the [documentation checks](TESTING.md#documentation-only-changes),
+not a new live run. Never present this checklist as already-passed evidence.
+
 ## Startup and lifecycle
 
 - Install twice: configuration and custom template remain intact.

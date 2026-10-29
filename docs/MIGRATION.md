@@ -1,224 +1,162 @@
 # Migrating to v0.2.0
 
-From `v0.1.4` to `v0.2.0`. This release is additive: every existing tool,
-argument and response field still works, and nothing changes shape by
-default. What follows is what is *new*, what a caller may now opt into, and
-what a value that used to be ambiguous now says.
+Upgrading from v0.1.4? Install the new release, reconnect your assistant, and
+check the loaded bridge before trying the new tools. Configuration and a
+customized `template.toe` are preserved. See [Installation](INSTALL.md#updates)
+for the update procedure; `install --force` refreshes managed assets for a
+same-version build without resetting settings.
 
-**Before upgrading**, read [Packaging and releases](DELIVERY.md) for the
-installation behaviour. A `tdmcp-daemon install` preserves your
-`config.toml` and any customized `template.toe`; `--force` refreshes managed
-assets without touching either.
+For a new installation, use the [quick start](QUICKSTART.md).
 
 ## Does anything I depend on change?
 
-| | v0.1.4 | v0.2.0 |
-| --- | --- | --- |
-| Existing tool names and arguments | — | unchanged |
-| `inspect` response with no `output` option | full legacy shape | **unchanged** |
-| `config.toml` | — | unchanged; new keys are commented out and defaulted |
-| `template.toe` | — | preserved across install and upgrade |
+| Existing setup | Upgrade behavior |
+| --- | --- |
+| Tool names and existing arguments | Retained; new tools and optional fields are added |
+| `inspect` without an `output` option | Keeps the full legacy response shape |
+| Existing `config.toml` | Preserved; added settings have defaults |
+| Customized starter project | Preserved |
+| Concurrent calls to one TD process | Still subject to session/PID gates; timed jobs reserve the process across calls |
 
-Nothing in this table is a code change, so nothing in it needs an action. It
-is here because "the changelog is all additions" is a claim about this
-release, and a caller upgrading a live configuration deserves to be told which
-way to look if they are surprised.
-
-One thing did grow rather than merely appear: the set of **bridged tools**
-enqueued exclusive is now `execute_python`, `inspect`, `capture`, `record`,
-`mutate_nodes`, `api_help`, `editor_context` and `palette_probe` — `record`
-and `palette_probe` were added. If you run a palette probe or a timed
-recording in the same session as another bridged call, expect
-`tdmcp.mcp.session_busy` or `tdmcp.bridge.queue_busy` where a call used to
-proceed. That is the same gate, not a new failure. A timed `capture`/`record`
-job reserves TD transport across calls until cleanup, so a session with a live
-timing job is not a session that will answer anything else.
+Treat `tdmcp.mcp.session_busy`, `tdmcp.bridge.queue_busy`, and
+`tdmcp.timing.busy` as different contention reports. A timed job allows its
+status/cancel calls while reserving TD transport until cleanup. Fleet remains
+available; its task list is not a timed-job progress display.
 
 ## New tools
 
-All four are additions to the catalog and do nothing until called.
+| Tool | Use it for |
+| --- | --- |
+| `sample_data` | TOP pixel values, CHOP samples, and SOP point positions, with explicit shape and availability reporting |
+| `script_source` | Register Python source once, then run it by content ID with dependency checks |
+| `param_interface` | Export a COMP's control surface or apply one additively |
+| `project_snapshot` | Save a component with a file receipt, inspect unsaved state, or load a component |
+| `compare_nodes` | Compare a fresh read of selected fields with a captured baseline |
+| `palette_index` / `palette_probe` | Catalogue component libraries and inspect components in a scratch TD container |
+| `record` | Record consecutive frames from an explicit TOP output |
 
-- **`sample_data`** — exact numerical reads: a pixel value, a CHOP sample, a
-  parameter's evaluated value. Replaces reading a number off a rendered image,
-  which cannot distinguish a channel value from a preview. **A CHOP's
-  `numpyArray` is channel-major** (`[chans, samples]`), and that was measured,
-  not assumed: a `noiseCHOP` on 2025.32460 reports `[1, 600]`. The shape is
-  cross-checked against the CHOP's own `numChans`/`numSamples` and a
-  disagreement is refused, because guessing is what caused the bug. The
-  per-sample indexer is the default path.
-- **`script_source`** — named Python sources with immutable content
-  references. Register once, run by `sourceId`; a re-registration reports the
-  dependencies it did *not* apply rather than implying it did. Replaces
-  re-sending the same script inline on every call.
-- **`param_interface`** — export a control surface as a document, then apply
-  one additively. Preserves a Python parameter's expression across a round
-  trip, and refuses a menu whose items could not be set instead of reporting
-  it as applied. Replaces hand-assembled `mutate_nodes` batches.
-- **`project_snapshot`** — a save receipt that names what was written and
-  where. The returned path is the only trustworthy identity: both save paths
-  can write somewhere other than the obvious default, and a file that already
-  exists is a silent in-place overwrite, so the receipt carries a content
-  `sha256` of what was written. A component receipt reports its unsaved state
-  as **`available: false` with a reason**: `COMP.dirty` exists, is a bool, and
-  on 2025.32460 it never flips — it read False on a fresh COMP and stayed
-  False after adding a page, a parameter, a value and a save. A flag that
-  always reads False is worse than no flag, so it is not reported as an
-  answer. The project-level `modified` list does name the component, but that
-  is the *project's* unsaved state and a component save does not save the
-  project. With `path` (a COMP to load into) it loads a `.tox` via `loadTox`,
-  which is genuinely non-destructive; without `path` it reports what loading
-  the file as the *project* would mean and loads nothing, because
-  `project.load(path)` returns `None` — there is nothing to verify against, it
-  destroys the open project, and it has no undo. A genuinely fresh load is
-  `spawn_td`.
+Use `describe_tools` for exact current schemas and the
+[recipes](RECIPES.md) for examples of what to ask.
 
-Each of these has a workflow scenario in `scripts/fixtures/guidance/` that
-names the route it replaces and asserts that route is refused. If you upgrade
-and find yourself wanting one of the old routes back, the scenario is the
-document that explains why the new one exists.
+### Numerical reads and reusable code
 
-The Palette library is new surface too. **`palette_index`** lists the
-component libraries (the installed TouchDesigner ones and your own) with a
-cheap line per entry — id, category, summary, whether it has a card — plus
-`stats` counts. **`palette_probe`** loads a component into a *scratch* COMP,
-digests its interface, and destroys it; the card you write afterwards is
-authored by you from that digest, because nothing generates one. Probe in a
-throwaway project, never in your work: a probe is the one operation here that
-runs a stranger's startup code inside your TD. `mutate_nodes`' `place` step
-drops a probed component in for real.
+A PNG preview cannot establish a float value or HDR range. `sample_data`
+reports the source format and distinguishes exact reads from summaries.
+TOP pixels are requested as `[x, y]`; arrays report their ordering. CHOP reads
+use the per-sample indexer by default. The recorded `noiseCHOP` observation on
+TD 2025.32460 was channel-major (`[1, 600]`); shape checks guard the optional
+array route. Non-finite values need explicit reporting because JSON has no NaN.
 
-The default probe skips a seven-entry blacklist of built-in components whose
-loaders open sockets or expect absent hardware, because **one wedging
-component takes its whole batch with it**. Ask for one deliberately with
-`palette_probe` `includeIgnored: true` when you actually need it.
+`script_source` registration never runs code. Running a source uses the Python
+execution path and checks declared dependencies again. A dependency that now
+resolves to a different node is reported. Re-registering a source reports
+which dependencies were not applied. Deleting a source entry does not undo
+an earlier execution.
 
-`compare_nodes` is also newly exposed as a tool (it was previously reachable
-only through `execute_python`). It compares a fresh read against a retained
-baseline and returns exact per-field deltas. Three rules a caller can rely on:
-a **missing baseline refuses** with `baseline_unavailable` rather than
-returning an empty diff, because an empty diff says everything is unchanged
-when nothing was compared; an unreadable node reports `readable: false` and is
-never silently unchanged; and `absent`, `null`, `false`, `0` and `""` are five
-different states, with a change between any two of them reported. Every
-response carries `atomic: false` and `exactlyOnce: false`. It compares a
-retained baseline against a *fresh* read — the fields reported unchanged were
-actually re-read, and a daemon mutation counter is never used to decide that,
-because it advances on dispatch and not on effect.
+### Interfaces and files
 
-Guarded writes are classified rather than lumped in with errors. A
-`mutate_nodes` step may carry `expect: {fields: {...}}`; the guard is re-read
-at write time, so a field that does not hold the expected value is refused
-with a distinct code from a precondition that could not be read at all, and
-the second fails closed. `expect` must name at least one field.
+`param_interface` adds missing controls and removes nothing. Incompatible
+existing types are skipped with a reason; outcomes are reported per entry.
+This supports reviewing a panel interface separately from its current values.
+
+`project_snapshot` component receipts report the actual written path and
+SHA-256, separately from the requested target. Existing destinations are
+refused by default; replacing one must be explicit. A component's unsaved
+state is reported unavailable rather than inferred from an unreliable dirty
+flag. Project unsaved state and component saves are different things.
+
+Whole-project save is exposed by the implementation, but recorded live work
+found that it could end the MCP stream without a response. Do not treat a
+missing reply as a refused or cancelled save. For everyday use, save `.toe`
+files through TD's UI and check any destination before retrying a tool save.
+
+A load request with a host COMP path loads a `.tox` into that COMP. Without
+that path, it reports the implications of replacing the project and loads
+nothing. Use `spawn_td` to open a separate project in a fresh process.
+
+### Comparisons, guards, and Palette probes
+
+`compare_nodes` refuses a missing baseline instead of returning an empty diff.
+Unreadable nodes are marked unreadable. Absent fields, `null`, `false`, `0`,
+and `""` remain distinct. Results carry `atomic: false` and
+`exactlyOnce: false`: fields can change between reading and writing.
+
+A `mutate_nodes` step can carry `expect: {fields: {...}}`. The expectation
+must name at least one field and is checked at write time. A mismatch and an
+unreadable precondition have different diagnostics; both refuse the guarded
+write. This narrows a race without making a batch atomic.
+
+Palette probes load real components, including their startup code. Use a
+scratch project. The default blacklist skips known troublesome components;
+explicit IDs or `includeIgnored: true` can override it. Catalogue presence
+is not permission to load an ignored component. The assistant authors cards
+from probe results; `mutate_nodes`' `place` step places a component for use.
 
 ## New optional arguments
 
-- **`capture.timing`** and **`record.timing`** — a reset signal, a
-  sequential-forward schedule, warmup and initialization frame counts, and a
-  completion policy. The job owns the pid until cleanup. A project **save**
-  over MCP is measured to end the stream without a response while the bridge
-  stays connected and `fleet` keeps serving, so it gets a specific refusal
-  rather than being presented as a call that failed cleanly; a **component**
-  save is unaffected and verified working over the same transport.
-- **`record.frames`** — record N consecutive frames from one TOP output.
-  qtrle MOV, no audio.
-- **`mutate_nodes` steps** may carry an `expect` guard, re-read at write time.
-  There is no whole-scene atomicity and no exactly-once guarantee: a write
-  refused by a guard changes nothing, and a write that succeeds is not
-  replayed. The guard narrows the race; it does not close it.
-- **`mutate_nodes` `place` step** — drop a Palette component in by `paletteId`
-  or `toxPath`, wired in the same batch.
-- **`describe_tools`** accepts exact `names`, an `includeSchema` projection,
-  `includeExamples`, and `includeRevisions` (SHA256 catalog revisions). The
-  default still returns every full schema, and standard MCP discovery remains
-  complete. Revisions identify the catalog; they do **not** prove which bridge
-  is loaded or that the scene is fresh, and a missing name is an explicit
-  error rather than a silently shorter list.
+- `capture.timing` and `record.timing`: reset, initialization/warmup, sequential
+  stepping, and completion policy. See the [timing contract](CONTRACT.md#timing-metadata-and-deferred-capturerecord-jobs).
+- `record.frames`: consecutive frame count; current output is qtrle MOV without audio.
+- `mutate_nodes` step `expect`: guarded writes; `place`: Palette or `.tox` placement.
+- `describe_tools`: exact `names`, `includeSchema`, `includeExamples`, and
+  `includeRevisions`. Revisions identify catalogue content, not the loaded
+  bridge or current scene. Missing names produce an explicit error.
 
 ## The version 2 output contract
 
-`output: {contract: "v2"}` on `inspect` returns a typed envelope instead of
-the legacy shape. Two things to know before opting in:
+`output: {contract: "v2"}` on `inspect` requests a typed envelope. Compact
+output is a separate opt-in: omit `view` for full output, or use
+`view: "compact"`. If compact output is unsupported or no smaller, the
+response reports a fallback to full.
 
-- **Omission never enables compact output.** `view` omitted requests the full
-  representation. `view: "compact"` asks for the compact form and falls back
-  to full when it would not be smaller or is not supported — a fallback is
-  reported, never silent.
-- **`retain: true` requires a reader.** The producer refuses retention when no
-  permitted reader route exists, rather than retaining bytes nothing can
-  fetch.
+Retention is also explicit. Check its reported outcome and the
+[evidence limits below](#evidence-and-retention); requesting retention does
+not establish that a caller can later retrieve it through a public tool.
 
-The compact view is lossless by construction and answers the same questions
-(see [Testing](TESTING.md#the-four-scorecards-reported-separately)), but it is
-strictly a per-request opt-in. No existing call changes.
+The compact codec is tested for fidelity against known observations. This
+measures documents, not model quality or task success. See
+[Testing](TESTING.md#the-four-scorecards-reported-separately).
 
 ## What a result now says that it used not to say
 
-These are additions to a response, not changes to one. They exist because an
-unlabelled value reads as a fact.
-
-- **Any result carrying an image** gains an `admission` block with four
-  separate numbers: `generated` (observed bridge-side), `emitted`,
-  `admitted` (observed server-side, with the `maxImageBytes` that decided it),
-  and `includedInModelInput` — which is **`unavailable`**, always. The server
-  cannot observe what a client's model was given. "The server sent an image" is
-  not evidence that one was inspected.
-- **A withheld image is never dropped.** Above
-  `[bridge] admission_max_image_bytes` (default 8 MiB of *encoded* image) the
-  attachment is withheld and the bytes stay in
-  `structuredContent.imageBase64`, with the verdict in the block above.
-- **A capture over 256 KiB of text** no longer repeats `structuredContent`
-  verbatim in `content[]`. It is replaced by a short pointer naming the field
-  and the size — never by an empty content array. A client that only renders
-  `content[]` should read `structuredContent`.
-- **A capture reports its own geometry**: source dimensions, delivered
-  dimensions, `transformed`, and the `captureRoute`. Downscaling averages, so
-  a larger source can produce a *smaller* image; the delivered dimensions are
-  what the cost depends on.
-- **Receipts** exist for real bridge dispatches, and a client can read back
-  its own and account for unobserved work. A daemon's mutation counter is not
-  evidence that the scene is unchanged.
+- Image admission distinguishes generated, emitted, and admitted content.
+  `includedInModelInput` is always `unavailable`: the server cannot know what
+  the assistant's model received or inspected.
+- Above the configured image limit, an attachment is withheld and reported;
+  the encoded bytes remain in `structuredContent.imageBase64`.
+- Capture text above 256 KiB uses a short pointer instead of duplicating the
+  structured payload in `content[]`. Clients must read `structuredContent`.
+- Capture geometry identifies source and delivered dimensions, transformation,
+  and capture route.
+- Dispatch receipts record real bridge dispatches. A mutation counter tracks
+  dispatch, not proof that the scene changed or stayed unchanged.
 
 ## New configuration
 
-Every key is commented out in the shipped `default.toml` and has a default,
-so no edit is required. Set one only if the default does not fit.
-
-| Key | Default | What it does |
+| Setting | Default | Purpose |
 | --- | --- | --- |
-| `[bridge] admission_max_image_bytes` | `8388608` | Bytes of encoded image admitted into a result's attachment list. `0` is refused. |
-| `[palette] user_root`, `store_dir`, `ignore` | auto / data dir / 7 id globs | Palette component library. `ignore` is a **probe blacklist**: a blacklisted component's startup scripts run during a probe. |
-| Wine keys | auto-detected | `wine_exe`, `wine_prefix`. Linux only; set only if auto-detection misses. |
+| `bridge.admission_max_image_bytes` | `8388608` | Maximum encoded image bytes admitted as an attachment; zero is refused |
+| `palette.user_root`, `store_dir`, `ignore` | Auto/data directory/built-in exclusions | Component collection and probe exclusions |
+| `official_tools.wine_exe`, `wine_prefix` | Auto-detected | Linux Wine runner and prefix |
 
-`ignore` already ships the seven-entry blacklist described above. A blacklisted
-entry stays out of an index scan entirely, and asking for it by exact id is
-how you get past the blacklist.
-
-Dashboard saves now apply federation, call timeouts and keep-alive
-immediately; listener, process and manual-edit settings still need a daemon
-restart. That split is a change from v0.1.4, where every change needed a
-restart.
+Ignored Palette entries can remain indexed; default probing excludes them.
+Dashboard saves apply federation, call timeouts, and keep-alive immediately.
+Listener/process changes and manual file edits require restart. See
+[Configuration](CONFIG.md#when-changes-take-effect).
 
 ## Evidence and retention
 
-A crash-journaled evidence store retains captured projections, scoped to the
-client that asked. Only `inspect` captures today; there is no reader route
-exposed to a caller and no UI to find a retained observation. If you were
-expecting a per-call receipt for another tool, it is not there yet — see
-[Open work](OPEN_WORK.md).
+The evidence store retains `inspect` projections with owner scoping, quotas,
+and leases. Store-layer reads are tested, but there is no caller-facing paging
+tool/HTTP reader or UI for finding a retained observation. This is separate
+from dispatch receipts. See [Current limitations](OPEN_WORK.md).
 
-Separately, every real bridge dispatch gets a **dispatch receipt**, readable at
-`GET /admin/operations` and resolvable at `POST /admin/operations/resolve`.
-Both are PSK-authenticated and loopback-only, and the list is scoped to the
-caller's `x-tdmcp-client` principal. A dispatch whose effect the daemon cannot
-observe stays `unknown_effect` — the caller records what it saw
-(`observedBy: "caller"`), and the receipt's `state` and `effect` are **not**
-changed — `unknown_effect` stays unknown, because a caller's assertion is not
-an observation. Resolving an already-observed receipt is a conflict, and
-nothing is re-sent. This is the route that makes "the daemon's counter did not
-move" and "the scene did not change" separate statements. A daemon that
-cannot open a journal answers both routes `503` with a reason rather than
-serving an empty list that reads as "nothing happened".
+Dispatch receipts are available through `GET /admin/operations` and
+`POST /admin/operations/resolve`, with loopback/authentication restrictions and
+scope derived from `x-tdmcp-client`. Recording the caller's account of an
+unknown effect does not turn it into a daemon observation: `unknown_effect`
+stays unknown. Resolution never resends work. Already-observed receipts
+conflict, and an unavailable journal returns `503` with a reason.
 
 Receipts whose callers stop waiting stay `wait_expired` with an `unknown`
 effect. They release their admission slots immediately and use the same bounded
@@ -238,35 +176,17 @@ and removes it from `unresolved`, while its state and effect stay unchanged.
 
 ## What this release does not claim
 
-- No model token A/B significance, and no agent task-acceptance measurement.
-  The compact codec is measured for **token count under named tokenizers** and
-  for **decision fidelity against known ground truth**; a model was not
-  benchmarked.
-- No native Windows or macOS qualification from a Linux host. Those builds
-  run in CI; see [Packaging and releases](DELIVERY.md).
-- **These installers are unsigned.** Windows publisher signing and macOS
-  Developer ID notarization require credentials this build does not have, so
-  the installers you get are unsigned and nothing here should be read as
-  saying otherwise.
-- The admission default is frozen as "does not withhold a capture anyone has
-  taken" — a floor on nine measured PNG captures, not a tuned value for HDR,
-  EXR or photographic content.
-- TouchDesigner under Wine is **not** a qualification target. The live
-  acceptance on the build host ran against TouchDesigner 2025.32460 under Wine
-  and passed — handshake, inspect, create, guarded write, capture and graceful
-  kill — but that is a convenience for the tests, not a support statement.
-  Native Windows and macOS remain unqualified here, and the Wine path depends
-  on a `wine_exe` launcher whose graphics and licensing setup is local to this
-  machine.
-  machine.
-- No claim that a live TouchDesigner handshake is reproducible on demand.
-  One was measured on the build host against TouchDesigner 2025.32460 under
-  Wine, and the daemon-side facts behind it — the bound port and the port the
-  child is given — are covered by tests and by a live check. Re-running the
-  end-to-end launch on that machine later stopped succeeding for a reason
-  that is **not in this repository and has not been identified**; the Execute
-  DAT never executes on that host now, and the Wine graphics stack fails to
-  initialise. That is recorded as an open environment question, not as a
-  product claim in either direction. The behaviour when a daemon overrides the
-  bridge port through `TDMCP_IPC_PORT` is resolved by precedence that is
-  tested and was observed live.
+- Document/token measurements do not establish model token A/B significance
+  or agent task-acceptance rates.
+- Nine recorded PNG captures fit the default admission bound; that sample
+  does not qualify HDR/EXR, photographic content, or every assistant client.
+- Recorded live acceptance on TD 2025.32460 under Wine covers the measured
+  scenarios, not every runner/GPU or native Windows/macOS behavior. A later
+  launch failure on that host remained an unresolved environment issue.
+- Windows publisher signing and macOS Developer ID/notarization require
+  publisher credentials. Ad-hoc signing is not notarization. Check the actual
+  release artifacts and [packaging procedure](DELIVERY.md).
+
+Current behavior and known gaps are maintained in [Contract](CONTRACT.md) and
+[Current limitations](OPEN_WORK.md); historical observations are not a promise
+that a live TD session can be reproduced on any machine.

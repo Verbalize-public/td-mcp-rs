@@ -1,5 +1,8 @@
 # Install
 
+For your first connection, follow the [quick start](QUICKSTART.md). This guide
+covers alternate setup routes, updates, and troubleshooting.
+
 You need TouchDesigner and an assistant that supports MCP.
 Linux additionally needs a working Wine/TD installation; see
 [Linux/Wine](LINUX_SUPPORT.md).
@@ -46,6 +49,19 @@ serves headless automatically and reports `noGui: true`, so the tray is never
 a reason for the daemon to fail to start.
 
 ## Connect your assistant
+
+Find the installed executable first. These are the usual locations; if you
+used the binary's `install` command, use the stable path it printed.
+
+| Installation | Executable |
+| --- | --- |
+| Windows installer | `%LOCALAPPDATA%\Programs\tdmcp-rs\tdmcp-daemon.exe` |
+| macOS app | `/Applications/tdmcp.app/Contents/MacOS/tdmcp-daemon` |
+| Binary `install` | `bin/tdmcp-daemon` (Windows: `.exe`) under the runtime data directory below |
+
+Expand environment variables to an actual absolute path in your client's
+command field. In JSON, Windows backslashes must be doubled, or use forward
+slashes. Paths with spaces stay inside the single JSON string.
 
 Register a **stdio** MCP server with:
 
@@ -104,13 +120,13 @@ The asset is in the runtime data directory:
 | Linux | `~/.local/share/tdmcp-rs/` (or `$XDG_DATA_HOME/tdmcp-rs/`) |
 
 Alternatively, ask the assistant to install the bridge into a **closed**
-project using `project_install_bridge`. It uses Derivative's official tools
+`.toe` or `.tox` using `project_install_bridge`. It uses Derivative's official tools
 and backs up the original. Do not rewrite a project currently open in TD.
 
 ## Verify
 
 Ask: “List TouchDesigner processes, inspect /project1 in the connected process,
-and capture its output.” An empty fleet means no TD processes were discovered;
+then find a TOP and capture its output.” An empty fleet means no TD processes were discovered;
 a disconnected row means TD was found but its bridge has not connected.
 Tool calls use the returned PID, not a remembered active project.
 
@@ -137,6 +153,7 @@ After three identical failed probes, stop retrying and inspect new evidence.
 Do not spawn duplicate TD processes to work around a handshake timeout:
 the original process may still be starting.
 
+For recovery after an interrupted call, read [connection recovery](OBSERVABILITY.md#when-a-connection-drops).
 See [Configuration](CONFIG.md), [Federation](FEDERATION.md), and
 [Logs](OBSERVABILITY.md). For uninstalling, remove the OS application or
 installed executable and assistant registration. Remove config/data separately

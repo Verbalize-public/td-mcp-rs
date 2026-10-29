@@ -3,6 +3,13 @@
 Use a scratch project for live testing. Automated tests use fake TD peers and
 cannot prove that an actual network cooks or renders correctly.
 
+## Choose the right validation
+
+For a docs-only change, start with the documentation checks in [Testing](TESTING.md#documentation-only-changes).
+For code, run the workspace build and relevant automated tests before live TD
+checks. For behavior that depends on cooking, rendering, dialogs, or timing,
+use an isolated TD project and record what you actually observed.
+
 ## Rebuild and install
 
 Build and test without stopping user-owned processes:

@@ -6,6 +6,16 @@ The tray UI is on by default for every entry point, including the IDE-spawned
 `mcp`; use `--no-gui` at runtime, `daemon.show_tray = false` in the config, or
 `--no-default-features` for a headless build.
 
+## Which path do you need?
+
+- Installing or updating an existing release: use [Installation](INSTALL.md).
+- Testing a local change: use [Development](DEV_ENV.md) and an isolated installation.
+- Preparing a release: follow the workflow and packaging checks below.
+
+A build, an installed file, and a running process are separate identities.
+Verify each when deploying a change; a newer file on disk does not update a
+process that is already running.
+
 ## Release workflow
 
 Push `vX.Y.Z` only when it matches the workspace version and the lockfile is

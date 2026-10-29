@@ -4,6 +4,21 @@ The GUI is the `tdmcp-gui` library linked into the daemon, not another binary.
 It uses egui/eframe for the dashboard and tray popup. HTTP owns daemon state;
 the UI renders snapshots and submits validated settings patches.
 
+## Find the relevant screen
+
+| User task | Screen | Implementation entry |
+| --- | --- | --- |
+| Find a TD instance or client | Overview | `dashboard/overview.rs`, `dashboard/fleet.rs` |
+| Join another computer | Federation | `federation.rs`, `dashboard/settings.rs` |
+| Browse reusable components | Palette | `dashboard/palette.rs` |
+| Investigate a failed call | Logs | `dashboard/logs.rs` |
+| Change defaults | Settings | `dashboard/settings.rs` |
+
+For user-facing setup, link to [Quick start](QUICKSTART.md) or
+[Federation](FEDERATION.md), rather than sending readers into this code map.
+
+## Module responsibilities
+
 | Module | Responsibility |
 | --- | --- |
 | `app.rs` | Shared view state, settings drafts, polling, lifecycle actions |

@@ -52,21 +52,21 @@ def test_nothing_is_written_unless_the_environment_asks_for_it(cb, tmp_path):
     """Off by default: one env lookup, no file, no side effect."""
     trace = tmp_path / "trace.jsonl"
     env = {k: v for k, v in os.environ.items() if k != "TDMCP_BRIDGE_TRACE"}
-    cb.os.environ.clear()
-    cb.os.environ.update(env)
+    os.environ.clear()
+    os.environ.update(env)
     cb._trace("watchdog_dialing", connected=False)
     assert not trace.exists(), "a trace file appeared with no env var set"
 
 
 def test_the_hook_writes_one_json_object_per_decision(cb, tmp_path):
     trace = tmp_path / "trace.jsonl"
-    cb.os.environ["TDMCP_BRIDGE_TRACE"] = str(trace)
+    os.environ["TDMCP_BRIDGE_TRACE"] = str(trace)
     try:
         cb._trace("watchdog_dialing", connected=False, active_thread=None)
         cb._trace("watchdog_no_action", connected=True)
         lines = trace.read_text().splitlines()
     finally:
-        cb.os.environ.pop("TDMCP_BRIDGE_TRACE", None)
+        os.environ.pop("TDMCP_BRIDGE_TRACE", None)
 
     assert len(lines) == 2
     first = json.loads(lines[0])
@@ -85,7 +85,7 @@ def test_a_failure_to_trace_never_breaks_the_reconnect_decision(cb, tmp_path):
     anything else a future caller passes).
     """
     unwritable = tmp_path / "no-such-dir" / "trace.jsonl"
-    cb.os.environ["TDMCP_BRIDGE_TRACE"] = str(unwritable)
+    os.environ["TDMCP_BRIDGE_TRACE"] = str(unwritable)
     try:
         cb._trace("watchdog_dialing")  # must not raise
 
@@ -95,7 +95,7 @@ def test_a_failure_to_trace_never_breaks_the_reconnect_decision(cb, tmp_path):
 
         cb._trace("frame_dialing", value=Unserialisable())  # must not raise
     finally:
-        cb.os.environ.pop("TDMCP_BRIDGE_TRACE", None)
+        os.environ.pop("TDMCP_BRIDGE_TRACE", None)
 
 
 def test_the_snapshot_reports_exactly_what_the_predicates_decided_on(cb):
@@ -142,7 +142,7 @@ def test_the_watchdog_records_which_branch_it_took(cb, tmp_path):
     branch's trace entirely would survive it.
     """
     trace = tmp_path / "trace.jsonl"
-    cb.os.environ["TDMCP_BRIDGE_TRACE"] = str(trace)
+    os.environ["TDMCP_BRIDGE_TRACE"] = str(trace)
 
     calls: list[str] = []
     mod = types.SimpleNamespace(
@@ -194,9 +194,59 @@ def test_the_watchdog_records_which_branch_it_took(cb, tmp_path):
         assert third["event"] == "watchdog_no_action"
         assert third["connected"] is True
     finally:
-        cb.os.environ.pop("TDMCP_BRIDGE_TRACE", None)
+        os.environ.pop("TDMCP_BRIDGE_TRACE", None)
         cb._run_bootstrap = orig_bootstrap
         cb._comp = orig_comp
         cb._bridge_mod = orig_mod
         cb._refresh_face = orig_face
         cb._reconnect_watchdog_scheduled = orig_sched
+
+
+def test_the_trace_does_not_depend_on_names_the_tox_body_never_bound(cb, tmp_path, monkeypatch):
+    """Regression for the reason this hook silently wrote nothing, live.
+
+    TouchDance executes a tox Text DAT's body in a GLOBALS dict that is not
+    the module namespace, and re-executes it on every reload. A name the body
+    did not bind at that level is then simply absent -- and when it IS
+    present it is TouchDesigner's, not the standard library's: the bare `os`
+    in a TD session resolves to TD's own `os` module, which has no
+    `environ`.
+
+    Measured, not theorised: a session running this very file, with
+    `__tdmcp_callbacks__` in `sys.modules` and the env var set to a writable
+    path, wrote ZERO lines. The `_trace` above was reading `os.environ` off
+    whatever `os` the body had bound.
+
+    So this test deletes the attributes the hook must not be leaning on, and
+    then requires the trace to still land. A hook that reads a module-global
+    cannot pass it; one that resolves its own imports can.
+    """
+    trace = tmp_path / "trace.jsonl"
+    monkeypatch.setenv("TDMCP_BRIDGE_TRACE", str(trace))
+    for name in ("os", "json", "io", "time"):
+        monkeypatch.delattr(cb, name, raising=False)
+
+    cb._trace("watchdog_dialing", connected=False)
+
+    lines = trace.read_text().splitlines()
+    assert len(lines) == 1, "the trace lost its line when module globals were absent"
+    record = json.loads(lines[0])
+    assert record["event"] == "watchdog_dialing"
+    assert record["connected"] is False
+    assert record["thread"], "a decision with no thread is not attributable"
+
+
+def test_a_shadowing_globals_dict_cannot_silence_the_trace(cb, tmp_path, monkeypatch):
+    """The same failure from the other side: a TD `os` in the globals.
+
+    Binding `os` to an object with no `environ` on the module is what the live
+    session did. The hook must not consult it.
+    """
+    trace = tmp_path / "trace.jsonl"
+    monkeypatch.setenv("TDMCP_BRIDGE_TRACE", str(trace))
+    monkeypatch.setattr(cb, "os", types.SimpleNamespace(path="Z:/somewhere"), raising=False)
+
+    cb._trace("frame_dialing", connected=True)
+
+    assert len(trace.read_text().splitlines()) == 1
+    assert json.loads(trace.read_text())["event"] == "frame_dialing"

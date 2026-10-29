@@ -11,6 +11,7 @@ Run: .venv/bin/python -m pytest scripts/tests/test_campaign_harness.py -q
 """
 from __future__ import annotations
 
+import itertools
 import json
 import os
 import sys
@@ -1167,3 +1168,70 @@ def test_an_observation_must_be_stamped_not_merely_present():
     ]:
         passed, text = predicate(bad, spec)
         assert not passed, f"{why} must not pass as an observation, said: {text}"
+
+
+def test_a_shipped_template_carrying_stale_callbacks_is_refused(tmp_path):
+    """The fourth copy of the bridge has no guard, so this gives it one.
+
+    `scripts/pack_bootstrap_tox.md` names four copies of the bridge code and
+    guards exactly one: `install::tests::bootstrap_tox_matches_packed_source_
+    hash` compares the source to the PACKED blob. The installed copy follows
+    the blob, and a copy baked into a user's project is explicitly documented
+    as unguardable.
+
+    The shipped `template.toe` is copy #4 -- and it was stale. Measured by
+    expanding it: its baked `callbacks.text` was 25655 bytes against a 31015
+    byte source, and contained none of the round-2 teardown gate
+    (`_bridge_shutting_down`). Every live campaign run therefore exercised
+    callback code from before that fix, including the run that added a trace
+    hook the template could not possibly carry. Four supersedes were chased on
+    that basis before this was found.
+
+    Driven against real bodies built here rather than a fixture someone
+    believes is stale: the current source must PASS, three wrong-but-plausible
+    templates must each be REFUSED with a reason naming the culprit.
+    """
+    sys.path.insert(0, str(REPO / "scripts" / "campaign"))
+    import pack_tox_probe as pk
+
+    counter = itertools.count()
+
+    def build(bodies: dict[str, str | None]) -> Path:
+        # A fresh tree per call: rebuilding into the same directory is exactly
+        # the `FileExistsError` that "just reuse tmp_path" produces.
+        expanded = tmp_path / f"case{next(counter)}"
+        root = expanded / "project1" / "tdmcp_rs"
+        root.mkdir(parents=True)
+        for name, body in bodies.items():
+            if body is not None:
+                (root / name).write_text(body, encoding="utf-8")
+        return expanded
+
+    boot = (REPO / "bridge/bootstrap.py").read_text(encoding="utf-8")
+    cb = (REPO / "bridge/tox_callbacks.py").read_text(encoding="utf-8")
+    current = {
+        "bootstrap.text": boot,
+        "callbacks.text": cb,
+        "tdmcp_exec.text": cb,
+    }
+
+    ok, why = pk.template_is_current(build(current))
+    assert ok, why
+
+    # The shape that actually shipped: an older body in BOTH callback DATs.
+    older = cb.split("def _trace")[0]
+    ok, why = pk.template_is_current(
+        build({**current, "callbacks.text": older, "tdmcp_exec.text": older})
+    )
+    assert not ok, "the stale template that shipped must be refused"
+    assert "callbacks.text" in why and "stale" in why, why
+
+    # The two DATs disagree: the one that RUNS is the stale one, while the
+    # other still matches. Checking only the sibling would pass this.
+    ok, why = pk.template_is_current(build({**current, "tdmcp_exec.text": older}))
+    assert not ok, "the executable DAT is compared to the source, not its sibling"
+    assert "tdmcp_exec.text" in why, why
+
+    # And a template with no callback DATs at all is missing, not clean.
+    ok, why = pk.template_is_current(build({"bootstrap.text": boot}))
+    assert not ok and "callbacks.text" in why, why

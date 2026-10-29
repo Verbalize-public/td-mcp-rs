@@ -146,3 +146,59 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+#: What `scripts/pack_bootstrap_tox.md` says to build, and what the two shipped
+#: blobs actually contained. The doc's "Live pack" recipe has never been run
+#: against `template.toe`: the shipped template carried a 25655-byte
+#: `callbacks.text` while the source was 31015 bytes, with none of the round-2
+#: teardown gate in it. Every live campaign run therefore exercised pre-fix
+#: callback code, and the trace hook added later could not fire from the
+#: template's baked copy either.
+#:
+#: These are the checks that make the next stale template loud. They read the
+#: EXPANDED form (`.toe.dir/.../*.text`), because a `.toe` is an opaque binary
+#: whose bytes cannot be grepped -- measured: the 14522-byte shipped template
+#: contains zero occurrences of the string "bootstrap".
+def template_dat_sources(expanded: Path) -> dict[str, str]:
+    """Each baked DAT body, keyed by DAT name. Only what was actually read.
+
+    The KEYS are what the check iterates: a DAT missing from the expansion
+    produces no entry, so "the template has no `callbacks` DAT at all" is a
+    missing key rather than a silently-accepted empty body. Returning the
+    SOURCE here instead would make every assertion vacuous -- a mapping from
+    names to constants agrees with itself no matter what the template contains,
+    which is exactly the failure this was written to prevent.
+    """
+    root = expanded / "project1" / "tdmcp_rs"
+    bodies: dict[str, str] = {}
+    for name in ("bootstrap.text", "callbacks.text", "tdmcp_exec.text"):
+        path = root / name
+        if path.is_file():
+            bodies[name] = path.read_text(encoding="utf-8")
+    return bodies
+
+
+def template_is_current(expanded: Path) -> tuple[bool, str]:
+    """Is every baked DAT body identical to the source it mirrors?
+
+    The executable DAT is checked against the callbacks SOURCE rather than
+    against the sibling DAT, because it is what actually runs: a template
+    whose two DATs disagree executes code nobody reads.
+    """
+    bodies = template_dat_sources(expanded)
+    expected = {
+        "bootstrap.text": REPO / "bridge/bootstrap.py",
+        "callbacks.text": REPO / "bridge/tox_callbacks.py",
+        "tdmcp_exec.text": REPO / "bridge/tox_callbacks.py",
+    }
+    missing = sorted(name for name in expected if name not in bodies)
+    if missing:
+        return False, f"the template has no {', '.join(missing)}"
+    stale = [
+        f"{name} ({len(bodies[name])} bytes, source is {expected[name].stat().st_size})"
+        for name in sorted(expected)
+        if bodies[name] != expected[name].read_text(encoding="utf-8")
+    ]
+    if stale:
+        return False, f"stale against the source: {', '.join(stale)}"
+    return True, "every baked DAT mirrors its source"

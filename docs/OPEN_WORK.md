@@ -1,10 +1,20 @@
 # Current limitations
 
-These are known constraints, not a delivery schedule.
+These are known constraints, not a delivery schedule. For setup, use the
+[quick start](QUICKSTART.md); for an interrupted session, use
+[connection recovery](OBSERVABILITY.md#when-a-connection-drops).
 
-- Linux runs Windows TD through Wine. Runner/GPU/CodeMeter compatibility
-  depends on the installation; native dialog inspection/dismissal is unavailable.
-  See [Linux/Wine](LINUX_SUPPORT.md).
+## Editing, capture, and timing
+
+- Ordered edits are not transactions. Earlier steps and parts of a failing
+  step can remain applied; scripted edits have no universal undo guarantee.
+- `project_snapshot` supports component saves, status, and component loading.
+  Whole-project save is exposed, but recorded live work found it can end the
+  MCP stream without a response; a lost reply does not prove nothing was saved. Save `.toe` projects in TD's UI. A whole-project load
+  request reports its implications without replacing the open session; use a
+  fresh process for a separate project.
+- Offline lint checks file structure, not visual correctness. Unpack/repack
+  and bridge injection require Derivative's installed official tools.
 - Capture images travel inline through MCP. Individual DAT/shader text previews
   are capped at 64 KiB. Replies over the 32 MiB IPC budget fail without dropping
   the bridge. Recording has a bounded per-job artifact spool/read API, but
@@ -33,6 +43,12 @@ These are known constraints, not a delivery schedule.
   Python deadline cannot preempt a natively blocked main thread.
 - Bridge call budgets are live, but stdio proxy ceilings remain independent
   environment settings. See [Configuration](CONFIG.md#stdio-proxy-ceilings).
+
+## Connections and platforms
+
+- Linux runs Windows TD through Wine. Runner/GPU/CodeMeter compatibility
+  depends on the installation; native dialog inspection/dismissal is unavailable.
+  See [Linux/Wine](LINUX_SUPPORT.md).
 - Federation is one coordinator with directly joined computers, not a mesh.
   Scanning is local IPv4 /24 discovery, not routing or firewall configuration.
 - Fleet connection status does not expose the TD main-thread pump's age.
@@ -43,7 +59,10 @@ These are known constraints, not a delivery schedule.
 - Windows setup still stops processes by executable name. Path-scoped upgrade
   shutdown and cleanup of autostart registrations on uninstall need native
   verification before changing this behavior.
-- Retained evidence is written and readable by the client that asked for it, but
+
+## Evidence and distribution
+
+- Retained evidence is written and owner-scoped at the store layer, but
   only `inspect` captures, only in the daemon's own store, and only over the HTTP
   transport — there is no tool to page a retained observation, no cross-machine
   grant (`grant`/`revoke_grant` have no caller-facing route), and no export to a

@@ -3,6 +3,17 @@
 The daemon runs natively on Linux; TouchDesigner runs through Wine.
 A working TD installation is a prerequisite, not something the daemon installs.
 
+## Before connecting the assistant
+
+First open TD through your usual Wine launcher and confirm that a simple
+network renders. Then follow the [quick start](QUICKSTART.md). If TD itself
+cannot start, resolve that runner, graphics, or licensing problem before
+investigating MCP. td-mcp-rs does not install or configure Wine for you.
+
+Linux behavior depends on that local environment. Recorded timing/recording
+acceptance used TD 2025.32460 under Wine; it is not a guarantee for every
+runner, GPU, or TD build. See [current limitations](OPEN_WORK.md).
+
 ## Supported behavior
 
 - TCP bridge on loopback, MCP/admin server, federation, and dashboard.
@@ -61,6 +72,7 @@ trying again. Inspect its window, launcher output, and daemon Logs. A stuck
 splash screen can be a runner or licensing issue, not an MCP failure.
 
 The GUI uses a DBus StatusNotifierItem tray without GTK/libappindicator.
-On desktops without tray support, use the dashboard launch command or run
-headless. Linux DBus consumers use a consistent async-io backend to avoid
+On desktops without tray support, use headless operation and the
+[CLI/log tools](OBSERVABILITY.md). The bridge asset is available in the
+[runtime data directory](INSTALL.md#add-the-bridge-to-a-project). Linux DBus consumers use a consistent async-io backend to avoid
 accessibility-thread runtime panics.

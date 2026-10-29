@@ -11,6 +11,20 @@ Assistant → Coordinator → Joined computer → local TD processes
 The assistant connects only to the coordinator. Local and remote tool results
 have the same shapes, with `daemonId` identifying the owning computer.
 
+## What you can do across computers
+
+Keep an overview of studio machines, inspect a remote project, compare output
+images, or apply a planned change to a particular instance. Start with:
+
+> “List the connected computers and their TD projects. Capture the output
+> from the rehearsal project on studio-b.”
+
+Several TD instances on **one** computer only need the local daemon and a
+bridge in each project. Federation is for reaching **other computers**.
+It routes calls; it doesn't copy projects/media, synchronize playback, or
+switch a show to a backup machine automatically. Multi-machine edits can
+partly succeed, so check each target's result.
+
 ## Set up
 
 On each computer, install/start the daemon and make sure local TD works first.
@@ -68,6 +82,10 @@ master_psk = "coordinators-incoming-key"
 
 ## Use the fleet
 
+Ask the assistant to list machines and projects before choosing a target.
+A project name helps you recognize it; the returned computer identity and
+process ID tell the tools exactly where to send the call.
+
 Read `fleet` first. Pass the returned `pid` and `daemonId` when targeting a
 remote process. PIDs are only unique on their own computer; do not resolve a
 collision by guessing. Paths are interpreted on the computer executing the
@@ -101,4 +119,5 @@ Treat admin configuration and registry responses as sensitive.
   `fleet`; do not retry a mutating call blindly.
 
 Federation supports one coordinator and directly joined computers, not a mesh.
-See [Configuration](CONFIG.md) and the [tool contract](CONTRACT.md).
+See [Configuration](CONFIG.md), [connection recovery](OBSERVABILITY.md#when-a-connection-drops),
+and the [tool contract](CONTRACT.md).

@@ -5,6 +5,23 @@ See [Architecture](../ARCHITECTURE.md) for component boundaries and
 [Current limitations](OPEN_WORK.md) for known gaps. Tests and live checks have
 different coverage; a shipped feature is not proof of every platform scenario.
 
+## Reading this reference
+
+For installation and everyday prompts, start with the [quick start](QUICKSTART.md)
+and [recipes](RECIPES.md). This document is for callers implementing or
+checking exact behavior.
+
+- [Catalogue](#catalogue): available tools and their responsibilities.
+- [Addressing](#addressing--shipped): choose a process and, remotely, its daemon.
+- [Result shapes](#mcp-tool-result-shapes-stdio--rmcp): interpret results and image delivery.
+- [Timed jobs](#timing-metadata-and-deferred-capturerecord-jobs): schedules, status, cancellation, and recording.
+- [Mutation](#mutate_nodes): ordered changes, partial failures, and guards.
+- [Recovery](#disconnect--resurrection--shipped): connection loss and task state.
+
+A successful request is not always a completed job or verified scene change.
+Check per-item outcomes, availability fields, and job state. If a write's
+reply is lost, inspect the affected state before repeating it.
+
 ## Architecture — Shipped
 
  ```text
@@ -37,12 +54,20 @@ different coverage; a shipped feature is not proof of every platform scenario.
 
 **Singleton:** one owner per listen port. Exclusivity = `daemon.lock` (pid) + TCP bind on `{bind_address}:{port}` (default `127.0.0.1`). Stale locks (dead pid) are reclaimed on `start` / `ensure`. A second `start` while healthy refuses with a clear error. `/admin/restart` clears the lock then spawn-then-exit; the replacement retries bind briefly. No distributed leader election — single-host by default; P3 federation is single-level master→slave, not multi-master.
 
-**Idle auto-exit:** after **30s** with zero connected bridges and zero live Streamable HTTP MCP session leases (stdio proxy counts), the daemon toasts and cancels the serve loop (same path as `/admin/shutdown` / ctrl_c). A **5s startup grace** after the idle watcher starts prevents a freshly-(re)started daemon from exiting before the stdio proxy re-acquires a Streamable HTTP lease. Drain is deadline-bounded (~2s); the process then ends on the main thread — never via `process::exit` from a background tokio task. Admin/health polls and JSON `/mcp/tools/`* do not keep it alive. Assumes session-mode MCP (not per-request handlers); production Streamable HTTP disables SSE keepalive and wires the daemon shutdown token (same as integration tests). Override: `TDMCP_IDLE_EXIT_SECS` (`0` disables). `ensure` / `mcp` respawn on next use. Tests may set `TDMCP_IPC_PIPE` so a live TD on the production pipe cannot attach.
+**Idle auto-exit:** disabled by the default `daemon.keep_alive = true`.
+When enabled, the watcher exits after **30s** with no connected bridges or
+live Streamable HTTP session leases, provided the federation role does not
+require the daemon. Stdio proxies hold leases; admin/health polls and JSON
+`/mcp/tools/*` calls do not. `TDMCP_IDLE_EXIT_SECS` sets the interval (`0`
+disables it). A **5s startup grace** lets a proxy reconnect before idle counting.
+Shutdown cancels the serve loop and drains within a deadline (~2s); the main
+thread exits normally. `ensure` / `mcp` start the daemon again on next use.
+Isolated tests need their own listeners so a live project cannot attach.
 
 **MCP session keep-alive:** the transport session worker re-arms an idle timer on every loop iteration, so a handler that blocks long enough for that timer to expire is cut off **mid-request** and the caller loses a reply the tool is still going to produce. The daemon therefore sizes this timer from its own configured budgets — `max([bridge].call_timeout_secs, [bridge].script_timeout_secs, spawn_td`'s 60 000 ms default wait) + 30s` — so no shipped call can be cut by the transport. Measured before the fix: `spawn_td` with `waitTimeoutMs=25000` returned its `tdmcp.spawn.wait_timeout` payload, while `waitTimeoutMs=90000` received **no reply at all** and died at exactly 60.0s, leaving a live unhandshaken TouchDesigner that the contract's `stillAlive` / `effect: "unknown"` payload exists to describe. A call cut this way is the worst shape a timeout can take, because the state a caller needs is exactly what is lost. Raising any of the three budgets raises the timer with it; there is no separate knob, and deliberately no fixed floor or ceiling (every budget already exceeds them, so a clamp would be a promise no configuration could make true).
 
 
-**Listen:** `{bind_address}:{port}` default `127.0.0.1:9860` (override via CLI / env / RC / `[server]`). A non-loopback bind does **not** require auth (zero-setup LAN federation); `[auth] mode = "psk"` with a non-empty PSK adds `Authorization: Bearer` on the gated routes, and `mode = "psk"` with an empty PSK is rejected at load (`validate_remote_auth`). Admin surfaces: loopback-only for shutdown/restart/sessions; auth-gated remote allowlist for `/admin/federation/*` and `/admin/config`; minimal unauth probe at `/admin/federation/status` for LAN discovery. See [`CONFIG.md`](CONFIG.md) § Federation auth & admin surface.
+**Listen:** `{bind_address}:{port}` default `127.0.0.1:9860` (override via CLI / env / RC / `[server]`). A non-loopback bind does **not** require auth (zero-setup LAN federation); `[auth] mode = "psk"` with a non-empty PSK adds `Authorization: Bearer` on the gated routes, and `mode = "psk"` with an empty PSK is rejected at load (`validate_remote_auth`). Admin surfaces: loopback-only for shutdown/restart/sessions; auth-gated remote allowlist for `/admin/federation/*` and `/admin/config`; minimal unauth probe at `/admin/federation/status` for LAN discovery. See [Federation security](FEDERATION.md#security) and [Configuration](CONFIG.md#admin-api).
 
 **Stdio proxy (v1):** serves tool discovery (`list_tools` / `get_tool`) from
 its local embedded catalog and resource listing/reads (`resources/list` /
@@ -136,7 +161,8 @@ Handshake returns a local FS path to the bridge package directory. TD reloads fr
 | **Pid exclusive** | Per-pid `TaskQueue` — always exclusive enqueue | `tdmcp.bridge.queue_busy` |
 | **Timing reservation** | TD bridge process, across calls/sessions until job cleanup | `tdmcp.timing.busy` (names owning tool/job) |
 
-Bridged tools (`execute_python`, `inspect`, `capture`, `record`, `mutate_nodes`, `api_help`, `editor_context`, `palette_probe`) always enqueue **exclusive**. Client `exclusive` is accepted for wire compat and **ignored**. Shared multi-enqueue is not a supported mode.
+Bridged tools (`execute_python`, `inspect`, `capture`, `record`, `mutate_nodes`, `api_help`, `editor_context`, `palette_probe`, `sample_data`, `param_interface`,
+`project_snapshot`, `compare_nodes`, and `script_source`) enqueue **exclusive**. Client `exclusive` is accepted for wire compat and **ignored**. Shared multi-enqueue is not a supported mode.
 
 Timed capture/record jobs reserve transport in TD across callbacks, not by
 leaving the Rust RPC queue occupied. Only the owning tool's status/cancel calls
@@ -223,6 +249,11 @@ safety net only — the daemon owns the real per-method budgets.
 | `execute_python`            | Run Python in TD; `result = …`; optional `logs`; structured `exception` on failure                     | **Shipped**           |
 | `inspect`                   | Structural read for explicit `paths[]` batch (nodes + wires / params / errors / warnings / content); no auto-recursion | **Shipped**           |
 | `capture`                   | Perception — `top` / `preview` / `auto` / `chop_data` / `chop_image`† / `pop`† († aliases of preview)  | **Shipped**           |
+| `sample_data`               | Numerical TOP/CHOP reads and SOP point positions, with format, shape, and non-finite reporting | **Shipped** |
+| `script_source`             | Register/list/describe/delete Python source; run by content ID with dependency reporting | **Shipped** |
+| `param_interface`           | Export COMP controls or apply an interface additively; report conflicts per entry | **Shipped** |
+| `project_snapshot`          | Save receipts, status, and component load; whole-project saves have a recorded lost-response risk, whole-project load reports only | **Shipped** |
+| `compare_nodes`             | Capture a baseline or compare selected fields against a fresh read | **Shipped** |
 | `record`                    | N-frame TOP video jobs: start/status/cancel/read/release, bounded artifact retrieval | **Shipped** |
 | `describe_tools`            | Manifest of available tools                                                                            | **Shipped**           |
 | `mutate_nodes`              | Ordered create / set / delete / connect / disconnect steps; sequential apply, stop on first hard error | **Shipped**           |
@@ -244,6 +275,17 @@ use platform backends on Windows, macOS, and Linux (via Wine — see `docs/LINUX
 `dialogs` uses a real backend on Windows/macOS only — Linux always returns
 `tdmcp.dialog.unsupported` (no window backend under Wine). Fleet rows for spawned pids
 carry `spawn` provenance and may show `bridge:"starting"` pre-handshake.
+
+**Source, interface, and comparison tools.** `script_source` registration
+stores code without running it; `run` uses the Python execution path and
+reports changed/missing dependencies. `param_interface` applies additively,
+removes nothing, and skips incompatible existing types with a reason.
+`compare_nodes` requires a baseline unless explicitly capturing one; missing
+or unreadable data is not an unchanged result. Its comparison is not atomic.
+`project_snapshot` component receipts identify the actual written path and
+digest; requested paths alone are not artifact identity. Whole-project saves are exposed, but have a recorded lost-response risk;
+use the TD UI for routine project saves. See [Migration](MIGRATION.md#new-tools) for details
+and `describe_tools` for current input schemas.
 
 **Palette awareness.** `palette_index` is offline (no pid, session-gate exempt); `palette_probe` is bridged and rides the script timeout class. Component **cards are authored by the agent**, not generated: the tools supply evidence (`palette_probe`) and storage (`palette_index describe`), and `tdmcp://docs/palette-scan` supplies the procedure. See § `palette_index` / `palette_probe`.
 
@@ -578,8 +620,10 @@ daemon that cannot open a store serves every call and refuses `retain` with a
 reason naming the missing store. Retention is never answered with an inline
 value as if it had been kept.
 
-**Reading it back** is owner-scoped and stable: each page is a bounded read over
-the committed bytes with a cursor, and paging the same id again returns the same
+**Store-layer reads** are owner-scoped and stable. There is currently no
+caller-facing tool or HTTP reader route for paging retained observations;
+the tests exercise this read API directly on the store. At that layer, each
+page is a bounded read over the committed bytes with a cursor, and paging the same id again returns the same
 bytes in the same order. Expiry is lease-based — after `expiresAtMs` the
 observation is gone, and a released or expired one is reported as such rather
 than as one that never existed.

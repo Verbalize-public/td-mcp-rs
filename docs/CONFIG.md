@@ -5,6 +5,21 @@ Save validates changes before writing; Discard restores your last loaded
 settings. Reset changes the draft only—Save is still required. Reset retains
 the daemon identity and installed executable path.
 
+## Settings you are most likely to need
+
+| I want to… | Setting or page |
+| --- | --- |
+| Start new projects with my usual network | `project.template_path`: a `.toe` containing the bridge |
+| Include my component collection | `palette.user_root` |
+| Connect another computer | The **Federation** page; follow the [setup guide](FEDERATION.md) |
+| Allow a slow script more time | `bridge.script_timeout_secs`; also check the proxy ceiling below |
+| Start td-mcp-rs when I log in | `daemon.always_on` |
+| Run without the tray/dashboard | `daemon.show_tray = false` |
+
+You can leave defaults alone for a first local connection. The dashboard
+reports which saved changes need a restart; save your TD work before arranging
+one. Keep-alive controls idle exit, not automatic restart after every failure.
+
 ## Files and precedence
 
 | OS | Configuration | Runtime data |
@@ -65,12 +80,9 @@ the restart requirement. A restart disconnects MCP/bridge sessions temporarily.
   image) and the default is kept. Derived from rmcp's 16 MiB client-side SSE
   event cap — a safe bound, not a tuned one. See
   [Contract](CONTRACT.md#mcp-tool-result-shapes-stdio--rmcp).
-  **Checked against a measured sample** (nine live PNG captures over a
-  resolution ladder, in `scripts/fixtures/admission/live-capture-bytes.json`):
-  every one is admitted; the largest is 440,234 bytes, about 5% of the bound.
-  The sample is one noise source in PNG — not a distribution — so this shows
-  the bound does not withhold captures anyone has taken, not that it is
-  optimal. Raise it for HDR/EXR or photographic content.
+  The default admits all nine PNGs in the recorded sample, but that sample
+  doesn't cover every image format or client. See [measurement scope](TESTING.md#a-measured-default-and-what-the-measurement-is-not)
+  before tuning it; a larger server limit does not raise your client's limits.
 - `project.template_path`: optional starter .toe; otherwise
   `{dataDir}/template.toe`. New-project creation never overwrites its target.
 - `official_tools`: optional TD/expand/collapse paths and Linux Wine overrides.

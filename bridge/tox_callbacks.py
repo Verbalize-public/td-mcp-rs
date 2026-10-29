@@ -12,8 +12,6 @@ silent auto-reconnect that hides loss from the daemon.
 
 from __future__ import annotations
 
-import json
-import os
 import time
 from collections import OrderedDict
 
@@ -598,18 +596,44 @@ def _trace(event: str, **fields) -> None:
 	probe that installs itself through that bridge is cancelled by the event it
 	exists to catch. The decision has to write its own record, at the moment it
 	is made.
+
+	The imports are inside the function, and that is not a style preference.
+	TouchDance executes a tox Text DAT's body in a GLOBALS dict that is not the
+	module namespace and re-executes it on every reload, so a name the body did
+	not bind at that level is not reliably there -- `os` in particular resolves
+	to TouchDesigner's own `os`, which has no `environ`. Measured: a session
+	running this very file, with `__tdmcp_callbacks__` present in
+	`sys.modules`, silently wrote nothing because of exactly that. Resolving
+	the dependencies here costs four imports on a path that is already reading
+	one environment variable.
 	"""
-	path = os.environ.get("TDMCP_BRIDGE_TRACE")
+	try:
+		import io as _io
+		import json as _json
+		import os as _os
+		import time as _time
+	except Exception:  # noqa: BLE001
+		return
+	path = _os.environ.get("TDMCP_BRIDGE_TRACE")
 	if not path:
 		return
-	rec = {"event": event, "t": time.time()}
+	rec = {"event": event, "t": _time.time(), "thread": _thread_name()}
 	rec.update(fields)
 	try:
-		with open(path, "a", encoding="utf-8") as fh:
-			fh.write(json.dumps(rec, default=repr) + "\n")
+		with _io.open(path, "a", encoding="utf-8") as fh:
+			fh.write(_json.dumps(rec, default=repr) + "\n")
 			fh.flush()
 	except Exception:  # noqa: BLE001
 		pass
+
+
+def _thread_name() -> str:
+	try:
+		import threading as _th
+
+		return _th.current_thread().name
+	except Exception:  # noqa: BLE001
+		return "?"
 
 
 def _bridge_snapshot(mod) -> dict:

@@ -8,6 +8,45 @@ Logs combine daemon lifecycle events, stdio proxy events, and forwarded TD
 bridge logs. TD operator errors still need `inspect`; logs are not a complete
 poll of every operator's error state.
 
+## Start with the symptom
+
+| Symptom | Next useful check |
+| --- | --- |
+| The assistant has no TD tools | Check its MCP configuration and executable path in [Installation](INSTALL.md#connect-your-assistant). |
+| TD is listed but disconnected | Confirm the bridge COMP is present, inspect Logs, and check the TD window for dialogs. |
+| TD looks connected but won't answer | Check for a blocked main thread or long script; a transport heartbeat does not prove TD can process a tool call. |
+| A launch times out | Check whether that process is still alive before starting another copy. |
+| A capture is black | Inspect the image and upstream nodes. A valid black image can be the correct output. |
+| A remote call fails | Check the owning computer, both network directions, and access keys in [Federation](FEDERATION.md). |
+
+## When a connection drops
+
+There are two connections to think about: **assistant → daemon** and
+**daemon → TD bridge**. Their recovery paths are separate.
+
+The standard `mcp` entry point reconnects its HTTP link when the daemon becomes
+unreachable. After sustained downtime it can start the daemon again, including
+while the assistant is idle. The bridge's own watchdog attempts reconnection;
+a new handshake reloads the installed bridge package. A blocked TD main thread
+or old embedded callbacks can still prevent recovery.
+
+A failed tool call reports the interruption. It is **not automatically
+replayed**. Losing a reply, or reaching a timeout, doesn't establish whether
+an edit ran. To continue:
+
+1. Re-read the fleet and confirm the intended computer, PID, and project.
+2. Inspect the affected operators or files to find out what changed.
+3. Retry only the work that is still needed. If the state is uncertain, stop
+   editing and investigate the logs.
+
+Timing jobs and private recording artifacts do not survive bridge reload.
+Check status before assuming a job is still running; download completed clips
+before deliberately reloading. Reconnection does not undo earlier edits.
+
+After three failed probes with no new evidence, stop repeating them. Collect
+the error, logs, and process details. Don't kill every TD/daemon process or
+launch duplicates to work around an unexplained timeout.
+
 ## Files and retention
 
 JSONL files rotate daily under `{dataDir}/logs`. The default retention keeps
