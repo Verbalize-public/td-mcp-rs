@@ -1,16 +1,17 @@
 # td-mcp-rs
 
-**Give your AI assistant a connection to TouchDesigner.** Ask it to explore a
-network, build an effect, fix a shader, or show you what changed. It can read
+**Give your AI assistant a connection to TouchDesigner—and a whole task to do.**
+Ask it to explore a network, build an effect, fix a shader, or show you what changed. It can read
 and edit the actual project, capture its output, and work across several TD
 instances or computers.
 
 > “Build a feedback trails effect in a new COMP. Give me one slider for the
 > trail length, then capture the output so we can see how it looks.”
 
-You bring the visual idea. The assistant can handle the wiring, parameter
-edits, and investigation that go with it. You still get an ordinary TD network
-to inspect and keep working on.
+You bring the visual idea. Once connected, the assistant can work through the
+build → inspect → capture → revise loop on its own, within the scope you give
+it. You don't have to dictate every node or parameter. You still get an ordinary
+TD network to inspect, adjust, and make your own.
 
 [Start here](docs/QUICKSTART.md) · [Things to try](docs/RECIPES.md) ·
 [Download](https://github.com/Verbalize-public/td-mcp-rs/releases) ·
@@ -54,23 +55,44 @@ TouchDesigner itself is installed separately.
 
 ## What you can make it do
 
+### Give it the whole task
+
+> “Start a new project from my template. Build an audio-reactive visual in
+> its own COMP, expose the controls, check for errors, and show me the output.
+> Keep refining it until the result matches the brief.”
+
+The tools cover the steps an autonomous assistant needs: launch TD, inspect
+what's there, choose operators or Palette components, build, run code, and
+check the result. The bundled operating skills guide that workflow. How well
+it follows the brief depends on your assistant and the evidence it actually
+checks; the finished look is still yours to judge.
+
 ### Get past “why is this black?”
 
 Inspect operators, wiring, parameters, errors, shader code, and the nodes
 selected in your editor. Capture intermediate outputs, read CHOP samples or
-TOP pixel values or SOP point positions, and follow a signal until it stops doing what you expected.
+TOP pixel values or SOP point positions, and follow a signal until it stops
+doing what you expected.
 Live Python API help lets the assistant check the TD version you're running.
 
 > “Trace this render chain. Show me where the image disappears and explain
 > the fix before changing anything.”
 
-### Build, tweak, and reuse
+### Give your Palette a second pair of eyes
 
-Create and connect operators, edit expressions, run Python, and build custom
-parameter pages. Discover Palette components and reuse your own `.tox`
-library. Export a component's control interface or register a Python script
-for repeated runs. Compare selected fields against an earlier observation
-when you need to know what changed.
+Ask the assistant to explore your Palette, inspect a component's controls,
+and reuse it in your network. Your own `.tox` collection can become part of
+that working library too. No need to rebuild a perfectly good particle system
+because nobody remembered which folder it was in.
+
+![Palette browser with component descriptions, controls, and reuse actions](docs/screens/captures-2026-10-29/palette-tree.png)
+
+*The real Palette dashboard rendered with example cards. The assistant can
+build these descriptions from component probes. [Palette recipes](docs/RECIPES.md#teach-it-your-palette).*
+
+For custom work, it can create operators, wire networks, edit expressions,
+run Python, and build parameter pages. Export a control interface, register a
+script for repeated runs, or compare fields against an earlier observation.
 
 Edits run in order. If one fails, earlier changes may remain; the result tells
 the assistant where to investigate. Save before experimenting, and give new
@@ -115,23 +137,35 @@ useful when a folder of older projects needs connecting to your assistant.
 Offline checks cannot tell you whether a shader renders correctly. Open a
 copy in TD for that final check. See [project and file recipes](docs/RECIPES.md#project-and-file-wrangling).
 
-### Recover a connection without losing the plot
+### When something goes sideways
 
-The assistant's local connection can reconnect and, when needed, ask the
-daemon to start again. Bridge connections have their own recovery path and
-report disconnections. Failed tool calls are surfaced, not silently replayed:
-a lost reply does not prove an edit never happened.
+Autonomous work needs a way to recover as well as a way to build.
 
-The [recovery guide](docs/OBSERVABILITY.md#when-a-connection-drops) explains
-what to check before continuing. Recovery restores communication; it doesn't
-undo edits or resume a timing job invalidated by bridge reload.
+| What happens | What helps you continue |
+| --- | --- |
+| The daemon stops or crashes | The standard MCP connection reconnects and can start the daemon again after sustained downtime. |
+| A bridge disconnects or a call times out | The failure is reported; the assistant can inspect the affected state before deciding what to repeat. |
+| A Palette probe hangs | The pending batch is recorded so a later scan can flag suspect components; repeated probe failures can automatically exclude an entry. |
+
+Daemon/GUI panics produce crash reports with recent log context for investigation.
+Failed tool calls aren't silently replayed: a lost reply doesn't prove an edit
+never happened. That's especially useful when several assistants share TD.
+
+Recovery restores communication, not unsaved project state. It doesn't undo
+edits or resume jobs invalidated by bridge reload. See the
+[recovery guide](docs/OBSERVABILITY.md#when-a-connection-drops) for the next steps.
 
 ## Dashboard, privacy, and control
+
+<details>
+<summary>See the fleet dashboard</summary>
 
 ![Dashboard showing local and remote TD instances and connected assistants](docs/screens/captures-2026-10-29/overview-populated.png)
 
 *Dashboard preview with example fleet data. Hostnames, counts, and connection
 states illustrate the UI; they are not a live studio deployment.*
+
+</details>
 
 The dashboard brings together instances, federation, Palette, logs, and
 settings. Configuration and customized starter templates survive upgrades.
