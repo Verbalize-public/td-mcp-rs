@@ -1,0 +1,125 @@
+{
+  "capturedOn": "2026-10-29",
+  "sourceRevision": "30a8142",
+  "touchDesignerBuild": "2025.32460",
+  "platform": "Linux / Wine; Hyprland native UI capture",
+  "video": {
+    "sourceCodec": "qtrle",
+    "presentationCodec": "h264",
+    "frames": 120,
+    "fps": 60,
+    "seconds": 2,
+    "width": 1280,
+    "height": 720
+  },
+  "files": [
+    {
+      "file": "capture-metadata.json",
+      "bytes": 12108,
+      "sha256": "be4f0cc87dd458c75ccd172c9a231ad3170b2f541fca28cdc200f1cc1183e8f7"
+    },
+    {
+      "file": "first-visual-network.png",
+      "bytes": 138960,
+      "sha256": "02b67a5bb80d519fce2f4d06f10782cfb6747f6f1c8986db7107f745a5a7e6b0",
+      "width": 1600,
+      "height": 340,
+      "source": "TD-window-region"
+    },
+    {
+      "file": "first-visual-output.png",
+      "bytes": 373748,
+      "sha256": "ffa5a6cad007c8d9b9e6bc6ae5e8ebdc2b4462b9c875b608212b80d6fa17b946",
+      "width": 960,
+      "height": 540,
+      "source": "live-MCP-capture"
+    },
+    {
+      "file": "logs-filtered.png",
+      "bytes": 334622,
+      "sha256": "1cad6086542d5e0b68d5000fe5598034645d5910f3a53aa99f55eb94da08866e",
+      "width": 1280,
+      "height": 900,
+      "source": "dashboard-preview"
+    },
+    {
+      "file": "modal-add-slave.png",
+      "bytes": 282837,
+      "sha256": "d08a5a67b4ce5424f86acd9d200dda0cdb3b6e0cab7580bef1fc8561792e1d91",
+      "width": 1280,
+      "height": 900,
+      "source": "dashboard-preview"
+    },
+    {
+      "file": "overview-populated.png",
+      "bytes": 276336,
+      "sha256": "b245dd6375f1008427780ed52f5fa2941d7c9cf3de245db86c736b101ea9cf5e",
+      "width": 1280,
+      "height": 900,
+      "source": "dashboard-preview"
+    },
+    {
+      "file": "palette-tree.png",
+      "bytes": 430838,
+      "sha256": "48a8c39ba3fdf3a8dd07ca500fb6cb00fa8a5a637be7d9aea2aac2c5b5e0355d",
+      "width": 1280,
+      "height": 900,
+      "source": "dashboard-preview"
+    },
+    {
+      "file": "record-metadata.json",
+      "bytes": 1402,
+      "sha256": "2840f67e93aa9f23844dd6cd6603de17dbac063f995188759892dca7ddec7175"
+    },
+    {
+      "file": "ribbons-output.png",
+      "bytes": 725014,
+      "sha256": "6cebe6d469314e3f393d79da1589887d1c2799baa222bf3d6adc3b70c42c9677",
+      "width": 1280,
+      "height": 720,
+      "source": "live-MCP-capture"
+    },
+    {
+      "file": "ribbons-recording.mp4",
+      "bytes": 468438,
+      "sha256": "3d07665b1b3439156d501302a571c080a891bac862c3541243762da9deac5487"
+    },
+    {
+      "file": "ribbons-timed-0.png",
+      "bytes": 485488,
+      "sha256": "ec69972c7701a30bd75e284b5bedfcbeee0b08014340c25449bb07d3fd74b5ef",
+      "width": 960,
+      "height": 540,
+      "source": "live-MCP-capture"
+    },
+    {
+      "file": "ribbons-timed-1.png",
+      "bytes": 535257,
+      "sha256": "0866af70bc9d178ac810b3ff7c49bf19f5ffde89d050409bd256b57cf35a022d",
+      "width": 960,
+      "height": 540,
+      "source": "live-MCP-capture"
+    },
+    {
+      "file": "ribbons-timed-2.png",
+      "bytes": 564545,
+      "sha256": "ffc160cb4a7c7fd3c8307285714a9ed7b04a22bdb3360d80d54cf3421c75d369",
+      "width": 960,
+      "height": 540,
+      "source": "live-MCP-capture"
+    },
+    {
+      "file": "ribbons.frag",
+      "bytes": 607,
+      "sha256": "cc9a9a5d3e8bf93a9cff5cbd0235d128c7f87320dfb8981335c40f7d5a8efac7"
+    },
+    {
+      "file": "settings-dirty.png",
+      "bytes": 330251,
+      "sha256": "2b85a8a7dbee50c2df94c7561bfb70ce958423d4d0f9e5bb5f5dd41a6d2971f1",
+      "width": 1280,
+      "height": 900,
+      "source": "dashboard-preview"
+    }
+  ]
+}

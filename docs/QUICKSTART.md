@@ -112,6 +112,11 @@ Open the new COMP in TD. You should be able to follow the wiring, adjust its
 control, and see the result. If that name already exists, ask for a new name
 rather than replacing your work.
 
+![Noise TOP wired through a Level TOP to out1, with the Level parameters visible](screens/captures-2026-10-29/first-visual-network.png)
+
+*The same three-node chain in a scratch TD project, with coloured noise enabled.
+The brightness parameter references the COMP's exposed control.*
+
 Try a follow-up: “Make it softer and slower, then show me the difference.”
 The assistant can edit the network; your eye still gets the final vote.
 Save in TD when you're happy with it. Don't assume every scripted change can

@@ -20,6 +20,11 @@ You can leave defaults alone for a first local connection. The dashboard
 reports which saved changes need a restart; save your TD work before arranging
 one. Keep-alive controls idle exit, not automatic restart after every failure.
 
+![Settings showing unsaved changes and a pending restart banner](screens/captures-2026-10-29/settings-dirty.png)
+
+*Settings preview: saving a change and applying a restart are separate steps.
+The port and configuration path shown are fixture values.*
+
 ## Files and precedence
 
 | OS | Configuration | Runtime data |

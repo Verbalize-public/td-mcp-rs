@@ -127,11 +127,26 @@ Use `pause`, `play`, or `restore` for the completion policy; `restore` restores
 play flags, not the project's previous simulation history. Failure or
 cancellation leaves the clocks paused.
 
+Here is one actual timed capture of an animated GLSL TOP. This example uses
+prepared state without a reset or warmup; offsets 0, 30, and 60 returned
+project frames 1, 31, and 61 at 60 fps.
+
+| Offset 0 | Offset 30 | Offset 60 |
+| --- | --- | --- |
+| ![Ribbons at frame 1](screens/captures-2026-10-29/ribbons-timed-0.png) | ![Ribbons at frame 31](screens/captures-2026-10-29/ribbons-timed-1.png) | ![Ribbons at frame 61](screens/captures-2026-10-29/ribbons-timed-2.png) |
+
+This shader follows timeline time; these images demonstrate scheduled sampling,
+not a stateful feedback reset. [Capture details](SCREENSHOTS.md#timed-capture-and-recording).
+
 ### Record a short clip
 
 > “Record 120 consecutive frames from `/project1/visuals/out1` at its timeline
 > frame rate. Wait for completion, retrieve the clip, and report its actual
 > frame count and dimensions.”
+
+[View the two-second example clip](screens/captures-2026-10-29/ribbons-recording.mp4):
+120 frames recorded from TD at 60 fps, then transcoded from qtrle MOV to H.264
+MP4 for the docs. MP4 is a presentation copy, not an additional recorder codec.
 
 Current recording is **qtrle MOV without audio**, at most 3,600 frames,
 4096×4096 pixels, and 512 MiB per artifact. The source's parent must allow a
@@ -166,6 +181,10 @@ a scratch container is not a security sandbox.
 If one misbehaves, ask to blacklist it from future probes. Ignored components
 can remain in the catalogue; overriding that exclusion should be deliberate.
 See [Palette settings](CONFIG.md#common-settings).
+
+![Palette browser showing a component description, controls, and reuse actions](screens/captures-2026-10-29/palette-tree.png)
+
+*Palette dashboard preview with example component cards.*
 
 ## Debugging
 

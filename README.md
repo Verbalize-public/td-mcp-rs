@@ -16,6 +16,11 @@ to inspect and keep working on.
 [Download](https://github.com/Verbalize-public/td-mcp-rs/releases) ·
 [Documentation map](docs/README.md)
 
+![Animated cyan, pink, and gold ribbons rendered in TouchDesigner](docs/screens/captures-2026-10-29/ribbons-output.png)
+
+*A GLSL TOP created in a scratch TD project through MCP, then captured from its
+actual output. [More captures and a short recording](docs/SCREENSHOTS.md).*
+
 ## How it fits into your workflow
 
 Three pieces connect your conversation to your project:
@@ -122,6 +127,11 @@ what to check before continuing. Recovery restores communication; it doesn't
 undo edits or resume a timing job invalidated by bridge reload.
 
 ## Dashboard, privacy, and control
+
+![Dashboard showing local and remote TD instances and connected assistants](docs/screens/captures-2026-10-29/overview-populated.png)
+
+*Dashboard preview with example fleet data. Hostnames, counts, and connection
+states illustrate the UI; they are not a live studio deployment.*
 
 The dashboard brings together instances, federation, Palette, logs, and
 settings. Configuration and customized starter templates survive upgrades.

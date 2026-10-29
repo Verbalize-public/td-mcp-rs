@@ -8,6 +8,11 @@ Logs combine daemon lifecycle events, stdio proxy events, and forwarded TD
 bridge logs. TD operator errors still need `inspect`; logs are not a complete
 poll of every operator's error state.
 
+![Logs dashboard with source filters, search, and timestamped records](screens/captures-2026-10-29/logs-filtered.png)
+
+*Logs preview populated with example records, not logs from a user's project.
+The values in those records are illustrative, not timeout defaults.*
+
 ## Start with the symptom
 
 | Symptom | Next useful check |

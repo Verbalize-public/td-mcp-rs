@@ -1,0 +1,418 @@
+[
+  {
+    "filePattern": "first-visual-output.png",
+    "request": {
+      "pid": 218150,
+      "path": "/project1/first_visual/out1",
+      "mode": "top",
+      "maxSize": 960
+    },
+    "result": {
+      "admission": {
+        "admitted": {
+          "images": 1,
+          "maxImageBytes": 8388608,
+          "observedBy": "server",
+          "verdict": "admitted",
+          "withheldBytes": 0
+        },
+        "emitted": {
+          "inStructuredContent": true,
+          "note": "withheld images keep their bytes in structuredContent.imageBase64"
+        },
+        "generated": {
+          "bytes": 373748,
+          "images": 1,
+          "observedBy": "bridge"
+        },
+        "includedInModelInput": {
+          "note": "this server cannot observe what a client's model was given; an attachment in content[] proves the bytes were sent, not that they were seen. A client may drop, downscale or ignore the attachment.",
+          "observedBy": "none",
+          "state": "unavailable"
+        }
+      },
+      "artifact": {
+        "captureRoute": "direct_top",
+        "delivered": {
+          "height": 540,
+          "width": 960
+        },
+        "encodedBytes": 373748,
+        "source": {
+          "height": 540,
+          "width": 960
+        },
+        "transformation": "none",
+        "transformed": false
+      },
+      "bytes": 373748,
+      "code": null,
+      "frameClassification": null,
+      "maxSize": 960,
+      "message": null,
+      "mimeType": "image/png",
+      "ok": true,
+      "path": "/project1/first_visual/out1"
+    },
+    "images": 1
+  },
+  {
+    "filePattern": "ribbons-output.png",
+    "request": {
+      "pid": 218150,
+      "path": "/project1/ribbon_study/out1",
+      "mode": "top",
+      "maxSize": 1280
+    },
+    "result": {
+      "admission": {
+        "admitted": {
+          "images": 1,
+          "maxImageBytes": 8388608,
+          "observedBy": "server",
+          "verdict": "admitted",
+          "withheldBytes": 0
+        },
+        "emitted": {
+          "inStructuredContent": true,
+          "note": "withheld images keep their bytes in structuredContent.imageBase64"
+        },
+        "generated": {
+          "bytes": 725014,
+          "images": 1,
+          "observedBy": "bridge"
+        },
+        "includedInModelInput": {
+          "note": "this server cannot observe what a client's model was given; an attachment in content[] proves the bytes were sent, not that they were seen. A client may drop, downscale or ignore the attachment.",
+          "observedBy": "none",
+          "state": "unavailable"
+        }
+      },
+      "artifact": {
+        "captureRoute": "direct_top",
+        "delivered": {
+          "height": 720,
+          "width": 1280
+        },
+        "encodedBytes": 725014,
+        "source": {
+          "height": 720,
+          "width": 1280
+        },
+        "transformation": "none",
+        "transformed": false
+      },
+      "bytes": 725014,
+      "code": null,
+      "frameClassification": null,
+      "maxSize": 1280,
+      "message": null,
+      "mimeType": "image/png",
+      "ok": true,
+      "path": "/project1/ribbon_study/out1"
+    },
+    "images": 1
+  },
+  {
+    "filePattern": "ribbons-timed.png",
+    "request": {
+      "pid": 218150,
+      "action": "status",
+      "jobId": "aea54c9951ae4fb09461b0a60702f4d4"
+    },
+    "result": {
+      "admission": {
+        "admitted": {
+          "images": 3,
+          "maxImageBytes": 8388608,
+          "observedBy": "server",
+          "verdict": "admitted",
+          "withheldBytes": 0
+        },
+        "emitted": {
+          "inStructuredContent": true,
+          "note": "withheld images keep their bytes in structuredContent.imageBase64"
+        },
+        "generated": {
+          "bytes": 1585290,
+          "images": 3,
+          "observedBy": "bridge"
+        },
+        "includedInModelInput": {
+          "note": "this server cannot observe what a client's model was given; an attachment in content[] proves the bytes were sent, not that they were seen. A client may drop, downscale or ignore the attachment.",
+          "observedBy": "none",
+          "state": "unavailable"
+        }
+      },
+      "advancedFrames": 60,
+      "artifact": null,
+      "error": null,
+      "initializeFrames": 0,
+      "jobId": "aea54c9951ae4fb09461b0a60702f4d4",
+      "kind": "capture",
+      "ok": true,
+      "path": "/project1/ribbon_study/out1",
+      "phase": "done",
+      "recordedSamples": 0,
+      "requestedSamples": 3,
+      "samples": [
+        {
+          "capture": {
+            "artifact": {
+              "captureRoute": "direct_top",
+              "delivered": {
+                "height": 540,
+                "width": 960
+              },
+              "encodedBytes": 485488,
+              "source": {
+                "height": 720,
+                "width": 1280
+              },
+              "transformation": "downscale",
+              "transformed": true
+            },
+            "bytes": 485488,
+            "code": null,
+            "frameClassification": null,
+            "maxSize": 960,
+            "message": null,
+            "mimeType": "image/png",
+            "ok": true,
+            "path": "/project1/ribbon_study/out1"
+          },
+          "inspect": {
+            "nodes": [
+              {
+                "errors": [],
+                "family": "TOP",
+                "observations": {
+                  "errors": {
+                    "available": true
+                  },
+                  "warnings": {
+                    "available": true
+                  }
+                },
+                "ok": true,
+                "opType": "nullTOP",
+                "path": "/project1/ribbon_study/out1",
+                "timing": {
+                  "absFrame": 6961.0,
+                  "absSeconds": 116.01666666666668,
+                  "cookAbsFrame": 6961.0,
+                  "cookFrame": 1.0,
+                  "frame": 1.0,
+                  "play": false,
+                  "rate": 60.0,
+                  "realTime": false,
+                  "seconds": 0.0,
+                  "timePath": "/local/time",
+                  "totalCooks": 4.0
+                },
+                "warnings": []
+              }
+            ],
+            "ok": true,
+            "timing": {
+              "absFrame": 6961.0,
+              "absSeconds": 116.01666666666668,
+              "frame": 1.0,
+              "play": false,
+              "rate": 60.0,
+              "realTime": false,
+              "seconds": 0.0,
+              "timePath": "/local/time"
+            }
+          },
+          "offset": 0,
+          "timing": {
+            "absFrame": 6961.0,
+            "absSeconds": 116.01666666666668,
+            "cookAbsFrame": 6961.0,
+            "cookFrame": 1.0,
+            "frame": 1.0,
+            "play": false,
+            "rate": 60.0,
+            "realTime": false,
+            "seconds": 0.0,
+            "timePath": "/local/time",
+            "totalCooks": 4.0
+          }
+        },
+        {
+          "capture": {
+            "artifact": {
+              "captureRoute": "direct_top",
+              "delivered": {
+                "height": 540,
+                "width": 960
+              },
+              "encodedBytes": 535257,
+              "source": {
+                "height": 720,
+                "width": 1280
+              },
+              "transformation": "downscale",
+              "transformed": true
+            },
+            "bytes": 535257,
+            "code": null,
+            "frameClassification": null,
+            "maxSize": 960,
+            "message": null,
+            "mimeType": "image/png",
+            "ok": true,
+            "path": "/project1/ribbon_study/out1"
+          },
+          "inspect": {
+            "nodes": [
+              {
+                "errors": [],
+                "family": "TOP",
+                "observations": {
+                  "errors": {
+                    "available": true
+                  },
+                  "warnings": {
+                    "available": true
+                  }
+                },
+                "ok": true,
+                "opType": "nullTOP",
+                "path": "/project1/ribbon_study/out1",
+                "timing": {
+                  "absFrame": 6991.0,
+                  "absSeconds": 116.51666666666668,
+                  "cookAbsFrame": 6991.0,
+                  "cookFrame": 31.0,
+                  "frame": 31.0,
+                  "play": false,
+                  "rate": 60.0,
+                  "realTime": false,
+                  "seconds": 0.5,
+                  "timePath": "/local/time",
+                  "totalCooks": 34.0
+                },
+                "warnings": []
+              }
+            ],
+            "ok": true,
+            "timing": {
+              "absFrame": 6991.0,
+              "absSeconds": 116.51666666666668,
+              "frame": 31.0,
+              "play": false,
+              "rate": 60.0,
+              "realTime": false,
+              "seconds": 0.5,
+              "timePath": "/local/time"
+            }
+          },
+          "offset": 30,
+          "timing": {
+            "absFrame": 6991.0,
+            "absSeconds": 116.51666666666668,
+            "cookAbsFrame": 6991.0,
+            "cookFrame": 31.0,
+            "frame": 31.0,
+            "play": false,
+            "rate": 60.0,
+            "realTime": false,
+            "seconds": 0.5,
+            "timePath": "/local/time",
+            "totalCooks": 34.0
+          }
+        },
+        {
+          "capture": {
+            "artifact": {
+              "captureRoute": "direct_top",
+              "delivered": {
+                "height": 540,
+                "width": 960
+              },
+              "encodedBytes": 564545,
+              "source": {
+                "height": 720,
+                "width": 1280
+              },
+              "transformation": "downscale",
+              "transformed": true
+            },
+            "bytes": 564545,
+            "code": null,
+            "frameClassification": null,
+            "maxSize": 960,
+            "message": null,
+            "mimeType": "image/png",
+            "ok": true,
+            "path": "/project1/ribbon_study/out1"
+          },
+          "inspect": {
+            "nodes": [
+              {
+                "errors": [],
+                "family": "TOP",
+                "observations": {
+                  "errors": {
+                    "available": true
+                  },
+                  "warnings": {
+                    "available": true
+                  }
+                },
+                "ok": true,
+                "opType": "nullTOP",
+                "path": "/project1/ribbon_study/out1",
+                "timing": {
+                  "absFrame": 7021.0,
+                  "absSeconds": 117.01666666666668,
+                  "cookAbsFrame": 7021.0,
+                  "cookFrame": 61.0,
+                  "frame": 61.0,
+                  "play": false,
+                  "rate": 60.0,
+                  "realTime": false,
+                  "seconds": 1.0,
+                  "timePath": "/local/time",
+                  "totalCooks": 64.0
+                },
+                "warnings": []
+              }
+            ],
+            "ok": true,
+            "timing": {
+              "absFrame": 7021.0,
+              "absSeconds": 117.01666666666668,
+              "frame": 61.0,
+              "play": false,
+              "rate": 60.0,
+              "realTime": false,
+              "seconds": 1.0,
+              "timePath": "/local/time"
+            }
+          },
+          "offset": 60,
+          "timing": {
+            "absFrame": 7021.0,
+            "absSeconds": 117.01666666666668,
+            "cookAbsFrame": 7021.0,
+            "cookFrame": 61.0,
+            "frame": 61.0,
+            "play": false,
+            "rate": 60.0,
+            "realTime": false,
+            "seconds": 1.0,
+            "timePath": "/local/time",
+            "totalCooks": 64.0
+          }
+        }
+      ],
+      "state": "complete",
+      "timePath": "/local/time",
+      "warmupFrames": 0
+    },
+    "images": 3
+  }
+]

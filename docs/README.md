@@ -11,6 +11,7 @@ New to td-mcp-rs? Start with the [overview](../README.md), then follow the
 | Install, update, or run without a dashboard | [Installation](INSTALL.md) |
 | Connect Claude Code with the bundled skills | [Claude Code plugin](CLAUDE_CODE_PLUGIN.md) |
 | Find useful things to ask | [Recipes](RECIPES.md) |
+| See the dashboard and real TD output | [Screenshots and recording](SCREENSHOTS.md) |
 | Capture specific frames or record a TOP | [Timing recipes](RECIPES.md#look-at-specific-frames) |
 | Edit closed files or inject the bridge | [Project and file recipes](RECIPES.md#project-and-file-wrangling) |
 | Work across computers | [Federation](FEDERATION.md) |

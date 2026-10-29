@@ -51,6 +51,11 @@ nonstandard port, or IPv6, enter the address explicitly. Scanning does not
 open firewalls. Both computers must reach each other's HTTP ports; bridge port
 9861 stays local.
 
+![Add slave dialog with example network discovery results](screens/captures-2026-10-29/modal-add-slave.png)
+
+*Preview of the “Add slave” flow using example addresses. This screenshot does
+not represent a live connection or a completed federation test.*
+
 ## Roles and keys
 
 | Dashboard choice | Configuration value | Meaning |

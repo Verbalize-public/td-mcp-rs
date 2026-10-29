@@ -1,0 +1,61 @@
+{
+  "advancedFrames": 119,
+  "artifact": {
+    "artifactId": "1b5f7a6fca9f4d0aa5597c03e6cd1236",
+    "bytes": 146326281,
+    "codec": "qtrle",
+    "durationSeconds": 2.0,
+    "fps": 60.0,
+    "frames": 120,
+    "height": 720,
+    "mimeType": "video/quicktime",
+    "verification": "container-sample-table",
+    "width": 1280
+  },
+  "error": null,
+  "initializeFrames": 0,
+  "jobId": "1b5f7a6fca9f4d0aa5597c03e6cd1236",
+  "kind": "record",
+  "ok": true,
+  "path": "/project1/ribbon_study/out1",
+  "phase": "done",
+  "recordedSamples": 120,
+  "requestedSamples": 120,
+  "samples": [
+    {
+      "offset": 0,
+      "timing": {
+        "absFrame": 7021.0,
+        "absSeconds": 117.01666666666668,
+        "cookAbsFrame": 7021.0,
+        "cookFrame": 61.0,
+        "frame": 61.0,
+        "play": false,
+        "rate": 60.0,
+        "realTime": false,
+        "seconds": 1.0,
+        "timePath": "/local/time",
+        "totalCooks": 65.0
+      }
+    },
+    {
+      "offset": 119,
+      "timing": {
+        "absFrame": 7140.0,
+        "absSeconds": 119.0,
+        "cookAbsFrame": 7140.0,
+        "cookFrame": 180.0,
+        "frame": 180.0,
+        "play": false,
+        "rate": 60.0,
+        "realTime": false,
+        "seconds": 2.9833333333333334,
+        "timePath": "/local/time",
+        "totalCooks": 184.0
+      }
+    }
+  ],
+  "state": "complete",
+  "timePath": "/local/time",
+  "warmupFrames": 0
+}
